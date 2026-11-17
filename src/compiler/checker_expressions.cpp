@@ -54,9 +54,8 @@ Type Checker::check_unary(Expr &r_expr) {
 		if (operand.kind == TypeKind::Bool) {
 			return set(r_expr, operand);
 		}
-		const Type failed = fail(r_expr, "\"not\" requires bool, found " + operand.to_string() + "." + truth_hint(operand, true));
-		fix_truth({ { unparenthesized(r_expr.range), r_expr.left.get() } }, true);
-		return failed;
+		error(r_expr.range, "\"not\" requires bool, found " + operand.to_string() + "." + truth_hint(operand, true));
+		return set(r_expr, fix_truth({ { unparenthesized(r_expr.range), r_expr.left.get() } }, true));
 	}
 	if (operand.kind == TypeKind::Variant) {
 		return fail(r_expr, std::string("Cannot use ") + token_name(r_expr.op) + " on a Variant." + variant_hint());
@@ -127,16 +126,18 @@ std::string Checker::truth_hint(const Type &p_type, bool p_negated) {
 }
 
 // Gives the error reported last the fix that writes the truth test of each
-// value over its tokens, when each has one.
-void Checker::fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated) {
+// value over its tokens, when each has one. The type of what is tested then:
+// bool, as the check goes on, or Error without the fix.
+Type Checker::fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated) {
 	std::vector<Write> writes;
 	for (const auto &[range, value] : p_values) {
 		writes.push_back({ range, truth_test(value->type, p_negated, operand(*value)) });
 		if (writes.back().second.empty()) {
-			return;
+			return Type::of(TypeKind::Error);
 		}
 	}
-	fix(writes, true);
+	fix(writes, FixKind::TruthTest);
+	return Type::of(TypeKind::Bool);
 }
 
 // The result of `p_left op p_right` (spec §5.1), or Error after reporting;
@@ -334,8 +335,7 @@ Type Checker::check_binary(Expr &r_expr) {
 			}
 		}
 		error(r_expr.range, std::string(token_name(r_expr.op)) + " requires bool operands, found " + left.to_string() + " and " + right.to_string() + "." + hint);
-		fix_truth(tested, false);
-		return set(r_expr, Type::of(TypeKind::Error));
+		return set(r_expr, fix_truth(tested, false));
 	} else if (r_expr.op == TokenKind::Percent && is_format_string(left)) {
 		// The values to format, of any types (spec §5.1).
 		right = check_value(*r_expr.right, Type::builtin("Array"));
@@ -363,26 +363,27 @@ Type Checker::check_none_comparison(Expr &r_expr) {
 	}
 	if (!type.is_optional() && type.kind != TypeKind::Variant) {
 		const std::string hint = type.kind == TypeKind::Object ? " Check whether it is alive with is_instance_valid(x), or make its type " + type.to_string() + "?." : "";
-		const Type failed = fail(r_expr, "A value of type " + type.to_string() + " is never None." + hint);
+		error(r_expr.range, "A value of type " + type.to_string() + " is never None." + hint);
 		if (type.kind == TypeKind::Object) {
 			// GDScript's x == null is true of a freed object too
 			// (core/variant/variant_op.h:484-488; ed1daf0).
-			fix({ { unparenthesized(r_expr.range), (r_expr.op == TokenKind::BangEqual ? "" : "not ") + ("is_instance_valid(" + cls.source->text_of(value.range) + ")") } }, true);
+			fix({ { unparenthesized(r_expr.range), (r_expr.op == TokenKind::BangEqual ? "" : "not ") + ("is_instance_valid(" + cls.source->text_of(value.range) + ")") } }, FixKind::InstanceValid);
 			if (const TypeRef *written = type_written_for(value)) {
-				fix_optional(*written, false);
+				fix_optional(*written);
 			}
+			return set(r_expr, Type::of(TypeKind::Bool));
 		}
-		return failed;
+		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	if (literal.op == TokenKind::Null && type.is_two_level()) {
 		const std::string op = r_expr.op == TokenKind::BangEqual ? " != " : " == ";
 		const bool get = value.kind == ExprKind::Call && value.target == Target::GetOrNone;
-		const Type failed = fail(r_expr, "In GDScript, null here stands for both levels of the " + type.to_string() + ". Test the outer level with x" + op + "None, or both with " + (get ? "d.get(k, null)" : "x.unwrap_or(null)") + op + "null.");
+		error(r_expr.range, "In GDScript, null here stands for both levels of the " + type.to_string() + ". Test the outer level with x" + op + "None, or both with " + (get ? "d.get(k, null)" : "x.unwrap_or(null)") + op + "null.");
 		const uint32_t begin = cls.source->begin(value.range);
 		const std::string text = cls.source->text_of(value.range);
 		const size_t key_end = get ? cls.source->end(value.args.back()->range) - begin : 0;
-		fix({ { value.range, get ? text.substr(0, key_end) + ", null" + text.substr(key_end) : operand(value) + ".unwrap_or(null)" } }, true);
-		return failed;
+		fix({ { value.range, get ? text.substr(0, key_end) + ", null" + text.substr(key_end) : operand(value) + ".unwrap_or(null)" } }, FixKind::BothLevels);
+		return set(r_expr, Type::of(TypeKind::Bool));
 	}
 	r_expr.target = Target::NoneComparison;
 	return set(r_expr, Type::of(TypeKind::Bool));
@@ -495,8 +496,7 @@ bool Checker::testable(const Type &p_type) {
 
 Checker::Facts Checker::facts_of(const Expr &p_condition) const {
 	Facts facts;
-	// `not x` of a T? local is an error that its fix makes right, as below.
-	if (p_condition.type.is_error() && !(p_condition.kind == ExprKind::Unary && p_condition.op == TokenKind::Not)) {
+	if (p_condition.type.is_error()) {
 		return facts;
 	}
 	switch (p_condition.kind) {
@@ -1329,28 +1329,32 @@ Type Checker::check_task_join(Expr &r_expr) {
 	return set(r_expr, Type::task(Type::of(any ? TypeKind::Int : TypeKind::Void)));
 }
 
-// Gives the error reported last the fix that makes the function being
-// checked async (spec §9.1), as GDScript's with an await is a coroutine. It
-// is automatic when the signature checks as async: as a method, or where
-// the lambda goes.
-void Checker::fix_async() {
-	FuncDecl &declared = *function;
-	const uint32_t keyword = declared.is_lambda && declared.name.empty() ? declared.name_token : declared.name_token - 1;
+// Gives the error reported last the fix that makes `r_function` async (spec
+// §9.1), as GDScript's with an await is a coroutine, where its signature
+// checks as async: as a method, or where the lambda goes. An accessor
+// cannot be async.
+void Checker::fix_async(FuncDecl &r_function) {
+	if (completion || !r_function.accessor_of.empty()) {
+		return;
+	}
 	bool fits = false;
-	if (declared.is_lambda) {
+	if (r_function.is_lambda) {
 		const Type &to = enclosing.back().expected;
 		fits = to.kind != TypeKind::Function || to.is_async;
-	} else if (!completion) {
+	} else {
 		const ClassScope scope(*this);
 		const Tentative tried(*this);
-		declared.is_async = true;
-		check_signature(declared);
-		declared.is_async = false;
-		fits = tried.clean() && declared.accessor_of.empty() && std::none_of(cls.interface_methods.begin(), cls.interface_methods.end(), [&](const FuncDecl *p_method) {
-			return p_method->name == declared.name && !p_method->is_async;
+		r_function.is_async = true;
+		check_signature(r_function);
+		r_function.is_async = false;
+		fits = tried.clean() && std::none_of(cls.interface_methods.begin(), cls.interface_methods.end(), [&](const FuncDecl *p_method) {
+			return p_method->name == r_function.name && !p_method->is_async;
 		});
 	}
-	fix({ { { keyword, keyword }, "async func" } }, fits);
+	if (fits) {
+		const uint32_t keyword = r_function.is_lambda && r_function.name.empty() ? r_function.name_token : r_function.name_token - 1;
+		fix({ { { keyword, keyword }, "async func" } }, FixKind::Async);
+	}
 }
 
 Type Checker::check_await(Expr &r_expr) {
@@ -1358,7 +1362,7 @@ Type Checker::check_await(Expr &r_expr) {
 	if (!refused.empty()) {
 		const Type failed = fail(r_expr, refused);
 		if (!in_assert && !in_predelete && function && initializing < 0) {
-			fix_async();
+			fix_async(*function);
 		}
 		return failed;
 	}
@@ -1842,14 +1846,14 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 	}
 	error(p_value.range, message);
 	if (p_to.kind == TypeKind::Variant && lost_in_encoding(p_from, *this, false) == p_from) {
-		fix({ { p_value.range, operand(p_value) + fitting_call(p_from) } }, true);
+		fix({ { p_value.range, operand(p_value) + fitting_call(p_from) } }, FixKind::BothLevels);
 	} else if (p_from.kind == TypeKind::None && p_written) {
-		fix_optional(*p_written, true); // As GDScript holds the null.
+		fix_optional(*p_written); // As GDScript holds the null.
 	} else if (p_from.is_optional() && !p_to.is_optional() && assignable(p_from.unwrapped(), p_to)) {
 		// It fails here, not where GDScript uses the null later (spec §1.2).
-		fix({ { p_value.range, operand(p_value) + ".unwrap()" } }, true);
+		fix({ { p_value.range, operand(p_value) + ".unwrap()" } }, FixKind::Unwrap);
 		if (p_written) {
-			fix_optional(*p_written, false);
+			fix_optional(*p_written);
 		}
 	}
 }

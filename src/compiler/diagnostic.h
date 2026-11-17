@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -21,17 +22,59 @@ struct CheckedEdit {
 	std::string new_text;
 };
 
-// A quick fix of a diagnostic (spec §13.2), named by `title`.
+// What a quick fix (spec §13.2) does, which decides whether it is automatic:
+// it keeps what the code meant in GDScript, comes first, needs no input,
+// and fixing all applies the fixes of one such kind (architecture §2.1).
+enum class FixKind {
+	TruthTest,
+	FloatArguments, // Where a float is expected.
+	BothLevels, // Of a T?? or a Variant?, as GDScript's null stands for both.
+	InstanceValid,
+	Detach,
+	Pub,
+	MemberItself, // The method or signal itself for its literal name.
+	// The ones offered for the user to choose.
+	FloatResult, // float arguments where the result's type then changes.
+	Unwrap,
+	Optional,
+	Async,
+	Await,
+	NullPattern,
+};
+
+// What fixing all of a kind in a file is called: "Fix all '…' in file".
+struct FixKindInfo {
+	bool automatic;
+	const char *name;
+};
+inline constexpr FixKindInfo FIX_KINDS[] = {
+	{ true, "Write the truth test" },
+	{ true, "Write the int arguments as float" },
+	{ true, "Test both levels for null" },
+	{ true, "Write is_instance_valid()" },
+	{ true, "Write .detach()" },
+	{ true, "Make it pub" },
+	{ true, "Use the method or signal itself" },
+	{ false, "Write the int arguments as float" },
+	{ false, "Write .unwrap()" },
+	{ false, "Make the type T?" },
+	{ false, "Write async func" },
+	{ false, "Write await" },
+	{ false, "Match both levels of null" },
+};
+static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::NullPattern) + 1);
+
+// A quick fix of a diagnostic, named by `title`.
 struct Fix {
 	std::string title;
-	// It keeps what the code meant in GDScript, comes first and needs no
-	// input; fixing all applies only these (architecture §2.1).
-	bool automatic = false;
+	FixKind kind;
 	struct Edit {
 		std::string file; // The script it changes; empty for the one of the diagnostic's range.
 		CheckedEdit change;
 	};
 	std::vector<Edit> edits;
+
+	bool automatic() const { return FIX_KINDS[size_t(kind)].automatic; }
 };
 
 // A compile error, a warning or a hint (spec §1.4), over a byte range of the

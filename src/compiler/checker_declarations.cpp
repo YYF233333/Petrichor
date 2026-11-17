@@ -861,6 +861,9 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 	}
 	if (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async) {
 		error(r_fn.name_token, "An override must preserve static and async.");
+		if (p_base.is_async && !r_fn.is_async && r_fn.is_static == p_base.is_static) {
+			fix_async(r_fn);
+		}
 	}
 	const size_t base_fixed = p_base.params.size() - (p_base.has_rest() ? 1 : 0);
 	for (size_t i = 0; i < r_fn.params.size(); ++i) {
@@ -1604,10 +1607,11 @@ std::vector<Type> Checker::held_types(const Type &p_type) {
 
 // The part of a type that is not seen everywhere: a struct, an enum, an
 // interface or an inner class without pub, or one inside a class without
-// it (spec §4.2); nullopt when there is none. The error says that `p_but`.
-std::optional<Checker::Refusal> Checker::hidden_part(const Type &p_type, const std::string &p_but) const {
+// it (spec §4.2); nullopt when there is none. The error says that `p_but`,
+// and with `p_fixed` the fix makes it pub.
+std::optional<Checker::Refusal> Checker::hidden_part(const Type &p_type, const std::string &p_but, bool p_fixed) const {
 	for (const Type &arg : p_type.args) {
-		if (std::optional<Refusal> part = hidden_part(arg, p_but)) {
+		if (std::optional<Refusal> part = hidden_part(arg, p_but, p_fixed)) {
 			return part;
 		}
 	}
@@ -1617,7 +1621,7 @@ std::optional<Checker::Refusal> Checker::hidden_part(const Type &p_type, const s
 	Type shown = p_type;
 	shown.nullable = false;
 	const auto refusal = [&](const auto *p_decl, const std::string &p_owner) {
-		return p_decl && !p_decl->is_pub ? std::optional<Refusal>(Refusal{ shown.to_string() + " is not pub, but " + p_but + ".", pub_fix(p_owner, p_decl->name_token, p_decl->range) }) : std::nullopt;
+		return p_decl && !p_decl->is_pub ? std::optional<Refusal>(Refusal{ shown.to_string() + " is not pub, but " + p_but + ".", p_fixed ? pub_fix(p_owner, p_decl->name_token, p_decl->range) : std::nullopt }) : std::nullopt;
 	};
 	const ClassDecl *header = script_header(p_type.script);
 	const std::string name = p_type.interface_name();
@@ -1647,13 +1651,6 @@ void Checker::check_pub_signatures() {
 			}
 		}
 	};
-	const auto signature = [](const FuncDecl &p_function) {
-		std::vector<Type> types = { p_function.return_type };
-		for (const ParamDecl &param : p_function.params) {
-			types.push_back(param.type);
-		}
-		return types;
-	};
 	for (const std::vector<VarDecl> *variables : { &cls.members, &cls.static_vars }) {
 		for (const VarDecl &variable : *variables) {
 			check(variable.is_pub, variable.name_token, "the pub \"" + variable.name + "\"", { variable.type });
@@ -1663,7 +1660,7 @@ void Checker::check_pub_signatures() {
 		check(constant.is_pub, constant.name_token, "the pub \"" + constant.name + "\"", { constant.type });
 	}
 	for (const FuncDecl &function : cls.functions) {
-		check(function.is_pub, function.name_token, "the pub \"" + function.name + "()\"", signature(function));
+		check(function.is_pub, function.name_token, "the pub \"" + function.name + "()\"", signature_types(function));
 	}
 	for (const SignalDecl &signal : cls.signals) {
 		check(signal.is_pub, signal.name_token, "the pub signal \"" + signal.name + "\"", param_types(signal.params));
@@ -1673,7 +1670,7 @@ void Checker::check_pub_signatures() {
 			check(decl.is_pub, field.name_token, "the field \"" + field.name + "\" of the pub " + decl.name, { field.type });
 		}
 		for (const FuncDecl &method : decl.methods) {
-			check(decl.is_pub, method.name_token, "the method \"" + method.name.substr(decl.name.size() + 1) + "()\" of the pub " + decl.name, signature(method));
+			check(decl.is_pub, method.name_token, "the method \"" + method.name.substr(decl.name.size() + 1) + "()\" of the pub " + decl.name, signature_types(method));
 		}
 	}
 	for (const EnumDecl &decl : cls.enums) {
@@ -1687,7 +1684,7 @@ void Checker::check_pub_signatures() {
 	}
 	for (const InterfaceDecl &decl : cls.interfaces) {
 		for (const FuncDecl &method : decl.methods) {
-			check(decl.is_pub, method.name_token, "the method \"" + method.name + "()\" of the pub " + decl.name, signature(method));
+			check(decl.is_pub, method.name_token, "the method \"" + method.name + "()\" of the pub " + decl.name, signature_types(method));
 		}
 		for (const InterfaceProperty &property : decl.properties) {
 			check(decl.is_pub, property.name_token, "the property \"" + property.name + "\" of the pub " + decl.name, { property.type });

@@ -61,6 +61,13 @@ inline std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 	return types;
 }
 
+// What a function returns, then what it takes.
+inline std::vector<Type> signature_types(const FuncDecl &p_function) {
+	std::vector<Type> types = param_types(p_function.params);
+	types.insert(types.begin(), p_function.return_type);
+	return types;
+}
+
 struct HintAnnotation {
 	const char *name;
 	uint32_t hint; // PropertyHint as the engine numbers it (core/object/property_info.h:39-85).
@@ -147,6 +154,7 @@ class Checker : public ClassRelation {
 	// statement before it in its block, for the keywords there.
 	const Expr *statement_value = nullptr;
 	const Stmt *previous_statement = nullptr;
+	const Expr *assigned = nullptr; // The target of the assignment being checked, while it is.
 	FileCheck *file = nullptr;
 	Checker *outer_checker = nullptr; // The checker of the class around this one, if any (spec §4.1).
 	enum class State {
@@ -715,16 +723,16 @@ class Checker : public ClassRelation {
 	void error_in_scene(const TokenRange &p_range, const Scene &p_scene, const std::string &p_node, const std::string &p_message);
 	void warn(const TokenRange &p_range, const char *p_warning, const std::string &p_message);
 	using Write = std::pair<TokenRange, std::string>; // Text that a fix writes over tokens.
-	void fix(const std::vector<Write> &p_writes, bool p_automatic);
-	void fix(Fix p_fix) { errors.back().fixes.push_back(std::move(p_fix)); }
-	Fix pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range = TokenRange()) const;
+	void fix(const std::vector<Write> &p_writes, FixKind p_kind);
+	void fix(std::optional<Fix> p_fix);
+	std::optional<Fix> pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range = TokenRange()) const;
+	static std::vector<Type> shown_types(const ClassDecl &p_cls, uint32_t p_name);
 	void error(const TokenRange &p_range, const Refusal &p_refusal);
-	Type fail(Expr &r_expr, const Refusal &p_refusal);
-	Type fail_call(Expr &r_call, const Refusal &p_refusal);
+	bool refuse(const TokenRange &p_range, const std::optional<Refusal> &p_refusal);
 	TokenRange unparenthesized(TokenRange p_range) const;
 	std::string operand(const Expr &p_expr) const;
 	void fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check);
-	void fix_optional(const TypeRef &p_written, bool p_automatic);
+	void fix_optional(const TypeRef &p_written);
 	const TypeRef *type_written_for(const Expr &p_target) const;
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);
 	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target);
@@ -908,7 +916,7 @@ class Checker : public ClassRelation {
 	Type check_unary(Expr &r_expr);
 	static std::string truth_test(const Type &p_type, bool p_negated, const std::string &p_value);
 	static std::string truth_hint(const Type &p_type, bool p_negated);
-	void fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated);
+	Type fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated);
 	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at, Type *r_compared = nullptr);
 	Type primitive_binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at);
 	Type check_binary(Expr &r_expr);
@@ -939,7 +947,7 @@ class Checker : public ClassRelation {
 	Type check_cast(Expr &r_expr);
 	Type check_super(Expr &r_expr);
 	std::string no_await() const;
-	void fix_async();
+	void fix_async(FuncDecl &r_function);
 	Type check_task_function(Expr &r_expr);
 	Type check_task_join(Expr &r_expr);
 	Type check_await(Expr &r_expr);
@@ -1109,7 +1117,7 @@ class Checker : public ClassRelation {
 	static std::vector<std::pair<std::string, const VarDecl *>> value_fields(const ClassDecl &p_header, const std::string &p_name);
 	bool holds(const ClassDecl &p_decl, const std::string &p_path, const std::string &p_name, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen);
 	static std::vector<Type> held_types(const Type &p_type);
-	std::optional<Refusal> hidden_part(const Type &p_type, const std::string &p_but) const;
+	std::optional<Refusal> hidden_part(const Type &p_type, const std::string &p_but, bool p_fixed = true) const;
 	void check_pub_signatures();
 	void check_engine_options();
 	void declare_signals();

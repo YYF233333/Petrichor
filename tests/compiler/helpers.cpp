@@ -176,7 +176,7 @@ std::vector<std::string> errors_of(const std::string &p_source) {
 static std::optional<std::vector<compiler::Fix::Edit>> chosen_fix(const compiler::CompileResult &p_result, const std::string &p_title) {
 	for (const compiler::Diagnostic &error : p_result.errors) {
 		for (const compiler::Fix &fix : error.fixes) {
-			if (p_title.empty() ? fix.automatic : fix.title == p_title) {
+			if (p_title.empty() ? fix.automatic() : fix.title == p_title) {
 				std::vector<compiler::Fix::Edit> edits = fix.edits;
 				std::sort(edits.begin(), edits.end(), [](const compiler::Fix::Edit &p_a, const compiler::Fix::Edit &p_b) { return p_a.change.begin > p_b.change.begin; });
 				return edits;
@@ -202,6 +202,23 @@ std::string fixed(const std::string &p_source, const std::string &p_title) {
 		apply(edit.change, text);
 	}
 	return text + messages(compile(text));
+}
+
+std::string fixed_all(const std::string &p_source, compiler::FixKind p_kind) {
+	const compiler::CompileResult before = compile_in(p_source, FakeProject());
+	const std::vector<compiler::CheckedEdit> edits = compiler::fix_all(before, p_kind);
+	std::string text = p_source;
+	for (auto edit = edits.rbegin(); edit != edits.rend(); ++edit) {
+		apply(*edit, text);
+	}
+	std::set<std::string> had;
+	for (const compiler::Diagnostic &error : before.errors) {
+		had.insert(error.message);
+	}
+	for (const compiler::Diagnostic &error : compile_in(text, FakeProject()).errors) {
+		CHECK_MESSAGE(had.count(error.message), "fixing all gives a new error: ", error.message, "\n", text);
+	}
+	return text;
 }
 
 std::string fixed_in(const std::string &p_source, FakeProject p_project, const std::string &p_title) {

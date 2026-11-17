@@ -457,12 +457,13 @@ std::optional<Checker::NamedMember> Checker::literal_member(Expr &r_call, const 
 		// The method value or the signal itself, where the call has a shape
 		// whose rewrite is known; otherwise pub.
 		const std::string &called = r_call.text;
-		const bool on_object = p_named.target < 0 && p_named.index == 0 && r_call.name_token < cls.source->tokens.size() && (called == "call" || called == "call_deferred" || called == "emit_signal" || called == "connect");
+		// What call() and emit_signal() give differs from what the rewrite gives.
+		const bool on_object = p_named.target < 0 && p_named.index == 0 && r_call.name_token < cls.source->tokens.size() && (((called == "call" || called == "emit_signal") && r_call.discarded) || called == "call_deferred" || called == "connect");
 		if (p_named.kind != Kind::Property && sees(member.id.scope) && on_object) {
 			const std::string rest = r_call.args.size() > 1 ? cls.source->text_of({ r_call.args[1]->range.first, r_call.args.back()->range.last }) : std::string();
-			fix({ { { r_call.name_token, r_call.range.last }, name + "." + (called == "emit_signal" ? "emit" : called) + "(" + rest + ")" } }, true);
+			fix({ { { r_call.name_token, r_call.range.last }, name + "." + (called == "emit_signal" ? "emit" : called) + "(" + rest + ")" } }, FixKind::MemberItself);
 		} else if (p_named.kind == Kind::Method && sees(member.id.scope) && called == "Callable" && !r_call.base) {
-			fix({ { r_call.range, operand(*r_call.args[0]) + "." + name } }, true);
+			fix({ { r_call.range, operand(*r_call.args[0]) + "." + name } }, FixKind::MemberItself);
 		} else {
 			fix(pub_fix(member.id.scope, member.name_token));
 		}
@@ -666,6 +667,7 @@ Type Checker::check_utility(Expr &r_expr, const builtin::Utility &p_utility, con
 				message += " Write the int argument as a float, for example 1.0.";
 			}
 			const Type failed = fail(*r_expr.args[i], message);
+			const bool floats = p_expected.kind == TypeKind::Float;
 			if (std::all_of(types.begin(), types.begin() + same_count, [](const Type &p_type) { return p_type.is_numeric(); })) {
 				std::vector<Write> writes;
 				for (size_t j = 0; j < same_count; j++) {
@@ -680,7 +682,10 @@ Type Checker::check_utility(Expr &r_expr, const builtin::Utility &p_utility, con
 				}
 				// GDScript's min(), max() and clamp() give the argument they
 				// choose, of its own type, which only a float result keeps.
-				fix(writes, p_expected.kind == TypeKind::Float);
+				fix(writes, floats ? FixKind::FloatArguments : FixKind::FloatResult);
+				if (floats) {
+					return set(r_expr, Type::of(TypeKind::Float));
+				}
 			}
 			return failed;
 		}
@@ -1396,10 +1401,11 @@ bool Checker::find_init(Expr &r_expr, const ClassDecl &p_header, const std::stri
 			refusal.message = *message;
 		}
 	}
-	if (!refusal.message.empty()) {
-		fail_call(r_expr, refusal);
+	const bool stops = !refusal.message.empty() && refuse(r_expr.range, refusal);
+	if (stops) {
+		fail_call(r_expr);
 	}
-	return refusal.message.empty();
+	return !stops;
 }
 
 // `Class.new()` or a static method of a class of this language, through its
@@ -1441,8 +1447,8 @@ Type Checker::check_class_call(Expr &r_expr, const std::string &p_path) {
 	}
 	const ClassDecl &owner = declaring(*decl, callee, &ClassDecl::functions);
 	// A bare name is one the class around this one sees (spec §4.1).
-	if (const auto refusal = refused(callee, owner.path, "", class_name, callee.name + "()", !r_expr.base)) {
-		return fail_call(r_expr, *refusal);
+	if (refuse(r_expr.range, refused(callee, owner.path, "", class_name, callee.name + "()", !r_expr.base))) {
+		return fail_call(r_expr);
 	}
 	const Type result = call_declared(r_expr, callee, *owner.source, callee.return_type);
 	refer(r_expr.name_token, script_id(owner.path, callee.name));
@@ -1645,9 +1651,10 @@ void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_in
 		refer(r_call.member_name_tokens[i], script_id(declared_in, name));
 		r_call.member_types.push_back(member.type);
 		const Type type = check_value(value, member.type);
-		if (const auto refusal = hidden(member, declared_in, [&] { return "\"" + name + "\" of " + p_made.to_string() + " is not pub."; })) {
-			error(value.range, *refusal);
-		} else if (!member.must_assign) {
+		if (refuse(value.range, hidden(member, declared_in, [&] { return "\"" + name + "\" of " + p_made.to_string() + " is not pub."; }))) {
+			continue;
+		}
+		if (!member.must_assign) {
 			error(value.range, "\"" + name + "\" has a value of its own; by name, " + r_call.text + "(...) takes only members that must be assigned.");
 		} else if (!given.insert(name).second) {
 			error(value.range, "\"" + name + "\" is given twice.");

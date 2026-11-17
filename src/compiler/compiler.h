@@ -66,4 +66,9 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 // they may refer to until the compile ends (ScriptClasses::end_compile()).
 CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options, ScriptClasses &r_classes, ClassDecl &r_class);
 
+// The edits that fix all of an automatic kind in the file compiled
+// (architecture §2.1), in order: of each fix of the kind that edits only
+// that file, unless it overlaps one before it, which fixing again finds.
+std::vector<CheckedEdit> fix_all(const CompileResult &p_result, FixKind p_kind);
+
 } // namespace petrichor::compiler

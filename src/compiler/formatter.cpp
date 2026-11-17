@@ -519,6 +519,20 @@ public:
 				differs = file.trivia[i].offset;
 			}
 		}
+		// Tokens and comments compare apart, so where they interleave is
+		// compared by all that is not whitespace.
+		const auto blank = [](char p_c) { return p_c == ' ' || p_c == '\t' || p_c == '\r' || p_c == '\n'; };
+		for (size_t a = 0, b = 0; differs == UINT32_MAX && (a < file.text.size() || b < p_text.size()); a++, b++) {
+			while (a < file.text.size() && blank(file.text[a])) {
+				a++;
+			}
+			while (b < p_text.size() && blank(p_text[b])) {
+				b++;
+			}
+			if ((a < file.text.size()) != (b < p_text.size()) || (a < file.text.size() && file.text[a] != p_text[b])) {
+				differs = uint32_t(std::min(a, file.text.size()));
+			}
+		}
 		if (differs == UINT32_MAX && errors.empty() && other->tokens.size() == tokens.size() && other->trivia.size() == file.trivia.size()) {
 			return true;
 		}

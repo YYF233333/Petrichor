@@ -42,11 +42,12 @@ TEST_CASE("coroutine declarations enforce their public contracts") {
 	CHECK(has_error("async func f():\n\tpass\nfunc g():\n\tf()\n", "detach"));
 	// GDScript's function with an await is a coroutine, which a call as a
 	// statement runs on its own.
-	CHECK(fixed("extends Node\npub static func f(s: Signal):\n\tawait s\n") == "extends Node\npub static async func f(s: Signal):\n\tawait s\n");
-	CHECK(fixed("extends Node\nfunc _init(s: Signal):\n\tawait s\n") == "no such fix");
-	CHECK(fixed("extends Node\nfunc _init(s: Signal):\n\tawait s\n", "Write async func") == "extends Node\nasync func _init(s: Signal):\n\tawait s\n2:12: _init() cannot be async: construction does not wait for it.\n");
+	CHECK(fixed("extends Node\npub static func f(s: Signal):\n\tawait s\n", "Write async func") == "extends Node\npub static async func f(s: Signal):\n\tawait s\n");
+	CHECK(fixed("extends Node\nfunc _init(s: Signal):\n\tawait s\n", "Write async func") == "no such fix");
+	// An override keeps async, as the base it overrides may have just gained it.
+	CHECK(fixed("class A:\n\tasync func f():\n\t\tpass\n\nclass B extends A:\n\tfunc f():\n\t\tpass\n", "Write async func") == "class A:\n\tasync func f():\n\t\tpass\n\nclass B extends A:\n\tasync func f():\n\t\tpass\n");
 	CHECK(fixed("async func f():\n\tpass\nfunc g():\n\tf()\n") == "async func f():\n\tpass\nfunc g():\n\tf().detach()\n");
-	CHECK(fixed("async func f():\n\tpass\nfunc g():\n\tf()\n", "Write await f()") == "async func f():\n\tpass\nfunc g():\n\tawait f()\n4:2: await requires an async function and cannot appear in an initializer.\n");
+	CHECK(fixed("async func f():\n\tpass\nasync func g():\n\tf()\n", "Write await f()") == "async func f():\n\tpass\nasync func g():\n\tawait f()\n");
 	CHECK(has_error("func f(t: Task):\n\tpass\n", "Task"));
 	CHECK(has_error("func f(t: Array[void]):\n\tpass\n", "void"));
 	CHECK(has_error("signal s(a: int, b: int)\nasync func f() -> int:\n\treturn await s\n", "void"));
@@ -68,8 +69,8 @@ TEST_CASE("an async function value is called for its Task") {
 	CHECK(type_of("g.call(1)", "var g := async func(x: int) -> int: return x") == "Task[int]");
 	CHECK(type_of("g", "var g := async func(x: int) -> int: return x") == "async func(int) -> int");
 	CHECK(has_error(in_function("var g := func(): await get_tree().process_frame"), "async"));
-	CHECK(fixed(in_function("var g := func(): await ready")) == in_function("var g := async func(): await ready"));
-	CHECK(fixed(in_function("var g: func() = func(): await ready")) == "no such fix");
+	CHECK(fixed(in_function("var g := func(): await ready"), "Write async func") == in_function("var g := async func(): await ready"));
+	CHECK(fixed(in_function("var g: func() = func(): await ready"), "Write async func") == "no such fix");
 	CHECK(has_error(in_function("var g: func() = async func(): pass"), "Cannot assign"));
 	CHECK(has_error(in_function("var g := async func() -> int: return 1\ng.call()"), "detach"));
 }

@@ -172,6 +172,32 @@ TEST_CASE("a condition must be bool") {
 	CHECK(rewritten("String", "x or x.length()") == "x != \"\" or x.length() != 0");
 }
 
+// Architecture §2.1: fixing all applies one automatic kind in the file, as
+// the checker went on after each error, whose rewrites leave no new error.
+TEST_CASE("fixing all of a kind applies each of its fixes in the file, and leaves one that overlaps another for the next time") {
+	using compiler::FixKind;
+	const std::string head = "extends Node\n\nsignal hit(amount: int)\n\n\nasync func load_level() -> void:\n\tpass\n\n\nfunc reset(n: int) -> void:\n\tpass\n\n\nfunc f(count: int, name: String, label: Label?, items: Array[int], target: Node3D, i: int, ratio: float) -> void:\n";
+	const auto all = [&](FixKind p_kind, const std::string &p_body, bool p_indented = false) {
+		const std::string text = fixed_all(head + (p_indented ? p_body : indented(p_body)), p_kind);
+		return text.rfind(head, 0) == 0 ? text.substr(head.size()) : text;
+	};
+	CHECK(all(FixKind::TruthTest, "if count and not name:\n\tpass\nwhile items:\n\titems.clear()\nif label and label.text:\n\tprint(label.text)") ==
+			indented("if count != 0 and name == \"\":\n\tpass\nwhile not items.is_empty():\n\titems.clear()\nif label != None and label.text != \"\":\n\tprint(label.text)"));
+	CHECK(all(FixKind::FloatArguments, "var r: float = clamp(i, -1, ratio)\nvar m: float = max(ratio, 1)\nprint(min(ratio, 1))") == indented("var r: float = clamp(float(i), -1.0, ratio)\nvar m: float = max(ratio, 1.0)\nprint(min(ratio, 1))"));
+	CHECK(all(FixKind::BothLevels, "var d: Dictionary[String, Variant] = {}\nvar n: Node?? = None\nif d.get(\"hp\") == null or n == null:\n\tvar v: Variant = n") ==
+			indented("var d: Dictionary[String, Variant] = {}\nvar n: Node?? = None\nif d.get(\"hp\", null) == null or n.unwrap_or(null) == null:\n\tvar v: Variant = n.flatten()"));
+	CHECK(all(FixKind::InstanceValid, "if target == null:\n\treturn\nvar alive := (target != null)") == indented("if not is_instance_valid(target):\n\treturn\nvar alive := (is_instance_valid(target))"));
+	CHECK(all(FixKind::Detach, "load_level()\nfor k in 3:\n\tload_level()") == indented("load_level().detach()\nfor k in 3:\n\tload_level().detach()"));
+	CHECK(all(FixKind::MemberItself, "emit_signal(\"hit\", 1)\ncall_deferred(\"reset\", 2)\nconnect(\"hit\", reset)") == indented("hit.emit(1)\nreset.call_deferred(2)\nhit.connect(reset)"));
+	// Not where pub would show a type that is not.
+	CHECK(fixed_all("extends Node\n\nenum Mode { WALK, RUN }\n\n@export var speed := 1.0\n@export var mode := Mode.WALK\n\n\n@rpc\nfunc sync() -> void:\n\tpass\n", FixKind::Pub) ==
+			"extends Node\n\nenum Mode { WALK, RUN }\n\n@export pub var speed := 1.0\n@export var mode := Mode.WALK\n\n\n@rpc\npub func sync() -> void:\n\tpass\n");
+	// The test of the condition comes first; the one inside it, next time.
+	const std::string once = all(FixKind::TruthTest, "if count if i else ratio:\n\tpass");
+	CHECK(once == indented("if (count if i else ratio) != 0:\n\tpass"));
+	CHECK(all(FixKind::TruthTest, once, true) == indented("if (count if i != 0 else ratio) != 0:\n\tpass"));
+}
+
 // Spec §4.6, signatures.
 TEST_CASE("overrides take their types from the engine") {
 	CHECK(errors_of("extends Node\n\nfunc _process(delta):\n\tvar d: float = delta\n").empty());

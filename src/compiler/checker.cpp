@@ -25,22 +25,37 @@ void Checker::warn(const TokenRange &p_range, const char *p_warning, const std::
 
 // Gives the error reported last a quick fix (spec §13.2) that writes each
 // text over its tokens, named after what it writes.
-void Checker::fix(const std::vector<Write> &p_writes, bool p_automatic) {
-	Fix fix;
-	fix.automatic = p_automatic;
+void Checker::fix(const std::vector<Write> &p_writes, FixKind p_kind) {
+	Fix fix{ std::string(), p_kind, {} };
 	for (const auto &[range, text] : p_writes) {
 		fix.title += (fix.title.empty() ? "Write " : ", ") + text;
 		fix.edits.push_back({ std::string(), { cls.source->begin(range), cls.source->end(range), cls.source->text_of(range), text } });
 	}
-	errors.back().fixes.push_back(std::move(fix));
+	this->fix(std::move(fix));
+}
+
+// The automatic fix first (architecture §2.1).
+void Checker::fix(std::optional<Fix> p_fix) {
+	if (p_fix) {
+		std::vector<Fix> &fixes = errors.back().fixes;
+		fixes.insert(p_fix->automatic() ? fixes.begin() : fixes.end(), std::move(*p_fix));
+	}
 }
 
 // The fix that writes pub before the declaration whose name is token
 // `p_name` of the file of the class at `p_owner`: after its annotations,
 // before static, async and its keyword; for an unnamed enum (`p_name` 0),
-// before the enum keyword in `p_range`. It is automatic, as pub is
-// reversible and GDScript sees every member (spec §1.2).
-Fix Checker::pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range) const {
+// before the enum keyword in `p_range`. Its edit replaces the text from
+// there through the name, which identifies the declaration. None where pub
+// would show a type that is not pub (spec §4.2).
+std::optional<Fix> Checker::pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range) const {
+	if (const ClassDecl *decl = p_name == 0 ? nullptr : script_decl(p_owner)) {
+		for (const Type &type : shown_types(*decl, p_name)) {
+			if (hidden_part(type, std::string(), false)) {
+				return std::nullopt;
+			}
+		}
+	}
 	const std::string path = script_file(p_owner);
 	const SourceFile &source = *script_header(path)->source;
 	uint32_t at = p_name - 1;
@@ -51,30 +66,45 @@ Fix Checker::pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRan
 	while (at > 0 && (source.tokens[at - 1].kind == TokenKind::Static || is_word(source.tokens[at - 1], "async"))) {
 		at--;
 	}
-	const Token &token = source.tokens[at];
-	const std::string text = source.text.substr(token.offset, token.length);
-	Fix fix;
-	fix.title = p_name == 0 ? std::string("Make the enum pub") : "Make \"" + source.tokens[p_name].text + "\" pub";
-	fix.automatic = true;
-	fix.edits.push_back({ in_this_file(path) ? std::string() : path, { token.offset, token.end(), text, "pub " + text } });
-	return fix;
+	const uint32_t begin = source.tokens[at].offset;
+	const uint32_t end = source.tokens[p_name == 0 ? at : p_name].end();
+	const std::string text = source.text.substr(begin, end - begin);
+	const std::string title = p_name == 0 ? std::string("Make the enum pub") : "Make \"" + source.tokens[p_name].text + "\" pub";
+	return Fix{ title, FixKind::Pub, { { in_this_file(path) ? std::string() : path, { begin, end, text, "pub " + text } } } };
+}
+
+// The types that the variable, constant, function or signal of `p_cls`
+// whose name is token `p_name` shows when it is pub.
+std::vector<Type> Checker::shown_types(const ClassDecl &p_cls, uint32_t p_name) {
+	const auto named = [&](const auto &p_decl) { return p_decl.name_token == p_name; };
+	for (const std::vector<VarDecl> *variables : { &p_cls.members, &p_cls.static_vars }) {
+		if (const auto found = std::find_if(variables->begin(), variables->end(), named); found != variables->end()) {
+			return { found->type };
+		}
+	}
+	if (const auto found = std::find_if(p_cls.constants.begin(), p_cls.constants.end(), named); found != p_cls.constants.end()) {
+		return { found->type };
+	}
+	if (const auto found = std::find_if(p_cls.functions.begin(), p_cls.functions.end(), named); found != p_cls.functions.end()) {
+		return signature_types(*found);
+	}
+	const auto found = std::find_if(p_cls.signals.begin(), p_cls.signals.end(), named);
+	return found == p_cls.signals.end() ? std::vector<Type>() : param_types(found->params);
 }
 
 void Checker::error(const TokenRange &p_range, const Refusal &p_refusal) {
 	error(p_range, p_refusal.message);
-	if (p_refusal.pub) {
-		fix(*p_refusal.pub);
+	fix(p_refusal.pub);
+}
+
+// Reports why code here cannot use a declaration, if it cannot; whether the
+// check stops there. With the fix that makes it pub, the check goes on as if
+// it were (architecture §2.1).
+bool Checker::refuse(const TokenRange &p_range, const std::optional<Refusal> &p_refusal) {
+	if (p_refusal) {
+		error(p_range, *p_refusal);
 	}
-}
-
-Type Checker::fail(Expr &r_expr, const Refusal &p_refusal) {
-	error(r_expr.range, p_refusal);
-	return set(r_expr, Type::of(TypeKind::Error));
-}
-
-Type Checker::fail_call(Expr &r_call, const Refusal &p_refusal) {
-	fail_call(r_call);
-	return fail(r_call, p_refusal);
+	return p_refusal && !p_refusal->pub;
 }
 
 // The tokens of `p_range` inside the parentheses around them, if any.
@@ -120,38 +150,48 @@ std::string Checker::operand(const Expr &p_expr) const {
 }
 
 // Gives the error reported last the fix that unwraps `r_value`, a T? (spec
-// §3.4), which fails where GDScript fails on null. It is automatic when
-// `p_check` checks the code again without errors with the value unwrapped.
+// §3.4), which fails where GDScript fails on null, when `p_check` checks the
+// code again without errors with the value unwrapped: as a place too, where
+// it is a part of what is assigned.
 void Checker::fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check) {
-	const Write unwrap{ r_value->range, operand(*r_value) + ".unwrap()" };
-	bool clean = false;
 	// Completion shows no errors, and checking again would complete again.
-	if (!completion) {
-		std::unique_ptr<Expr> unwrapped = synthetic(ExprKind::Call, "unwrap", r_value->range);
-		unwrapped->base = std::move(r_value);
-		r_value = std::move(unwrapped);
-		const Tentative tried(*this);
-		clean = p_check() && tried.clean();
-		r_value = std::move(r_value->base);
+	if (completion) {
+		return;
 	}
-	fix({ unwrap }, clean);
+	const Expr *written = nullptr;
+	for (const Expr *part = assigned; !written && part && (part->kind == ExprKind::Member || part->kind == ExprKind::Subscript); part = part->base.get()) {
+		written = part->base == r_value ? part : nullptr;
+	}
+	const Write unwrap{ r_value->range, operand(*r_value) + ".unwrap()" };
+	std::unique_ptr<Expr> unwrapped = synthetic(ExprKind::Call, "unwrap", r_value->range);
+	unwrapped->base = std::move(r_value);
+	r_value = std::move(unwrapped);
+	Tentative tried(*this);
+	const bool clean = p_check() && (!written || check_place(*written)) && tried.clean();
+	tried.end(false);
+	r_value = std::move(r_value->base);
+	if (clean) {
+		fix({ unwrap }, FixKind::Unwrap);
+	}
 }
 
 // Gives the error reported last the fix that makes the type written at
 // `p_written` a T?.
-void Checker::fix_optional(const TypeRef &p_written, bool p_automatic) {
+void Checker::fix_optional(const TypeRef &p_written) {
 	const std::string text = cls.source->text_of(p_written.range);
-	fix({ { p_written.range, (p_written.is_function ? "(" + text + ")" : text) + "?" } }, p_automatic);
+	fix({ { p_written.range, (p_written.is_function ? "(" + text + ")" : text) + "?" } }, FixKind::Optional);
 }
 
 // The type written in this file for the local, member or static variable
-// that `p_target` names; null when it is inferred or declared elsewhere.
+// that `p_target` names; null when it is inferred, declared elsewhere or a
+// T? already, as a narrowed local's is.
 const TypeRef *Checker::type_written_for(const Expr &p_target) const {
 	if (p_target.target == Target::Local) {
-		return function->locals[p_target.index].written;
+		const LocalInfo &local = function->locals[p_target.index];
+		return local.type.is_optional() ? nullptr : local.written;
 	}
 	const VarDecl *variable = p_target.target == Target::Member ? cls.all_members[p_target.index] : (p_target.target == Target::StaticVar || p_target.target == Target::ObjectProperty ? p_target.variable : nullptr);
-	const bool here = variable && std::any_of(file->checkers.begin(), file->checkers.end(), [&](const std::unique_ptr<Checker> &p_checker) {
+	const bool here = variable && !variable->type.is_optional() && std::any_of(file->checkers.begin(), file->checkers.end(), [&](const std::unique_ptr<Checker> &p_checker) {
 		return is_own(*variable, p_checker->cls.members) || is_own(*variable, p_checker->cls.static_vars);
 	});
 	return here && variable->declared_type ? &*variable->declared_type : nullptr;
@@ -412,8 +452,8 @@ Type Checker::class_value(Expr &r_expr, const std::string &p_path) {
 	}
 	refer(r_expr.name_token, script_id(p_path));
 	const size_t inner = p_path.rfind("::");
-	if (const auto refusal = inner == std::string::npos ? std::nullopt : hidden(*header, p_path.substr(0, inner), [&] { return display_name(*header, p_path) + " is not pub."; })) {
-		return fail(r_expr, *refusal);
+	if (refuse(r_expr.range, inner == std::string::npos ? std::nullopt : hidden(*header, p_path.substr(0, inner), [&] { return display_name(*header, p_path) + " is not pub."; }))) {
+		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	r_expr.target = Target::ClassScript;
 	r_expr.owner = p_path;
@@ -767,8 +807,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		path = inner;
 		header = script_header(path);
 		refer(token(i), script_id(path));
-		if (const auto refusal = hidden(*header, path.substr(0, path.rfind("::")), written_not_pub)) {
-			error(p_ref.range, *refusal);
+		if (refuse(p_ref.range, hidden(*header, path.substr(0, path.rfind("::")), written_not_pub))) {
 			return Type::of(TypeKind::Error);
 		}
 		if (i + 1 == names.size()) {
@@ -782,8 +821,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 	const uint32_t at = token(names.size() - 1);
 	for (const InterfaceDecl &interface : header->interfaces) {
 		if (interface.name == inner) {
-			if (const auto refusal = hidden(interface, path, written_not_pub)) {
-				error(p_ref.range, *refusal);
+			if (refuse(p_ref.range, hidden(interface, path, written_not_pub))) {
 				return Type::of(TypeKind::Error);
 			}
 			if (const auto message = broken(&interface, display_name(*header, path) + "." + inner)) {
@@ -795,8 +833,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		}
 	}
 	if (const StructDecl *found = header->find_struct(inner)) {
-		if (const auto refusal = hidden(*found, path, written_not_pub)) {
-			error(p_ref.range, *refusal);
+		if (refuse(p_ref.range, hidden(*found, path, written_not_pub))) {
 			return Type::of(TypeKind::Error);
 		}
 		// As checked, unless that check is under way, as when two files'
@@ -817,8 +854,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 			error(p_ref.range, display_name(*header, path) + " (" + path + ") has errors.");
 			return Type::of(TypeKind::Error);
 		}
-		if (const auto refusal = hidden(*found, path, written_not_pub)) {
-			error(p_ref.range, *refusal);
+		if (refuse(p_ref.range, hidden(*found, path, written_not_pub))) {
 			return Type::of(TypeKind::Error);
 		}
 		if (const auto message = broken(found, display_name(*header, path) + "." + inner)) {

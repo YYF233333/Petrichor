@@ -93,8 +93,8 @@ void Checker::check_pattern(Pattern &r_pattern, const Type &p_matched, int p_loc
 				if (r_pattern.value->op == TokenKind::Null && p_matched.is_two_level()) {
 					error(r_pattern.value->range, "In GDScript, null here stands for both levels of the " + p_matched.to_string() + ". Match the outer level with None, or both by matching x.unwrap_or(null).");
 					if (p_subject) {
-						// Not automatic: it changes what the other patterns match.
-						fix({ { p_subject->range, operand(*p_subject) + ".unwrap_or(null)" } }, false);
+						// It changes what the other patterns match.
+						fix({ { p_subject->range, operand(*p_subject) + ".unwrap_or(null)" } }, FixKind::NullPattern);
 					}
 				}
 				r_pattern.kind = PatternKind::Constructor;
@@ -725,13 +725,10 @@ void Checker::check_stmt(Stmt &r_stmt) {
 		case StmtKind::Assign: {
 			Expr &target = *r_stmt.target;
 			const bool compound = r_stmt.assign_op != TokenKind::Equal;
-			Type target_type = Type::of(TypeKind::Error);
-			if (target.kind == ExprKind::Name || target.kind == ExprKind::Member) {
-				target_type = check_expr(target);
-			} else if (target.kind == ExprKind::Subscript) {
-				target_type = check_subscript(target);
-			} else {
-				check_expr(target);
+			const Expr *outer = std::exchange(assigned, &target);
+			Type target_type = target.kind == ExprKind::Subscript ? check_subscript(target) : check_expr(target);
+			assigned = outer;
+			if (target.kind != ExprKind::Name && target.kind != ExprKind::Member && target.kind != ExprKind::Subscript) {
 				error(target.range, "Cannot assign to this expression.");
 				check_value(*r_stmt.value);
 				return;
@@ -880,8 +877,10 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				error(r_stmt.range, "An async call must be awaited, stored or explicitly detached with detach().");
 				if (!r_stmt.value->type.nullable) {
 					// GDScript runs a coroutine called as a statement on its own.
-					fix({ { r_stmt.value->range, operand(*r_stmt.value) + ".detach()" } }, true);
-					fix({ { r_stmt.value->range, "await " + cls.source->text_of(r_stmt.value->range) } }, false);
+					fix({ { r_stmt.value->range, operand(*r_stmt.value) + ".detach()" } }, FixKind::Detach);
+					if (no_await().empty()) {
+						fix({ { r_stmt.value->range, "await " + cls.source->text_of(r_stmt.value->range) } }, FixKind::Await);
+					}
 				}
 			} else if (r_stmt.value->type.is_result()) {
 				error(r_stmt.range, "A Result cannot be discarded: handle its error, or ignore it with .ok().");

@@ -85,6 +85,10 @@ std::string fixed(const std::string &p_source, const std::string &p_title = std:
 // may change: each file it changes and res://test.pet, by path, after its
 // path and a colon, followed by its errors.
 std::string fixed_in(const std::string &p_source, FakeProject p_project, const std::string &p_title = std::string());
+// Compiles a source and fixes all of an automatic kind once (architecture
+// §2.1), giving the text after it; compiled again, as rustfix's tests do,
+// it has no error whose message the source's errors lack.
+std::string fixed_all(const std::string &p_source, compiler::FixKind p_kind);
 
 std::string joined(const std::vector<std::string> &p_lines);
 

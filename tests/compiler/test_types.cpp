@@ -200,15 +200,15 @@ TEST_CASE("T? is a nullable object type (spec §3.3)") {
 	CHECK(has_error(in_function("var n: Node = get_parent()"), "Cannot assign a value of type Node? as Node"));
 	// The fixes unwrap it, failing where GDScript fails on null, or let the
 	// variable hold None, as GDScript's does.
-	CHECK(fixed(in_function("var n: Node = get_parent()")) == in_function("var n: Node = get_parent().unwrap()"));
+	CHECK(fixed(in_function("var n: Node = get_parent()"), "Write get_parent().unwrap()") == in_function("var n: Node = get_parent().unwrap()"));
 	CHECK(fixed(in_function("var n: Node = get_parent()"), "Write Node?") == in_function("var n: Node? = get_parent()"));
 	const std::string take = "\nfunc take(n: Node) -> void:\n\tpass\n";
 	CHECK(fixed(in_function("take(get_parent())") + take, "Write Node?") == in_function("take(get_parent())") + "\nfunc take(n: Node?) -> void:\n\tpass\n");
-	CHECK(fixed(in_function("var p := get_parent()\np.queue_free()")) == in_function("var p := get_parent()\np.unwrap().queue_free()"));
-	CHECK(fixed(in_function("var p := get_parent()\nprint(p.name)")) == in_function("var p := get_parent()\nprint(p.unwrap().name)"));
-	// Only when the rewritten access resolves on T.
-	CHECK(fixed(in_function("var p := get_parent()\np.reset()")) == "no such fix");
-	CHECK(contains(fixed(in_function("var p := get_parent()\np.reset()"), "Write p.unwrap()"), "Node has no method \"reset()\""));
+	CHECK(fixed(in_function("var p := get_parent()\np.queue_free()"), "Write p.unwrap()") == in_function("var p := get_parent()\np.unwrap().queue_free()"));
+	CHECK(fixed(in_function("var p := get_parent()\np.name = &\"a\""), "Write p.unwrap()") == in_function("var p := get_parent()\np.unwrap().name = &\"a\""));
+	// Only when the rewritten code checks.
+	CHECK(fixed(in_function("var p := get_parent()\np.reset()"), "Write p.unwrap()") == "no such fix");
+	CHECK(fixed(in_function("var v: Vector3? = Vector3.UP\nv.x = 2.0"), "Write v.unwrap()") == "no such fix");
 }
 
 TEST_CASE("T? of a value type is an Option (spec §3.4)") {
@@ -219,8 +219,8 @@ TEST_CASE("T? of a value type is an Option (spec §3.4)") {
 	CHECK(contains(type_of("a + 1", "var a: int? = 5"), "may be None (int?); unwrap it first"));
 	CHECK(contains(type_of("s.length()", "var s: String? = \"x\""), "may be None (String?); check it before calling"));
 	CHECK(contains(type_of("v.y", "var v: Vector3? = Vector3.UP"), "may be None (Vector3?); check it before reading"));
-	CHECK(fixed(in_function("var s: String? = \"x\"\nprint(s.length())")) == in_function("var s: String? = \"x\"\nprint(s.unwrap().length())"));
-	CHECK(fixed(in_function("var a: Array[int]? = []\nprint(a[0])")) == in_function("var a: Array[int]? = []\nprint(a.unwrap()[0])"));
+	CHECK(fixed(in_function("var s: String? = \"x\"\nprint(s.length())"), "Write s.unwrap()") == in_function("var s: String? = \"x\"\nprint(s.unwrap().length())"));
+	CHECK(fixed(in_function("var a: Array[int]? = []\nprint(a[0])"), "Write a.unwrap()") == in_function("var a: Array[int]? = []\nprint(a.unwrap()[0])"));
 	CHECK(type_of("a.unwrap_or(0) + a.unwrap_or_else(func(): return 1)", "var a: int? = 5") == "int");
 	CHECK(type_of("a.map(func(x): return x * 0.5)", "var a: int? = 5") == "float?");
 	CHECK(type_of("a.filter(func(x): return x > 0).or(3)", "var a: int? = 5") == "int?");
@@ -388,7 +388,7 @@ TEST_CASE("for over an array, and over a Dictionary's keys") {
 	CHECK(has_error(in_function("var a: Array[Node] = []\nfor n: Node3D in a:\n\tpass"), "The elements are Node, which the loop variable of type Node3D cannot hold."));
 	CHECK(errors_of(in_function("for s in \"a,b\".split(\",\"):\n\tprint(s)")).empty());
 	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tvar n: int = x"), "Cannot assign a value of type Variant as int."));
-	CHECK(fixed(in_function("var a: Array[int]? = []\nfor x in a:\n\tprint(x)")) == in_function("var a: Array[int]? = []\nfor x in a.unwrap():\n\tprint(x)"));
+	CHECK(fixed(in_function("var a: Array[int]? = []\nfor x in a:\n\tprint(x)"), "Write a.unwrap()") == in_function("var a: Array[int]? = []\nfor x in a.unwrap():\n\tprint(x)"));
 }
 
 // Spec §10.2, §10.3: the engine's RequiredResult and RequiredParam metadata,

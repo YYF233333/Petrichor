@@ -59,4 +59,32 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	return result;
 }
 
+std::vector<CheckedEdit> fix_all(const CompileResult &p_result, FixKind p_kind) {
+	std::vector<std::vector<CheckedEdit>> fixes;
+	for (const Diagnostic &error : p_result.errors) {
+		for (const Fix &fix : error.fixes) {
+			if (fix.kind != p_kind || !fix.automatic() || !error.file.empty() || std::any_of(fix.edits.begin(), fix.edits.end(), [](const Fix::Edit &p_edit) { return !p_edit.file.empty(); })) {
+				continue;
+			}
+			std::vector<CheckedEdit> &edits = fixes.emplace_back();
+			for (const Fix::Edit &edit : fix.edits) {
+				edits.push_back(edit.change);
+			}
+			std::sort(edits.begin(), edits.end(), [](const CheckedEdit &p_a, const CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
+		}
+	}
+	std::stable_sort(fixes.begin(), fixes.end(), [](const auto &p_a, const auto &p_b) { return p_a[0].begin < p_b[0].begin; });
+	std::vector<CheckedEdit> kept;
+	for (const std::vector<CheckedEdit> &fix : fixes) {
+		const bool overlaps = std::any_of(fix.begin(), fix.end(), [&](const CheckedEdit &p_edit) {
+			return std::any_of(kept.begin(), kept.end(), [&](const CheckedEdit &p_kept) { return p_edit.begin < p_kept.end && p_kept.begin < p_edit.end; });
+		});
+		if (!overlaps) {
+			kept.insert(kept.end(), fix.begin(), fix.end());
+		}
+	}
+	std::sort(kept.begin(), kept.end(), [](const CheckedEdit &p_a, const CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
+	return kept;
+}
+
 } // namespace petrichor::compiler

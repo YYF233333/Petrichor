@@ -59,7 +59,7 @@ TEST_CASE("a method connected in a scene must be pub, since the engine finds it 
 	REQUIRE(hidden.errors.size() == 1);
 	REQUIRE(hidden.errors[0].fixes.size() == 1);
 	CHECK(hidden.errors[0].fixes[0].edits[0].file.empty());
-	CHECK(hidden.errors[0].fixes[0].edits[0].change.new_text == "pub func");
+	CHECK(hidden.errors[0].fixes[0].edits[0].change.new_text == "pub func _on_timer_timeout");
 	// Except an override of an engine virtual, which the engine calls by its name.
 	CHECK(check_scenes_in("extends Node3D\n\nfunc _ready():\n\tpass\n", timer_scene("_ready")).errors.empty());
 }
@@ -147,10 +147,11 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 	REQUIRE(hidden.errors.size() == 1);
 	CHECK(hidden.errors[0].file == "res://test.pet");
 	REQUIRE(hidden.errors[0].fixes.size() == 1);
-	CHECK(hidden.errors[0].fixes[0].automatic);
+	CHECK(hidden.errors[0].fixes[0].automatic());
 	CHECK(hidden.errors[0].fixes[0].edits[0].file == "res://player.pet");
-	CHECK(hidden.errors[0].fixes[0].edits[0].change.old_text == "signal");
-	CHECK(hidden.errors[0].fixes[0].edits[0].change.new_text == "pub signal");
+	// From the keyword through the name, which identifies the declaration.
+	CHECK(hidden.errors[0].fixes[0].edits[0].change.old_text == "signal health_updated");
+	CHECK(hidden.errors[0].fixes[0].edits[0].change.new_text == "pub signal health_updated");
 	CHECK(contains(connected("health_updated", "health: String"), "which passes int here"));
 	CHECK(contains(connected("health_updated", ""), "which passes 1 argument(s); _on_health_updated() takes 0."));
 	CHECK(contains(connected("health_changed", "health: int"), "res://main.tscn: the signal \"health_changed\" of Player is connected to _on_health_updated(), but Player has no such signal."));
