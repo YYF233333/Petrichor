@@ -714,8 +714,8 @@ void Checker::check_named_members() {
 // node with it or on an instance of a scene whose root has it; either end
 // may be inside a scene it instances. The method must exist and take what
 // the signal passes. The engine finds the method and the signal by name,
-// so both must be pub (§10.5). A method of the engine class that is not
-// virtual is found so too.
+// so both must be pub, unless the method overrides an engine virtual
+// (§10.5). A method of the engine class that is not virtual is found so too.
 void Checker::check_connections() {
 	using Kind = builtin::MemberName::Kind;
 	const TokenRange header{ cls.extends_token, cls.extends_token };
@@ -745,7 +745,7 @@ void Checker::check_connections() {
 			}
 			const FuncDecl *function = method.function;
 			const TokenRange at = own_name(method, header);
-			if (function && !function->is_pub) {
+			if (method.hidden) {
 				error_in_scene(at, scene, connection.target, where + not_pub(true));
 			}
 			if (function && references) {

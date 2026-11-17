@@ -54,6 +54,8 @@ std::string hud_errors(const std::string &p_body, const FakeProject &p_project =
 TEST_CASE("a method connected in a scene must be pub, since the engine finds it by name (spec §10.5)") {
 	CHECK(check_scenes_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout")).errors.empty());
 	CHECK(contains(messages(check_scenes_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout"))), "is connected to _on_timer_timeout(), which is not pub; the engine calls only pub methods by name."));
+	// Except an override of an engine virtual, which the engine calls by its name.
+	CHECK(check_scenes_in("extends Node3D\n\nfunc _ready():\n\tpass\n", timer_scene("_ready")).errors.empty());
 }
 
 TEST_CASE("a method the engine is to call by a literal name must be pub (spec §10.4)") {
