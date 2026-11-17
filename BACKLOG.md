@@ -270,8 +270,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Godot: the open [#124220](https://github.com/godotengine/godot/pull/124220) changes how the script editor takes an extension's errors and warnings. The owner may comment before it merges; nothing here changes until then.
   - It groups every error that names a path into one diagnostic on the last line. The editor does not underline it (`core/object/script_language_extension.h:425-436`, `editor/script/script_text_editor.cpp:756-758`, `05ee117`).
   - On 4.7 an extension must name its own script there, as this one does (`editor/script/script_text_editor.cpp:859-860`, `ed1daf0`; `PetLanguage::_validate`).
-  - It also puts the extension's one-based lines into zero-based ranges, so warnings move down a line. GDScript's own conversion subtracts one (`modules/gdscript/gdscript_editor.cpp:160-164`, `05ee117`).
-  - Once it merges, one build would need different output per engine version. A fix in the wrapper keeps the contract: take the script's own path as its own, and subtract one.
+  - It also puts the extension's one-based lines and columns into zero-based ranges, so errors and warnings move down a line (`core/object/script_language_extension.h:429, 459`, `4febb8d`). GDScript's own conversion subtracts one (`modules/gdscript/gdscript_editor.cpp:161-164`, `4febb8d`).  - Once it merges, one build would need different output per engine version. A fix in the wrapper keeps the contract: take the script's own path as its own, and subtract one.
 - Views of the enums, inner classes and static variables of GDScript classes, a later addition (spec §11.1, §14.2). They need a change in Godot first, which the owner may contribute.
 - Godot: String has no method that replaces the character at a position. The owner may contribute one.
   - Its methods replace by content, insert or erase (`core/variant/variant_call.cpp:2039-2048`, `ed1daf0`).
