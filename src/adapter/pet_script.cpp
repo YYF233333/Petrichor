@@ -445,7 +445,7 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 		std::shared_ptr<const ClassImage> next;
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint()) {
-			next = compile_script(script->get_script_path(), script->_get_source_code(), nullptr, true, old && old->module.declarations_only ? CompileMode::Declarations : CompileMode::Full);
+			next = compile_script(script->get_script_path(), script->_get_source_code(), nullptr, true, old && old->module.declarations_only ? compiler::CheckMode::Declarations : compiler::CheckMode::Program);
 		} else
 #endif
 		{

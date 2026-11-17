@@ -1144,7 +1144,7 @@ class Checker : public ClassRelation {
 
 public:
 	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), classes(r_classes), references(r_references), warnings(r_warnings), completion(p_options.mode == CheckMode::Cursor ? r_completion : nullptr) {}
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), classes(r_classes), references(r_references), warnings(r_warnings), completion(r_completion) {}
 
 	void attach(FileCheck &r_file, Checker *p_outer) {
 		file = &r_file;

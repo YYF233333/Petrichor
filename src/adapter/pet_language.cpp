@@ -212,7 +212,7 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 #ifdef TOOLS_ENABLED
 	std::vector<compiler::Diagnostic> diagnostics;
 	std::vector<compiler::Diagnostic> warning_diagnostics;
-	const std::shared_ptr<const ClassImage> image = compile_script(p_path, p_script, &diagnostics, false, CompileMode::Full, &warning_diagnostics);
+	const std::shared_ptr<const ClassImage> image = compile_script(p_path, p_script, &diagnostics, false, compiler::CheckMode::Program, &warning_diagnostics);
 	// Only for a valid script, as GDScript (modules/gdscript/gdscript_editor.cpp:168-201; ed1daf0).
 	if (image) {
 		std::map<uint32_t, std::string> lines;

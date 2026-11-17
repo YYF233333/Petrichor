@@ -33,18 +33,18 @@ compiler::Analysis &analysis() {
 	return analysis;
 }
 
-std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode, std::vector<compiler::Diagnostic> *r_warnings) {
+std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, compiler::CheckMode p_mode, std::vector<compiler::Diagnostic> *r_warnings) {
 	std::shared_ptr<const compiler::CompileResult> result;
 	// Loads, which compile declarations, take no part in the analysis, whose
 	// passes take a lock while they load scenes.
 	std::optional<compiler::Analysis::Pass> analysis_pass;
-	if (p_mode == CompileMode::Full) {
+	if (p_mode == compiler::CheckMode::Program) {
 		analysis_pass.emplace(analysis());
 		result = analysis().compile(to_utf8(p_path), to_utf8(p_source));
 	} else {
 		compiler::CompileOptions options;
 		options.path = to_utf8(p_path);
-		options.mode = compiler::CheckMode::Declarations;
+		options.mode = p_mode;
 		// While loading, the compiler asks for no scenes, only classes and sources.
 		options.project = &SceneIndex::get();
 		result = std::make_shared<const compiler::CompileResult>(compiler::compile(to_utf8(p_source), ClassDBApi::get(), options));
@@ -125,7 +125,7 @@ int build_project(int *r_script_count, int *r_scene_count, int *r_resource_count
 	for (const String &path : paths) {
 		const String source = FileAccess::get_file_as_string(path);
 		std::vector<compiler::Diagnostic> warnings;
-		const std::shared_ptr<const ClassImage> image = compile_script(path, source, nullptr, true, CompileMode::Full, &warnings);
+		const std::shared_ptr<const ClassImage> image = compile_script(path, source, nullptr, true, compiler::CheckMode::Program, &warnings);
 		if (!image || !write_compiled(cache_path(path), *image)) {
 			failed++;
 		}

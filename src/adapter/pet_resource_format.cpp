@@ -72,7 +72,7 @@ Variant PetResourceLoader::_load(const String &p_path, const String &p_original_
 			// Inside a load, so without the scenes that use the script; the
 			// full compilation comes when the script is validated, saved or
 			// built.
-			image = compile_script(p_original_path, source, nullptr, true, CompileMode::Declarations);
+			image = compile_script(p_original_path, source, nullptr, true, compiler::CheckMode::Declarations);
 		} else
 #endif
 		{

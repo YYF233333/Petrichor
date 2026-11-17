@@ -15,22 +15,15 @@
 
 namespace petrichor {
 
-enum class CompileMode {
-	// With function bodies and the scenes that use the script.
-	Full,
-	// Only what describes the class, without scenes: while the script is
-	// being loaded, the scenes that use it cannot be loaded
-	// (core/io/resource_loader.cpp:1049-1056).
-	Declarations,
-};
-
 // The project's scripts as the editor and the headless build check them,
 // each checked again only when what it read changes (architecture §2.4).
 compiler::Analysis &analysis();
 
-// Compiles a script in the editor. Returns null when there are errors; with
-// `p_report`, each error is printed as a script error at its line.
-std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, const godot::String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, CompileMode p_mode = CompileMode::Full, std::vector<compiler::Diagnostic> *r_warnings = nullptr);
+// Compiles a script in the editor; CheckMode::Declarations while it is being
+// loaded, when the scenes that use it cannot be loaded
+// (core/io/resource_loader.cpp:1049-1056). Returns null when there are
+// errors; with `p_report`, each error is printed as a script error at its line.
+std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, const godot::String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, compiler::CheckMode p_mode = compiler::CheckMode::Program, std::vector<compiler::Diagnostic> *r_warnings = nullptr);
 
 // Compiles every .pet file of the project and writes the bytecode cache
 // (architecture §2.4), and checks every scene and resource file (§6.4).
