@@ -23,6 +23,11 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - An open scene that instances a scene the rename rewrote keeps its instance as loaded. Check what the editor updates when the tab is shown (`editor/editor_data.cpp:722-811`).
   - Applying a rename shows each open scene it saves. When the current tab is a new scene without a path, the editor stays on the last one saved. Godot shows an open scene only by its path.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
+  - With it, scenes embedded in a scene file, as a built-in PackedScene in a node's property. The scene index reads their nodes, so checks and find references cover the values they store. A rename that touches one refuses, naming the file, the node and the property. Saving the embedded scene with the property's "Save As…" lets it proceed (`editor/inspector/editor_resource_picker.cpp:365-368`, `ed1daf0`).
+    - Now the index skips them, and a rename leaves such a value under the old name, which the engine drops silently. Corpus v2 has two such files, one storing `timer = 1.0` (Super Mario Bros. Remastered, `LitBobOmb.tscn`).
+    - The editor embeds one without asking when a referenced scene file is deleted while a scene using it is loaded (`editor/file_system/dependency_editor.cpp:787-791`, `ed1daf0`).
+    - The value is not rewritten: its name sits in the `names` table of `_bundled`, which node names share.
+    - Godot 4.8 writes such a scene's nodes as sections of the file that holds it. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
 - The first quick fixes: the five kinds most frequent in the second paper migration. They are adding `pub`, truthiness, `async` and `.detach()`, `T?` or `.unwrap()`, and `float` arguments. They reach about 75 of its 230 changes: 36 `pub` serve only GDScript or C# callers, which no error here sees, and 29 served subclasses only.
   - A sixth kind joins them: a two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null` (spec §3.4). It is mechanical, and the migration tool needs the same rewrite.
   - A light bulb on the caret's line opens them in a small list at the caret, as in VS Code. So does a shortcut registered in the editor settings, and the context menu.
@@ -79,9 +84,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 ## Editor
 
 - Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Done when someone asks for it.
-- Scenes embedded in a scene file, as a built-in PackedScene in a node's property. The scene index does not read their nodes (`src/adapter/editor/scene_index.cpp`, `read_resources`). So checks and find references miss the values those nodes store. A rename leaves such a value under the old name, and the engine drops it silently. Corpus v2 has two such files, one storing `timer = 1.0` (Super Mario Bros. Remastered, `LitBobOmb.tscn`).
-  - Candidates: refuse the rename, as for binary files, or rewrite the value. The value's name sits in the `names` table of `_bundled`, which node names share.
-  - Godot 4.8 writes such a scene's nodes as sections of the file that holds it. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
