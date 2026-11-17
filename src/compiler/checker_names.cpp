@@ -172,13 +172,21 @@ void Checker::declare_enums() {
 	}
 }
 
-// The built-in type or engine class that a declaration of the class may not
-// be named as, as the end of a message; empty if none (spec §4.1).
+// The built-in type or engine class that a declaration may not be named as,
+// as the end of a message; empty if none (spec §4.1).
 std::string Checker::taken_global_name(const std::string &p_name) const {
 	if (p_name == "int" || p_name == "float" || p_name == "bool" || builtin::find_class(p_name)) {
 		return "is the name of a built-in type.";
 	}
 	return engine.class_exists(p_name) ? "is the name of an engine class." : std::string();
+}
+
+// A declaration of a value or a function, which no such name may have
+// (spec §4.1).
+void Checker::refuse_global_name(const std::string &p_name, uint32_t p_token) {
+	if (const std::string taken = taken_global_name(p_name); !taken.empty()) {
+		error(p_token, "\"" + p_name + "\" " + taken);
+	}
 }
 
 // What a type of this name would hide, as the end of a message; empty if

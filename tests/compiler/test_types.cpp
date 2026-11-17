@@ -63,8 +63,8 @@ TEST_CASE("a class names the constants and enums of its engine base by bare name
 TEST_CASE("a member or a function is not named as an engine class or a built-in type (spec §4.1)") {
 	CHECK(messages(compile("extends Node\nvar Node2D := 1\nconst Vector2 = 2\nsignal Timer\nenum { String }\n\nfunc int() -> void:\n\tpass\n")) ==
 			joined({ "2:5: \"Node2D\" is the name of an engine class.", "3:7: \"Vector2\" is the name of a built-in type.", "4:8: \"Timer\" is the name of an engine class.", "5:8: \"String\" is the name of a built-in type.", "7:6: \"int\" is the name of a built-in type." }));
-	const auto typed = compile(in_function("var Node2D := 1\nprint(Node2D)", "func f(Vector2: int) -> void:"));
-	CHECK_MESSAGE(typed.ok(), messages(typed));
+	CHECK(messages(compile(in_function("var Node2D := 1\nfor Color in [Vector2]:\n\tmatch Color:\n\t\tvar Timer:\n\t\t\tprint(Node2D, Timer)", "func f(Vector2: int) -> void:"))) ==
+			joined({ "3:8: \"Vector2\" is the name of a built-in type.", "4:6: \"Node2D\" is the name of an engine class.", "5:6: \"Color\" is the name of a built-in type.", "7:8: \"Timer\" is the name of an engine class." }));
 }
 
 TEST_CASE("an inner class named as a global enum of the engine is that class, in types too (spec §4.1)") {

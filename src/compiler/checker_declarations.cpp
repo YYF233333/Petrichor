@@ -954,20 +954,15 @@ void Checker::check_engine_names() {
 		}
 		return engine.find_enum(cls.native_base, p_name) ? "an enum" : nullptr;
 	};
-	const auto global = [&](const std::string &p_name, uint32_t p_token) {
-		if (const std::string taken = taken_global_name(p_name); !taken.empty()) {
-			error(p_token, "\"" + p_name + "\" " + taken);
-		}
-	};
 	const auto check = [&](const std::string &p_name, uint32_t p_token, bool p_type = false) {
 		if (const char *taken = p_name.empty() ? nullptr : kind(p_name)) {
 			error(p_token, "\"" + p_name + "\" is already " + taken + " of " + cls.native_base + ", which this class extends.");
 		} else if (!p_type) {
-			global(p_name, p_token);
+			refuse_global_name(p_name, p_token);
 		}
 	};
 	for (const FuncDecl &function : cls.functions) {
-		global(function.name, function.name_token);
+		refuse_global_name(function.name, function.name_token);
 	}
 	for (const VarDecl &member : cls.members) {
 		check(member.name, member.name_token);
@@ -1109,6 +1104,7 @@ void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
 		if (scopes.back().count(param.name)) {
 			error(param.name_token, "Parameter \"" + param.name + "\" is declared twice.");
 		}
+		refuse_global_name(param.name, param.name_token);
 		scopes.back()[param.name] = int(r_function.locals.size());
 		r_function.locals.push_back({ param.name, param.type, param.name_token });
 		r_function.locals.back().written = param.declared_type ? &*param.declared_type : nullptr;
@@ -1476,6 +1472,7 @@ void Checker::declare_structs() {
 			if (!fields.insert(field.name).second) {
 				error(field.name_token, "The field \"" + field.name + "\" is already declared in " + decl.name + ".");
 			}
+			refuse_global_name(field.name, field.name_token);
 			field.type = field.declared_type ? resolve(*field.declared_type, false) : Type::of(TypeKind::Error);
 			if (!field.initializer && !field.declared_type) {
 				error(field.name_token, "\"" + field.name + "\" needs a type or a default value.");
@@ -1483,6 +1480,7 @@ void Checker::declare_structs() {
 		}
 		for (FuncDecl &method : decl.methods) {
 			const std::string name = method.name.substr(decl.name.size() + 1);
+			refuse_global_name(name, method.name_token);
 			if (fields.count(name) || function_index.count(method.name)) {
 				error(method.name_token, "\"" + name + "\" is already declared in " + decl.name + ".");
 				continue;

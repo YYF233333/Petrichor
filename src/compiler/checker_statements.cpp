@@ -31,6 +31,7 @@ int Checker::declare_local(const std::string &p_name, uint32_t p_at, const Type 
 	} else if (known >= 0) {
 		error(p_at, "\"" + p_name + "\" is already declared in an enclosing block.");
 	}
+	refuse_global_name(p_name, p_at);
 	const int local = int(function->locals.size());
 	function->locals.push_back({ p_name, p_type, p_at });
 	refer_local(p_at, p_type, p_constant);

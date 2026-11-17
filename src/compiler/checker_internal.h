@@ -796,6 +796,7 @@ class Checker : public ClassRelation {
 	const ConstDecl *own_constant(const std::string &p_name);
 	void declare_enums();
 	std::string taken_global_name(const std::string &p_name) const;
+	void refuse_global_name(const std::string &p_name, uint32_t p_token);
 	std::string taken_type_name(const std::string &p_name, bool p_class_name) const;
 	void check_type_names();
 	void check_enum(EnumDecl &r_decl);
