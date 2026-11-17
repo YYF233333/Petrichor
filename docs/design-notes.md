@@ -89,7 +89,7 @@
 - **对象可空与已释放对象（§3.3）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `is_instance_valid` 每千行 3.3 处，`phantom-camera` 中每千行 12.8 处。Godot 4.4 起也让已释放对象在条件中为假（[godotengine/godot#93885](https://github.com/godotengine/godot/pull/93885)）。相关问题见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-07、G-08。
   - `T?` 转为 `Variant` 时保留已释放对象。否则 `print` 显示 `<null>` 而不是 `<Freed Object>`，`typeof` 得 `TYPE_NIL`。`Variant` 本来就可能持有已释放对象，其中的已释放对象也等于 `None`，所以判断的结果不变。
 - **`T?` 的快速修复（§3.3、§3.4）**：
-  - `T?` 的值去往 `T` 时，`.unwrap()` 排在第一并自动应用。GDScript 存下 null，到使用处才出错；`.unwrap()` 提前出错，属于已列出的差异“对象类型非空”。
+  - `T?` 的值去往 `T` 时，`.unwrap()` 排在第一，但不自动应用。GDScript 存下 null，到使用处才出错；`.unwrap()` 把这个写法变成运行时的程序错误。Swift 中这个错误的 `!` 也只是 note 上的备选。Roslyn 也因同样的理由，把“实现缺失成员”移出了自动清理。
   - 把目标的类型改为 `T?` 排在第二，不自动应用，因为它把错误移到其他使用处。
   - 非空对象与 `null` 比较时，`x == null` 改为 `not is_instance_valid(x)`，因为 GDScript 中已释放的对象也等于 null。改为 `T?` 会波及这个变量的其他使用处，所以排在第二。
 - **带类型的弱引用在第一版之后（§3.12）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `weakref` 只有 3 处，游戏中没有。
@@ -185,7 +185,7 @@
   - GDScript 中这时子任务照常跑完，同一写法须与它一致。归属的用处都来自主动取消，所以对象释放引起的取消不传播。
 - **协程与信号（§9.1–§9.7）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 979 个 lambda 有 35 个含 `await`（33 个在 `gdUnit4` 测试中），v2 的 3,518 个中有 125 个（11 库）。重入与释放暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。v2 使用多参数信号结果增至 24 处（9 库，15 处接收者签名静态已知，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 - **协程的快速修复（§9.1）**：
-  - GDScript 中含 `await` 的函数本就是协程，所以补上 `async` 自动应用。签名不能是 async 时不自动应用，如 `_init`、访问器和覆盖非 async 的方法。
+  - GDScript 中含 `await` 的函数本就是协程，所以提供补上 `async` 的修复。它不自动应用，因为它影响调用方和覆盖它的方法。覆盖须保持 async 的错误也有同样的修复。签名不能是 async 时不提供，如 `_init`、访问器和覆盖非 async 方法的函数。
   - GDScript 中作为语句调用的协程独自运行，所以 `.detach()` 排在第一并自动应用。`await` 排在第二，因为它改为等待。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
 - **`float` 实参的快速修复（§10.3）**：只在期望类型为 `float` 处自动应用。GDScript 的 `min`、`max` 和 `clamp` 返回选中的实参本身，类型也随它，如 `str(min(1.5, 1))` 得 `"1"`。
@@ -296,6 +296,7 @@
 | 编译期检查跨类的静态初始化环 | 要知道其他文件的初始化读取什么；这样的环每次运行加载这些类时都会报出 | §4.8 |
 | 热重载时重新运行静态初始化，再按名字搬回旧值，与 GDScript 相同 | `_static_init` 的副作用（如登记）会再发生一次；只修改函数体时，正在运行的程序只换之后的调用（§12.4） | §4.8 |
 | `new(...)` 跟随类的可见性，不看 `_init` 是否 `pub`，与 GDScript 相同 | 与其他成员不一致：不带 `pub` 的 `_init` 改签名时，调用方不只在本文件和子类中。类也无法只经自己的方法构造 | §4.2 |
+| 一键应用本脚本中各种自动修复，跳过区间重叠的 | 修复之间会隔着距离相互影响：同一次把声明改为 `T?`、又给使用处加上 `.unwrap()`，GDScript 中能运行的代码变成运行时错误。成熟工具都只按种类批量修复，如 Roslyn、TypeScript 和 IntelliJ。VS Code 的 TypeScript fixAll 只收 3 种，rust-analyzer 没有 fix-all，TypeScript 的全修请求（[TypeScript#29452](https://github.com/microsoft/TypeScript/issues/29452)）至今未做 | §13.2 |
 | 成员可与引擎基类的属性同名，遮蔽它 | 引擎按名读写先交给脚本实例。带 `pub` 时，动画、tween 和 GDScript 写的是这个成员，节点不受影响；不带 `pub` 时，同一对象上的同一个名字有两个含义 | §4.1 |
 | 引擎基类的常量必须写出类名，如 `Object.NOTIFICATION_PREDELETE`，快速修复补上类名 | 引擎基类的属性、方法和信号都用裸名，只有常量例外；GDScript 代码中 4.9% 的文件要逐处改写 | §4.1 |
 | 字面量名字的目标为 `RefCounted`、`Node` 等常用基类时也不检查 | 豁免的边界无从划定，拼错的名字就查不出了。动态访问先转为 `Object` | §10.4 |
