@@ -27,6 +27,25 @@ struct CompileResult {
 	}
 };
 
+// What a check covers.
+enum class CheckMode {
+	Program,
+	// The class header, the members and the signatures, without function
+	// bodies or scenes: the editor's view of a script while it loads. The
+	// module describes the class but cannot run.
+	Declarations,
+	// As Declarations, for the scripts that use the class, with what _init
+	// assigns (architecture §6.4) but none of its errors; or with scenes.
+	ForOthers,
+	ForOthersWithScenes,
+	// How the scene at `CompileOptions::scene` uses the class (architecture
+	// §6.4), declared as for others; its own errors are left out.
+	Scene,
+	// What can be written at the cursor that U+FFFF marks (spec §13.2), of
+	// the function bodies checking only the one around it.
+	Cursor,
+};
+
 struct CompileOptions {
 	// The script's res:// path: to find the scenes that use it, to tell the
 	// class from others of this language, and to resolve relative paths.
@@ -34,14 +53,8 @@ struct CompileOptions {
 	// The project's scenes, global classes, autoloads and other scripts;
 	// without it, none of them is known.
 	const ProjectApi *project = nullptr;
-	// Checks the class header, the members and the signatures, but no function
-	// bodies, and needs no scenes: the editor's view of a script while it is
-	// being loaded, when the scenes that use it cannot be loaded. The module
-	// describes the class but cannot run.
-	bool declarations_only = false;
-	// With `declarations_only`: checks instead how the scene at this res://
-	// path uses the class (architecture §6.4), whose own errors are left out.
-	std::string scene;
+	CheckMode mode = CheckMode::Program;
+	std::string scene; // The res:// path of the scene that CheckMode::Scene checks.
 };
 
 struct ClassDecl;

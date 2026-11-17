@@ -210,7 +210,7 @@ void Checker::set_completions(std::map<std::string, CompletionItem> &r_found) {
 // arguments and not among those of a call within them. `p_signature` makes
 // it with the parameter at the cursor marked.
 void Checker::hint(const Expr &p_call, const std::function<std::string(int)> &p_signature) {
-	if (!completion || probing || p_call.name_token >= cls.source->tokens.size()) {
+	if (!completion || p_call.name_token >= cls.source->tokens.size()) {
 		return;
 	}
 	const size_t cursor = cls.source->text.find(CURSOR);

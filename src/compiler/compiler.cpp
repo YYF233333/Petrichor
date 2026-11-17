@@ -12,7 +12,7 @@
 namespace petrichor::compiler {
 
 CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options) {
-	ScriptClasses classes(p_engine, p_options.project, p_options.declarations_only);
+	ScriptClasses classes(p_engine, p_options.project, p_options.mode == CheckMode::Declarations);
 	ClassDecl cls;
 	return compile(p_source, p_engine, p_options, classes, cls);
 }
@@ -24,7 +24,7 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 	// recovered tree all the same, as the tools will (architecture §2.1).
 	std::vector<Diagnostic> unreported;
 	const bool parsed = result.errors.empty();
-	check(r_class, p_engine, p_options, parsed ? result.errors : unreported, r_classes, true, &result.references, nullptr, parsed ? &result.warnings : nullptr);
+	check(r_class, p_engine, p_options, parsed ? result.errors : unreported, r_classes, &result.references, parsed ? &result.warnings : nullptr);
 	if (parsed) {
 		apply_warning_ignores(r_class, result.warnings);
 	}
@@ -39,7 +39,7 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 			const StructDecl *found = decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
 			return found && !r_classes.errors_in(found) ? found : nullptr;
 		};
-		result.module = lower(r_class, p_options.declarations_only, result.errors, structs);
+		result.module = lower(r_class, p_options.mode == CheckMode::Declarations, result.errors, structs);
 		const uint64_t source_hash = bytecode::hash_source(p_source);
 		const auto hash = [&](bytecode::Module &r_module, const auto &p_self) -> void {
 			r_module.source_hash = source_hash;

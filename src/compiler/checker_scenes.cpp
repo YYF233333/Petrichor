@@ -189,7 +189,7 @@ std::string Checker::autoload_way(const std::string &p_path) const {
 // script, in every scene; they must agree on its class. `$".."` is any
 // Node, or what @parent(T) requires (spec §7.3).
 Type Checker::check_get_node(Expr &r_expr) {
-	if (options.declarations_only) {
+	if (loading()) {
 		return set(r_expr, Type::of(TypeKind::Error)); // Scenes are not read while loading.
 	}
 	const std::string &path = r_expr.text;
@@ -315,7 +315,7 @@ std::optional<Type> Checker::literal_node_type(const Expr &p_call, const EngineM
 	if (path.empty() || path[0] == '/' || (optional && path == "..")) {
 		return std::nullopt;
 	}
-	if (options.declarations_only) {
+	if (loading()) {
 		return Type::of(TypeKind::Error); // Scenes are not read while loading.
 	}
 	if (path == "..") {
@@ -518,7 +518,7 @@ std::optional<Scene> Checker::known_scene(const Expr &p_value) {
 	} else if (p_value.kind == ExprKind::Call && p_value.text == "load" && p_value.base && p_value.base->text == "ResourceLoader") {
 		file = literal_load_file(p_value); // load(), checked as ResourceLoader.load().
 	}
-	return is_scene_file(file) && options.project && !options.declarations_only ? options.project->scene(file) : std::nullopt;
+	return is_scene_file(file) && options.project && !loading() ? options.project->scene(file) : std::nullopt;
 }
 
 // load() of one literal path in the project, typed as preload() types it
@@ -535,7 +535,7 @@ std::optional<Type> Checker::literal_load(const Expr &p_call) {
 	if (is_script_file(file)) {
 		return options.project && options.project->resource(file) ? std::optional<Type>(script_value_type(file)) : std::nullopt;
 	}
-	if (options.declarations_only) {
+	if (loading()) {
 		return Type::of(TypeKind::Error); // Resources are not read while loading.
 	}
 	return content_type(p_call, file);
@@ -566,7 +566,7 @@ Type Checker::check_preload(Expr &r_expr) {
 	};
 	// A uid stays what is loaded, so that the file can move.
 	const std::string file = preload_file(path);
-	if (file.empty() && !options.declarations_only) {
+	if (file.empty() && !loading()) {
 		return fail(r_expr, "There is no resource with the uid " + path + ".");
 	}
 	Type type;
@@ -575,11 +575,11 @@ Type Checker::check_preload(Expr &r_expr) {
 		// Read without loading, also while only the declarations are
 		// checked, so that other classes see the types it names.
 		script_class = preloaded_class(r_expr, file);
-		if (script_class.is_error() && !options.declarations_only) {
+		if (script_class.is_error() && !loading()) {
 			return set(r_expr, script_class);
 		}
 		type = script_value_type(file);
-	} else if (options.declarations_only) {
+	} else if (loading()) {
 		// Resources are not read while loading, so its type is unknown here;
 		// a constant still holds it, for GDScript to read (spec §11.3).
 		r_expr.constant = loaded(Type::object("Resource"));
@@ -594,7 +594,7 @@ Type Checker::check_preload(Expr &r_expr) {
 		}
 		type = *content;
 	}
-	if (options.project && !options.declarations_only) {
+	if (options.project && !loading()) {
 		check_load_cycle(r_expr, file);
 	}
 	refer(r_expr.name_token, language_id("@GlobalScope", "preload"));
@@ -624,7 +624,7 @@ Type Checker::preloaded_class(const Expr &p_preload, const std::string &p_file) 
 	}
 	const ForeignClass *foreign = foreign_class(p_file);
 	if (!foreign || foreign->native.empty()) {
-		if (!options.declarations_only) {
+		if (!loading()) {
 			error(p_preload.range, "There is no script at " + p_file + ", or it cannot be loaded.");
 		}
 		return Type::of(TypeKind::Error);

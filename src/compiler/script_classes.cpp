@@ -452,13 +452,13 @@ const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_w
 		CompileOptions options;
 		options.path = file;
 		options.project = project;
-		options.declarations_only = !with_scenes;
+		options.mode = with_scenes ? CheckMode::ForOthersWithScenes : CheckMode::ForOthers;
 		std::vector<Diagnostic> errors;
 		const bool recording = !frames.empty();
 		if (recording) {
 			frames.emplace_back(file, Reads());
 		}
-		check(entry.decl, engine, options, errors, *this, false);
+		check(entry.decl, engine, options, errors, *this);
 		checking.erase(file);
 		if (recording) {
 			entry.reads = std::move(frames.back().second);

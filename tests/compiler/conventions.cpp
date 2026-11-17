@@ -259,9 +259,9 @@ public:
 void check_references(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options) {
 	std::vector<Diagnostic> errors;
 	ClassDecl cls = parse(p_source, errors);
-	ScriptClasses classes(p_engine, p_options.project, p_options.declarations_only);
+	ScriptClasses classes(p_engine, p_options.project, p_options.mode == CheckMode::Declarations);
 	std::vector<Reference> references;
-	check(cls, p_engine, p_options, errors, classes, true, &references);
+	check(cls, p_engine, p_options, errors, classes, &references);
 	REQUIRE(errors.empty());
 	const SourceFile &file = *cls.source;
 	std::map<DeclId, std::string> locals;
@@ -281,7 +281,7 @@ void check_references(const std::string &p_source, const EngineApi &p_engine, co
 		const std::string expected = spelling(reference.target);
 		CHECK_MESSAGE((expected.empty() || expected == text), "a reference to ", reference.target.scope, " ", reference.target.name, " is spelled ", text, " in:\n", p_source);
 	}
-	if (p_options.declarations_only) {
+	if (p_options.mode == CheckMode::Declarations) {
 		return; // Without bodies, whose names are not resolved.
 	}
 	const ResolvedNames resolved(cls, file);

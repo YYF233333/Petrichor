@@ -44,7 +44,7 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 	} else {
 		compiler::CompileOptions options;
 		options.path = to_utf8(p_path);
-		options.declarations_only = true;
+		options.mode = compiler::CheckMode::Declarations;
 		// While loading, the compiler asks for no scenes, only classes and sources.
 		options.project = &SceneIndex::get();
 		result = std::make_shared<const compiler::CompileResult>(compiler::compile(to_utf8(p_source), ClassDBApi::get(), options));
@@ -427,7 +427,7 @@ String class_doc_name(const String &p_path) {
 TypedArray<Dictionary> script_documentation(const String &p_path, const String &p_source) {
 	compiler::CompileOptions options;
 	options.path = to_utf8(p_path);
-	options.declarations_only = true;
+	options.mode = compiler::CheckMode::Declarations;
 	options.project = &SceneIndex::get();
 	compiler::ScriptClasses classes(ClassDBApi::get(), options.project, true);
 	compiler::ClassDecl decl;

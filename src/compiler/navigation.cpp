@@ -415,6 +415,7 @@ Completion complete(Analysis &r_analysis, const std::string &p_path, const std::
 	CompileOptions options;
 	options.path = p_path;
 	options.project = classes.get_project();
+	options.mode = CheckMode::Cursor;
 	std::vector<Diagnostic> errors;
 	// An annotation's name at the cursor takes those the parser accepts where
 	// it is, and at a member those of the @export family.
@@ -447,7 +448,7 @@ Completion complete(Analysis &r_analysis, const std::string &p_path, const std::
 	}
 	std::vector<Reference> references;
 	classes.begin_compile(p_path, p_source);
-	check(decl, r_analysis.engine_api(), options, errors, classes, true, &references, &completion);
+	check(decl, r_analysis.engine_api(), options, errors, classes, &references, nullptr, &completion);
 	classes.end_compile();
 	return completion;
 }

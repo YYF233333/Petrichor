@@ -347,7 +347,7 @@ std::string Checker::file_name(const std::string &p_path) {
 const ForeignClass *Checker::foreign_class(const std::string &p_path) const {
 	auto found = foreign_classes.find(p_path);
 	if (found == foreign_classes.end()) {
-		found = foreign_classes.emplace(p_path, options.project ? options.project->foreign_class(p_path, !options.declarations_only) : std::nullopt).first;
+		found = foreign_classes.emplace(p_path, options.project ? options.project->foreign_class(p_path, !loading()) : std::nullopt).first;
 	}
 	return found->second ? &*found->second : nullptr;
 }
@@ -365,7 +365,7 @@ std::optional<Type> Checker::autoload_class(const std::string &p_name, const Tok
 			return script_class_type(*header, path);
 		}
 	} else if (is_scene_file(path)) {
-		if (options.declarations_only) {
+		if (loading()) {
 			return Type::of(TypeKind::Error); // Scenes are not read while loading.
 		}
 		const std::optional<Scene> scene = options.project->scene(path);
@@ -374,7 +374,7 @@ std::optional<Type> Checker::autoload_class(const std::string &p_name, const Tok
 		}
 	} else if (const ForeignClass *foreign = foreign_class(path); foreign && !foreign->native.empty()) {
 		return Type::script_class(p_name, path, foreign->native);
-	} else if (options.declarations_only) {
+	} else if (loading()) {
 		// Without loading it, which only the declarations do not, a script without a global name is not known.
 		return Type::of(TypeKind::Error);
 	}
@@ -417,7 +417,7 @@ Type Checker::localized(Type p_type) {
 // While only the declarations are checked, the members of a class of
 // another language are not known, as the scenes are not.
 Type Checker::unknown_foreign(Expr &r_expr, const Type &p_class) {
-	if (options.declarations_only) {
+	if (loading()) {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	return fail(r_expr, p_class.name + " (" + p_class.script + ") cannot be read.");
@@ -1301,7 +1301,7 @@ bool Checker::declare_class() {
 			}
 			parent = local->declared ? &local->cls : nullptr;
 		} else {
-			parent = classes.declarations(cls.base_script, !options.declarations_only);
+			parent = classes.declarations(cls.base_script, !loading());
 			// A subclass holds all of its base's members, so it needs them all.
 			if (const std::optional<int> line = parent ? classes.first_error(cls.base_script) : std::nullopt) {
 				error(cls.extends_token, "Base script " + cls.base_script + " has errors (line " + std::to_string(*line) + ").");
@@ -1341,7 +1341,7 @@ bool Checker::declare_class() {
 		return false;
 	}
 	// Only a file's class is set on nodes in scenes (spec §4.1).
-	if (options.project && !options.declarations_only && !options.path.empty() && cls.name.empty()) {
+	if (options.project && !loading() && !options.path.empty() && cls.name.empty()) {
 		scenes = classes.scenes_with_script(options.path);
 	}
 	declare_enums();
@@ -1409,14 +1409,14 @@ Checker *FileCheck::find(const std::string &p_path) const {
 	return nullptr;
 }
 
-void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion, std::vector<Diagnostic> *r_warnings, Checker *p_outer) {
-	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completion, r_warnings));
+void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion, Checker *p_outer) {
+	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, r_references, r_warnings, r_completion));
 	Checker *checker = r_file.checkers.back().get();
 	checker->attach(r_file, p_outer);
 	for (std::unique_ptr<ClassDecl> &inner : r_class.classes) {
 		CompileOptions options = p_options;
 		options.path += "::" + inner->name;
-		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, p_check_bodies, r_references, r_completion, r_warnings, checker);
+		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, r_references, r_warnings, r_completion, checker);
 	}
 }
 
@@ -1426,9 +1426,9 @@ namespace petrichor::compiler {
 
 using namespace checking;
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion, std::vector<Diagnostic> *r_warnings) {
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion) {
 	FileCheck file;
-	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, p_check_bodies, r_references, r_completion, r_warnings, nullptr);
+	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, r_references, r_warnings, r_completion, nullptr);
 	r_classes.enter(p_options.path, r_class, [&](const std::string &p_path) -> const ClassDecl * {
 		Checker *checker = file.find(p_path);
 		if (!checker) {
@@ -1443,7 +1443,7 @@ void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &
 	for (const std::unique_ptr<Checker> &checker : file.checkers) {
 		checker->check_function_bodies();
 	}
-	if (!p_options.scene.empty()) {
+	if (p_options.mode == CheckMode::Scene) {
 		r_errors.clear();
 		if (r_references) {
 			r_references->clear();

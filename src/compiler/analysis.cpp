@@ -129,11 +129,11 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 		CompileOptions options;
 		options.path = script;
 		options.project = classes->get_project();
-		options.declarations_only = true;
+		options.mode = CheckMode::Scene;
 		options.scene = p_path;
 		classes->begin_compile(script, *source);
 		std::vector<Reference> references;
-		check(cls, engine, options, errors, *classes, false, &references);
+		check(cls, engine, options, errors, *classes, &references);
 		reads.merge(classes->end_compile());
 		result.references.insert(result.references.end(), references.begin(), references.end());
 		std::stable_sort(errors.begin(), errors.end(), [](const Diagnostic &a, const Diagnostic &b) {

@@ -126,7 +126,7 @@ compiler::CompileResult compile_in(const std::string &p_source, const FakeProjec
 	compiler::CompileOptions options;
 	options.path = "res://test.pet";
 	options.project = &p_project;
-	options.declarations_only = p_declarations_only;
+	options.mode = p_declarations_only ? compiler::CheckMode::Declarations : compiler::CheckMode::Program;
 	check_syntax_conventions(p_source);
 	check_formatting(p_source);
 	compiler::CompileResult result = compiler::compile(p_source, fake_engine(), options);

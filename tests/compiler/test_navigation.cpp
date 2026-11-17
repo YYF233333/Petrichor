@@ -129,7 +129,7 @@ std::vector<compiler::ClassDoc> documentation(const std::string &p_source, const
 	compiler::CompileOptions options;
 	options.path = "res://doc.pet";
 	options.project = &classes;
-	options.declarations_only = true;
+	options.mode = compiler::CheckMode::Declarations;
 	compiler::ScriptClasses scripts(fake_engine(), &classes, true);
 	compiler::ClassDecl decl;
 	const compiler::CompileResult result = compiler::compile(p_source, fake_engine(), options, scripts, decl);

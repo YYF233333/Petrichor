@@ -32,7 +32,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - A fix in another file, as adding `pub` to a declaration there, keeps the current tab. It edits and saves the open buffer, or writes the closed file, so the error goes at once. One action in the editor's history undoes it, as for renaming.
   - The list ends with one item that applies every automatic fix in the file. It makes one pass, skips overlapping ranges, and is one step to undo. Nothing is fixed on save.
   - A condition of type `Variant` gets no fix, and its hint `v != None` goes, since it misses 0, "" and empty values.
-  - Before them, one guard for the checker's tentative queries, kept or dropped whole. Now 13 places cut `errors` and `references` back by hand, which keeps no warnings. A fix such as adding `.unwrap()` is such a query. One mode then replaces the four overlapping switches of `CompileOptions` and the completion pointer.
 - The LSP server, after `$X` (architecture §5, step 8). Its design is set with the owner first.
   - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
   - Map `textDocument/typeDefinition` alongside `definition`.

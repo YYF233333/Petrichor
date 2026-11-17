@@ -671,7 +671,7 @@ void Checker::check_static_declaration(size_t p_index) {
 		return;
 	}
 	Type type = variable.declared_type ? variable.type : Type::of(TypeKind::Error);
-	if (variable.initializer && !(options.declarations_only && variable.declared_type)) {
+	if (variable.initializer && !(loading() && variable.declared_type)) {
 		static_initializing = int(p_index);
 		const Type value = check_value(*variable.initializer, type);
 		static_initializing = -1;
@@ -1095,12 +1095,12 @@ void Checker::check_body(FuncDecl &r_function) {
 		r_function.locals.push_back({ "self", structure_type, r_function.name_token });
 	}
 	declare_params(r_function, true);
-	const size_t cursor = completion ? cls.source->text.find(CURSOR) : 0;
+	const size_t cursor = completion ? cls.source->text.find(CURSOR) : std::string::npos;
 	// Other files use what _init assigns (architecture §6.4), so a check of
-	// the declarations alone checks its body for that, without its errors.
+	// their declarations checks its body for that, without its errors.
 	const bool init = r_function.name == "_init" && !r_function.is_static;
-	const bool for_others = init && !check_bodies;
-	if (!for_others && (options.declarations_only || !check_bodies || (completion && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range))))) {
+	const bool for_others = init && (options.mode == CheckMode::ForOthers || options.mode == CheckMode::ForOthersWithScenes || options.mode == CheckMode::Scene);
+	if (!for_others && options.mode != CheckMode::Program && (cursor < cls.source->begin(r_function.range) || cursor >= cls.source->end(r_function.range))) {
 		function = nullptr;
 		scopes.clear();
 		return;

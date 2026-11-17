@@ -122,7 +122,6 @@ class Checker : public ClassRelation {
 	const EngineApi &engine;
 	const CompileOptions options;
 	std::vector<Diagnostic> &errors;
-	bool check_bodies;
 	ScriptClasses &classes; // The project's other scripts of this language.
 	std::vector<Scene> scenes; // The scenes that use this script, or the one whose check this is.
 	// A node of a scene as the engine builds the scene (spec §7.1), with those
@@ -137,9 +136,7 @@ class Checker : public ClassRelation {
 	std::map<std::string, std::vector<std::string>> loaded_files; // loaded_with(), as found.
 	std::vector<Reference> *references; // Recorded for this file only.
 	std::vector<Diagnostic> *warnings; // Likewise, before @warning_ignore.
-	// What can be written at the cursor (spec §13.2), whose function alone has
-	// its body checked; null when not completing.
-	Completion *completion;
+	Completion *completion; // What CheckMode::Cursor gives; null in any other mode.
 	// Trying a name where completion asks: calls are checked without their
 	// arguments, and give how many the callee takes.
 	bool probing = false;
@@ -288,6 +285,10 @@ class Checker : public ClassRelation {
 	bool sees(const std::string &p_path) const {
 		return in_this_file(p_path) || extends_script(options.path, p_path);
 	}
+
+	// Whether the project is read as while a script loads: for classes and
+	// sources, but no scenes, resources or members of other languages' classes.
+	bool loading() const { return options.mode == CheckMode::Declarations || options.mode == CheckMode::ForOthers || options.mode == CheckMode::Scene; }
 
 	// Whether a bare name reaches the global names: no local, declaration of
 	// this class or of one around it, or member of the engine class it
@@ -1086,8 +1087,8 @@ class Checker : public ClassRelation {
 	void complete_string(const EngineMethod *p_method, size_t p_index, bool p_on_self);
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, bool p_check_bodies, std::vector<Reference> *r_references, Completion *r_completion, std::vector<Diagnostic> *r_warnings) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), check_bodies(p_check_bodies), classes(r_classes), references(r_references), warnings(r_warnings), completion(r_completion) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), classes(r_classes), references(r_references), warnings(r_warnings), completion(p_options.mode == CheckMode::Cursor ? r_completion : nullptr) {}
 
 	void attach(FileCheck &r_file, Checker *p_outer) {
 		file = &r_file;

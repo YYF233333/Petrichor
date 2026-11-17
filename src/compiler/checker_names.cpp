@@ -50,7 +50,7 @@ ConstPtr Checker::constant_value(Expr &r_initializer, const std::optional<TypeRe
 		// While loading, a preload's type is unknown, and so is that of a
 		// container of them; the constant still holds its value, for
 		// GDScript to read (spec §11.3).
-		return options.declarations_only ? loading_value(r_initializer) : nullptr;
+		return loading() ? loading_value(r_initializer) : nullptr;
 	}
 	if (p_declared) {
 		if (r_type.is_error()) {
