@@ -86,6 +86,7 @@ TEST_CASE("@rpc configures how other peers call a method, which they find by nam
 	CHECK(contains(rpc_errors("@rpc(\"any_peer\", \"call_local\", \"reliable\", \"x\")"), "the channel, an int"));
 	CHECK(contains(rpc_errors("@rpc\n@rpc"), "A function takes @rpc once."));
 	CHECK(contains(rpc_errors("@rpc"), "An @rpc function must be pub: other peers call it by name."));
+	CHECK(fixed("extends Node\n@rpc\nfunc f():\n\tpass\n") == "extends Node\n@rpc\npub func f():\n\tpass\n");
 	CHECK(contains(joined(errors_of("extends Node\n@rpc\nvar x := 1\n")), "@rpc applies to functions."));
 	CHECK(contains(rpc_errors("@export"), "@export applies to variables."));
 }

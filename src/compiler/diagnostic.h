@@ -28,7 +28,7 @@ struct Fix {
 	// input; fixing all applies only these (architecture §2.1).
 	bool automatic = false;
 	struct Edit {
-		std::string file; // The script it changes; empty for the script compiled.
+		std::string file; // The script it changes; empty for the one of the diagnostic's range.
 		CheckedEdit change;
 	};
 	std::vector<Edit> edits;

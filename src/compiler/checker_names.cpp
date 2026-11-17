@@ -433,7 +433,7 @@ const EnumDecl *Checker::named_enum(Expr &r_name, bool p_call) {
 		found = checked;
 	}
 	if (const auto refusal = hidden(*found, found->script, [&] { return "The enum " + named->name + "." + found->name + " is not pub."; })) {
-		error(r_name.range, refusal->message);
+		error(r_name.range, *refusal);
 	} else if (const auto message = local ? std::nullopt : broken(found, named->name + "." + found->name)) {
 		error(r_name.range, *message);
 	}
@@ -714,7 +714,7 @@ std::optional<Type> Checker::named_class(Expr &r_base) {
 		const ClassDecl *header = script_header(path);
 		refer(r_base.name_token, script_id(path));
 		if (const auto refusal = hidden(*header, path.substr(0, path.rfind("::")), [&] { return display_name(*header, path) + " is not pub."; })) {
-			error(r_base.range, refusal->message);
+			error(r_base.range, *refusal);
 			return Type::of(TypeKind::Error);
 		}
 		return script_class_type(*header, path);
@@ -767,7 +767,7 @@ std::optional<Type> Checker::class_constant(Expr &r_expr, const std::string &p_p
 	if (const ConstDecl *constant = find_named(decl->all_constants, r_expr.text)) {
 		const std::string &owner = declaring(*decl, *constant, &ClassDecl::constants).path;
 		if (const auto refusal = refused(*constant, owner, "The constant ", p_class, constant->name)) {
-			return fail(r_expr, refusal->message);
+			return fail(r_expr, *refusal);
 		}
 		return use_constant(r_expr, *constant, owner);
 	}
@@ -778,7 +778,7 @@ std::optional<Type> Checker::class_constant(Expr &r_expr, const std::string &p_p
 			continue;
 		}
 		if (const auto refusal = refused(*entry, entry->script, "The constant ", p_class, r_expr.text)) {
-			return fail(r_expr, refusal->message);
+			return fail(r_expr, *refusal);
 		}
 		return use_enum_value(r_expr, *entry, index);
 	}
@@ -818,7 +818,7 @@ std::optional<Type> Checker::class_static(Expr &r_expr, const std::string &p_pat
 		const ClassDecl &owner = declaring(*decl, *variable, &ClassDecl::static_vars);
 		if (const auto refusal = hidden(*variable, owner.path, [&] { return "The static variable \"" + variable->name + "\" of " + p_class + " is not pub."; })) {
 			refer(r_expr.name_token, script_id(owner.path, variable->name));
-			return fail(r_expr, refusal->message);
+			return fail(r_expr, *refusal);
 		}
 		if (const auto message = broken(variable, p_class + "." + variable->name)) {
 			return fail(r_expr, *message);
@@ -1159,7 +1159,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		const VarDecl &member = *entry;
 		const std::string &owner = declaring(*decl, member, &ClassDecl::members).path;
 		if (const auto refusal = refused(member, owner, "", p_class.name, member.name)) {
-			return fail(r_expr, refusal->message);
+			return fail(r_expr, *refusal);
 		}
 		if (member.type.is_error()) {
 			// Typed from the scenes, which are not read for another script, or
@@ -1176,7 +1176,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		const SignalDecl &signal = *entry;
 		// The engine knows every signal a class declares.
 		if (const auto refusal = refused(signal, declaring(*decl, signal, &ClassDecl::signals).path, "The signal ", p_class.name, signal.name)) {
-			return fail(r_expr, refusal->message);
+			return fail(r_expr, *refusal);
 		}
 		r_expr.target = Target::ObjectSignal;
 		r_expr.signal = &signal;
@@ -1187,7 +1187,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		const FuncDecl &function = *entry;
 		const std::string &owner = declaring(*decl, function, &ClassDecl::functions).path;
 		if (const auto refusal = refused(function, owner, "", p_class.name, function.name + "()", function.is_override)) {
-			return fail(r_expr, refusal->message);
+			return fail(r_expr, *refusal);
 		}
 		refer(r_expr.name_token, script_id(owner, function.name));
 		if (function.is_static) {
@@ -1225,7 +1225,7 @@ Type Checker::class_member_value(Expr &r_expr, const std::string &p_path, const 
 			return fail(r_expr, "\"" + function.name + "()\" of " + p_class + " is not static; take it from an object.");
 		}
 		if (const auto refusal = refused(function, owner, "", p_class, function.name + "()")) {
-			return fail(r_expr, refusal->message);
+			return fail(r_expr, *refusal);
 		}
 		refer(r_expr.name_token, script_id(owner, function.name));
 		return static_value(r_expr, function, owner);
@@ -1397,7 +1397,7 @@ std::optional<Type> Checker::script_method(Expr &r_expr, const Type &p_class) {
 		return std::nullopt;
 	}
 	if (const auto refusal = refused(*callee, owner, "", p_class.name, callee->name + "()", callee->is_override)) {
-		return fail_call(r_expr, refusal->message);
+		return fail_call(r_expr, *refusal);
 	}
 	const Type result = call_declared(r_expr, *callee, *source, callee->return_type);
 	refer(r_expr.name_token, id);

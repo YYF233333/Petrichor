@@ -291,6 +291,7 @@ void Checker::check_annotations(VarDecl &r_member) {
 		exported = &annotation;
 		if (!r_member.is_pub) {
 			error(annotation.range, "An exported variable must be pub: the editor and scenes set it by name.");
+			fix(pub_fix(options.path, r_member.name_token));
 		}
 		if (const HintAnnotation *hint = hint_annotation(annotation.name)) {
 			check_hint(r_member, annotation, *hint);
@@ -315,6 +316,7 @@ void Checker::check_rpc(FuncDecl &r_function, const Annotation &p_annotation) {
 	}
 	if (!r_function.is_pub) {
 		error(p_annotation.range, "An @rpc function must be pub: other peers call it by name.");
+		fix(pub_fix(options.path, r_function.name_token));
 	}
 	if (p_annotation.args.size() > 4) {
 		error(p_annotation.range, "@rpc takes at most four arguments.");
@@ -854,6 +856,8 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 	r_fn.is_override = p_base.is_override;
 	if (r_fn.is_pub != p_base.is_pub) {
 		error(r_fn.name_token, "An override must preserve its base method's visibility.");
+		// On the side that lacks it, as the base's other overrides then must.
+		fix(r_fn.is_pub ? pub_fix(declaring(*cls.base, p_base, &ClassDecl::functions).path, p_base.name_token) : pub_fix(options.path, r_fn.name_token));
 	}
 	if (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async) {
 		error(r_fn.name_token, "An override must preserve static and async.");
@@ -1168,8 +1172,8 @@ void Checker::declare_interfaces() {
 				error(ref.range, parent.to_string() + " is not an interface.");
 			} else if (!parent.is_error()) {
 				// It shows the parent's members wherever it is seen (spec §4.2).
-				if (const std::optional<Type> hidden = interface.is_pub ? hidden_part(parent) : std::nullopt) {
-					error(ref.range, hidden->to_string() + " is not pub, but the pub " + interface.name + " extends it.");
+				if (const std::optional<Refusal> hidden = interface.is_pub ? hidden_part(parent, "the pub " + interface.name + " extends it") : std::nullopt) {
+					error(ref.range, *hidden);
 				}
 				interface.parents.push_back(parent);
 			}
@@ -1310,6 +1314,7 @@ void Checker::check_implements() {
 			}
 			if (!function.is_pub) {
 				error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + " and must be pub.");
+				fix(pub_fix(declaring(cls, function, &ClassDecl::functions).path, function.name_token));
 			}
 			if (function.is_static) {
 				error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + ", so it cannot be static.");
@@ -1382,6 +1387,7 @@ void Checker::check_interface_properties() {
 				}
 				if (!provided.is_pub) {
 					error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
+					fix(pub_fix(declaring(cls, provided, &ClassDecl::members).path, provided.name_token));
 				} else if (!provided.type.is_error() && provided.type != required.type) {
 					error(own_name(provided, cls.members, ref->range), "\"" + provided.name + "\" has type " + provided.type.to_string() + ", but " + owner + " requires " + required.type.to_string() + ".");
 				}
@@ -1416,6 +1422,7 @@ void Checker::check_interface_signal(const InterfaceMember &p_member, const Type
 		const std::vector<Type> given = param_types(provided.params);
 		if (!provided.is_pub) {
 			error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
+			fix(pub_fix(declaring(cls, provided, &ClassDecl::signals).path, provided.name_token));
 		} else if (std::none_of(given.begin(), given.end(), [](const Type &p_type) { return p_type.is_error(); }) && given != wanted) {
 			error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" is " + Type::signal(given).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
 		}
@@ -1572,36 +1579,36 @@ std::vector<Type> Checker::held_types(const Type &p_type) {
 
 // The part of a type that is not seen everywhere: a struct, an enum, an
 // interface or an inner class without pub, or one inside a class without
-// it (spec §4.2); nullopt when there is none.
-std::optional<Type> Checker::hidden_part(const Type &p_type) const {
+// it (spec §4.2); nullopt when there is none. The error says that `p_but`.
+std::optional<Checker::Refusal> Checker::hidden_part(const Type &p_type, const std::string &p_but) const {
 	for (const Type &arg : p_type.args) {
-		if (std::optional<Type> part = hidden_part(arg)) {
+		if (std::optional<Refusal> part = hidden_part(arg, p_but)) {
 			return part;
 		}
 	}
 	if (p_type.values && p_type.values->is_engine) {
 		return std::nullopt;
 	}
-	const ClassDecl *header = script_header(p_type.script);
-	const std::string name = p_type.interface_name();
-	bool pub = true;
-	if (header && p_type.kind == TypeKind::Struct) {
-		const StructDecl *decl = header->find_struct(name);
-		pub = !decl || decl->is_pub;
-	} else if (header && (p_type.kind == TypeKind::Enum || p_type.kind == TypeKind::PayloadEnum)) {
-		const EnumDecl *decl = header->find_enum(name);
-		pub = !decl || decl->is_pub;
-	} else if (header && p_type.is_interface) {
-		const auto decl = std::find_if(header->interfaces.begin(), header->interfaces.end(), [&](const InterfaceDecl &p_decl) { return p_decl.name == name; });
-		pub = decl == header->interfaces.end() || decl->is_pub;
-	}
-	for (std::string path = p_type.script; pub && path.find("::") != std::string::npos; path = path.substr(0, path.rfind("::"))) {
-		const ClassDecl *inner = script_header(path);
-		pub = !inner || inner->is_pub;
-	}
 	Type shown = p_type;
 	shown.nullable = false;
-	return pub ? std::nullopt : std::optional<Type>(shown);
+	const auto refusal = [&](const auto *p_decl, const std::string &p_owner) {
+		return p_decl && !p_decl->is_pub ? std::optional<Refusal>(Refusal{ shown.to_string() + " is not pub, but " + p_but + ".", pub_fix(p_owner, p_decl->name_token, p_decl->range) }) : std::nullopt;
+	};
+	const ClassDecl *header = script_header(p_type.script);
+	const std::string name = p_type.interface_name();
+	std::optional<Refusal> found;
+	if (header && p_type.kind == TypeKind::Struct) {
+		found = refusal(header->find_struct(name), p_type.script);
+	} else if (header && (p_type.kind == TypeKind::Enum || p_type.kind == TypeKind::PayloadEnum)) {
+		found = refusal(header->find_enum(name), p_type.script);
+	} else if (header && p_type.is_interface) {
+		const auto decl = std::find_if(header->interfaces.begin(), header->interfaces.end(), [&](const InterfaceDecl &p_decl) { return p_decl.name == name; });
+		found = refusal(decl == header->interfaces.end() ? nullptr : &*decl, p_type.script);
+	}
+	for (std::string path = p_type.script; !found && path.find("::") != std::string::npos; path = path.substr(0, path.rfind("::"))) {
+		found = refusal(script_header(path), path.substr(0, path.rfind("::")));
+	}
+	return found;
 }
 
 // A pub declaration shows the types of its signature wherever it is seen,
@@ -1609,9 +1616,8 @@ std::optional<Type> Checker::hidden_part(const Type &p_type) const {
 void Checker::check_pub_signatures() {
 	const auto check = [&](bool p_pub, uint32_t p_token, const std::string &p_what, const std::vector<Type> &p_types) {
 		for (const Type &type : p_types) {
-			const std::optional<Type> part = p_pub ? hidden_part(type) : std::nullopt;
-			if (part) {
-				error(p_token, part->to_string() + " is not pub, but " + p_what + " shows it.");
+			if (const std::optional<Refusal> part = p_pub ? hidden_part(type, p_what + " shows it") : std::nullopt) {
+				error(TokenRange{ p_token, p_token }, *part);
 				return;
 			}
 		}

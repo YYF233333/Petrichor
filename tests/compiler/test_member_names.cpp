@@ -25,6 +25,20 @@ TEST_CASE("a literal member name is checked on the object's static type, as obje
 	// The engine finds no member that is not pub (spec §10.5).
 	CHECK(contains(errors_in("set_deferred(\"secret\", 3)"), "\"secret\" is not pub, so the engine cannot find it by name; make it pub."));
 	CHECK(contains(errors_in("emit_signal(\"hit\", 1)"), "\"hit\" is not pub, so the engine cannot find it by name; use the signal itself, as hit."));
+	// The fix of a method or a signal of these calls uses it directly, and
+	// otherwise makes it pub.
+	const std::string head = "extends Node2D\n\nsignal hit(amount: int)\nvar secret := 2\n\nfunc reset(n: int):\n\tpass\n\nfunc f() -> void:\n\t";
+	const auto rewritten = [&](const std::string &p_body) {
+		const std::string text = fixed_in(head + p_body + "\n", FakeProject());
+		const std::string kept = "res://test.pet:\n" + head;
+		return text.rfind(kept, 0) == 0 ? text.substr(kept.size()) : text;
+	};
+	CHECK(rewritten("emit_signal(\"hit\", 1)") == "hit.emit(1)\n");
+	CHECK(rewritten("connect(\"hit\", func(amount: int): pass)") == "hit.connect(func(amount: int): pass)\n");
+	CHECK(rewritten("call_deferred(\"reset\", 1)") == "reset.call_deferred(1)\n");
+	CHECK(rewritten("var c := Callable(self, \"reset\")") == "var c := self.reset\n");
+	CHECK(fixed_in(head + "var s := Signal(self, \"hit\")\n", FakeProject()) == "res://test.pet:\nextends Node2D\n\npub signal hit(amount: int)\nvar secret := 2\n\nfunc reset(n: int):\n\tpass\n\nfunc f() -> void:\n\tvar s := Signal(self, \"hit\")\n");
+	CHECK(fixed_in(head + "set_deferred(\"secret\", 3)\n", FakeProject()) == "res://test.pet:\nextends Node2D\n\nsignal hit(amount: int)\npub var secret := 2\n\nfunc reset(n: int):\n\tpass\n\nfunc f() -> void:\n\tset_deferred(\"secret\", 3)\n");
 }
 
 TEST_CASE("a literal member name is dynamic on Object, in a query, and for a property the engine lists per instance") {

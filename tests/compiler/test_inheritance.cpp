@@ -77,6 +77,12 @@ TEST_CASE("inheritance rejects incompatible overrides and member collisions") {
 	const auto errors = [&](const std::string &body) { return messages(compile_in("extends Base\n" + body, p)); };
 	CHECK(contains(errors("func choose(value: Node3D, extra: int = 1) -> Node:\n\treturn value\n"), "visibility"));
 	CHECK(contains(errors("pub func secret() -> int:\n\treturn 1\n"), "visibility"));
+	// The fix adds pub to the side without it, also the base in its file.
+	CHECK(fixed_in("extends Base\nfunc choose(value: Node3D, extra: int = 1) -> Node:\n\treturn value\n", p) == "res://test.pet:\nextends Base\npub func choose(value: Node3D, extra: int = 1) -> Node:\n\treturn value\n");
+	const std::string based = fixed_in("extends Base\npub func secret() -> int:\n\treturn 1\n", p);
+	CHECK(contains(based, "res://base.pet:\nclass_name Base\n"));
+	CHECK(contains(based, "\npub func secret() -> int:\n\treturn hidden\n"));
+	CHECK(based.substr(based.find("res://test.pet:\n")) == "res://test.pet:\nextends Base\npub func secret() -> int:\n\treturn 1\n");
 	CHECK(contains(errors("pub func choose(value: Node3D, extra: int) -> Node:\n\treturn value\n"), "argument count"));
 	CHECK(contains(errors("var hidden: int = 2\n"), "already declared"));
 	CHECK(contains(errors("signal count()\n"), "already declared"));

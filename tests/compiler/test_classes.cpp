@@ -159,7 +159,8 @@ TEST_CASE("a class_name is no name of the engine, the language, an autoload or a
 
 TEST_CASE("members without pub are visible in their own file and subclasses (spec §4.2)") {
 	FakeProject classes = project();
-	classes.add_script("res://door.pet", "class_name Door\nextends Node\n\nsignal opened\npub signal closed\nvar code := 1\n\nfunc knock() -> void:\n\tpass\n\ninterface Lock:\n\tfunc open()\n", "Door");
+	const std::string door = "class_name Door\nextends Node\n\nsignal opened\npub signal closed\nvar code := 1\nenum { SHUT, OPEN }\n\nfunc knock() -> void:\n\tpass\n\nstatic func make() -> void:\n\tpass\n\ninterface Lock:\n\tfunc open()\n";
+	classes.add_script("res://door.pet", door, "Door");
 	const auto with_door = [&](const std::string &p_body) {
 		return messages(compile_in("extends Node\n\nfunc f(d: Door) -> void:\n\t" + p_body + "\n", classes));
 	};
@@ -167,6 +168,18 @@ TEST_CASE("members without pub are visible in their own file and subclasses (spe
 	CHECK(contains(with_door("var s: Signal = d.opened"), "The signal \"opened\" of Door is not pub."));
 	CHECK(contains(with_door("var l: Door.Lock"), "Door.Lock is not pub"));
 	CHECK(contains(with_door("print(d.code)"), "\"code\" of Door is not pub."));
+	// The fix makes it pub where it is declared, before static and the
+	// keyword; an unnamed enum by its keyword.
+	const auto fixed_door = [&](const std::string &p_body, const std::string &p_declared) {
+		const std::string user = "extends Node\n\nfunc f(d: Door) -> void:\n\t" + p_body + "\n";
+		std::string made_pub = door;
+		made_pub.insert(made_pub.find("\n" + p_declared) + 1, "pub ");
+		return std::pair(fixed_in(user, classes), "res://door.pet:\n" + made_pub + "res://test.pet:\n" + user);
+	};
+	for (const auto &[body, declared] : { std::pair("print(d.code)", "var code"), std::pair("print(Door.SHUT)", "enum {"), std::pair("Door.make()", "static func make"), std::pair("var l: Door.Lock? = None", "interface Lock") }) {
+		const auto [fixed, expected] = fixed_door(body, declared);
+		CHECK(fixed == expected);
+	}
 	// Of other instances too, here in a subclass.
 	const compiler::CompileResult sub = compile_in("extends Door\n\nfunc f(other: Door) -> int:\n\tother.knock()\n\tvar s: Signal = other.opened\n\treturn other.code\n", classes);
 	CHECK_MESSAGE(sub.ok(), messages(sub));
@@ -187,6 +200,7 @@ TEST_CASE("a pub declaration shows only pub types (spec §4.2)") {
 	};
 	CHECK(errors_of_class("var coins: Array[Coin] = []\n\nfunc take(lock: Lock) -> Coin:\n\treturn Coin()\n").empty());
 	CHECK(contains(errors_of_class("pub var coins: Array[Coin] = []\n"), "Vault.Coin is not pub, but the pub \"coins\" shows it."));
+	CHECK(fixed_in("class_name Vault\nextends Node\n\nstruct Coin:\n\tvar value: int = 1\n\npub var coins: Array[Coin] = []\n", FakeProject()) == "res://test.pet:\nclass_name Vault\nextends Node\n\npub struct Coin:\n\tvar value: int = 1\n\npub var coins: Array[Coin] = []\n");
 	CHECK(contains(errors_of_class("pub func pick(lock: Lock?) -> void:\n\tpass\n"), "Vault.Lock is not pub, but the pub \"pick()\" shows it"));
 	CHECK(contains(errors_of_class("pub signal turned(state: Hidden)\n"), "is not pub, but the pub signal \"turned\" shows it"));
 	CHECK(contains(errors_of_class("pub func make() -> Badge:\n\treturn Badge.new()\n"), "Vault.Badge is not pub, but the pub \"make()\" shows it"));

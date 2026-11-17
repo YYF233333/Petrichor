@@ -703,6 +703,7 @@ void Checker::check_named_members() {
 			const bool lacking = named.method ? !member.found || member.is_virtual : !member.found && !static_var && !takes_any && named.name.find('/') == std::string::npos;
 			if (member.hidden) {
 				error_in_scene(own_name(member, header), scene, node->path, where + not_pub(named.method));
+				fix(pub_fix(member.id.scope, member.name_token));
 			} else if (lacking) {
 				error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
 			}
@@ -747,6 +748,7 @@ void Checker::check_connections() {
 			const TokenRange at = own_name(method, header);
 			if (method.hidden) {
 				error_in_scene(at, scene, connection.target, where + not_pub(true));
+				fix(pub_fix(method.id.scope, method.name_token));
 			}
 			if (function && references) {
 				Reference reference;
@@ -761,6 +763,7 @@ void Checker::check_connections() {
 				error_in_scene(header, scene, connection.target, where + ", but " + connection.source + " has no such signal.");
 			} else if (signal.hidden) {
 				error_in_scene(header, scene, connection.target, where + ", but that signal is not pub; the engine connects only pub signals by name.");
+				fix(pub_fix(signal.id.scope, signal.name_token));
 			}
 			if (!signal.found || signal.unknown) {
 				continue;

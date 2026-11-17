@@ -451,9 +451,21 @@ std::optional<Checker::NamedMember> Checker::literal_member(Expr &r_call, const 
 		return unresolved();
 	}
 	if (member.hidden) {
-		const std::string fix = p_named.kind == Kind::Method ? "pass the method itself, as " + name : p_named.kind == Kind::Signal ? "use the signal itself, as " + name
-																																   : "make it pub";
-		error(literal.range, "\"" + name + (p_named.kind == Kind::Method ? "()" : "") + "\" is not pub, so the engine cannot find it by name; " + fix + ".");
+		const std::string advice = p_named.kind == Kind::Method ? "pass the method itself, as " + name : p_named.kind == Kind::Signal ? "use the signal itself, as " + name
+																																	  : "make it pub";
+		error(literal.range, "\"" + name + (p_named.kind == Kind::Method ? "()" : "") + "\" is not pub, so the engine cannot find it by name; " + advice + ".");
+		// The method value or the signal itself, where the call has a shape
+		// whose rewrite is known; otherwise pub.
+		const std::string &called = r_call.text;
+		const bool on_object = p_named.target < 0 && p_named.index == 0 && r_call.name_token < cls.source->tokens.size() && (called == "call" || called == "call_deferred" || called == "emit_signal" || called == "connect");
+		if (p_named.kind != Kind::Property && sees(member.id.scope) && on_object) {
+			const std::string rest = r_call.args.size() > 1 ? cls.source->text_of({ r_call.args[1]->range.first, r_call.args.back()->range.last }) : std::string();
+			fix({ { { r_call.name_token, r_call.range.last }, name + "." + (called == "emit_signal" ? "emit" : called) + "(" + rest + ")" } }, true);
+		} else if (p_named.kind == Kind::Method && sees(member.id.scope) && called == "Callable" && !r_call.base) {
+			fix({ { r_call.range, operand(*r_call.args[0]) + "." + name } }, true);
+		} else {
+			fix(pub_fix(member.id.scope, member.name_token));
+		}
 		return std::nullopt;
 	}
 	refer_string(literal, member.id, first, name.size());
@@ -1368,26 +1380,26 @@ Type Checker::tried_result(const EngineMethod &p_method, const EngineMethod &p_g
 bool Checker::find_init(Expr &r_expr, const ClassDecl &p_header, const std::string &p_path, const FuncDecl *&r_init) {
 	const std::string class_name = display_name(p_header, p_path);
 	const std::string native = script_class_type(p_header, p_path).engine_class();
-	std::string refused;
+	Refusal refusal;
 	const ClassDecl *decl = script_decl(p_path);
 	if (p_header.is_abstract) {
-		refused = class_name + " is abstract and cannot be instantiated.";
+		refusal.message = class_name + " is abstract and cannot be instantiated.";
 	} else if (!engine.can_instantiate(native)) {
-		refused = class_name + " cannot be instantiated: the engine cannot instantiate " + native + ", which it extends.";
+		refusal.message = class_name + " cannot be instantiated: the engine cannot instantiate " + native + ", which it extends.";
 	} else if (!decl) {
-		refused = class_name + " has errors.";
+		refusal.message = class_name + " has errors.";
 	} else {
 		r_init = init_of(*decl);
 		if (const auto hidden_init = r_init ? hidden(*r_init, declaring(*decl, *r_init, &ClassDecl::functions).path, [&] { return "new() of " + class_name + " cannot be called here: its _init() is not pub."; }) : std::nullopt) {
-			refused = hidden_init->message;
+			refusal = *hidden_init;
 		} else if (const auto message = r_init ? broken(r_init, class_name + "._init()") : std::nullopt) {
-			refused = *message;
+			refusal.message = *message;
 		}
 	}
-	if (!refused.empty()) {
-		fail_call(r_expr, refused);
+	if (!refusal.message.empty()) {
+		fail_call(r_expr, refusal);
 	}
-	return refused.empty();
+	return refusal.message.empty();
 }
 
 // `Class.new()` or a static method of a class of this language, through its
@@ -1430,7 +1442,7 @@ Type Checker::check_class_call(Expr &r_expr, const std::string &p_path) {
 	const ClassDecl &owner = declaring(*decl, callee, &ClassDecl::functions);
 	// A bare name is one the class around this one sees (spec §4.1).
 	if (const auto refusal = refused(callee, owner.path, "", class_name, callee.name + "()", !r_expr.base)) {
-		return fail_call(r_expr, refusal->message);
+		return fail_call(r_expr, *refusal);
 	}
 	const Type result = call_declared(r_expr, callee, *owner.source, callee.return_type);
 	refer(r_expr.name_token, script_id(owner.path, callee.name));
@@ -1634,7 +1646,7 @@ void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_in
 		r_call.member_types.push_back(member.type);
 		const Type type = check_value(value, member.type);
 		if (const auto refusal = hidden(member, declared_in, [&] { return "\"" + name + "\" of " + p_made.to_string() + " is not pub."; })) {
-			error(value.range, refusal->message);
+			error(value.range, *refusal);
 		} else if (!member.must_assign) {
 			error(value.range, "\"" + name + "\" has a value of its own; by name, " + r_call.text + "(...) takes only members that must be assigned.");
 		} else if (!given.insert(name).second) {
@@ -1650,7 +1662,7 @@ void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_in
 		if (member->is_export) {
 			error(r_call.range, "instantiate() needs " + member->name + " = ..., an export of " + p_made.to_string() + " that must be assigned and " + p_scene->path + " does not assign.");
 		} else if (const auto refusal = hidden(*member, declaring(*decl, *member, &ClassDecl::members).path, [&] { return "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value."; })) {
-			error(r_call.range, refusal->message);
+			error(r_call.range, *refusal);
 		} else {
 			error(r_call.range, "instantiate() needs " + member->name + " = ..., a member of " + p_made.to_string() + " that must be assigned and the scene cannot.");
 		}

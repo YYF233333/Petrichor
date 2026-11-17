@@ -35,6 +35,48 @@ void Checker::fix(const std::vector<Write> &p_writes, bool p_automatic) {
 	errors.back().fixes.push_back(std::move(fix));
 }
 
+// The fix that writes pub before the declaration whose name is token
+// `p_name` of the file of the class at `p_owner`: after its annotations,
+// before static, async and its keyword; for an unnamed enum (`p_name` 0),
+// before the enum keyword in `p_range`. It is automatic, as pub is
+// reversible and GDScript sees every member (spec §1.2).
+Fix Checker::pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range) const {
+	const std::string path = script_file(p_owner);
+	const SourceFile &source = *script_header(path)->source;
+	uint32_t at = p_name - 1;
+	if (p_name == 0) {
+		for (at = p_range.first; source.tokens[at].kind != TokenKind::Enum; at++) {
+		}
+	}
+	while (at > 0 && (source.tokens[at - 1].kind == TokenKind::Static || is_word(source.tokens[at - 1], "async"))) {
+		at--;
+	}
+	const Token &token = source.tokens[at];
+	const std::string text = source.text.substr(token.offset, token.length);
+	Fix fix;
+	fix.title = p_name == 0 ? std::string("Make the enum pub") : "Make \"" + source.tokens[p_name].text + "\" pub";
+	fix.automatic = true;
+	fix.edits.push_back({ in_this_file(path) ? std::string() : path, { token.offset, token.end(), text, "pub " + text } });
+	return fix;
+}
+
+void Checker::error(const TokenRange &p_range, const Refusal &p_refusal) {
+	error(p_range, p_refusal.message);
+	if (p_refusal.pub) {
+		fix(*p_refusal.pub);
+	}
+}
+
+Type Checker::fail(Expr &r_expr, const Refusal &p_refusal) {
+	error(r_expr.range, p_refusal);
+	return set(r_expr, Type::of(TypeKind::Error));
+}
+
+Type Checker::fail_call(Expr &r_call, const Refusal &p_refusal) {
+	fail_call(r_call);
+	return fail(r_call, p_refusal);
+}
+
 // The tokens of `p_range` inside the parentheses around them, if any.
 TokenRange Checker::unparenthesized(TokenRange p_range) const {
 	const std::vector<Token> &tokens = cls.source->tokens;
@@ -371,7 +413,7 @@ Type Checker::class_value(Expr &r_expr, const std::string &p_path) {
 	refer(r_expr.name_token, script_id(p_path));
 	const size_t inner = p_path.rfind("::");
 	if (const auto refusal = inner == std::string::npos ? std::nullopt : hidden(*header, p_path.substr(0, inner), [&] { return display_name(*header, p_path) + " is not pub."; })) {
-		return fail(r_expr, refusal->message);
+		return fail(r_expr, *refusal);
 	}
 	r_expr.target = Target::ClassScript;
 	r_expr.owner = p_path;
@@ -726,7 +768,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		header = script_header(path);
 		refer(token(i), script_id(path));
 		if (const auto refusal = hidden(*header, path.substr(0, path.rfind("::")), written_not_pub)) {
-			error(p_ref.range, refusal->message);
+			error(p_ref.range, *refusal);
 			return Type::of(TypeKind::Error);
 		}
 		if (i + 1 == names.size()) {
@@ -741,7 +783,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 	for (const InterfaceDecl &interface : header->interfaces) {
 		if (interface.name == inner) {
 			if (const auto refusal = hidden(interface, path, written_not_pub)) {
-				error(p_ref.range, refusal->message);
+				error(p_ref.range, *refusal);
 				return Type::of(TypeKind::Error);
 			}
 			if (const auto message = broken(&interface, display_name(*header, path) + "." + inner)) {
@@ -754,7 +796,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 	}
 	if (const StructDecl *found = header->find_struct(inner)) {
 		if (const auto refusal = hidden(*found, path, written_not_pub)) {
-			error(p_ref.range, refusal->message);
+			error(p_ref.range, *refusal);
 			return Type::of(TypeKind::Error);
 		}
 		// As checked, unless that check is under way, as when two files'
@@ -776,7 +818,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 			return Type::of(TypeKind::Error);
 		}
 		if (const auto refusal = hidden(*found, path, written_not_pub)) {
-			error(p_ref.range, refusal->message);
+			error(p_ref.range, *refusal);
 			return Type::of(TypeKind::Error);
 		}
 		if (const auto message = broken(found, display_name(*header, path) + "." + inner)) {

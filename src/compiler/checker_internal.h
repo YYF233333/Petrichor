@@ -287,12 +287,11 @@ class Checker : public ClassRelation {
 		return in_this_file(p_path) || extends_script(options.path, p_path);
 	}
 
-	// Why code here cannot use a declaration, and the declaration to make pub
-	// when that is why: its file, and the token of its name there.
+	// Why code here cannot use a declaration, and the fix that makes it pub
+	// when that is why.
 	struct Refusal {
 		std::string message;
-		std::string file; // Empty for another reason.
-		uint32_t name_token = NO_TOKEN;
+		std::optional<Fix> pub;
 	};
 
 	// A declaration of the class at `p_owner` that code here does not see:
@@ -303,7 +302,7 @@ class Checker : public ClassRelation {
 		if (p_decl.is_pub || p_seen || sees(p_owner)) {
 			return std::nullopt;
 		}
-		return Refusal{ p_message(), script_file(p_owner), p_decl.name_token };
+		return Refusal{ p_message(), pub_fix(p_owner, p_decl.name_token, p_decl.range) };
 	}
 
 	// Why the declaration `p_name` of the class `p_class` cannot be used here:
@@ -717,6 +716,11 @@ class Checker : public ClassRelation {
 	void warn(const TokenRange &p_range, const char *p_warning, const std::string &p_message);
 	using Write = std::pair<TokenRange, std::string>; // Text that a fix writes over tokens.
 	void fix(const std::vector<Write> &p_writes, bool p_automatic);
+	void fix(Fix p_fix) { errors.back().fixes.push_back(std::move(p_fix)); }
+	Fix pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range = TokenRange()) const;
+	void error(const TokenRange &p_range, const Refusal &p_refusal);
+	Type fail(Expr &r_expr, const Refusal &p_refusal);
+	Type fail_call(Expr &r_call, const Refusal &p_refusal);
 	TokenRange unparenthesized(TokenRange p_range) const;
 	std::string operand(const Expr &p_expr) const;
 	void fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check);
@@ -1103,7 +1107,7 @@ class Checker : public ClassRelation {
 	static std::vector<std::pair<std::string, const VarDecl *>> value_fields(const ClassDecl &p_header, const std::string &p_name);
 	bool holds(const ClassDecl &p_decl, const std::string &p_path, const std::string &p_name, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen);
 	static std::vector<Type> held_types(const Type &p_type);
-	std::optional<Type> hidden_part(const Type &p_type) const;
+	std::optional<Refusal> hidden_part(const Type &p_type, const std::string &p_but) const;
 	void check_pub_signatures();
 	void check_engine_options();
 	void declare_signals();

@@ -53,7 +53,13 @@ std::string hud_errors(const std::string &p_body, const FakeProject &p_project =
 
 TEST_CASE("a method connected in a scene must be pub, since the engine finds it by name (spec §10.5)") {
 	CHECK(check_scenes_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout")).errors.empty());
-	CHECK(contains(messages(check_scenes_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout"))), "is connected to _on_timer_timeout(), which is not pub; the engine calls only pub methods by name."));
+	const compiler::CompileResult hidden = check_scenes_in("extends Node3D\n\nfunc _on_timer_timeout():\n\tpass\n", timer_scene("_on_timer_timeout"));
+	CHECK(contains(messages(hidden), "is connected to _on_timer_timeout(), which is not pub; the engine calls only pub methods by name."));
+	// Its fix edits the script the error is in.
+	REQUIRE(hidden.errors.size() == 1);
+	REQUIRE(hidden.errors[0].fixes.size() == 1);
+	CHECK(hidden.errors[0].fixes[0].edits[0].file.empty());
+	CHECK(hidden.errors[0].fixes[0].edits[0].change.new_text == "pub func");
 	// Except an override of an engine virtual, which the engine calls by its name.
 	CHECK(check_scenes_in("extends Node3D\n\nfunc _ready():\n\tpass\n", timer_scene("_ready")).errors.empty());
 }
@@ -66,6 +72,7 @@ TEST_CASE("a method the engine is to call by a literal name must be pub (spec §
 	CHECK(contains(errors(""), "\"reset()\" is not pub, so the engine cannot find it by name; pass the method itself, as reset."));
 	// Through an object of this class too.
 	CHECK(contains(errors(""), "\"stop()\" is not pub"));
+	CHECK(fixed_in("extends Node\n\nfunc _ready():\n\tvar me := self\n\tme.call_deferred(\"stop\")\n\nfunc stop():\n\tpass\n", FakeProject()) == "res://test.pet:\nextends Node\n\nfunc _ready():\n\tvar me := self\n\tme.stop.call_deferred()\n\nfunc stop():\n\tpass\n");
 }
 
 TEST_CASE("scene connections are checked against the class (spec §7.7)") {
@@ -122,16 +129,28 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 
 TEST_CASE("a signal declared by a script of this language is checked like the engine's (spec §4.7, §7.7)") {
 	// main.tscn of the FPS starter kit connects the player's health_updated to the HUD.
-	const auto connected = [](const std::string &p_signal, const std::string &p_handler, const std::string &p_visibility = "pub ") {
+	const auto checked = [](const std::string &p_signal, const std::string &p_handler, const std::string &p_visibility) {
 		FakeProject project = hud_scene();
 		project.add_script("res://player.pet", "extends Node3D\n" + p_visibility + "signal health_updated(health: int)\n");
 		project.scenes[0].nodes[1].instance_script = "res://player.pet";
 		project.scenes[0].connections = { { p_signal, "Player", "HUD", "_on_health_updated", 0, 0 } };
-		return messages(check_scenes_in("extends CanvasLayer\n\npub func _on_health_updated(" + p_handler + "):\n\tpass\n", project));
+		return check_scenes_in("extends CanvasLayer\n\npub func _on_health_updated(" + p_handler + "):\n\tpass\n", project);
+	};
+	const auto connected = [&](const std::string &p_signal, const std::string &p_handler, const std::string &p_visibility = "pub ") {
+		return messages(checked(p_signal, p_handler, p_visibility));
 	};
 	CHECK(connected("health_updated", "health: int").empty());
 	// The engine connects it by name (spec §10.5).
 	CHECK(contains(connected("health_updated", "health: int", ""), "is connected to _on_health_updated(), but that signal is not pub; the engine connects only pub signals by name."));
+	// The fix of the error in the HUD's script makes the player's signal pub.
+	const compiler::CompileResult hidden = checked("health_updated", "health: int", "");
+	REQUIRE(hidden.errors.size() == 1);
+	CHECK(hidden.errors[0].file == "res://test.pet");
+	REQUIRE(hidden.errors[0].fixes.size() == 1);
+	CHECK(hidden.errors[0].fixes[0].automatic);
+	CHECK(hidden.errors[0].fixes[0].edits[0].file == "res://player.pet");
+	CHECK(hidden.errors[0].fixes[0].edits[0].change.old_text == "signal");
+	CHECK(hidden.errors[0].fixes[0].edits[0].change.new_text == "pub signal");
 	CHECK(contains(connected("health_updated", "health: String"), "which passes int here"));
 	CHECK(contains(connected("health_updated", ""), "which passes 1 argument(s); _on_health_updated() takes 0."));
 	CHECK(contains(connected("health_changed", "health: int"), "res://main.tscn: the signal \"health_changed\" of Player is connected to _on_health_updated(), but Player has no such signal."));
