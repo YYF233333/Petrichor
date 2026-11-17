@@ -40,12 +40,18 @@ TEST_CASE("a class names the constants and enums of its engine base by bare name
 	const auto typed = compile(in_function("var mode: ProcessMode = PROCESS_MODE_ALWAYS\nvar again := ProcessMode(0)\nprint(mode == again)\nvar NOTIFICATION_PREDELETE := \"a local first\"\nprint(NOTIFICATION_PREDELETE.length())"));
 	REQUIRE_MESSAGE(typed.ok(), messages(typed));
 	CHECK(!errors_of(in_function("print(PROCESS_MODE_ALWAYS)", "func f() -> void:", "RefCounted")).empty());
-	const std::string taken = "is already a constant of Node, which this class extends.";
-	CHECK(has_error("extends Node\nconst NOTIFICATION_PREDELETE = 2\n", "\"NOTIFICATION_PREDELETE\" " + taken));
-	CHECK(has_error("extends Node\nvar PROCESS_MODE_ALWAYS := 1\n", taken));
-	CHECK(has_error("extends Node\nenum { PROCESS_MODE_INHERIT }\n", taken));
-	CHECK(has_error("extends Node\nsignal NOTIFICATION_PREDELETE\n", taken));
-	CHECK(errors_of("extends RefCounted\nconst PROCESS_MODE_ALWAYS = 9\n").empty());
+	// So it declares nothing by those names, or by those of its properties
+	// and signals, or as script.
+	const std::string taken = " of Node2D, which this class extends.";
+	CHECK(errors_of("extends Node2D\nconst NOTIFICATION_PREDELETE = 2\n") == std::vector<std::string>{ "2:7: \"NOTIFICATION_PREDELETE\" is already a constant" + taken });
+	CHECK(has_error("extends Node2D\nvar PROCESS_MODE_ALWAYS := 1\n", "is already a constant" + taken));
+	CHECK(has_error("extends Node2D\nenum { PROCESS_MODE_INHERIT, owner }\n", "\"owner\" is already a property" + taken));
+	CHECK(has_error("extends Node2D\nenum ProcessMode { A }\n", "is already an enum" + taken));
+	CHECK(has_error("extends Node2D\npub var position := Vector2.ZERO\n", "is already a property" + taken));
+	CHECK(has_error("extends Node2D\nstatic var ready := 1\n", "is already a signal" + taken));
+	CHECK(errors_of("extends Node2D\nsignal ready\n") == std::vector<std::string>{ "2:8: \"ready\" is already a signal" + taken });
+	CHECK(has_error("extends Node2D\nclass script:\n\tpass\n", "\"script\" is already a property" + taken));
+	CHECK(errors_of("extends RefCounted\nconst PROCESS_MODE_ALWAYS = 9\nvar position := 1\nsignal ready\n").empty());
 	// In an inner class, GDScript takes the name of a class around it first.
 	const std::string ambiguous = "extends RefCounted\nconst PROCESS_MODE_ALWAYS = 9\nclass Inner extends Node:\n\tfunc f() -> int:\n\t\treturn PROCESS_MODE_ALWAYS\n";
 	INFO(messages(compile(ambiguous)));

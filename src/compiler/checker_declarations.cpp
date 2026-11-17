@@ -933,13 +933,28 @@ void Checker::check_implemented() {
 	}
 }
 
-// The class names the constants of the engine class it extends bare, so
-// it declares nothing else by their names, as in GDScript
+// The class names the properties, signals, constants and enums of the
+// engine class it extends bare, and the engine sets and gets an object's
+// members by name asking its script first, so it declares nothing else by
+// their names or as script, as in GDScript
 // (modules/gdscript/gdscript_analyzer.cpp:255-276; spec §4.1).
-void Checker::check_engine_constant_names() {
+void Checker::check_engine_base_names() {
+	const auto kind = [&](const std::string &p_name) -> const char * {
+		// Object lists script apart from ClassDB (core/object/object.cpp:518; ed1daf0).
+		if (p_name == "script" || engine.find_property(cls.native_base, p_name)) {
+			return "a property";
+		}
+		if (engine.find_signal(cls.native_base, p_name)) {
+			return "a signal";
+		}
+		if (engine.find_constant(cls.native_base, p_name)) {
+			return "a constant";
+		}
+		return engine.find_enum(cls.native_base, p_name) ? "an enum" : nullptr;
+	};
 	const auto check = [&](const std::string &p_name, uint32_t p_token) {
-		if (!p_name.empty() && engine.find_constant(cls.native_base, p_name)) {
-			error(p_token, "\"" + p_name + "\" is already a constant of " + cls.native_base + ", which this class extends.");
+		if (const char *taken = p_name.empty() ? nullptr : kind(p_name)) {
+			error(p_token, "\"" + p_name + "\" is already " + taken + " of " + cls.native_base + ", which this class extends.");
 		}
 	};
 	for (const VarDecl &member : cls.members) {
@@ -1716,7 +1731,7 @@ void Checker::check_engine_options() {
 void Checker::declare_signals() {
 	for (size_t i = 0; i < cls.signals.size(); i++) {
 		SignalDecl &signal = cls.signals[i];
-		if (name_taken(signal.name) || engine.find_signal(cls.native_base, signal.name)) {
+		if (name_taken(signal.name)) {
 			error(signal.name_token, "\"" + signal.name + "\" is already declared.");
 			continue;
 		}

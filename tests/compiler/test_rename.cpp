@@ -548,7 +548,7 @@ TEST_CASE("candidates by name come last and start unchecked") {
 TEST_CASE("renaming is refused when the new name is not a name, or the edits change what the scripts mean") {
 	Project project;
 	project.add_script("res://unit.pet",
-			"extends Node\n\n"
+			"extends Node2D\n\n"
 			"pub var speed := 1.0\n"
 			"pub var pace := 2.0\n\n\n"
 			"func f():\n"
@@ -561,6 +561,7 @@ TEST_CASE("renaming is refused when the new name is not a name, or the edits cha
 	}
 	// Two members of one name.
 	CHECK(contains(refusals(renamed(project, "res://unit.pet", "speed", "pace")), "res://unit.pet:4: After renaming: "));
+	CHECK(contains(refusals(renamed(project, "res://unit.pet", "speed", "position")), "res://unit.pet:3: After renaming: \"position\" is already a property of Node2D"));
 	// The local would take the member's place.
 	CHECK(refusals(renamed(project, "res://unit.pet", "step", "speed")) == "res://unit.pet:9: After renaming, the name here refers to another declaration.\n");
 	CHECK(refusals(renamed(project, "res://unit.pet", "_ready", "_start")) == "res://unit.pet:12: It overrides a method that the engine or another language calls by this name.\n");

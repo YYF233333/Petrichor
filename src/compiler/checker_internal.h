@@ -1087,7 +1087,7 @@ class Checker : public ClassRelation {
 	void declare_function(const FuncDecl &p_function, const std::optional<DeclId> &p_overrides);
 	void check_abstract(const FuncDecl &p_function);
 	void check_implemented();
-	void check_engine_constant_names();
+	void check_engine_base_names();
 	void refuse_new(const FuncDecl &p_function);
 	void check_signature(FuncDecl &r_function);
 	void declare_params(FuncDecl &r_function, bool p_defaults = false);
