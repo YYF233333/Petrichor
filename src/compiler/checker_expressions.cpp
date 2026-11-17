@@ -656,7 +656,7 @@ Type Checker::check_lambda(Expr &r_expr, const Type &p_expected) {
 		returns = &inferred;
 	}
 
-	enclosing.push_back({ function, std::move(scopes), std::move(narrowed), &r_expr, loop_depth, in_predelete, initializing, initializing_onready, static_initializing });
+	enclosing.push_back({ function, std::move(scopes), std::move(narrowed), &r_expr, loop_depth, in_predelete, initializing, initializing_onready, static_initializing, p_expected });
 	function = &lambda;
 	scopes = { {} };
 	narrowed = { {} };
@@ -1324,10 +1324,38 @@ Type Checker::check_task_join(Expr &r_expr) {
 	return set(r_expr, Type::task(Type::of(any ? TypeKind::Int : TypeKind::Void)));
 }
 
+// Gives the error reported last the fix that makes the function being
+// checked async (spec §9.1), as GDScript's with an await is a coroutine. It
+// is automatic when the signature checks as async: as a method, or where
+// the lambda goes.
+void Checker::fix_async() {
+	FuncDecl &declared = *function;
+	const uint32_t keyword = declared.is_lambda && declared.name.empty() ? declared.name_token : declared.name_token - 1;
+	bool fits = false;
+	if (declared.is_lambda) {
+		const Type &to = enclosing.back().expected;
+		fits = to.kind != TypeKind::Function || to.is_async;
+	} else if (!completion) {
+		const ClassScope scope(*this);
+		const Tentative tried(*this);
+		declared.is_async = true;
+		check_signature(declared);
+		declared.is_async = false;
+		fits = tried.clean() && declared.accessor_of.empty() && std::none_of(cls.interface_methods.begin(), cls.interface_methods.end(), [&](const FuncDecl *p_method) {
+			return p_method->name == declared.name && !p_method->is_async;
+		});
+	}
+	fix({ { { keyword, keyword }, "async func" } }, fits);
+}
+
 Type Checker::check_await(Expr &r_expr) {
 	const std::string refused = no_await();
 	if (!refused.empty()) {
-		return fail(r_expr, refused);
+		const Type failed = fail(r_expr, refused);
+		if (!in_assert && !in_predelete && function && initializing < 0) {
+			fix_async();
+		}
+		return failed;
 	}
 	Expr &operand = *r_expr.left;
 	operand.awaited = true;

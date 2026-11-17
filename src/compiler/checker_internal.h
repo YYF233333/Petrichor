@@ -199,6 +199,7 @@ class Checker : public ClassRelation {
 		int initializing;
 		bool initializing_onready;
 		int static_initializing;
+		Type expected; // What its lambda goes to, if known.
 	};
 	std::vector<Enclosing> enclosing;
 	// The return type of a lambda without one, as its return statements give it.
@@ -932,6 +933,7 @@ class Checker : public ClassRelation {
 	Type check_cast(Expr &r_expr);
 	Type check_super(Expr &r_expr);
 	std::string no_await() const;
+	void fix_async();
 	Type check_task_function(Expr &r_expr);
 	Type check_task_join(Expr &r_expr);
 	Type check_await(Expr &r_expr);

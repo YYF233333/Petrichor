@@ -4,6 +4,8 @@
 #include "conventions.h"
 #include "fake_engine.h"
 
+#include <set>
+
 namespace petrichor::tests {
 
 const compiler::EngineApi &fake_engine() {
@@ -169,24 +171,59 @@ std::vector<std::string> errors_of(const std::string &p_source) {
 	return result;
 }
 
-std::string fixed(const std::string &p_source, const std::string &p_title) {
-	for (const compiler::Diagnostic &error : compile(p_source).errors) {
+// The automatic fix of the first error that has one, or the fix titled
+// `p_title`, with its edits last first; nullopt without one.
+static std::optional<std::vector<compiler::Fix::Edit>> chosen_fix(const compiler::CompileResult &p_result, const std::string &p_title) {
+	for (const compiler::Diagnostic &error : p_result.errors) {
 		for (const compiler::Fix &fix : error.fixes) {
-			if (p_title.empty() ? !fix.automatic : fix.title != p_title) {
-				continue;
+			if (p_title.empty() ? fix.automatic : fix.title == p_title) {
+				std::vector<compiler::Fix::Edit> edits = fix.edits;
+				std::sort(edits.begin(), edits.end(), [](const compiler::Fix::Edit &p_a, const compiler::Fix::Edit &p_b) { return p_a.change.begin > p_b.change.begin; });
+				return edits;
 			}
-			std::vector<compiler::Fix::Edit> edits = fix.edits;
-			std::sort(edits.begin(), edits.end(), [](const compiler::Fix::Edit &p_a, const compiler::Fix::Edit &p_b) { return p_a.change.begin > p_b.change.begin; });
-			std::string text = p_source;
-			for (const compiler::Fix::Edit &edit : edits) {
-				CHECK(edit.file.empty());
-				CHECK(text.substr(edit.change.begin, edit.change.end - edit.change.begin) == edit.change.old_text);
-				text.replace(edit.change.begin, edit.change.end - edit.change.begin, edit.change.new_text);
-			}
-			return text + messages(compile(text));
 		}
 	}
-	return "no such fix";
+	return std::nullopt;
+}
+
+static void apply(const compiler::CheckedEdit &p_edit, std::string &r_text) {
+	CHECK(r_text.substr(p_edit.begin, p_edit.end - p_edit.begin) == p_edit.old_text);
+	r_text.replace(p_edit.begin, p_edit.end - p_edit.begin, p_edit.new_text);
+}
+
+std::string fixed(const std::string &p_source, const std::string &p_title) {
+	const std::optional<std::vector<compiler::Fix::Edit>> edits = chosen_fix(compile(p_source), p_title);
+	if (!edits) {
+		return "no such fix";
+	}
+	std::string text = p_source;
+	for (const compiler::Fix::Edit &edit : *edits) {
+		CHECK(edit.file.empty());
+		apply(edit.change, text);
+	}
+	return text + messages(compile(text));
+}
+
+std::string fixed_in(const std::string &p_source, FakeProject p_project, const std::string &p_title) {
+	const std::string test = "res://test.pet";
+	p_project.add_script(test, p_source);
+	const std::optional<std::vector<compiler::Fix::Edit>> edits = chosen_fix(compile_in(p_source, p_project), p_title);
+	if (!edits) {
+		return "no such fix";
+	}
+	std::set<std::string> changed = { test };
+	for (const compiler::Fix::Edit &edit : *edits) {
+		changed.insert(edit.file.empty() ? test : edit.file);
+		apply(edit.change, p_project.sources[edit.file.empty() ? test : edit.file]);
+	}
+	std::string text;
+	for (const std::string &file : changed) {
+		compiler::CompileOptions options;
+		options.path = file;
+		options.project = &p_project;
+		text += file + ":\n" + p_project.sources[file] + messages(compiler::compile(p_project.sources[file], fake_engine(), options));
+	}
+	return text;
 }
 
 std::string joined(const std::vector<std::string> &p_lines) {

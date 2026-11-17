@@ -179,6 +179,9 @@
   - Godot 的协程另有一个主人，即运行它的对象，对象会被显式释放。两个主人只在一种情形下冲突：等待方的对象释放了，子任务的对象还活着。
   - GDScript 中这时子任务照常跑完，同一写法须与它一致。归属的用处都来自主动取消，所以对象释放引起的取消不传播。
 - **协程与信号（§9.1–§9.7）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 979 个 lambda 有 35 个含 `await`（33 个在 `gdUnit4` 测试中），v2 的 3,518 个中有 125 个（11 库）。重入与释放暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。v2 使用多参数信号结果增至 24 处（9 库，15 处接收者签名静态已知，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
+- **协程的快速修复（§9.1）**：
+  - GDScript 中含 `await` 的函数本就是协程，所以补上 `async` 自动应用。签名不能是 async 时不自动应用，如 `_init`、访问器和覆盖非 async 的方法。
+  - GDScript 中作为语句调用的协程独自运行，所以 `.detach()` 排在第一并自动应用。`await` 排在第二，因为它改为等待。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
 - **`float` 实参的快速修复（§10.3）**：只在期望类型为 `float` 处自动应用。GDScript 的 `min`、`max` 和 `clamp` 返回选中的实参本身，类型也随它，如 `str(min(1.5, 1))` 得 `"1"`。
 - **引擎 API 的 `Result` 版本（§10.3）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `FileAccess.open` 有 125 处调用，只有 21 处随后读取错误。改变原 API 的返回类型，迁移来的每处调用都要改写。所以 `try_` 版本另加，原 API 不变。独立的模块多一个全局名字，用户在 `FileAccess` 下也找不到。

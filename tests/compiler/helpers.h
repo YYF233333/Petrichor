@@ -81,6 +81,10 @@ std::vector<std::string> errors_of(const std::string &p_source);
 // one, or the fix titled `p_title`, and gives the text after it followed by
 // its errors as messages() gives them; "no such fix" without one.
 std::string fixed(const std::string &p_source, const std::string &p_title = std::string());
+// The same for res://test.pet in `p_project`, whose other scripts its edits
+// may change: each file it changes and res://test.pet, by path, after its
+// path and a colon, followed by its errors.
+std::string fixed_in(const std::string &p_source, FakeProject p_project, const std::string &p_title = std::string());
 
 std::string joined(const std::vector<std::string> &p_lines);
 

@@ -877,6 +877,11 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			r_stmt.value->discarded = r_stmt.value->kind != ExprKind::Try;
 			if (check_expr(*r_stmt.value).kind == TypeKind::Task) {
 				error(r_stmt.range, "An async call must be awaited, stored or explicitly detached with detach().");
+				if (!r_stmt.value->type.nullable) {
+					// GDScript runs a coroutine called as a statement on its own.
+					fix({ { r_stmt.value->range, operand(*r_stmt.value) + ".detach()" } }, true);
+					fix({ { r_stmt.value->range, "await " + cls.source->text_of(r_stmt.value->range) } }, false);
+				}
 			} else if (r_stmt.value->type.is_result()) {
 				error(r_stmt.range, "A Result cannot be discarded: handle its error, or ignore it with .ok().");
 			}

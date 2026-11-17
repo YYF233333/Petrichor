@@ -464,6 +464,9 @@ TEST_CASE("implements: the class has every method of the interface, pub, not sta
 	CHECK(contains(header("\nfunc damage(amount: float):\n\tpass"), "implements Combat.Damageable and must be pub"));
 	CHECK(contains(header("\npub static func damage(amount: float):\n\tpass"), "\"damage()\" implements Combat.Damageable, so it cannot be static."));
 	CHECK(contains(header("\npub func damage(amount: int):\n\tpass"), "does not have the signature that Combat.Damageable declares, func(float)."));
+	const std::string awaits = "extends Node3D implements Combat.Damageable\n\npub func damage(amount: float):\n\tawait ready\n";
+	CHECK(fixed_in(awaits, project()) == "no such fix");
+	CHECK(contains(fixed_in(awaits, project(), "Write async func"), "does not have the signature that Combat.Damageable declares, func(float)."));
 	CHECK(contains(messages(compile_in("extends Node implements Weapon\n", project())), "Weapon is not an interface."));
 	// Open until function types have optional parameters (spec §3.9).
 	CHECK(has_error("extends Node\n\ninterface Gun:\n\tfunc fire(times: int = 3)\n", "Interface methods have no default values."));

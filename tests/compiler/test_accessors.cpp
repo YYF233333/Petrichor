@@ -50,6 +50,9 @@ TEST_CASE("named accessors are functions of the class with the property's type")
 	CHECK(contains(errors("func set_y(value: String):\n\tpass"), "As the setter of \"y\", set_y() takes one argument of type int and returns nothing."));
 	CHECK(contains(errors(""), "The setter set_y() is not a function of this class."));
 	CHECK(contains(errors("async func set_y(value: int):\n\tpass"), "A setter runs on the object, so it is not static, and not async: writing the member does not wait for it."));
+	const std::string awaits = "extends Node\nvar y: int: set = set_y\n\nfunc set_y(value: int):\n\tawait ready\n";
+	CHECK(fixed(awaits) == "no such fix");
+	CHECK(contains(fixed(awaits, "Write async func"), "A setter runs on the object"));
 	CHECK(contains(messages(compile("extends Node\nvar y: int = 0:\n\tset(a):\n\t\tpass\n\tset(b):\n\t\tpass\n")), "The property already has a setter."));
 	CHECK(contains(messages(compile("extends Node\nvar y: int: get = get_y\n\nfunc get_y() -> String:\n\treturn \"\"\n")), "takes no argument and returns int"));
 }
