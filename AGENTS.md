@@ -14,7 +14,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 - A design proposal shows:
   - what users see, in two or three concrete code examples;
   - what GDScript does, with engine citations, giving bugs of GDScript or the engine sane semantics instead of copying them;
-  - for tools and the runtime, also what mature implementations do, without assuming GDScript's is best;
+  - for a component that mature languages or tools also have, how their implementations work and what problems they hit. Research it from their source and docs before choosing, beyond what users see. Don't assume GDScript's is best;
   - whether it stays consistent with the defaults around it and allows what GDScript allows;
   - where it crosses freed objects, the time before ready, `await` and cancellation, the engine boundary, scene inheritance and hot reload. Each case with no obvious result is a script of five lines or fewer, checked against the spec's guarantees. It is decided as Workflow says, and becomes a test;
   - the cost of doing it now against later.
