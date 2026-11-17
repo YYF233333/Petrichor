@@ -117,16 +117,6 @@ std::optional<std::string> Checker::broken(const void *p_decl, const std::string
 	return p_what + " has errors (" + found->first + ", line " + std::to_string(found->second) + ").";
 }
 
-// Why the declaration `p_name` of the class `p_class` cannot be used here:
-// not pub where it is not seen (spec §4.2), named as `p_kind` and its
-// name, or with errors.
-std::optional<std::string> Checker::refused(const void *p_decl, bool p_visible, const std::string &p_kind, const std::string &p_class, const std::string &p_name) const {
-	if (!p_visible) {
-		return p_kind + "\"" + p_name + "\" of " + p_class + " is not pub.";
-	}
-	return broken(p_decl, p_class + "." + p_name);
-}
-
 // The message for a name that the class at `p_script` lacks, which a
 // syntax error there or in a class it extends may have lost.
 std::string Checker::missing(std::string p_message, const std::string &p_script) const {
@@ -288,8 +278,8 @@ Type Checker::class_value(Expr &r_expr, const std::string &p_path) {
 	}
 	refer(r_expr.name_token, script_id(p_path));
 	const size_t inner = p_path.rfind("::");
-	if (inner != std::string::npos && !header->is_pub && !sees(p_path.substr(0, inner))) {
-		return fail(r_expr, display_name(*header, p_path) + " is not pub.");
+	if (const auto refusal = inner == std::string::npos ? std::nullopt : hidden(*header, p_path.substr(0, inner), [&] { return display_name(*header, p_path) + " is not pub."; })) {
+		return fail(r_expr, refusal->message);
 	}
 	r_expr.target = Target::ClassScript;
 	r_expr.owner = p_path;
@@ -629,6 +619,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		error(p_ref.range, head + " (" + path + ") cannot be read.");
 		return Type::of(TypeKind::Error);
 	}
+	const auto written_not_pub = [&] { return p_ref.name + " is not pub."; };
 	// The inner classes down to the last name (spec §4.1).
 	for (size_t i = 1; i < names.size(); i++) {
 		const std::string inner = inner_class_path(path, names[i]);
@@ -642,8 +633,8 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		path = inner;
 		header = script_header(path);
 		refer(token(i), script_id(path));
-		if (!header->is_pub && !sees(path.substr(0, path.rfind("::")))) {
-			error(p_ref.range, p_ref.name + " is not pub.");
+		if (const auto refusal = hidden(*header, path.substr(0, path.rfind("::")), written_not_pub)) {
+			error(p_ref.range, refusal->message);
 			return Type::of(TypeKind::Error);
 		}
 		if (i + 1 == names.size()) {
@@ -657,8 +648,8 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 	const uint32_t at = token(names.size() - 1);
 	for (const InterfaceDecl &interface : header->interfaces) {
 		if (interface.name == inner) {
-			if (!interface.is_pub && !sees(path)) {
-				error(p_ref.range, p_ref.name + " is not pub.");
+			if (const auto refusal = hidden(interface, path, written_not_pub)) {
+				error(p_ref.range, refusal->message);
 				return Type::of(TypeKind::Error);
 			}
 			if (const auto message = broken(&interface, display_name(*header, path) + "." + inner)) {
@@ -670,8 +661,8 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		}
 	}
 	if (const StructDecl *found = header->find_struct(inner)) {
-		if (!found->is_pub && !sees(path)) {
-			error(p_ref.range, p_ref.name + " is not pub.");
+		if (const auto refusal = hidden(*found, path, written_not_pub)) {
+			error(p_ref.range, refusal->message);
 			return Type::of(TypeKind::Error);
 		}
 		// As checked, unless that check is under way, as when two files'
@@ -692,8 +683,8 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 			error(p_ref.range, display_name(*header, path) + " (" + path + ") has errors.");
 			return Type::of(TypeKind::Error);
 		}
-		if (!found->is_pub && !sees(path)) {
-			error(p_ref.range, p_ref.name + " is not pub.");
+		if (const auto refusal = hidden(*found, path, written_not_pub)) {
+			error(p_ref.range, refusal->message);
 			return Type::of(TypeKind::Error);
 		}
 		if (const auto message = broken(found, display_name(*header, path) + "." + inner)) {

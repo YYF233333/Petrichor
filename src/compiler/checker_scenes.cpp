@@ -671,6 +671,7 @@ Type Checker::resource_type(const Expr &p_preload, const std::string &p_path, co
 // left to the engine at run time.
 void Checker::check_named_members() {
 	const TokenRange header{ cls.extends_token, cls.extends_token };
+	const Type self = script_class_type(cls, options.path);
 	const bool takes_any = function_index.count("_set") || function_index.count("_get");
 	for (const Scene &scene : scenes) {
 		for (const SceneNamedMember &named : scene.named_members) {
@@ -691,32 +692,18 @@ void Checker::check_named_members() {
 					references->push_back(std::move(reference));
 				}
 			};
-			if (named.method) {
-				const auto found = function_index.find(named.name);
-				const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
-				const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, named.name);
-				if (method) {
-					refer_named(script_id(declaring(cls, *method, &ClassDecl::functions).path, method->name));
-				}
-				if (method && !method->is_pub && !method->is_override) {
-					error_in_scene(own_name(*method, cls.functions, header), scene, node->path, where + not_pub(true));
-				} else if (!method && (!native || native->is_virtual)) {
-					error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
-				}
-				continue;
-			}
-			const auto found = member_index.find(named.name);
-			const VarDecl *member = found == member_index.end() ? nullptr : cls.all_members[found->second];
-			const auto static_found = member ? static_index.end() : static_index.find(named.name);
-			const VarDecl *static_var = static_found == static_index.end() ? nullptr : cls.all_static_vars[static_found->second];
-			if (member) {
-				refer_named(script_id(declaring(cls, *member, &ClassDecl::members).path, member->name));
+			const NamedMember member = named_member(self, named.method ? builtin::MemberName::Kind::Method : builtin::MemberName::Kind::Property, named.name);
+			const bool declared = member.id.kind == DeclId::Kind::Script;
+			const VarDecl *static_var = named.method || declared ? nullptr : find_named(cls.all_static_vars, named.name);
+			if (declared) {
+				refer_named(member.id);
 			} else if (static_var) {
 				refer_named(script_id(declaring(cls, *static_var, &ClassDecl::static_vars).path, static_var->name));
 			}
-			if (member && !member->is_pub) {
-				error_in_scene(own_name(*member, cls.members, header), scene, node->path, where + not_pub(false));
-			} else if (!member && !static_var && !takes_any && named.name.find('/') == std::string::npos && !engine.find_property(cls.native_base, named.name)) {
+			const bool lacking = named.method ? !member.found || member.is_virtual : !member.found && !static_var && !takes_any && named.name.find('/') == std::string::npos;
+			if (member.hidden) {
+				error_in_scene(own_name(member, header), scene, node->path, where + not_pub(named.method));
+			} else if (lacking) {
 				error_in_scene(header, scene, node->path, where + ", which this class does not declare.");
 			}
 		}
@@ -730,15 +717,17 @@ void Checker::check_named_members() {
 // so both must be pub (§10.5). A method of the engine class that is not
 // virtual is found so too.
 void Checker::check_connections() {
+	using Kind = builtin::MemberName::Kind;
 	const TokenRange header{ cls.extends_token, cls.extends_token };
+	const Type self = script_class_type(cls, options.path);
 	for (const Scene &scene : scenes) {
 		for (const SceneConnection &connection : scene.connections) {
 			const ViewNode *source = view_node(scene, connection.source);
 			const bool sends = source && (source->node.script.empty() ? source->node.instance_script : source->node.script) == options.path;
-			const SignalDecl *signal = sends ? find_named(cls.all_signals, connection.signal) : nullptr;
-			if (signal && references) {
+			const NamedMember sent = sends ? named_member(self, Kind::Signal, connection.signal) : NamedMember();
+			if (sent.id.kind == DeclId::Kind::Script && references) {
 				Reference reference;
-				reference.target = script_id(declaring(cls, *signal, &ClassDecl::signals).path, signal->name);
+				reference.target = sent.id;
 				reference.scene = scene.path;
 				reference.node = connection.source;
 				reference.connection = connection;
@@ -749,54 +738,49 @@ void Checker::check_connections() {
 				continue;
 			}
 			const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";
-			const auto found = function_index.find(connection.method);
-			const FuncDecl *method = found == function_index.end() ? nullptr : cls.all_functions[found->second];
-			const std::optional<EngineMethod> native = method ? std::nullopt : engine.find_method(cls.native_base, connection.method);
-			if (!method && (!native || native->is_virtual)) {
+			const NamedMember method = named_member(self, Kind::Method, connection.method);
+			if (!method.found || method.is_virtual) {
 				error_in_scene(header, scene, connection.target, where + ", which this class does not declare.");
 				continue;
 			}
-			const TokenRange at = method ? own_name(*method, cls.functions, header) : header;
-			if (method && !method->is_pub) {
+			const FuncDecl *function = method.function;
+			const TokenRange at = own_name(method, header);
+			if (function && !function->is_pub) {
 				error_in_scene(at, scene, connection.target, where + not_pub(true));
 			}
-			if (method && references) {
+			if (function && references) {
 				Reference reference;
-				reference.target = script_id(declaring(cls, *method, &ClassDecl::functions).path, method->name);
+				reference.target = method.id;
 				reference.scene = scene.path;
 				reference.node = connection.target;
 				reference.connection = connection;
 				references->push_back(std::move(reference));
 			}
-			bool missing = false;
-			bool hidden = false;
-			const std::optional<std::vector<Type>> arguments = source ? signal_arguments(source->node, connection.signal, missing, hidden) : std::nullopt;
-			if (missing) {
+			const NamedMember signal = source ? node_signal(source->node, connection.signal) : NamedMember();
+			if (source && !signal.found && engine.class_exists(source->node.type)) {
 				error_in_scene(header, scene, connection.target, where + ", but " + connection.source + " has no such signal.");
-			} else if (hidden) {
+			} else if (signal.hidden) {
 				error_in_scene(header, scene, connection.target, where + ", but that signal is not pub; the engine connects only pub signals by name.");
 			}
-			if (!arguments) {
+			if (!signal.found || signal.unknown) {
 				continue;
 			}
-			const int passed = int(arguments->size()) - connection.unbinds + connection.binds;
-			const int most = int(method ? method->params.size() : native->params.size());
-			const int required = method ? required_params(*method) : most - native->default_count;
-			const bool rest = method ? method->has_rest() : native->is_vararg;
-			if (passed < required || (!rest && passed > most)) {
-				error_in_scene(at, scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + connection.method + "() takes " + argument_count(required, most, rest) + ".");
+			const std::vector<Type> &arguments = signal.params;
+			const int passed = int(arguments.size()) - connection.unbinds + connection.binds;
+			const int most = int(method.params.size());
+			if (passed < method.required || (!method.rest && passed > most)) {
+				error_in_scene(at, scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + connection.method + "() takes " + argument_count(method.required, most, method.rest.has_value()) + ".");
 				continue;
 			}
-			for (int i = 0; i < int(arguments->size()) - connection.unbinds; i++) {
-				std::optional<Type> param = method ? argument_type(*method, size_t(i)) : std::nullopt;
+			for (int i = 0; i < int(arguments.size()) - connection.unbinds; i++) {
 				// The rest of a vararg engine method are Variant.
-				if (!method && i < most) {
-					param = native->params[i].type;
+				std::optional<Type> param = function ? method.rest : std::nullopt;
+				if (i < most) {
+					param = method.params[i];
 				}
-				if (param && param->is_storable() && !assignable((*arguments)[i], *param)) {
-					const bool own = method && is_own(*method, cls.functions);
-					const ParamDecl *named = own ? &method->params[std::min(size_t(i), method->params.size() - 1)] : nullptr;
-					error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : header, scene, connection.target, where + ", which passes " + (*arguments)[i].to_string() + " here.");
+				if (param && param->is_storable() && !assignable(arguments[i], *param)) {
+					const ParamDecl *named = function && method.id.scope == options.path ? &function->params[std::min(size_t(i), function->params.size() - 1)] : nullptr;
+					error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : header, scene, connection.target, where + ", which passes " + arguments[i].to_string() + " here.");
 				}
 			}
 		}
@@ -836,32 +820,17 @@ void Checker::check_attached() {
 	});
 }
 
-// What a signal of a node in a scene passes: one its script of this
-// language declares (spec §4.7), or one of its engine class. nullopt when
-// that is not known: a script of another language, or one with errors;
-// `r_missing` when the node certainly has no such signal, `r_hidden` when
-// it is not pub.
-std::optional<std::vector<Type>> Checker::signal_arguments(const SceneNode &p_node, const std::string &p_signal, bool &r_missing, bool &r_hidden) {
+// A signal of a node in a scene: one its script of this language declares
+// (spec §4.7), or one of its engine class. Unknown for a script of another
+// language, or one with errors.
+Checker::NamedMember Checker::node_signal(const SceneNode &p_node, const std::string &p_signal) {
 	const std::string &script = p_node.script.empty() ? p_node.instance_script : p_node.script;
-	if (!script.empty() && !is_script_path(script)) {
-		return std::nullopt;
+	if (!script.empty() && (!is_script_path(script) || !script_decl(script))) {
+		NamedMember unknown;
+		unknown.found = unknown.unknown = true;
+		return unknown;
 	}
-	if (!script.empty()) {
-		const ClassDecl *decl = script_decl(script);
-		if (!decl) {
-			return std::nullopt;
-		}
-		if (const SignalDecl *signal = find_named(decl->all_signals, p_signal)) {
-			r_hidden = !signal->is_pub;
-			return param_types(signal->params);
-		}
-	}
-	const auto signal = engine.find_signal(p_node.type, p_signal);
-	if (!signal) {
-		r_missing = engine.class_exists(p_node.type);
-		return std::nullopt;
-	}
-	return signal_type(*signal).args;
+	return named_member(script.empty() ? Type::object(p_node.type) : Type::script_class(script, script, p_node.type), builtin::MemberName::Kind::Signal, p_signal);
 }
 
 /* Scene requirements and stored exports (spec §7) */

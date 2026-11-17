@@ -286,6 +286,36 @@ class Checker : public ClassRelation {
 		return in_this_file(p_path) || extends_script(options.path, p_path);
 	}
 
+	// Why code here cannot use a declaration, and the declaration to make pub
+	// when that is why: its file, and the token of its name there.
+	struct Refusal {
+		std::string message;
+		std::string file; // Empty for another reason.
+		uint32_t name_token = NO_TOKEN;
+	};
+
+	// A declaration of the class at `p_owner` that code here does not see:
+	// not pub, outside its file and subclasses (spec §4.2), and not
+	// `p_seen` for another reason. `p_message()` says why.
+	template <typename T, typename Message>
+	std::optional<Refusal> hidden(const T &p_decl, const std::string &p_owner, const Message &p_message, bool p_seen = false) const {
+		if (p_decl.is_pub || p_seen || sees(p_owner)) {
+			return std::nullopt;
+		}
+		return Refusal{ p_message(), script_file(p_owner), p_decl.name_token };
+	}
+
+	// Why the declaration `p_name` of the class `p_class` cannot be used here:
+	// hidden, named as `p_kind` and its name, or with errors.
+	template <typename T>
+	std::optional<Refusal> refused(const T &p_decl, const std::string &p_owner, const std::string &p_kind, const std::string &p_class, const std::string &p_name, bool p_seen = false) const {
+		if (std::optional<Refusal> refusal = hidden(p_decl, p_owner, [&] { return p_kind + "\"" + p_name + "\" of " + p_class + " is not pub."; }, p_seen)) {
+			return refusal;
+		}
+		const std::optional<std::string> message = broken(&p_decl, p_class + "." + p_name);
+		return message ? std::optional<Refusal>(Refusal{ *message }) : std::nullopt;
+	}
+
 	// Whether the project is read as while a script loads: for classes and
 	// sources, but no scenes, resources or members of other languages' classes.
 	bool loading() const { return options.mode == CheckMode::Declarations || options.mode == CheckMode::ForOthers || options.mode == CheckMode::Scene; }
@@ -599,17 +629,26 @@ class Checker : public ClassRelation {
 		return receiver_kept(r_expr.base.get(), r_expr.range);
 	}
 
-	// The member of a class a literal name refers to (spec §10.4).
+	// The member of a class a literal name or a scene refers to (spec §7.7,
+	// §10.4).
 	struct NamedMember {
 		bool found = false;
 		bool unknown = false; // Of another language's class whose members are not known here.
 		bool hidden = false; // Of this language and not pub.
+		bool is_virtual = false; // A method of the engine that only an override implements.
 		DeclId id;
+		uint32_t name_token = NO_TOKEN; // Of one of this language, in its declaration in the file of `id`.
+		const FuncDecl *function = nullptr; // A method of this language.
 		Type type = Type::of(TypeKind::Error); // A property's, or Error.
 		std::vector<Type> params; // A method's or a signal's.
 		int required = 0; // A method's.
 		std::optional<Type> rest; // What a method takes after `params`, when it takes more.
 	};
+
+	// Where to report a member of this class: as own_name().
+	TokenRange own_name(const NamedMember &p_member, const TokenRange &p_otherwise) const {
+		return p_member.id.scope == options.path ? TokenRange{ p_member.name_token, p_member.name_token } : p_otherwise;
+	}
 
 	static int option_depth(const Type &p_type) {
 		return p_type.kind == TypeKind::Option ? 1 + option_depth(p_type.args[0]) : 0;
@@ -681,7 +720,6 @@ class Checker : public ClassRelation {
 	const ClassDecl *script_decl(const std::string &p_path) const;
 	const ClassDecl *script_header(const std::string &p_path) const;
 	std::optional<std::string> broken(const void *p_decl, const std::string &p_what) const;
-	std::optional<std::string> refused(const void *p_decl, bool p_visible, const std::string &p_kind, const std::string &p_class, const std::string &p_name) const;
 	std::string missing(std::string p_message, const std::string &p_script) const;
 	std::string display_name(const ClassDecl &p_decl, const std::string &p_path) const;
 	std::string inner_class_path(const std::string &p_path, const std::string &p_name) const;
@@ -832,7 +870,7 @@ class Checker : public ClassRelation {
 	void check_connections();
 	void for_each_attached(const std::function<void(const std::string &, const std::string &)> &p_check);
 	void check_attached();
-	std::optional<std::vector<Type>> signal_arguments(const SceneNode &p_node, const std::string &p_signal, bool &r_missing, bool &r_hidden);
+	NamedMember node_signal(const SceneNode &p_node, const std::string &p_signal);
 	void declare_requirement(const std::optional<TypeRef> &p_ref, Type &r_type, const std::string &p_annotation);
 	void for_each_placement(const std::function<void(const Scene &, const SceneNode &)> &p_check);
 	void check_required(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const SceneNode &p_node, const Type &p_required, const std::string &p_what, const std::string &p_annotation);

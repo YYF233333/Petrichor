@@ -10,8 +10,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - One struct for the checker's mutable context, saved and restored whole, and one per-function state for lowering. About 70 lines less.
   - Now seven places of the checker save parts of its context.
   - Lowering also gets one setup path for methods and lambdas (`src/compiler/lower.cpp`).
-- The scene checks find members through `named_member()`, as the checks of literal names do. About 50 lines less. Now `check_named_members()`, `check_connections()` and `signal_arguments()` look them up themselves (`src/compiler/checker_scenes.cpp`).
-  - With it, one visibility check returning the message and the hidden declaration. Now 19 places test `is_pub` themselves, and the quick fix that adds `pub` would hang on each.
 - Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
   - A design proposal comes first. The stored format changes, and the editor would run the initializers of constants in scripts without `@tool`.
   - It must land before the bytecode format gets its version, with Mod (architecture §6.1).

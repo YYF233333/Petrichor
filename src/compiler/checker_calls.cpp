@@ -284,6 +284,8 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 		out.found = true;
 		out.hidden = !p_function.is_pub && !p_function.is_override;
 		out.id = script_id(p_owner, p_function.name);
+		out.name_token = p_function.name_token;
+		out.function = &p_function;
 		out.params = param_types(p_function.params);
 		out.required = required_params(p_function);
 		if (p_function.has_rest()) {
@@ -293,6 +295,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 	};
 	const auto from_engine = [&](const EngineMethod &p_method, const DeclId &p_id) {
 		out.found = true;
+		out.is_virtual = p_method.is_virtual;
 		out.id = p_id;
 		const std::vector<Type> signal = p_kind == Kind::Signal ? signal_type(p_method).args : std::vector<Type>();
 		for (size_t i = 0; i < p_method.params.size(); i++) {
@@ -330,6 +333,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 					out.found = true;
 					out.hidden = !member->is_pub;
 					out.id = script_id(declaring(*decl, *member, &ClassDecl::members).path, member->name);
+					out.name_token = member->name_token;
 					out.type = member->type;
 					return out;
 				}
@@ -342,6 +346,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 				out.found = true;
 				out.hidden = !signal->is_pub;
 				out.id = script_id(declaring(*decl, *signal, &ClassDecl::signals).path, signal->name);
+				out.name_token = signal->name_token;
 				out.params = param_types(signal->params);
 				return out;
 			}
@@ -1353,8 +1358,8 @@ bool Checker::find_init(Expr &r_expr, const ClassDecl &p_header, const std::stri
 		refused = class_name + " has errors.";
 	} else {
 		r_init = init_of(*decl);
-		if (r_init && !r_init->is_pub && !sees(declaring(*decl, *r_init, &ClassDecl::functions).path)) {
-			refused = "new() of " + class_name + " cannot be called here: its _init() is not pub.";
+		if (const auto hidden_init = r_init ? hidden(*r_init, declaring(*decl, *r_init, &ClassDecl::functions).path, [&] { return "new() of " + class_name + " cannot be called here: its _init() is not pub."; }) : std::nullopt) {
+			refused = hidden_init->message;
 		} else if (const auto message = r_init ? broken(r_init, class_name + "._init()") : std::nullopt) {
 			refused = *message;
 		}
@@ -1404,8 +1409,8 @@ Type Checker::check_class_call(Expr &r_expr, const std::string &p_path) {
 	}
 	const ClassDecl &owner = declaring(*decl, callee, &ClassDecl::functions);
 	// A bare name is one the class around this one sees (spec §4.1).
-	if (const auto message = refused(&callee, callee.is_pub || !r_expr.base || sees(owner.path), "", class_name, callee.name + "()")) {
-		return fail_call(r_expr, *message);
+	if (const auto refusal = refused(callee, owner.path, "", class_name, callee.name + "()", !r_expr.base)) {
+		return fail_call(r_expr, refusal->message);
 	}
 	const Type result = call_declared(r_expr, callee, *owner.source, callee.return_type);
 	refer(r_expr.name_token, script_id(owner.path, callee.name));
@@ -1608,8 +1613,8 @@ void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_in
 		refer(r_call.member_name_tokens[i], script_id(declared_in, name));
 		r_call.member_types.push_back(member.type);
 		const Type type = check_value(value, member.type);
-		if (!member.is_pub && !sees(declared_in)) {
-			error(value.range, "\"" + name + "\" of " + p_made.to_string() + " is not pub.");
+		if (const auto refusal = hidden(member, declared_in, [&] { return "\"" + name + "\" of " + p_made.to_string() + " is not pub."; })) {
+			error(value.range, refusal->message);
 		} else if (!member.must_assign) {
 			error(value.range, "\"" + name + "\" has a value of its own; by name, " + r_call.text + "(...) takes only members that must be assigned.");
 		} else if (!given.insert(name).second) {
@@ -1624,8 +1629,8 @@ void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_in
 		}
 		if (member->is_export) {
 			error(r_call.range, "instantiate() needs " + member->name + " = ..., an export of " + p_made.to_string() + " that must be assigned and " + p_scene->path + " does not assign.");
-		} else if (!member->is_pub && !sees(declaring(*decl, *member, &ClassDecl::members).path)) {
-			error(r_call.range, "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value.");
+		} else if (const auto refusal = hidden(*member, declaring(*decl, *member, &ClassDecl::members).path, [&] { return "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value."; })) {
+			error(r_call.range, refusal->message);
 		} else {
 			error(r_call.range, "instantiate() needs " + member->name + " = ..., a member of " + p_made.to_string() + " that must be assigned and the scene cannot.");
 		}
