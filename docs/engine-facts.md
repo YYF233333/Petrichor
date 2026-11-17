@@ -157,7 +157,7 @@
 | GDScript 中不写 `extends` 的内部类继承 RefCounted，`extends` 可以写在类体第一行 | `modules/gdscript/gdscript_analyzer.cpp:425-429`；`modules/gdscript/gdscript_parser.cpp:974-980` | §2.1、§4.1 |
 | GDScript 的内部类按裸名解析外层类的常量、enum 和内部类，不解析其静态函数和静态变量 | `modules/gdscript/gdscript_analyzer.cpp:4229, 4249, 4270-4271` | §4.1、§4.8 |
 | GDScript 中的裸名先在本类、脚本基类和外层类中找。然后在原生基类的属性、方法、信号、enum 和整数常量中找。类型中的裸名也可以是原生基类的 enum | `modules/gdscript/gdscript_analyzer.cpp:332-343, 837-839, 4185-4275, 4333-4385` | §4.1、§4.8 |
-| GDScript 中类的变量、常量、信号、enum、enum 值和内部类与引擎类或内置类型同名是编译错误。局部变量和参数与它们同名只给出警告，函数名不检查 | `modules/gdscript/gdscript_analyzer.cpp:276-285, 1787, 2237, 2251, 6124-6150` | §4.1 |
+| GDScript 中类的变量、常量、信号、enum、enum 值和内部类与引擎类或内置类型同名是编译错误。局部变量和参数与它们同名只给出警告，函数名不检查 | `modules/gdscript/gdscript_analyzer.cpp:276-285, 1787, 2237, 2251, 2388, 2493, 6124-6150` | §4.1 |
 | GDScript 中类的变量、常量、信号、enum、enum 值和内部类与原生基类的信号、属性或整数常量同名是编译错误，名为 `script` 也是 | `modules/gdscript/gdscript_analyzer.cpp:255-276, 1050, 1110, 1121, 1151, 1216, 1232, 1250` | §4.1 |
 | GDScript 的内部类是单独的脚本，没有资源路径和全局名，列在外层类的常量中 | `modules/gdscript/gdscript.cpp:1082-1084`；`modules/gdscript/gdscript_parser.h:778-780`；`modules/gdscript/gdscript_compiler.cpp:3003` | §4.1、§10.5 |
 | GDScript 的内部类中不能写 `class_name`、`@tool`、`@icon` 和 `@static_unload` | `modules/gdscript/gdscript_parser.cpp:146-149, 1215, 1859-1861` | §4.1 |
