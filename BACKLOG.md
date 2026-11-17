@@ -82,6 +82,9 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 ## Editor
 
 - Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Done when someone asks for it.
+- Scenes embedded in a scene file, as a built-in PackedScene in a node's property. The scene index does not read their nodes (`src/adapter/editor/scene_index.cpp`, `read_resources`). So checks and find references miss the values those nodes store. A rename leaves such a value under the old name, and the engine drops it silently. Corpus v2 has two such files, one storing `timer = 1.0` (Super Mario Bros. Remastered, `LitBobOmb.tscn`).
+  - Candidates: refuse the rename, as for binary files, or rewrite the value. The value's name sits in the `names` table of `_bundled`, which node names share.
+  - Godot 4.8 writes such a scene's nodes as sections of the file that holds it. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
