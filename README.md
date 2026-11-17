@@ -52,7 +52,7 @@ Other differences:
 - Value-type `struct`, `enum` with payloads, exhaustive `match`, interfaces and nested typed containers.
 - `async func` returns an owned `Task`. When its owner is freed, the coroutine is cancelled. Whoever awaits it gets a cancellation or a program error instead of hanging forever.
 - It mixes with GDScript plugins and C# code.
-- The editor has completion, hover types, go to definition, find references, formatting, breakpoints and hot reload of function bodies.
+- The editor has completion, hover types, go to definition, find references, rename, quick fixes, formatting, breakpoints and hot reload of function bodies.
 
 The full rules are in the [language specification](docs/language-spec.md).
 
@@ -104,7 +104,7 @@ To build from source, you need a C++17 toolchain and SCons. Run `git submodule u
 - Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
 - A few constructs behave differently from GDScript without a compile error, where the design needs it. The [spec](docs/language-spec.md#12-relation-to-gdscript) names each one, and they stay open for comment until 0.9.
 - Bytecode is not compatible across builds, so an upgrade compiles every script again.
-- The editor lacks rename, lints and LSP. They are planned for 0.2–0.3.
+- The editor lacks lints and LSP. They are planned for 0.2–0.3.
 - There is no GDScript migration tool yet. Manual migration takes over twenty changes per hundred lines, so a real project is best tried with the tool, planned for 0.3. It works both ways. A file that uses no feature GDScript lacks converts back to GDScript, even after this project stops. A file that uses one, such as a struct or `Result`, is not converted; the tool lists where.
 - Godot 4.7 and later are supported.
 
