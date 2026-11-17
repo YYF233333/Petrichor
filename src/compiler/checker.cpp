@@ -385,9 +385,8 @@ std::optional<Type> Checker::autoload_class(const std::string &p_name, const Tok
 // The script of this language whose class an autoload's name stands for,
 // found without reporting; empty for any other name.
 std::string Checker::autoload_script(const std::string &p_name) {
-	const size_t reported = errors.size();
+	const Tentative unreported(*this);
 	const std::optional<Type> found = autoload_class(p_name, TokenRange{ 0, 0 });
-	errors.resize(reported);
 	return found && is_script_path(found->script) ? found->script : std::string();
 }
 

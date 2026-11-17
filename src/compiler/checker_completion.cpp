@@ -346,19 +346,13 @@ std::optional<CompletionItem> Checker::probe(Expr &r_site, const std::string &p_
 		} else if (moves_base) {
 			probe.base = std::move(r_site.base);
 		}
-		const size_t error_count = errors.size();
-		const size_t reference_count = references->size();
+		const Tentative tried(*this);
 		probing = true;
 		probed_params = -1;
 		const Type type = type_expr(probe, Type::of(TypeKind::Error));
 		probing = false;
-		const bool accepted = errors.size() == error_count && !type.is_error();
-		const auto named = std::find_if(references->begin() + reference_count, references->end(), [&](const Reference &p_reference) {
-			return p_reference.begin == at;
-		});
-		const std::optional<DeclId> target = named == references->end() ? std::nullopt : std::optional<DeclId>(named->target);
-		errors.erase(errors.begin() + error_count, errors.end());
-		references->erase(references->begin() + reference_count, references->end());
+		const bool accepted = tried.clean() && !type.is_error();
+		const std::optional<DeclId> target = tried.referred_at(at);
 		if (moves_base) {
 			r_site.base = std::move(probe.base);
 		}
@@ -394,11 +388,9 @@ std::optional<CompletionItem> Checker::probe_type(const TypeRef &p_site, const s
 	ref.name = p_name;
 	ref.range = p_site.range;
 	ref.name_token = NO_TOKEN;
-	const size_t error_count = errors.size();
+	const Tentative tried(*this);
 	const Type type = resolve_name(ref, p_allow_void);
-	const bool accepted = errors.size() == error_count && !type.is_error();
-	errors.erase(errors.begin() + error_count, errors.end());
-	if (!accepted) {
+	if (!tried.clean() || type.is_error()) {
 		return std::nullopt;
 	}
 	CompletionItem item;
@@ -416,11 +408,9 @@ void Checker::add_keywords(const Expr &r_site, std::map<std::string, CompletionI
 	Expr self;
 	self.kind = ExprKind::Self;
 	self.range = r_site.range;
-	const size_t error_count = errors.size();
-	if (!type_expr(self, Type::of(TypeKind::Error)).is_error() && errors.size() == error_count) {
+	if (const Tentative tried(*this); !type_expr(self, Type::of(TypeKind::Error)).is_error() && tried.clean()) {
 		words.insert(words.end(), { { "self", "" }, { "super", "" } });
 	}
-	errors.erase(errors.begin() + error_count, errors.end());
 	if (no_await().empty()) {
 		words.emplace_back("await", " ");
 	}
@@ -482,13 +472,9 @@ void Checker::add_enum_values(const Expr &r_site, const Type &p_expected, std::m
 				probe = std::move(part);
 				start = end + 1;
 			}
-			const size_t error_count = errors.size();
-			const size_t reference_count = references->size();
+			const Tentative tried(*this);
 			const Type type = type_expr(*probe, Type::of(TypeKind::Error));
-			const bool accepted = errors.size() == error_count && !type.is_error() && assignable(type, expected);
-			errors.erase(errors.begin() + error_count, errors.end());
-			references->erase(references->begin() + reference_count, references->end());
-			if (accepted) {
+			if (tried.clean() && !type.is_error() && assignable(type, expected)) {
 				CompletionItem item;
 				item.kind = CompletionKind::Enum;
 				item.name = written;
@@ -503,12 +489,10 @@ void Checker::add_enum_values(const Expr &r_site, const Type &p_expected, std::m
 }
 
 void Checker::complete(Expr &r_site, const Type &p_expected) {
-	const size_t error_count = errors.size();
-	const size_t reference_count = references->size();
 	Candidates names;
 	// The class whose members are completed.
 	Type owner = script_class_type(cls, options.path);
-	if (!r_site.base) {
+	if (const Tentative tried(*this); !r_site.base) {
 		scope_candidates(names);
 	} else if (r_site.base->kind == ExprKind::Self) {
 		class_candidates(cls, names);
@@ -544,8 +528,6 @@ void Checker::complete(Expr &r_site, const Type &p_expected) {
 			}
 		}
 	}
-	errors.erase(errors.begin() + error_count, errors.end());
-	references->erase(references->begin() + reference_count, references->end());
 	const std::vector<std::string> chain = class_chain(owner);
 	std::map<std::string, CompletionItem> found;
 	if (r_site.kind == ExprKind::Name && !r_site.base) {
@@ -578,8 +560,7 @@ void Checker::complete_type(const TypeRef &p_site, bool p_allow_void) {
 	const std::string prefix = dot == std::string::npos ? std::string() : p_site.name.substr(0, dot + 1);
 	Candidates names;
 	std::map<std::string, CompletionItem> found;
-	const size_t error_count = errors.size();
-	if (prefix.empty()) {
+	if (const Tentative tried(*this); prefix.empty()) {
 		scope_candidates(names);
 		names.types.insert({ "void", "Variant" });
 		add_global_classes(found, false);
@@ -612,7 +593,6 @@ void Checker::complete_type(const TypeRef &p_site, bool p_allow_void) {
 			}
 		}
 	}
-	errors.erase(errors.begin() + error_count, errors.end());
 	for (const std::string &name : names.types) {
 		std::optional<CompletionItem> item = found.count(name) ? std::nullopt : probe_type(p_site, prefix + name, p_allow_void);
 		if (item) {
@@ -696,12 +676,7 @@ void Checker::complete_node_path(Expr &r_site) {
 			continue;
 		}
 		r_site.text = path;
-		const size_t error_count = errors.size();
-		const size_t reference_count = references->size();
-		const bool accepted = !check_get_node(r_site).is_error() && errors.size() == error_count;
-		errors.erase(errors.begin() + error_count, errors.end());
-		references->erase(references->begin() + reference_count, references->end());
-		if (accepted) {
+		if (const Tentative tried(*this); !check_get_node(r_site).is_error() && tried.clean()) {
 			CompletionItem item;
 			item.kind = CompletionKind::NodePath;
 			item.name = path.substr(prefix.size());
@@ -776,13 +751,9 @@ void Checker::complete_override(const FuncDecl &p_site) {
 		} else if (name != "_static_init") {
 			continue;
 		}
-		const size_t error_count = errors.size();
-		const size_t reference_count = references->size();
+		const Tentative tried(*this);
 		check_signature(probe);
-		const bool accepted = errors.size() == error_count;
-		errors.erase(errors.begin() + error_count, errors.end());
-		references->erase(references->begin() + reference_count, references->end());
-		if (!accepted) {
+		if (!tried.clean()) {
 			continue;
 		}
 		CompletionItem item;

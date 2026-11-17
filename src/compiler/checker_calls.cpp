@@ -1131,17 +1131,10 @@ std::optional<Type> Checker::named_type(const Expr &p_base) {
 	if (!type_ref_of(p_base, ref) || (p_base.kind == ExprKind::Name && (visible_local(p_base.text) || member_index.count(p_base.text) || static_index.count(p_base.text) || constant_index.count(p_base.text)))) {
 		return std::nullopt;
 	}
-	const size_t referred = references ? references->size() : 0;
-	const size_t reported = errors.size();
+	Tentative tried(*this);
 	const Type type = resolve(ref, false);
-	if (!type.is_error()) {
-		return type;
-	}
-	if (references) {
-		references->resize(referred);
-	}
-	errors.resize(reported);
-	return std::nullopt;
+	tried.end(!type.is_error());
+	return type.is_error() ? std::nullopt : std::optional<Type>(type);
 }
 
 // An expression written as a type is: names joined by dots, `?` after one,

@@ -1105,7 +1105,7 @@ void Checker::check_body(FuncDecl &r_function) {
 		scopes.clear();
 		return;
 	}
-	const size_t earlier_errors = errors.size();
+	Tentative body(*this);
 	check_block(r_function.body);
 	if (r_function.has_body && r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !always_ends(r_function.body, false)) {
 		error(r_function.name_token, "Not all paths of \"" + r_function.name + "()\" return a value.");
@@ -1116,9 +1116,7 @@ void Checker::check_body(FuncDecl &r_function) {
 			r_function.assigned.push_back(cls.all_members[member]->name);
 		}
 	}
-	if (for_others) {
-		errors.erase(errors.begin() + std::ptrdiff_t(earlier_errors), errors.end());
-	}
+	body.end(!for_others);
 	function = nullptr;
 	scopes.clear();
 }

@@ -425,6 +425,47 @@ class Checker : public ClassRelation {
 		}
 	};
 
+	// A query tried without effect: what it reports, refers to and hints is
+	// cut back when it ends, unless it is kept.
+	class Tentative {
+		Checker &checker;
+		const size_t errors;
+		const size_t references;
+		const size_t warnings;
+		const std::string call_hint;
+		const uint32_t hint_at;
+		bool ended = false;
+
+	public:
+		explicit Tentative(Checker &r_checker) :
+				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at) {}
+		~Tentative() { end(false); }
+		// Nothing reported since it began.
+		bool clean() const { return checker.errors.size() == errors; }
+		// What the name at `p_begin` was found to refer to since it began.
+		std::optional<DeclId> referred_at(uint32_t p_begin) const {
+			const auto found = std::find_if(checker.references->begin() + std::ptrdiff_t(references), checker.references->end(), [&](const Reference &p_reference) { return p_reference.begin == p_begin; });
+			return found == checker.references->end() ? std::nullopt : std::optional<DeclId>(found->target);
+		}
+		// Ends it before its scope does, keeping what it found with `p_keep`.
+		void end(bool p_keep) {
+			if (!ended && !p_keep) {
+				checker.errors.resize(errors);
+				if (checker.references) {
+					checker.references->resize(references);
+				}
+				if (checker.warnings) {
+					checker.warnings->resize(warnings);
+				}
+				if (checker.completion) {
+					checker.completion->call_hint = call_hint;
+				}
+				checker.hint_at = hint_at;
+			}
+			ended = true;
+		}
+	};
+
 	// A constant initialized with the name of an enum with payloads.
 	static bool names_payload_enum(const ConstDecl &p_decl) {
 		return p_decl.value && p_decl.value->names_enum && p_decl.type.kind == TypeKind::PayloadEnum;

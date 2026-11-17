@@ -250,13 +250,13 @@ void Checker::check_node_paths() {
 		const std::string shown = call ? p_expr.text + "(\"" + path.text + "\")" : shown_path(path.text);
 		const bool optional = p_expr.text == "get_node_or_null";
 		std::vector<NodeWalk> found;
-		const size_t lacking = errors.size();
+		Tentative lacking(*this);
 		walk_placements(scenes, path, shown, optional, found);
-		if (found.empty() && errors.size() > lacking) {
-			const size_t elsewhere = errors.size();
+		if (found.empty() && !lacking.clean()) {
+			const Tentative elsewhere(*this);
 			walk_placements(classes.scenes_with_script(options.path), path, shown, optional, found);
-			errors.erase(errors.begin() + std::ptrdiff_t(found.empty() ? lacking : elsewhere), errors.end());
 		}
+		lacking.end(!found.empty());
 	});
 }
 
@@ -269,11 +269,9 @@ void Checker::check_node_paths() {
 // the paths every scene has. Error after reporting.
 Type Checker::scene_node_at(const Expr &p_path_expr, const std::string &p_shown, bool p_optional) {
 	std::vector<NodeWalk> found;
-	const size_t lacking = errors.size();
+	Tentative lacking(*this);
 	const bool attached = walk_placements(scenes, p_path_expr, p_shown, p_optional, found);
-	if (!found.empty() && !completion) {
-		errors.erase(errors.begin() + std::ptrdiff_t(lacking), errors.end());
-	}
+	lacking.end(found.empty() || completion);
 	std::optional<Type> type;
 	std::string type_scene;
 	for (const NodeWalk &walk : found) {
