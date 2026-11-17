@@ -60,6 +60,13 @@ TEST_CASE("a class names the constants and enums of its engine base by bare name
 	CHECK(errors_of("extends RefCounted\nclass Inner extends Node:\n\tfunc f() -> bool:\n\t\treturn PROCESS_MODE_ALWAYS == ProcessMode(3)\n").empty());
 }
 
+TEST_CASE("a member or a function is not named as an engine class or a built-in type (spec §4.1)") {
+	CHECK(messages(compile("extends Node\nvar Node2D := 1\nconst Vector2 = 2\nsignal Timer\nenum { String }\n\nfunc int() -> void:\n\tpass\n")) ==
+			joined({ "2:5: \"Node2D\" is the name of an engine class.", "3:7: \"Vector2\" is the name of a built-in type.", "4:8: \"Timer\" is the name of an engine class.", "5:8: \"String\" is the name of a built-in type.", "7:6: \"int\" is the name of a built-in type." }));
+	const auto typed = compile(in_function("var Node2D := 1\nprint(Node2D)", "func f(Vector2: int) -> void:"));
+	CHECK_MESSAGE(typed.ok(), messages(typed));
+}
+
 TEST_CASE("an inner class named as a global enum of the engine is that class, in types too (spec §4.1)") {
 	const auto errors = [](const std::string &p_source) { return messages(compile_in("extends Node\n\n" + p_source, FakeProject())); };
 	CHECK(errors("class Key:\n\tvar code := 1\n\nfunc make() -> Key:\n\treturn Key.new()\n\nfunc code(k: Key) -> int:\n\treturn k.code\n").empty());

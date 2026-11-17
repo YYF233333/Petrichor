@@ -172,6 +172,15 @@ void Checker::declare_enums() {
 	}
 }
 
+// The built-in type or engine class that a declaration of the class may not
+// be named as, as the end of a message; empty if none (spec §4.1).
+std::string Checker::taken_global_name(const std::string &p_name) const {
+	if (p_name == "int" || p_name == "float" || p_name == "bool" || builtin::find_class(p_name)) {
+		return "is the name of a built-in type.";
+	}
+	return engine.class_exists(p_name) ? "is the name of an engine class." : std::string();
+}
+
 // What a type of this name would hide, as the end of a message; empty if
 // nothing (spec §4.1). The file's class_name is in the engine's global class
 // table, which lists one script for each name, as GDScript reads it
@@ -179,11 +188,8 @@ void Checker::declare_enums() {
 // declares may take the name of a standard type or of an autoload, being the
 // nearer name (spec §11.1).
 std::string Checker::taken_type_name(const std::string &p_name, bool p_class_name) const {
-	if (p_name == "int" || p_name == "float" || p_name == "bool" || builtin::find_class(p_name)) {
-		return "is the name of a built-in type.";
-	}
-	if (engine.class_exists(p_name)) {
-		return "is the name of an engine class.";
+	if (const std::string taken = taken_global_name(p_name); !taken.empty()) {
+		return taken;
 	}
 	if (p_class_name && (p_name == "Result" || p_name == "Task" || p_name == "Settled" || p_name == "CancelReason" || p_name == "ConversionError")) {
 		return "is the name of a standard type.";

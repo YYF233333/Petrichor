@@ -1506,7 +1506,7 @@ bool Checker::declare_class() {
 		check_enum(decl);
 	}
 	check_held_cycles();
-	check_engine_base_names();
+	check_engine_names();
 	for (ConstDecl &constant : cls.constants) {
 		const auto registered = constant_index.find(constant.name);
 		if (registered != constant_index.end() && cls.all_constants[registered->second] == &constant) {

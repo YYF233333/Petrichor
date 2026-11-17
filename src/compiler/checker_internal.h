@@ -795,6 +795,7 @@ class Checker : public ClassRelation {
 	const EnumDecl *initializer_payload_enum(Expr &r_initializer);
 	const ConstDecl *own_constant(const std::string &p_name);
 	void declare_enums();
+	std::string taken_global_name(const std::string &p_name) const;
 	std::string taken_type_name(const std::string &p_name, bool p_class_name) const;
 	void check_type_names();
 	void check_enum(EnumDecl &r_decl);
@@ -1087,7 +1088,7 @@ class Checker : public ClassRelation {
 	void declare_function(const FuncDecl &p_function, const std::optional<DeclId> &p_overrides);
 	void check_abstract(const FuncDecl &p_function);
 	void check_implemented();
-	void check_engine_base_names();
+	void check_engine_names();
 	void refuse_new(const FuncDecl &p_function);
 	void check_signature(FuncDecl &r_function);
 	void declare_params(FuncDecl &r_function, bool p_defaults = false);

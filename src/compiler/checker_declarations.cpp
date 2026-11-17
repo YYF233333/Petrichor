@@ -937,8 +937,10 @@ void Checker::check_implemented() {
 // engine class it extends bare, and the engine sets and gets an object's
 // members by name asking its script first, so it declares nothing else by
 // their names or as script, as in GDScript
-// (modules/gdscript/gdscript_analyzer.cpp:255-276; spec §4.1).
-void Checker::check_engine_base_names() {
+// (modules/gdscript/gdscript_analyzer.cpp:255-285; spec §4.1). Nor is a
+// member or a function named as an engine class or a built-in type, which
+// the class's types are not either.
+void Checker::check_engine_names() {
 	const auto kind = [&](const std::string &p_name) -> const char * {
 		// Object lists script apart from ClassDB (core/object/object.cpp:518; ed1daf0).
 		if (p_name == "script" || engine.find_property(cls.native_base, p_name)) {
@@ -952,11 +954,21 @@ void Checker::check_engine_base_names() {
 		}
 		return engine.find_enum(cls.native_base, p_name) ? "an enum" : nullptr;
 	};
-	const auto check = [&](const std::string &p_name, uint32_t p_token) {
-		if (const char *taken = p_name.empty() ? nullptr : kind(p_name)) {
-			error(p_token, "\"" + p_name + "\" is already " + taken + " of " + cls.native_base + ", which this class extends.");
+	const auto global = [&](const std::string &p_name, uint32_t p_token) {
+		if (const std::string taken = taken_global_name(p_name); !taken.empty()) {
+			error(p_token, "\"" + p_name + "\" " + taken);
 		}
 	};
+	const auto check = [&](const std::string &p_name, uint32_t p_token, bool p_type = false) {
+		if (const char *taken = p_name.empty() ? nullptr : kind(p_name)) {
+			error(p_token, "\"" + p_name + "\" is already " + taken + " of " + cls.native_base + ", which this class extends.");
+		} else if (!p_type) {
+			global(p_name, p_token);
+		}
+	};
+	for (const FuncDecl &function : cls.functions) {
+		global(function.name, function.name_token);
+	}
 	for (const VarDecl &member : cls.members) {
 		check(member.name, member.name_token);
 	}
@@ -970,7 +982,7 @@ void Checker::check_engine_base_names() {
 		check(signal.name, signal.name_token);
 	}
 	for (const EnumDecl &decl : cls.enums) {
-		check(decl.name, decl.name_token);
+		check(decl.name, decl.name_token, true);
 		for (const EnumValueDecl &value : decl.values) {
 			if (decl.name.empty()) {
 				check(value.name, value.name_token);
@@ -978,7 +990,7 @@ void Checker::check_engine_base_names() {
 		}
 	}
 	for (const std::unique_ptr<ClassDecl> &inner : cls.classes) {
-		check(inner->name, inner->name_token);
+		check(inner->name, inner->name_token, true);
 	}
 }
 
