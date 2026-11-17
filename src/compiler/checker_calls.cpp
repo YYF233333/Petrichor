@@ -294,8 +294,9 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 	const auto from_engine = [&](const EngineMethod &p_method, const DeclId &p_id) {
 		out.found = true;
 		out.id = p_id;
-		for (const EngineParam &param : p_method.params) {
-			out.params.push_back(localized(param.type));
+		const std::vector<Type> signal = p_kind == Kind::Signal ? signal_type(p_method).args : std::vector<Type>();
+		for (size_t i = 0; i < p_method.params.size(); i++) {
+			out.params.push_back(localized(signal.empty() ? p_method.params[i].type : signal[i]));
 		}
 		out.required = int(p_method.params.size()) - p_method.default_count;
 		if (p_method.is_vararg) {

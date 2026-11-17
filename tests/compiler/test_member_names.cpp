@@ -45,6 +45,8 @@ TEST_CASE("a literal member name checks what the call gives the member") {
 	CHECK(contains(errors_in("emit_signal(\"done\", 1)"), "\"done\" takes 0 argument(s); 1 follow."));
 	CHECK(errors_in("connect(\"done\", reset)").empty());
 	CHECK(contains(errors_in("connect(\"done\", func(amount: int): pass)"), "passes 0 argument(s)"));
+	// The object parameters of an engine signal are non-null (spec §4.7, §10.2).
+	CHECK(errors_in("connect(\"child_entered_tree\", func(node: Node): pass)").empty());
 }
 
 TEST_CASE("Callable(object, name) and Signal(object, name) take a literal name as a static reference, any other dynamically") {
