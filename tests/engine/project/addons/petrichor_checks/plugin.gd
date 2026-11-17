@@ -58,6 +58,7 @@ func _run() -> void:
 	await _check_script_dialog()
 	_check_autoload_by_uid()
 	await _check_rename()
+	await _check_quick_fixes()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -618,6 +619,76 @@ func _check_rename() -> void:
 	DirAccess.remove_absolute(dir)
 
 
+# Spec §13.2 in the editor (architecture §2.4). Alt+Enter lists the fixes of
+# the caret's line. A fix in the script is one step of its undo, and so is
+# fixing all of a kind, which leaves the other kinds. A fix that changes
+# another script writes it, found again where its text is now, and keeps the
+# tab; Ctrl+Z there undoes it.
+func _check_quick_fixes() -> void:
+	var dir := "res://editor_fixes"
+	var target := dir + "/target.pet"
+	var user := dir + "/user.pet"
+	DirAccess.make_dir_absolute(dir)
+	var target_text := "extends Node\n\nvar speed := 1.0\n"
+	_write(target, target_text)
+	_write(user, "extends Node\n\nconst Target = preload(\"target.pet\")\n\nfunc f(t: Target, hp: int, tag: String) -> bool:\n\tprint(t != null)\n\tif hp:\n\t\treturn not tag\n\treturn t.speed > 0.0\n")
+	EditorInterface.edit_script(load(user))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var text := code.text
+	var fixed := text.replace("if hp:", "if hp != 0:")
+
+	var list := _quick_fixes(code, 6)
+	_choose(list, 0)
+	_check(code.text == fixed, "the first fix listed is that of the error at the caret")
+	code.undo()
+	_check(code.text == text, "one undo in the script restores it")
+
+	list = _quick_fixes(code, 6)
+	_choose(list, list.item_count - 1)
+	_check(code.text == fixed.replace("not tag", "tag == \"\""), "fixing all of a kind applies its fixes in the script and no others")
+	code.undo()
+	_check(code.text == text, "one undo restores it")
+
+	# The analysis keeps the check of user.pet while the declarations of
+	# target.pet stay the same, though they move.
+	var moved := target_text.replace("\n\n", "\n\n# Moved down.\n")
+	_write(target, moved)
+	list = _quick_fixes(code, 8)
+	_check(list.item_count == 1, "a kind with one fix in the script has no item to fix all")
+	_choose(list, 0)
+	_check(FileAccess.get_file_as_string(target) == moved.replace("var", "pub var") and code.text == text and EditorInterface.get_script_editor().get_current_editor().get_base_editor() == code, "a fix in another script writes it where its text is now, and keeps the tab")
+	EditorInterface.edit_script(load(target))
+	await _press(EditorInterface.get_script_editor().get_current_editor().get_base_editor(), "ui_undo")
+	_check(FileAccess.get_file_as_string(target) == moved, "Ctrl+Z in that script undoes it")
+	_check_errors([], "quick fixes report nothing")
+
+	for file in [user, target]:
+		EditorInterface.get_script_editor().close_file(file)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+
+
+# Opens the list of quick fixes at the line of the open script, as Alt+Enter
+# does.
+func _quick_fixes(code: CodeEdit, line: int) -> PopupMenu:
+	code.set_caret_line(line)
+	code.set_caret_column(4)
+	code.grab_focus()
+	var key := InputEventKey.new()
+	key.keycode = KEY_ENTER
+	key.alt_pressed = true
+	key.pressed = true
+	get_viewport().push_input(key)
+	return get_tree().root.find_children("QuickFixes", "PopupMenu", true, false)[0]
+
+
+# Chooses the item of the list as a click does, which also closes it.
+func _choose(list: PopupMenu, index: int) -> void:
+	list.id_pressed.emit(list.get_item_id(index))
+	list.hide()
+
+
 # Renames the name at the line and column of the open script, as F2 and
 # entering the new name do.
 func _rename(code: CodeEdit, line: int, column: int, name: String) -> void:
@@ -629,7 +700,7 @@ func _rename(code: CodeEdit, line: int, column: int, name: String) -> void:
 	key.pressed = true
 	get_viewport().push_input(key)
 	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
-	var edit: LineEdit = plugin.find_children("*", "LineEdit", true, false)[0]
+	var edit: LineEdit = plugin.find_children("*", "PopupPanel", false, false)[0].find_children("*", "LineEdit", true, false)[0]
 	edit.text = name
 	edit.text_submitted.emit(name)
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "adapter/editor/scene_index.h"
+#include "compiler/diagnostic.h"
 #include "compiler/rename.h"
 
 #include <godot_cpp/classes/editor_context_menu_plugin.hpp>
@@ -10,6 +11,7 @@
 #include <godot_cpp/classes/h_box_container.hpp>
 #include <godot_cpp/classes/input_event.hpp>
 #include <godot_cpp/classes/line_edit.hpp>
+#include <godot_cpp/classes/popup_menu.hpp>
 #include <godot_cpp/classes/popup_panel.hpp>
 #include <godot_cpp/classes/shortcut.hpp>
 #include <godot_cpp/classes/timer.hpp>
@@ -43,8 +45,8 @@ public:
 };
 
 // The script editor's context menu on a script of this language: formatting
-// it, finding the references of the name at the caret (spec §13.2) and
-// renaming it (§13.3).
+// it, finding the references of the name at the caret, its quick fixes (spec
+// §13.2) and renaming it (§13.3).
 class PetCodeMenu : public godot::EditorContextMenuPlugin {
 	GDCLASS(PetCodeMenu, godot::EditorContextMenuPlugin);
 
@@ -56,6 +58,7 @@ protected:
 public:
 	godot::Ref<godot::Shortcut> find_references;
 	godot::Ref<godot::Shortcut> rename;
+	godot::Ref<godot::Shortcut> quick_fix;
 
 	void _popup_menu(const godot::PackedStringArray &p_paths) override;
 };
@@ -129,12 +132,16 @@ public:
 	godot::Dictionary _get_line_syntax_highlighting(int32_t p_line) const override;
 };
 
+// Edits, each in the text of the file it changes, by its path.
+using FileEdits = std::map<std::string, std::vector<compiler::CheckedEdit>>;
+
 // Compiles the project before it runs (architecture §2.4), provides the
 // headless commands (spec §13.1, §13.2):
 //   godot --headless -e --path <project> -- --petrichor-build
 //   godot --headless -e --path <project> -- --petrichor-format [--check]
 // has the nodes ask again for their errors when a file or an open scene
-// changes, shows the references found in its panel, and renames (spec §13.3).
+// changes, shows the references found in its panel, offers quick fixes and
+// renames (spec §13.2, §13.3).
 class PetEditorPlugin : public godot::EditorPlugin {
 	GDCLASS(PetEditorPlugin, godot::EditorPlugin);
 
@@ -166,8 +173,38 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	uint64_t elsewhere = 0;
 	uint64_t global_version = 0;
 	godot::Timer *marks = nullptr; // Asks the nodes for their errors once scenes stop changing.
+	// The quick fixes of the script in the script editor's current tab: its
+	// errors with fixes, of its text at `version`, each edit naming its file,
+	// and the line of the caret when it has one of them.
+	struct Fixing {
+		uint64_t code_edit = 0;
+		std::string path;
+		uint32_t version = 0;
+		std::vector<compiler::Diagnostic> errors;
+		int bulb = -1;
+	};
+	Fixing fixing;
+	godot::PopupMenu *fix_list = nullptr;
+	// Its fixes, each with its error, by id. The ids after them fix all of a
+	// kind, by its number.
+	std::vector<std::pair<compiler::Diagnostic, compiler::Fix>> listed;
 
 	void history_changed();
+	void script_changed();
+	void validated(godot::Object *p_code_edit);
+	godot::CodeEdit *fixing_code_edit() const;
+	void refresh_fixes();
+	void show_bulb();
+	void draw_bulb(int p_line, int p_gutter, const godot::Rect2 &p_region, godot::Object *p_code_edit);
+	void size_gutter(godot::Object *p_code_edit);
+	void bulb_clicked(int p_line, int p_gutter);
+	void list_fixes(godot::Object *p_code_edit);
+	void list_fixes_at(godot::CodeEdit *p_code_edit, const godot::Vector2 &p_position);
+	void apply_listed(int p_id);
+	bool change_scripts(const OpenProject &p_project, const FileEdits &p_changes);
+	void change_scripts_again(const godot::Array &p_edits);
+	void change_files(const OpenProject &p_project, const FileEdits &p_changes, bool p_save);
+	void record(const godot::String &p_action, const std::set<std::string> &p_files, const godot::Array &p_do, const godot::Array &p_undo);
 	void show_references(godot::Object *p_code_edit);
 	void ask_name(godot::Object *p_code_edit);
 	void rename_to(const godot::String &p_name);
