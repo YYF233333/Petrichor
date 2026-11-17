@@ -995,12 +995,16 @@ std::string Checker::signature_text(const FuncDecl &p_function) {
 }
 
 // The engine passes what its signals declare, an object only where the
-// audit says it may pass null being T? (spec §4.7, §10.2).
+// audit says it may pass null being T? (spec §4.7, §10.2). A script of
+// another language, the owner by its path, passes T? as reflected (§11.1).
 Type Checker::signal_type(const EngineMethod &p_signal) {
+	const bool audited = p_signal.owner.rfind("res://", 0) != 0;
 	std::vector<Type> params;
 	for (const EngineParam &param : p_signal.params) {
 		Type type = param.type;
-		type.nullable = type.kind == TypeKind::Object && builtin::signal_param_nullable(p_signal.owner, p_signal.name, uint32_t(params.size()));
+		if (audited) {
+			type.nullable = type.kind == TypeKind::Object && builtin::signal_param_nullable(p_signal.owner, p_signal.name, uint32_t(params.size()));
+		}
 		params.push_back(type);
 	}
 	return Type::signal(params);

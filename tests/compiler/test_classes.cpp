@@ -60,7 +60,11 @@ FakeProject project() {
 	scored.name = "scored";
 	scored.owner = "res://legacy.gd";
 	scored.params = { { "points", Type::of(TypeKind::Int) } };
-	legacy.signals = { scored };
+	compiler::EngineMethod picked;
+	picked.name = "picked";
+	picked.owner = "res://legacy.gd";
+	picked.params = { { "item", Type::object("Node", true) } };
+	legacy.signals = { scored, picked };
 	project.foreign["res://legacy.gd"] = legacy;
 	project.global_classes["Legacy"] = "res://legacy.gd";
 
@@ -368,6 +372,10 @@ TEST_CASE("GDScript classes and autoloads as reflection shows them (spec §11.1)
 	CHECK(in("var hit: bool = l.hit(3)\n\tl.scored.emit(10)").empty());
 	CHECK(contains(in("l.hit(\"no\")"), "String"));
 	CHECK(contains(in("l.scored.emit(\"no\")"), "String"));
+	// A signal's objects are T? too, connected directly or by a literal name.
+	CHECK(in("l.picked.connect(func(item: Node?): pass)\n\tl.connect(\"picked\", func(item: Node?): pass)").empty());
+	CHECK(contains(in("l.picked.connect(func(item: Node): pass)"), "Signal(Node?) passes Node? as argument 1, which func(Node) does not take."));
+	CHECK(contains(in("l.connect(\"picked\", func(item: Node): pass)"), "Signal(Node?) passes Node? as argument 1, which func(Node) does not take."));
 
 	// A class extends the scripts it extends; as and is name them.
 	CHECK(in("var as_base: Legacy = old\n\tvar l2: Legacy? = n as Legacy\n\tif n is OldLegacy:\n\t\tpass").empty());
