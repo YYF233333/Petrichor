@@ -158,7 +158,9 @@ TEST_CASE("a condition must be bool") {
 	CHECK(rewritten("Callable", "not x") == "x.is_null()");
 	CHECK(rewritten("int?", "x") == "x.unwrap_or(0) != 0");
 	CHECK(rewritten("String?", "not x") == "x.unwrap_or(\"\") == \"\"");
-	// GDScript's test of a Variant is false also for 0, "" and empty values.
+	CHECK(rewritten("bool?", "x") == "x == true");
+	CHECK(rewritten("bool?", "not x") == "x != true");
+	// A Variant's exact test, bool(type_convert(v, TYPE_BOOL)), is no idiom.
 	CHECK(rewritten("Variant", "x") == "no such fix");
 	CHECK(joined(errors_of(in_function("if x:\n\tpass", "func f(x: Variant) -> void:"))) == "4:5: A condition must be bool, found Variant.\n");
 	CHECK(rewritten("int", "not (x - 1)") == "(x - 1) == 0");

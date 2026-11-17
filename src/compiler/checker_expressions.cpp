@@ -80,8 +80,9 @@ Type Checker::check_unary(Expr &r_expr) {
 
 // GDScript's truth test of a value of the type, written out for `p_value`
 // (spec §5.4): `x != 0`, or with `p_negated` `x == 0` for `not x`. Empty for
-// a type that no spelling keeps the meaning of, as Variant, whose test is
-// also false for 0, "" and empty values.
+// a Variant, whose exact test bool(type_convert(v, TYPE_BOOL)) is no idiom
+// (core/variant/variant_utility.cpp:849-854; ed1daf0), and for the T? of
+// the other value types.
 std::string Checker::truth_test(const Type &p_type, bool p_negated, const std::string &p_value) {
 	const Type type = as_int(p_type);
 	const std::string compared = p_negated ? " == " : " != ";
@@ -94,6 +95,9 @@ std::string Checker::truth_test(const Type &p_type, bool p_negated, const std::s
 	};
 	if (!zero(type).empty()) {
 		return p_value + compared + zero(type);
+	}
+	if (type.kind == TypeKind::Option && type.args[0].kind == TypeKind::Bool) {
+		return p_value + (p_negated ? " != " : " == ") + "true"; // None is false, as null is.
 	}
 	if (type.kind == TypeKind::Option) {
 		const std::string inner = zero(type.args[0]);
@@ -491,7 +495,8 @@ bool Checker::testable(const Type &p_type) {
 
 Checker::Facts Checker::facts_of(const Expr &p_condition) const {
 	Facts facts;
-	if (p_condition.type.is_error()) {
+	// `not x` of a T? local is an error that its fix makes right, as below.
+	if (p_condition.type.is_error() && !(p_condition.kind == ExprKind::Unary && p_condition.op == TokenKind::Not)) {
 		return facts;
 	}
 	switch (p_condition.kind) {

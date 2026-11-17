@@ -39,6 +39,8 @@ TEST_CASE("an early return narrows the rest of the block") {
 	CHECK(narrowing("if p == None:\n\treturn\np.queue_free()").empty());
 	CHECK(narrowing("for i in 3:\n\tif p == None:\n\t\tcontinue\n\tp.queue_free()").empty());
 	CHECK(contains(narrowing("if p == None:\n\tprint(1)\np.queue_free()"), "may be None"));
+	// Only the condition is wrong, which its fix `p == None` makes right.
+	CHECK(narrowing("if not p:\n\treturn\np.queue_free()") == "5:5: \"not\" requires bool, found Node?. Test it explicitly, for example x == None.\n");
 }
 
 TEST_CASE("after an if with a branch that always leaves, what the other branch ends with holds") {

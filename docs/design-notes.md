@@ -154,7 +154,9 @@
   - 非空对象改为 `is_instance_valid(x)`。`T` 可能持有已释放的对象，而 `x != None` 是编译错误。
   - 向量、`Color`、变换等改为 `x != T()`，不用 `ZERO`。引擎拿它们与默认值比较，而 `Projection.ZERO` 不是默认值。
   - `int?`、`float?` 和 `String?` 改为 `x.unwrap_or(0) != 0` 和 `x.unwrap_or("") != ""`。写成 `x != None` 时 `Some(0)` 为真。
-  - `Variant` 和其余的值类型 `T?` 没有修复。它们遇到 0、"" 和空值时也为假，没有一种写法保持这个含义。
+  - `bool?` 改为 `x == true`。`None` 和 `Some(false)` 都为假，与 GDScript 的 null 和 false 相同。
+  - `Variant` 没有修复。保持含义的写法 `bool(type_convert(v, TYPE_BOOL))` 不是惯用写法，而 `v != None` 遇到 0、"" 和空值时含义不同。
+  - 其余值类型的 `T?` 暂无修复，如 `Vector2?` 和容器的 `T?`。
 - **遍历对象（§5.7）**：[覆盖率调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/implementation-coverage.md)的语料中，定义 `_iter_init` 的类为 0。v2 中有 6 个类定义 `_iter_init`（5 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
   - GDScript 编译时只查 `_iter_get`，缺另外两个要到运行时才报错。编辑器中 Object 自带这三个虚函数，`for x in node` 因此也能编译（[引擎事实](engine-facts.md)）。本语言要求类自己定义三者。
   - 引擎类中只有 PackedDataContainer 定义它们。引擎已弃用该类，所以不支持遍历它。

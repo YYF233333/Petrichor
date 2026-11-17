@@ -31,7 +31,6 @@ TEST_CASE("a Variant is used only after a conversion (spec §3.14)") {
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = -v"), "Cannot use \"-\" on a Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar b = v < 2"), "Cannot use \"<\" on a Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar b = 1 in v"), "Cannot look for a value in a Variant."));
-	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nif v:\n\tpass"), "A condition must be bool, found Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n: int = v"), "Cannot assign a value of type Variant as int. Convert it first with int(v), or narrow it with `if v is int:`."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n: Node = v"), "Convert it first with v as Node, or narrow it with `if v is Node:`."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar a: Array[int] = v"), "Narrow it first with `if v is Array[int]:`."));
