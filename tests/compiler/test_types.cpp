@@ -115,6 +115,12 @@ TEST_CASE("utility functions bound with Variant are typed by their arguments (sp
 	CHECK(type_of("lerp(0.0, 1.0, 1)") == "float"); // An int weight converts (spec §3.14).
 	CHECK(contains(type_of("lerp(0.0, 1.0, \"a\")"), "must be a number"));
 	CHECK(contains(type_of("min(1.5, 1)"), "Write the int argument as a float"));
+	// The fix writes each int as a float. GDScript's min() gives the argument
+	// it chooses, of its own type, so only a float result keeps its meaning.
+	const std::string head = "extends Node\n\nfunc f(ratio: float, i: int) -> void:\n\t";
+	CHECK(fixed(head + "var r: float = clamp(i, -1, ratio)\n") == head + "var r: float = clamp(float(i), -1.0, ratio)\n");
+	CHECK(fixed(head + "print(min(ratio, 1))\n") == "no such fix");
+	CHECK(fixed(head + "print(min(ratio, 1))\n", "Write 1.0") == head + "print(min(ratio, 1.0))\n");
 	CHECK(contains(type_of("lerp(Vector3(), 1.0, 0.5)"), "same type"));
 	CHECK(contains(type_of("clamp(\"a\", \"b\", \"c\")"), "numbers or vectors"));
 }
@@ -212,6 +218,7 @@ TEST_CASE("T?? keeps both levels, and each step peels one (spec §3.4)") {
 	CHECK(contains(type_of("Some(None)"), "Some(None) does not say which type it holds"));
 	CHECK(contains(type_of("c.flatten()", "var c: int? = 2"), "int? has no method \"flatten()\", which makes a T?? into a T?."));
 	CHECK(has_error(in_function("var r: int?? = 1\nvar v: Variant = r"), "A Variant cannot tell its None from Some(None); pass x.flatten()."));
+	CHECK(fixed(in_function("var r: int?? = 1\nvar v: Variant = r")) == in_function("var r: int?? = 1\nvar v: Variant = r.flatten()"));
 	CHECK(errors_of("extends Node\nvar r: int??\n\nfunc f(x: Node??) -> int??:\n\treturn r\n").empty());
 }
 
@@ -221,6 +228,13 @@ TEST_CASE("null does not test a T?? or a Variant?, where GDScript's null stands 
 	CHECK(has_error(in_function(head + "print(null != n)"), "both levels of the Node??. Test the outer level with x != None, or both with x.unwrap_or(null) != null."));
 	CHECK(has_error(in_function(head + "match n:\n\tnull:\n\t\tpass"), "both levels of the Node??. Match the outer level with None, or both by matching x.unwrap_or(null)."));
 	require_ok(compile(in_function(head + "print(d.get(\"hp\") == None, d.get(\"hp\", null) == null, n.unwrap_or(null) != null)")));
+	// The fixes test both levels.
+	CHECK(fixed(in_function(head + "print(d.get(\"hp\") == null)")) == in_function(head + "print(d.get(\"hp\", null) == null)"));
+	CHECK(fixed(in_function(head + "print(null != n)")) == in_function(head + "print(null != n.unwrap_or(null))"));
+	// Matching n.unwrap_or(null) changes what the other patterns match.
+	const std::string branches = ":\n\tnull:\n\t\tpass\n\tvar e:\n\t\tprint(e)";
+	CHECK(fixed(in_function(head + "match n" + branches)) == "no such fix");
+	CHECK(fixed(in_function(head + "match n" + branches), "Write n.unwrap_or(null)") == in_function(head + "match n.unwrap_or(null)" + branches));
 }
 
 TEST_CASE("T?? and Variant? do not cross the engine, at any depth of encoding (spec §10.1)") {

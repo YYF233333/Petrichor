@@ -55,7 +55,7 @@ void Checker::check_match(Stmt &r_stmt) {
 			if (branch.patterns.size() > 1 && binds(pattern)) {
 				error(pattern.range, "Patterns separated by commas cannot bind.");
 			}
-			check_pattern(pattern, pattern.kind == PatternKind::Bind && none_handled ? matched.unwrapped() : matched, r_stmt.local);
+			check_pattern(pattern, pattern.kind == PatternKind::Bind && none_handled ? matched.unwrapped() : matched, r_stmt.local, r_stmt.value.get());
 			none_handled = none_handled || (!branch.guard && pattern.kind == PatternKind::Constructor && matched.is_optional() && pattern.variant == 0);
 		}
 		in_predelete = was_predelete || predelete_branch(*r_stmt.value, branch);
@@ -71,8 +71,9 @@ void Checker::check_match(Stmt &r_stmt) {
 }
 
 // A pattern of the value in the local `p_local`, which a value pattern
-// becomes the comparison of with the pattern, checked as == is.
-void Checker::check_pattern(Pattern &r_pattern, const Type &p_matched, int p_local) {
+// becomes the comparison of with the pattern, checked as == is;
+// `p_subject` is what `match` names, for a pattern of it, not of a part.
+void Checker::check_pattern(Pattern &r_pattern, const Type &p_matched, int p_local, const Expr *p_subject) {
 	switch (r_pattern.kind) {
 		case PatternKind::Wildcard:
 			return;
@@ -90,6 +91,10 @@ void Checker::check_pattern(Pattern &r_pattern, const Type &p_matched, int p_loc
 			if (r_pattern.value->kind == ExprKind::NoneLiteral && p_matched.is_optional()) {
 				if (r_pattern.value->op == TokenKind::Null && p_matched.is_two_level()) {
 					error(r_pattern.value->range, "In GDScript, null here stands for both levels of the " + p_matched.to_string() + ". Match the outer level with None, or both by matching x.unwrap_or(null).");
+					if (p_subject) {
+						// Not automatic: it changes what the other patterns match.
+						fix({ { p_subject->range, operand(*p_subject) + ".unwrap_or(null)" } }, false);
+					}
 				}
 				r_pattern.kind = PatternKind::Constructor;
 				r_pattern.type = p_matched;

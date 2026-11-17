@@ -169,6 +169,26 @@ std::vector<std::string> errors_of(const std::string &p_source) {
 	return result;
 }
 
+std::string fixed(const std::string &p_source, const std::string &p_title) {
+	for (const compiler::Diagnostic &error : compile(p_source).errors) {
+		for (const compiler::Fix &fix : error.fixes) {
+			if (p_title.empty() ? !fix.automatic : fix.title != p_title) {
+				continue;
+			}
+			std::vector<compiler::Fix::Edit> edits = fix.edits;
+			std::sort(edits.begin(), edits.end(), [](const compiler::Fix::Edit &p_a, const compiler::Fix::Edit &p_b) { return p_a.change.begin > p_b.change.begin; });
+			std::string text = p_source;
+			for (const compiler::Fix::Edit &edit : edits) {
+				CHECK(edit.file.empty());
+				CHECK(text.substr(edit.change.begin, edit.change.end - edit.change.begin) == edit.change.old_text);
+				text.replace(edit.change.begin, edit.change.end - edit.change.begin, edit.change.new_text);
+			}
+			return text + messages(compile(text));
+		}
+	}
+	return "no such fix";
+}
+
 std::string joined(const std::vector<std::string> &p_lines) {
 	std::string result;
 	for (const std::string &line : p_lines) {

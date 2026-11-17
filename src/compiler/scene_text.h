@@ -1,5 +1,6 @@
 #pragma once
 
+#include "compiler/diagnostic.h"
 #include "compiler/references.h"
 
 #include <cstdint>
@@ -9,15 +10,6 @@
 #include <vector>
 
 namespace petrichor::compiler {
-
-// A change to a file that names the text it replaces, which whoever applies it
-// checks first (architecture §2.1).
-struct CheckedEdit {
-	uint32_t begin = 0;
-	uint32_t end = 0;
-	std::string old_text;
-	std::string new_text;
-};
 
 // A place in the text of a scene or a resource file that stores a name
 // (architecture §6.4).

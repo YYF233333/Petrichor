@@ -131,18 +131,42 @@ TEST_CASE("comparisons") {
 	CHECK(has_error(in_function("var hp := 3\nvar b := hp == \"3\""), "Cannot compare int with String"));
 }
 
-// Spec §5.4, narrowing: conditions must be bool.
+// Spec §5.4, narrowing: conditions must be bool, and the fix writes out
+// GDScript's truth test by the type.
 TEST_CASE("a condition must be bool") {
-	CHECK(has_error(in_function("if 1:\n\tpass"), "Compare explicitly, for example x != 0."));
-	CHECK(has_error(in_function("var s := \"\"\nwhile s:\n\tpass"), "x != \"\""));
-	CHECK(has_error(in_function("var b := not 1"), "requires bool"));
-	CHECK(has_error(in_function("var b := 1 and true"), "requires bool operands"));
-	// The fix for `not x` by x's type.
-	CHECK(has_error(in_function("var s := \"\"\nif not s:\n\tpass"), "\"not\" requires bool, found String. Compare explicitly, for example x == \"\"."));
-	CHECK(has_error(in_function("var n: Node? = None\nif not n:\n\tpass"), "x == None."));
-	CHECK(has_error(in_function("var a: Array[int] = []\nif not a:\n\tpass"), "Test it explicitly, for example x.is_empty()."));
-	CHECK(has_error(in_function("var a: Array[int] = []\nif a:\n\tpass"), "not x.is_empty()."));
-	CHECK(has_error(in_function("var v: Variant = 1\nif not v:\n\tpass"), "x == None."));
+	CHECK(has_error(in_function("var s := \"\"\nwhile s:\n\tpass"), "A condition must be bool, found String. Test it explicitly, for example x != \"\"."));
+	CHECK(has_error(in_function("var b := not 1"), "\"not\" requires bool, found int. Test it explicitly, for example x == 0."));
+	CHECK(has_error(in_function("var b := 1 and true"), "\"and\" requires bool operands, found int and bool. Test it explicitly, for example x != 0."));
+
+	// `if x:` with x of a type, as its fix writes it, and the errors left.
+	const auto rewritten = [](const std::string &p_type, const std::string &p_condition) {
+		const std::string head = "extends Node\n\nfunc f(x: " + p_type + ") -> void:\n\tif ";
+		const std::string tail = ":\n\t\tpass\n";
+		const std::string text = fixed(head + p_condition + tail);
+		const size_t end = text.find(tail);
+		return text.rfind(head, 0) == 0 && end != std::string::npos ? text.substr(head.size(), end - head.size()) + text.substr(end + tail.size()) : text;
+	};
+	CHECK(rewritten("int", "x") == "x != 0");
+	CHECK(rewritten("float", "not x") == "x == 0");
+	CHECK(rewritten("String", "not x") == "x == \"\"");
+	CHECK(rewritten("Node?", "x") == "x != None");
+	CHECK(rewritten("Node", "x") == "is_instance_valid(x)");
+	CHECK(rewritten("Node", "not x") == "not is_instance_valid(x)");
+	CHECK(rewritten("Array[int]", "x") == "not x.is_empty()");
+	CHECK(rewritten("StringName", "not x") == "x.is_empty()");
+	CHECK(rewritten("Vector2", "x") == "x != Vector2()");
+	CHECK(rewritten("Callable", "not x") == "x.is_null()");
+	CHECK(rewritten("int?", "x") == "x.unwrap_or(0) != 0");
+	CHECK(rewritten("String?", "not x") == "x.unwrap_or(\"\") == \"\"");
+	// GDScript's test of a Variant is false also for 0, "" and empty values.
+	CHECK(rewritten("Variant", "x") == "no such fix");
+	CHECK(joined(errors_of(in_function("if x:\n\tpass", "func f(x: Variant) -> void:"))) == "4:5: A condition must be bool, found Variant.\n");
+	CHECK(rewritten("int", "not (x - 1)") == "(x - 1) == 0");
+	CHECK(rewritten("int", "x - 1 if true else x") == "(x - 1 if true else x) != 0");
+	// An operand of and and or, before what a T? there would report.
+	CHECK(rewritten("int?", "x and true") == "x.unwrap_or(0) != 0 and true");
+	CHECK(rewritten("Label?", "x and x.text != \"\"") == "x != None and x.text != \"\"");
+	CHECK(rewritten("String", "x or x.length()") == "x != \"\" or x.length() != 0");
 }
 
 // Spec §4.6, signatures.
@@ -250,7 +274,7 @@ TEST_CASE("for over an object whose class defines _iter_init, _iter_next and _it
 // Spec §8.3.
 TEST_CASE("assert takes a bool condition and a String message, and does not narrow") {
 	CHECK(joined(errors_of(in_function("var n := randi()\nassert(n >= 0)\nassert(n >= 0, \"negative: \" + str(n))\nassert(n >= 0, \"negative\",)\nassert(\n\tn >= 0,\n\t\"negative\"\n)"))) == "");
-	CHECK(has_error(in_function("var save_data: Resource? = None\nassert(save_data, \"no save\")"), "A condition must be bool, found Resource?. Compare explicitly, for example x != None."));
+	CHECK(has_error(in_function("var save_data: Resource? = None\nassert(save_data, \"no save\")"), "A condition must be bool, found Resource?. Test it explicitly, for example x != None."));
 	CHECK(has_error(in_function("assert(true, 3)"), "The message of an assert must be a String, found int. Convert it with str(x)."));
 	CHECK(has_error(in_function("assert true"), "Expected \"(\", found \"true\"."));
 	CHECK(has_error(in_function("var r: Resource? = None\nassert(r != None)\nvar s: Resource = r"), "Cannot assign a value of type Resource? as Resource."));

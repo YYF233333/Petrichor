@@ -256,8 +256,7 @@ std::string Checker::declared_signature(const std::string &p_name, const FuncDec
 	for (const ParamDecl &param : p_function.params) {
 		params.push_back((param.is_rest ? "..." : "") + param.name + ": " + param.type.to_string());
 		if (param.default_value) {
-			const uint32_t begin = p_source.begin(param.default_value->range);
-			params.back() += " = " + p_source.text.substr(begin, p_source.end(param.default_value->range) - begin);
+			params.back() += " = " + p_source.text_of(param.default_value->range);
 		}
 	}
 	// A rest parameter takes the arguments after the others.
@@ -739,8 +738,7 @@ void Checker::complete_override(const FuncDecl &p_site) {
 					// As checked where it is written.
 					probe.params.back().default_value = std::make_unique<Expr>();
 					probe.params.back().default_value->kind = ExprKind::Error;
-					const uint32_t begin = decl.source->begin(param.default_value->range);
-					params.back() += " = " + decl.source->text.substr(begin, decl.source->end(param.default_value->range) - begin);
+					params.back() += " = " + decl.source->text_of(param.default_value->range);
 				}
 			}
 		} else if (method && method->is_virtual) {

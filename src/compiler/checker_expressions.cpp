@@ -54,7 +54,9 @@ Type Checker::check_unary(Expr &r_expr) {
 		if (operand.kind == TypeKind::Bool) {
 			return set(r_expr, operand);
 		}
-		return fail(r_expr, "\"not\" requires bool, found " + operand.to_string() + "." + compare_hint(operand, true));
+		const Type failed = fail(r_expr, "\"not\" requires bool, found " + operand.to_string() + "." + truth_hint(operand, true));
+		fix_truth({ { unparenthesized(r_expr.range), r_expr.left.get() } }, true);
+		return failed;
 	}
 	if (operand.kind == TypeKind::Variant) {
 		return fail(r_expr, std::string("Cannot use ") + token_name(r_expr.op) + " on a Variant." + variant_hint());
@@ -76,23 +78,61 @@ Type Checker::check_unary(Expr &r_expr) {
 	return operand.kind == TypeKind::Int ? set(r_expr, operand) : fail(r_expr, "\"~\" requires int, found " + operand.to_string() + ".");
 }
 
-// How to write what GDScript's truth test of a value means: `x != 0`, or
-// for `not x` `x == 0` (spec §5.4); empty for a type it has none for.
-std::string Checker::compare_hint(const Type &p_type, bool p_negated) {
-	const std::string op = p_negated ? " == " : " != ";
-	if (p_type.is_numeric()) {
-		return " Compare explicitly, for example x" + op + "0.";
+// GDScript's truth test of a value of the type, written out for `p_value`
+// (spec §5.4): `x != 0`, or with `p_negated` `x == 0` for `not x`. Empty for
+// a type that no spelling keeps the meaning of, as Variant, whose test is
+// also false for 0, "" and empty values.
+std::string Checker::truth_test(const Type &p_type, bool p_negated, const std::string &p_value) {
+	const Type type = as_int(p_type);
+	const std::string compared = p_negated ? " == " : " != ";
+	const std::string empty_unless = p_negated ? "" : "not ";
+	const auto zero = [](const Type &p_value_type) {
+		if (p_value_type.kind == TypeKind::String) {
+			return std::string("\"\"");
+		}
+		return p_value_type.is_numeric() ? std::string("0") : std::string();
+	};
+	if (!zero(type).empty()) {
+		return p_value + compared + zero(type);
 	}
-	if (p_type.kind == TypeKind::String) {
-		return " Compare explicitly, for example x" + op + "\"\".";
+	if (type.kind == TypeKind::Option) {
+		const std::string inner = zero(type.args[0]);
+		return inner.empty() ? inner : p_value + ".unwrap_or(" + inner + ")" + compared + inner;
 	}
-	if (p_type.is_optional() || p_type.kind == TypeKind::Variant) {
-		return " Compare explicitly, for example x" + op + "None.";
+	if (type.nullable) {
+		return p_value + compared + "None";
 	}
-	if (p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary" || p_type.name.rfind("Packed", 0) == 0)) {
-		return std::string(" Test it explicitly, for example ") + (p_negated ? "x.is_empty()." : "not x.is_empty().");
+	if (type.kind == TypeKind::Object) {
+		return (p_negated ? "not " : "") + ("is_instance_valid(" + p_value + ")");
 	}
-	return std::string();
+	const std::string name = type.builtin_name();
+	if (name == "Callable" || name == "Signal") {
+		return empty_unless + p_value + ".is_null()";
+	}
+	if (name == "Array" || name == "Dictionary" || name == "StringName" || name == "NodePath" || name.rfind("Packed", 0) == 0) {
+		return empty_unless + p_value + ".is_empty()";
+	}
+	// The others are false at their default value.
+	return type.kind == TypeKind::Builtin ? p_value + compared + name + "()" : std::string();
+}
+
+// What an error that a value of the type is not a bool adds.
+std::string Checker::truth_hint(const Type &p_type, bool p_negated) {
+	const std::string test = truth_test(p_type, p_negated, "x");
+	return test.empty() ? test : " Test it explicitly, for example " + test + ".";
+}
+
+// Gives the error reported last the fix that writes the truth test of each
+// value over its tokens, when each has one.
+void Checker::fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated) {
+	std::vector<Write> writes;
+	for (const auto &[range, value] : p_values) {
+		writes.push_back({ range, truth_test(value->type, p_negated, operand(*value)) });
+		if (writes.back().second.empty()) {
+			return;
+		}
+	}
+	fix(writes, true);
 }
 
 // The result of `p_left op p_right` (spec §5.1), or Error after reporting;
@@ -135,13 +175,6 @@ Type Checker::binary_type(TokenKind p_op, const Type &p_left, const Type &p_righ
 	if (p_left.kind == TypeKind::Option || p_right.kind == TypeKind::Option) {
 		const Type &optional = p_left.kind == TypeKind::Option ? p_left : p_right;
 		error(p_at, "The value may be None (" + optional.to_string() + "); unwrap it first.");
-		return Type::of(TypeKind::Error);
-	}
-	if (p_op == TokenKind::And || p_op == TokenKind::Or) {
-		if (p_left.kind == TypeKind::Bool && p_right.kind == TypeKind::Bool) {
-			return p_left;
-		}
-		error(p_at, std::string(token_name(p_op)) + " requires bool operands, found " + p_left.to_string() + " and " + p_right.to_string() + ".");
 		return Type::of(TypeKind::Error);
 	}
 	// Only == and != take a Variant, by the engine's operator table when
@@ -282,6 +315,23 @@ Type Checker::check_binary(Expr &r_expr) {
 		narrowed.push_back(r_expr.op == TokenKind::And ? facts.when_true : facts.when_false);
 		right = check_value(*r_expr.right);
 		narrowed.pop_back();
+		if (left.is_error() || right.is_error()) {
+			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (left.kind == TypeKind::Bool && right.kind == TypeKind::Bool) {
+			return set(r_expr, left);
+		}
+		std::vector<std::pair<TokenRange, const Expr *>> tested;
+		std::string hint;
+		for (const Expr *side : { r_expr.left.get(), r_expr.right.get() }) {
+			if (side->type.kind != TypeKind::Bool) {
+				tested.push_back({ side->range, side });
+				hint = hint.empty() ? truth_hint(side->type, false) : hint;
+			}
+		}
+		error(r_expr.range, std::string(token_name(r_expr.op)) + " requires bool operands, found " + left.to_string() + " and " + right.to_string() + "." + hint);
+		fix_truth(tested, false);
+		return set(r_expr, Type::of(TypeKind::Error));
 	} else if (r_expr.op == TokenKind::Percent && is_format_string(left)) {
 		// The values to format, of any types (spec §5.1).
 		right = check_value(*r_expr.right, Type::builtin("Array"));
@@ -313,8 +363,13 @@ Type Checker::check_none_comparison(Expr &r_expr) {
 	}
 	if (literal.op == TokenKind::Null && type.is_two_level()) {
 		const std::string op = r_expr.op == TokenKind::BangEqual ? " != " : " == ";
-		const std::string both = value.kind == ExprKind::Call && value.target == Target::GetOrNone ? "d.get(k, null)" : "x.unwrap_or(null)";
-		return fail(r_expr, "In GDScript, null here stands for both levels of the " + type.to_string() + ". Test the outer level with x" + op + "None, or both with " + both + op + "null.");
+		const bool get = value.kind == ExprKind::Call && value.target == Target::GetOrNone;
+		const Type failed = fail(r_expr, "In GDScript, null here stands for both levels of the " + type.to_string() + ". Test the outer level with x" + op + "None, or both with " + (get ? "d.get(k, null)" : "x.unwrap_or(null)") + op + "null.");
+		const uint32_t begin = cls.source->begin(value.range);
+		const std::string text = cls.source->text_of(value.range);
+		const size_t key_end = get ? cls.source->end(value.args.back()->range) - begin : 0;
+		fix({ { value.range, get ? text.substr(0, key_end) + ", null" + text.substr(key_end) : operand(value) + ".unwrap_or(null)" } }, true);
+		return failed;
 	}
 	r_expr.target = Target::NoneComparison;
 	return set(r_expr, Type::of(TypeKind::Bool));
@@ -464,6 +519,13 @@ Checker::Facts Checker::facts_of(const Expr &p_condition) const {
 			}
 			break;
 		}
+		case ExprKind::Name:
+			// An object's T? is an error here, which its fix `x != None` makes
+			// right. Narrowed as by that, what the fix makes right goes too.
+			if (tested_local(p_condition) >= 0 && p_condition.type.kind == TypeKind::Object && p_condition.type.nullable) {
+				facts.when_true[tested_local(p_condition)] = p_condition.type.unwrapped();
+			}
+			break;
 		default:
 			break;
 	}
@@ -1663,9 +1725,15 @@ std::string Checker::encoding_loss(const Type &p_type, const std::string &p_who,
 	const std::string none = whole ? (p_what.empty() ? std::string("its None") : "the None of " + p_what) : "the None of the " + lost->to_string() + " inside" + (p_what.empty() ? std::string() : " " + p_what);
 	std::string text = p_who + " cannot tell " + none + " from " + (variant ? "null" : "Some(None)");
 	if (whole && p_fix) {
-		text += variant ? "; pass x.unwrap_or(null)" : "; pass x.flatten()";
+		text += "; pass x" + fitting_call(p_type);
 	}
 	return text + ".";
+}
+
+// The call that makes a T?? or a Variant? fit where the engine takes it
+// (spec §10.1), as GDScript's null stands for both its levels.
+std::string Checker::fitting_call(const Type &p_two_level) {
+	return p_two_level.args[0].kind == TypeKind::Variant ? ".unwrap_or(null)" : ".flatten()";
 }
 
 // Why a value of the type does not go to a Variant or an untyped container
@@ -1722,6 +1790,9 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		message += " Its elements may be of any type; narrow it with `if x is " + p_to.to_string() + ":`, or copy them in with assign().";
 	}
 	error(p_value.range, message);
+	if (p_to.kind == TypeKind::Variant && lost_in_encoding(p_from, *this, false) == p_from) {
+		fix({ { p_value.range, operand(p_value) + fitting_call(p_from) } }, true);
+	}
 }
 
 void Checker::expect_condition(Expr &r_condition) {
@@ -1729,7 +1800,8 @@ void Checker::expect_condition(Expr &r_condition) {
 	if (type.is_error() || type.kind == TypeKind::Bool) {
 		return;
 	}
-	error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + compare_hint(type, false));
+	error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + truth_hint(type, false));
+	fix_truth({ { r_condition.range, &r_condition } }, false);
 }
 
 } // namespace petrichor::compiler::checking

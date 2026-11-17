@@ -146,6 +146,11 @@
 ### §5–§7 表达式、生命周期与场景模型
 
 - **表达式与收窄（§5.1–§5.4）**：`godot-open-rts` 用 `"hp" in unit` 检查单位成员 16 次。[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中 `(x as T).unwrap()` 向下转型 16 处。因成员不收窄而新增的局部变量每千行 4.4 个。
+- **真值判断的快速修复（§5.4）**：改写保持 GDScript 中 `if x:` 的含义，即 `x` 不是其类型的零值或空值。
+  - 非空对象改为 `is_instance_valid(x)`。`T` 可能持有已释放的对象，而 `x != None` 是编译错误。
+  - 向量、`Color`、变换等改为 `x != T()`，不用 `ZERO`。引擎拿它们与默认值比较，而 `Projection.ZERO` 不是默认值。
+  - `int?`、`float?` 和 `String?` 改为 `x.unwrap_or(0) != 0` 和 `x.unwrap_or("") != ""`。写成 `x != None` 时 `Some(0)` 为真。
+  - `Variant` 和其余的值类型 `T?` 没有修复。它们遇到 0、"" 和空值时也为假，没有一种写法保持这个含义。
 - **遍历对象（§5.7）**：[覆盖率调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/implementation-coverage.md)的语料中，定义 `_iter_init` 的类为 0。v2 中有 6 个类定义 `_iter_init`（5 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
   - GDScript 编译时只查 `_iter_get`，缺另外两个要到运行时才报错。编辑器中 Object 自带这三个虚函数，`for x in node` 因此也能编译（[引擎事实](engine-facts.md)）。本语言要求类自己定义三者。
   - 引擎类中只有 PackedDataContainer 定义它们。引擎已弃用该类，所以不支持遍历它。
@@ -171,6 +176,7 @@
   - GDScript 中这时子任务照常跑完，同一写法须与它一致。归属的用处都来自主动取消，所以对象释放引起的取消不传播。
 - **协程与信号（§9.1–§9.7）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 979 个 lambda 有 35 个含 `await`（33 个在 `gdUnit4` 测试中），v2 的 3,518 个中有 125 个（11 库）。重入与释放暗坑见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) G-11、G-12、G-13，及提案 [godot-proposals#8838](https://github.com/godotengine/godot-proposals/issues/8838)、[#6243](https://github.com/godotengine/godot-proposals/issues/6243)。[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果。也只有 1 个使用了签名未知的 `Signal` 结果（`godot_dialogue_manager` `:1956` 经 `RefCounted` 接收者等待 C# 两参数信号）。v2 使用多参数信号结果增至 24 处（9 库，15 处接收者签名静态已知，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
+- **`float` 实参的快速修复（§10.3）**：只在期望类型为 `float` 处自动应用。GDScript 的 `min`、`max` 和 `clamp` 返回选中的实参本身，类型也随它，如 `str(min(1.5, 1))` 得 `"1"`。
 - **引擎 API 的 `Result` 版本（§10.3）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `FileAccess.open` 有 125 处调用，只有 21 处随后读取错误。改变原 API 的返回类型，迁移来的每处调用都要改写。所以 `try_` 版本另加，原 API 不变。独立的模块多一个全局名字，用户在 `FileAccess` 下也找不到。
   - 引擎类上只加按固定前缀从引擎成员派生的名字，如 `try_from` 和 `try_open`。4.7 的引擎 API 中只有 `Mutex.try_lock` 和 `Semaphore.try_wait` 用这个前缀。
   - 引擎几乎每个 4.x 版本都给 `FileAccess` 和 `DirAccess` 加方法，但没有一个以 `try_` 开头。生成的名字与新版引擎的成员重名时，构建失败。

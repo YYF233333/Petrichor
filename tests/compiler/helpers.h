@@ -77,6 +77,11 @@ std::string messages(const compiler::CompileResult &p_result);
 // Each error as "line:column: message".
 std::vector<std::string> errors_of(const std::string &p_source);
 
+// Compiles a source, applies the automatic fix of its first error that has
+// one, or the fix titled `p_title`, and gives the text after it followed by
+// its errors as messages() gives them; "no such fix" without one.
+std::string fixed(const std::string &p_source, const std::string &p_title = std::string());
+
 std::string joined(const std::vector<std::string> &p_lines);
 
 bool contains(const std::string &p_text, const std::string &p_part);

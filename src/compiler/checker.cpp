@@ -23,6 +23,60 @@ void Checker::warn(const TokenRange &p_range, const char *p_warning, const std::
 	warnings->push_back(std::move(warning));
 }
 
+// Gives the error reported last a quick fix (spec §13.2) that writes each
+// text over its tokens, named after what it writes.
+void Checker::fix(const std::vector<Write> &p_writes, bool p_automatic) {
+	Fix fix;
+	fix.automatic = p_automatic;
+	for (const auto &[range, text] : p_writes) {
+		fix.title += (fix.title.empty() ? "Write " : ", ") + text;
+		fix.edits.push_back({ std::string(), { cls.source->begin(range), cls.source->end(range), cls.source->text_of(range), text } });
+	}
+	errors.back().fixes.push_back(std::move(fix));
+}
+
+// The tokens of `p_range` inside the parentheses around them, if any.
+TokenRange Checker::unparenthesized(TokenRange p_range) const {
+	const std::vector<Token> &tokens = cls.source->tokens;
+	while (p_range.first < p_range.last && tokens[p_range.first].kind == TokenKind::ParenOpen && tokens[p_range.last].kind == TokenKind::ParenClose) {
+		int depth = 0;
+		for (uint32_t i = p_range.first; i < p_range.last; i++) {
+			if (tokens[i].kind == TokenKind::ParenOpen) {
+				depth++;
+			} else if (tokens[i].kind == TokenKind::ParenClose && --depth == 0) {
+				return p_range; // As in `(a) + (b)`.
+			}
+		}
+		p_range = { p_range.first + 1, p_range.last - 1 };
+	}
+	return p_range;
+}
+
+// The source of an expression as a fix writes it before an operator or a
+// method: in parentheses, unless it is a name, member, call, subscript or
+// literal, or in parentheses already.
+std::string Checker::operand(const Expr &p_expr) const {
+	const std::string text = cls.source->text_of(p_expr.range);
+	switch (p_expr.kind) {
+		case ExprKind::IntLiteral:
+		case ExprKind::FloatLiteral:
+		case ExprKind::StringLiteral:
+		case ExprKind::BoolLiteral:
+		case ExprKind::NoneLiteral:
+		case ExprKind::ArrayLiteral:
+		case ExprKind::DictionaryLiteral:
+		case ExprKind::Name:
+		case ExprKind::Self:
+		case ExprKind::Member:
+		case ExprKind::Call:
+		case ExprKind::Subscript:
+		case ExprKind::GetNode:
+			return text;
+		default:
+			return unparenthesized(p_expr.range).first == p_expr.range.first ? "(" + text + ")" : text;
+	}
+}
+
 /* References (architecture §2.1) */
 
 // A name of this file, unless the compiler made it or a syntax error left

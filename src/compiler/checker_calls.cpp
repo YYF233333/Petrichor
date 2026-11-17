@@ -603,7 +603,7 @@ bool Checker::api_result_supported(Expr &r_call, const Type &p_result) {
 	return true;
 }
 
-Type Checker::check_utility(Expr &r_expr, const builtin::Utility &p_utility) {
+Type Checker::check_utility(Expr &r_expr, const builtin::Utility &p_utility, const Type &p_expected) {
 	hint(r_expr, [&](int p_current) { return api_signature(r_expr.text, p_utility.arguments, p_utility.argument_count, p_utility.is_vararg, p_utility.return_type, p_current); });
 	r_expr.target = Target::Utility;
 	refer(r_expr.name_token, engine_id("@GlobalScope", r_expr.text));
@@ -651,7 +651,24 @@ Type Checker::check_utility(Expr &r_expr, const builtin::Utility &p_utility) {
 			if (types[i].is_numeric() && result.is_numeric()) {
 				message += " Write the int argument as a float, for example 1.0.";
 			}
-			return fail(*r_expr.args[i], message);
+			const Type failed = fail(*r_expr.args[i], message);
+			if (std::all_of(types.begin(), types.begin() + same_count, [](const Type &p_type) { return p_type.is_numeric(); })) {
+				std::vector<Write> writes;
+				for (size_t j = 0; j < same_count; j++) {
+					const Expr &arg = *r_expr.args[j];
+					if (types[j].kind != TypeKind::Int) {
+						continue;
+					}
+					const Expr &literal = arg.kind == ExprKind::Unary && arg.op == TokenKind::Minus ? *arg.left : arg;
+					const std::string text = cls.source->text_of(arg.range);
+					const bool decimal = literal.kind == ExprKind::IntLiteral && text.find_first_not_of("-_0123456789 ") == std::string::npos;
+					writes.push_back({ arg.range, decimal ? text + ".0" : "float(" + text + ")" });
+				}
+				// GDScript's min(), max() and clamp() give the argument they
+				// choose, of its own type, which only a float result keeps.
+				fix(writes, p_expected.kind == TypeKind::Float);
+			}
+			return failed;
 		}
 	}
 	if (rule == ArgumentTyped::Lerp) {
@@ -1300,8 +1317,7 @@ Type Checker::check_struct_construction(Expr &r_expr, const Type &p_struct) {
 		for (const VarDecl &field : decl->fields) {
 			fields.push_back(field.name + ": " + field.type.to_string());
 			if (field.initializer) {
-				const uint32_t begin = source.begin(field.initializer->range);
-				fields.back() += " = " + source.text.substr(begin, source.end(field.initializer->range) - begin);
+				fields.back() += " = " + source.text_of(field.initializer->range);
 			}
 		}
 		return signature(p_struct.interface_name(), fields, false, -1, p_struct.to_string());
@@ -1744,7 +1760,7 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 			r_expr.name_token = NO_TOKEN;
 		}
 		if (const builtin::Utility *utility = builtin::find_utility(r_expr.text)) {
-			return check_utility(r_expr, *utility);
+			return check_utility(r_expr, *utility, p_expected);
 		}
 		if (const builtin::Class *type = builtin::find_class(name)) {
 			return check_constructor(r_expr, *type);

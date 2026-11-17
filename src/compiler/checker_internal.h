@@ -713,6 +713,10 @@ class Checker : public ClassRelation {
 	void error(const TokenRange &p_range, const std::string &p_message);
 	void error_in_scene(const TokenRange &p_range, const Scene &p_scene, const std::string &p_node, const std::string &p_message);
 	void warn(const TokenRange &p_range, const char *p_warning, const std::string &p_message);
+	using Write = std::pair<TokenRange, std::string>; // Text that a fix writes over tokens.
+	void fix(const std::vector<Write> &p_writes, bool p_automatic);
+	TokenRange unparenthesized(TokenRange p_range) const;
+	std::string operand(const Expr &p_expr) const;
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);
 	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target);
 	void refer_local(uint32_t p_token, const Type &p_type, bool p_constant = false);
@@ -891,7 +895,9 @@ class Checker : public ClassRelation {
 	/* checker_expressions.cpp */
 
 	Type check_unary(Expr &r_expr);
-	static std::string compare_hint(const Type &p_type, bool p_negated);
+	static std::string truth_test(const Type &p_type, bool p_negated, const std::string &p_value);
+	static std::string truth_hint(const Type &p_type, bool p_negated);
+	void fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated);
 	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at, Type *r_compared = nullptr);
 	Type primitive_binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at);
 	Type check_binary(Expr &r_expr);
@@ -943,6 +949,7 @@ class Checker : public ClassRelation {
 	void expect_scene_fits(const Expr &p_value, const Type &p_to);
 	std::string unfit_scene(const Scene &p_scene, const Type &p_to);
 	std::string encoding_loss(const Type &p_type, const std::string &p_who, bool p_fix, bool p_copied = false, const std::string &p_what = std::string()) const;
+	static std::string fitting_call(const Type &p_two_level);
 	std::string variant_refusal(const Type &p_type) const;
 	std::string callable_refusal(const Type &p_function) const;
 	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action);
@@ -966,7 +973,7 @@ class Checker : public ClassRelation {
 	Type filtered_result(const Expr &p_call, const EngineMethod &p_method);
 	std::optional<std::vector<Type>> api_params(Expr &r_call, const builtin::Argument *p_args, uint32_t p_count, int &r_required);
 	bool api_result_supported(Expr &r_call, const Type &p_result);
-	Type check_utility(Expr &r_expr, const builtin::Utility &p_utility);
+	Type check_utility(Expr &r_expr, const builtin::Utility &p_utility, const Type &p_expected);
 	Type construct_from_variant(Expr &r_expr, const Type &p_type);
 	Type check_constructor(Expr &r_expr, const builtin::Class &p_type);
 	Type check_named_value(Expr &r_expr, bool p_signal);
@@ -1012,7 +1019,7 @@ class Checker : public ClassRelation {
 	std::unordered_map<int, Type> check_block(Block &r_block, const std::unordered_map<int, Type> &p_facts = {});
 	int declare_local(const std::string &p_name, uint32_t p_at, const Type &p_type, bool p_constant = false);
 	void check_match(Stmt &r_stmt);
-	void check_pattern(Pattern &r_pattern, const Type &p_matched, int p_local);
+	void check_pattern(Pattern &r_pattern, const Type &p_matched, int p_local, const Expr *p_subject = nullptr);
 	void check_constructor_pattern(Pattern &r_pattern, const Type &p_matched, int p_local);
 	void check_container_pattern(Pattern &r_pattern, const Type &p_matched);
 	void check_items(Pattern &r_pattern, const std::vector<std::string> &p_names, const std::vector<Type> &p_types, const std::string &p_written, const std::string &p_field_id);

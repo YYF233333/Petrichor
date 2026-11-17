@@ -184,6 +184,7 @@ struct SourceFile {
 	int line(uint32_t p_token) const { return position(tokens[p_token].offset).line; }
 	uint32_t begin(const TokenRange &p_range) const { return tokens[p_range.first].offset; }
 	uint32_t end(const TokenRange &p_range) const { return tokens[p_range.last].end(); }
+	std::string text_of(const TokenRange &p_range) const { return text.substr(begin(p_range), end(p_range) - begin(p_range)); }
 };
 
 // Indentation follows GDScript: a block is opened by a deeper indentation and
