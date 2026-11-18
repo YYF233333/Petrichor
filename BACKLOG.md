@@ -23,7 +23,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The LSP server, after `$X` (architecture §5, step 8). Its design is set with the owner first.
   - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
   - Map `textDocument/typeDefinition` alongside `definition`.
-  - Before it, measure the memory of the reference table. By estimate an entry takes about 600 bytes, with the strings of scene entries in each, and the analysis keeps every script's table (`src/compiler/references.h`).
 
 ## Language
 
