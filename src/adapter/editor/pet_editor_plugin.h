@@ -163,18 +163,23 @@ class PetEditorPlugin : public godot::EditorPlugin {
 		std::string name;
 		compiler::Rename changes;
 	} renaming;
-	// The renames in the editor's global history, by their index there: the
-	// action's name, the files it changed and `elsewhere` when it was made.
+	// The refactorings in the editor's global history, by their index there:
+	// the action's name, the files it changed, `elsewhere` when it was made,
+	// and the calls that redo and undo it.
 	struct Recorded {
 		godot::String name;
 		std::set<std::string> files;
 		uint64_t elsewhere = 0;
+		godot::Array redo;
+		godot::Array undo;
 	};
 	std::map<int32_t, Recorded> recorded;
 	// The steps in the editor's other histories since the first rename, which
 	// may come before a rename in its undo (architecture §2.3).
 	uint64_t elsewhere = 0;
 	uint64_t global_version = 0;
+	// Each tab's version after a refactoring last changed it, by its CodeEdit.
+	std::map<uint64_t, uint32_t> refactored;
 	godot::Timer *marks = nullptr; // Asks the nodes for their errors once scenes stop changing.
 	uint64_t checked = 0; // The workspace's revision when the nodes last asked.
 	std::map<uint64_t, uint64_t> tab_checks; // The workspace's revision at each tab's last check, by its CodeEdit.
@@ -208,16 +213,17 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void list_fixes(godot::Object *p_code_edit);
 	void list_fixes_at(godot::CodeEdit *p_code_edit, const godot::Vector2 &p_position);
 	void apply_listed(int p_id);
-	bool change_scripts(const FileEdits &p_changes);
-	void change_scripts_again(const godot::Array &p_edits);
-	void change_files(const FileEdits &p_changes, bool p_save);
+	godot::String change_scripts(const FileEdits &p_changes, bool p_apply);
+	godot::String change_scripts_again(const godot::Array &p_edits, bool p_apply);
+	bool change_files(const FileEdits &p_changes);
+	void save_held();
 	void record(const godot::String &p_action, const std::set<std::string> &p_files, const godot::Array &p_do, const godot::Array &p_undo);
 	void show_references(godot::Object *p_code_edit);
 	void ask_name(godot::Object *p_code_edit);
 	void rename_to(const godot::String &p_name);
 	void apply_previewed();
 	void apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record);
-	void rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates);
+	godot::String rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates, bool p_apply);
 	bool waits_for_scan(void (PetEditorPlugin::*p_command)());
 	void run_build_command();
 	void run_format_command();
@@ -235,6 +241,8 @@ public:
 	void _input(const godot::Ref<godot::InputEvent> &p_event) override;
 	void _shortcut_input(const godot::Ref<godot::InputEvent> &p_event) override;
 	bool _build() override;
+	godot::String _get_unsaved_status(const godot::String &p_for_scene) const override;
+	void _save_external_data() override;
 };
 
 } // namespace petrichor

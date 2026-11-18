@@ -94,6 +94,13 @@ compiler::Workspace &workspace();
 void pack_open_scenes();
 // The open script's editor, or null.
 godot::CodeEdit *open_code_edit(const std::string &p_path);
+// Gives the workspace the unsaved text of a script that is not open, which
+// its tab takes if it opens; the same text as its file is none (architecture
+// §2.3).
+void hold_script(const std::string &p_path, std::string p_text);
+void drop_held(const std::string &p_path);
+// The scripts with texts held, by path.
+const std::set<std::string> &held_scripts();
 // The bytes of a file, an unsaved scene's as the text saver writes it;
 // nullopt if it cannot be read.
 std::optional<std::string> file_text(const std::string &p_path);

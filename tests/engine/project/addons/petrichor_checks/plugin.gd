@@ -58,6 +58,7 @@ func _run() -> void:
 	await _check_script_dialog()
 	_check_autoload_by_uid()
 	await _check_rename()
+	await _check_rename_transaction()
 	await _check_quick_fixes()
 	await _check_unsaved_texts()
 	await _check_stale_reference()
@@ -580,10 +581,13 @@ func _check_autoload_by_uid() -> void:
 # Spec §13.3 in the editor (architecture §2.3). A rename that cannot be made
 # changes nothing. A local renamed in one script is one step of that script's
 # undo. A member's rename reads the open script's text and the open scene's
-# unsaved change, which it saves before rewriting the scene. It writes a
-# closed script byte for byte, and saves the open one, against which a loaded
-# closed script reloads. Once the script has nothing left to undo, Ctrl+Z
-# there undoes the rename everywhere, and Ctrl+Shift+Z redoes it.
+# unsaved change, which it saves before rewriting the scene. The scripts stay
+# unsaved: the open one changes in its tab, whose history stays, and a closed
+# one is held, which the editor's save writes byte for byte, and a loaded one
+# reloads then. Ctrl+Z in the script, with the rename's edit last there,
+# undoes it everywhere, and Ctrl+Shift+Z redoes it. A closed script opened
+# shows its text held, unsaved. An undo or redo that would be refused is not
+# made, and no history moves.
 func _check_rename() -> void:
 	var dir := "res://editor_rename"
 	var unit := dir + "/unit.pet"
@@ -618,30 +622,89 @@ func _check_rename() -> void:
 	_check(code.text == text, "one undo in the script restores it")
 
 	var loaded_user := load(user)
+	code.insert_text("# Kept.\n", code.get_line_count() - 1, 0)
+	var kept := code.text
 	_rename(code, 2, 17, "pace")
 	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
 	apply.pressed.emit()
-	_check(code.text == text.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "a member is renamed in the open script and in the open scene, with its unsaved change")
-	_check(FileAccess.get_file_as_string(unit) == code.text and loaded_user.source_code.contains("pace"), "the open script is saved, and a loaded closed one reloads against it")
-	_check(FileAccess.get_file_as_bytes(user) == user_text.replace("stride", "pace").to_utf8_buffer(), "a closed script keeps its byte order mark and line breaks")
+	_check(code.text == kept.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "a member is renamed in the open script and in the open scene, with its unsaved change")
+	_check(FileAccess.get_file_as_string(unit) == kept and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer() and not loaded_user.source_code.contains("pace"), "the scripts stay unsaved, and a loaded one keeps its text")
 	await _press(code, "ui_undo")
-	_check(code.text == text and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n") and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer(), "Ctrl+Z in the script, with nothing left to undo there, restores the script, the scene and the closed script")
+	_check(code.text == kept and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n"), "Ctrl+Z in the script, with the rename's edit last there, restores the script and the scene")
 	await _press(code, "ui_redo")
-	_check(code.text == text.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "Ctrl+Shift+Z there renames them again")
+	_check(code.text == kept.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "Ctrl+Shift+Z there renames them again")
+	EditorInterface.save_scene()
+	_check(FileAccess.get_file_as_bytes(user) == user_text.replace("stride", "pace").to_utf8_buffer() and loaded_user.source_code.contains("pace"), "saving the scene writes the closed script with its byte order mark and line breaks, and the loaded one reloads")
+
+	await _press(code, "ui_undo")
+	EditorInterface.edit_script(load(user))
+	var user_code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var listed := []
+	for names: ItemList in EditorInterface.get_script_editor().find_children("*", "ItemList", true, false):
+		listed.append_array(range(names.item_count).map(func(i): return names.get_item_text(i)))
+	_check(user_code.text == user_text.replace("\r", "").trim_prefix("﻿") and listed.has("user.pet(*)"), "a closed script opened shows the text the undo left it, unsaved: %s" % [listed])
+	var unrenamed := FileAccess.get_file_as_string(scene)
+	_write(scene, unrenamed + "pace = 1\n")
+	_scanned()
+	var at := global.get_current_action()
+	await _press(user_code, "ui_redo")
+	_check(global.get_current_action() == at and code.text == kept and user_code.text.contains("unit.stride"), "a redo that would be refused is not made, and the history stays")
+	_write(scene, unrenamed)
+	_scanned()
+	await _press(user_code, "ui_redo")
+	_check(code.text == kept.replace("stride", "pace") and user_code.text.contains("unit.pace"), "with the scene fixed, it is made")
+	while code.has_undo():
+		code.undo()
+	_check(code.text == text, "the open script's own history is kept through it")
 	_check_errors([], "renaming reports nothing")
 
 	EditorInterface.close_scene()
-	EditorInterface.get_script_editor().close_file(unit)
+	for file in [unit, user]:
+		EditorInterface.get_script_editor().close_file(file)
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))
 	DirAccess.remove_absolute(dir)
 
 
+# Architecture §2.3: a refactoring writes the scene files it changes all or
+# none. One that cannot be written leaves the others and the scripts as they
+# were. Saved safely, as the editor saves by default, the write would fail
+# only after a second of retries.
+func _check_rename_transaction() -> void:
+	var dir := "res://editor_transaction"
+	var unit := dir + "/unit.pet"
+	var scenes := [dir + "/a.tscn", dir + "/b.tscn"]
+	DirAccess.make_dir_absolute(dir)
+	_write(unit, "extends Node\n\n@export pub var stride := 1\n")
+	for scene in scenes:
+		_write(scene, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Unit" type="Node"]\nscript = ExtResource("1")\nstride = 5\n' % unit)
+		EditorInterface.get_resource_filesystem().update_file(scene)
+	await get_tree().process_frame
+	var scene_text := FileAccess.get_file_as_string(scenes[0])
+	FileAccess.set_read_only_attribute(scenes[1], true)
+	OS.set_use_file_access_save_and_swap(false)
+	EditorInterface.edit_script(load(unit))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var text := code.text
+	_rename(code, 2, 17, "pace")
+	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
+	apply.pressed.emit()
+	_check(code.text == text and FileAccess.get_file_as_string(scenes[0]) == scene_text, "a rename that cannot write one scene file changes no file and no script")
+	_check_errors(["Cannot write %s." % scenes[1]], "it reports the file")
+	OS.set_use_file_access_save_and_swap(true)
+	FileAccess.set_read_only_attribute(scenes[1], false)
+	EditorInterface.get_script_editor().close_file(unit)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+	_scanned()
+
+
 # Spec §13.2 in the editor (architecture §2.4). Alt+Enter lists the fixes of
 # the caret's line. A fix in the script is one step of its undo, and so is
 # fixing all of a kind, which leaves the other kinds. A fix that changes
-# another script writes it, found again where its text is now, and keeps the
-# tab; Ctrl+Z there undoes it.
+# another script changes its text unsaved, found again where it is now, and
+# keeps the tab. Opened, that script shows it, and Ctrl+Z there undoes it.
 func _check_quick_fixes() -> void:
 	var dir := "res://editor_fixes"
 	var target := dir + "/target.pet"
@@ -674,10 +737,12 @@ func _check_quick_fixes() -> void:
 	list = _quick_fixes(code, 8)
 	_check(list.item_count == 1, "a kind with one fix in the script has no item to fix all")
 	_choose(list, 0)
-	_check(FileAccess.get_file_as_string(target) == moved.replace("var", "pub var") and code.text == text and EditorInterface.get_script_editor().get_current_editor().get_base_editor() == code, "a fix in another script writes it where its text is now, and keeps the tab")
+	_check(FileAccess.get_file_as_string(target) == moved and code.text == text and EditorInterface.get_script_editor().get_current_editor().get_base_editor() == code, "a fix in another script leaves its file and the tab")
 	EditorInterface.edit_script(load(target))
-	await _press(EditorInterface.get_script_editor().get_current_editor().get_base_editor(), "ui_undo")
-	_check(FileAccess.get_file_as_string(target) == moved, "Ctrl+Z in that script undoes it")
+	var target_code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	_check(target_code.text == moved.replace("var", "pub var"), "opened, that script shows the fix where its text is now")
+	await _press(target_code, "ui_undo")
+	_check(target_code.text == moved, "Ctrl+Z in that script undoes it")
 	_check_errors([], "quick fixes report nothing")
 
 	for file in [user, target]:

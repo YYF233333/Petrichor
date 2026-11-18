@@ -868,6 +868,7 @@ namespace {
 // version of its text that the workspace has.
 std::map<std::string, std::pair<uint64_t, uint32_t>> open_scripts;
 std::set<std::string> packed_scenes;
+std::set<std::string> held;
 
 // The scenes open with unsaved changes, by path.
 std::map<std::string, Ref<PackedScene>> unsaved_scenes() {
@@ -911,12 +912,20 @@ compiler::Workspace &workspace() {
 			continue;
 		}
 		const Ref<Script> script = scripts[index++];
-		const CodeEdit *code_edit = Object::cast_to<CodeEdit>(each->get_base_editor());
+		CodeEdit *code_edit = Object::cast_to<CodeEdit>(each->get_base_editor());
 		const String path = script->get_path();
 		if (!code_edit || !path.begins_with("res://") || path.contains("::")) {
 			continue;
 		}
 		const std::string file = to_utf8(path);
+		// A script opened takes the text held for it, unsaved, with nothing to
+		// undo in its tab (architecture §2.3). The tab clears its history as it
+		// opens (editor/script/script_text_editor.cpp:248-251; ed1daf0), and its
+		// version is then never 0.
+		if (held.erase(file)) {
+			code_edit->set_text(to_godot(*workspace.script_source(file)));
+			code_edit->clear_undo_history();
+		}
 		const std::pair<uint64_t, uint32_t> now{ code_edit->get_instance_id(), code_edit->get_version() };
 		shown.insert(file);
 		if (open_scripts[file] != now) {
@@ -955,6 +964,26 @@ CodeEdit *open_code_edit(const std::string &p_path) {
 	workspace();
 	const auto found = open_scripts.find(p_path);
 	return found == open_scripts.end() ? nullptr : Object::cast_to<CodeEdit>(ObjectDB::get_instance(found->second.first));
+}
+
+void hold_script(const std::string &p_path, std::string p_text) {
+	compiler::Workspace &open = workspace();
+	if (SceneIndex::get().script_source(p_path) == p_text) {
+		drop_held(p_path);
+		return;
+	}
+	held.insert(p_path);
+	open.set_script(p_path, std::move(p_text));
+}
+
+void drop_held(const std::string &p_path) {
+	if (held.erase(p_path)) {
+		workspace().drop_script(p_path);
+	}
+}
+
+const std::set<std::string> &held_scripts() {
+	return held;
 }
 
 std::optional<std::string> file_text(const std::string &p_path) {
