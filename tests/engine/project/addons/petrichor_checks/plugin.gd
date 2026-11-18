@@ -978,11 +978,9 @@ func _check_node_moves() -> void:
 	await get_tree().process_frame
 	_check(code.text == renamed and history.get_history_count() == steps + 1, "renaming a node renames it in the open script, in the rename's step")
 	_check(printed.lines.has("%s:3 $Sprite → $Body" % root_script), "the Output panel lists the change: %s" % [printed.lines])
-	history.undo()
-	await get_tree().process_frame
+	await _scene_step(history.undo)
 	_check(root.has_node("Sprite") and code.text == text, "one undo in the scene's history restores the node and the script")
-	history.redo()
-	await get_tree().process_frame
+	await _scene_step(history.redo)
 	_check(root.has_node("Body") and code.text == renamed, "one redo renames both again")
 
 	# As dropping the node on another in the dock does.
@@ -995,11 +993,35 @@ func _check_node_moves() -> void:
 	EditorInterface.edit_script(load(gun_script))
 	var gun_code: CodeEdit = script_editor.get_current_editor().get_base_editor()
 	_check(gun_code.text == gun_text.replace("../HUD", "../../HUD") and FileAccess.get_file_as_string(gun_script) == gun_text, "a closed script holds the path from the node moved, unsaved")
-	history.undo()
-	await get_tree().process_frame
+	await _scene_step(history.undo)
 	_check(root.get_node("Gun").get_parent() == root and code.text == renamed and gun_code.text == gun_text, "one undo restores the node and both scripts")
-	history.undo()
+	await _scene_step(history.undo)
+
+	# As Reparent to New Node builds its step, which adds the parent; undoing
+	# it removes the parent (editor/docks/scene_tree_dock.cpp:3223-3274; ed1daf0).
+	var gun := root.get_node("Gun")
+	var holder := Node2D.new()
+	holder.name = "Holder"
+	undo.create_action("Reparent to New Node", UndoRedo.MERGE_DISABLE, root)
+	undo.add_do_method(root, "add_child", holder, true)
+	undo.add_do_method(holder, "set_owner", root)
+	undo.add_do_reference(holder)
+	undo.add_do_method(root, "remove_child", gun)
+	undo.add_do_method(holder, "add_child", gun, true)
+	undo.add_do_method(gun, "set_owner", root)
+	undo.add_undo_method(holder, "remove_child", gun)
+	undo.add_undo_method(root, "add_child", gun, true)
+	undo.add_undo_method(gun, "set_owner", root)
+	undo.add_undo_method(root, "remove_child", holder)
+	undo.commit_action()
 	await get_tree().process_frame
+	var held := text.replace("$Gun", "$Holder/Gun")
+	_check(code.text == held and gun_code.text == gun_text.replace("../HUD", "../../HUD"), "reparenting to a new node writes the paths anew")
+	await _scene_step(history.undo)
+	_check(gun.get_parent() == root and code.text == text and gun_code.text == gun_text, "one undo removes the new parent and restores both scripts")
+	await _scene_step(history.redo)
+	_check(gun.get_parent() == holder and code.text == held, "one redo writes them anew again")
+	await _scene_step(history.undo)
 	OS.remove_logger(printed)
 	_check_errors([], "moving nodes reports nothing")
 	EditorInterface.close_scene()
@@ -1009,6 +1031,16 @@ func _check_node_moves() -> void:
 		DirAccess.remove_absolute(dir.path_join(file))
 	DirAccess.remove_absolute(dir)
 	_scanned()
+
+
+# Undoes or redoes a step of the scene's own history, and signals it as the
+# editor's undo does (editor/editor_undo_redo_manager.cpp:327, 380; ed1daf0).
+# The Edit menu picks the global history or the scene's by timestamps in whole
+# seconds, so it could take a global step of the same second (:509-538).
+func _scene_step(step: Callable) -> void:
+	step.call()
+	get_undo_redo().version_changed.emit()
+	await get_tree().process_frame
 
 
 class Printed extends Logger:

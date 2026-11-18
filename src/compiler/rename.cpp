@@ -197,20 +197,41 @@ std::string holder(const ProjectApi &p_project, const std::string &p_path) {
 }
 
 // Where the node at `p_path` is after the moves, which give each moved node's
-// new path by its old one; a descendant moves with it.
+// new path by its old one, the root's too; a descendant moves with it.
 std::string moved_path(const std::map<std::string, std::string> &p_moves, const std::string &p_path) {
-	for (std::string at = p_path; at != "."; at = parent_path(at)) {
+	for (std::string at = p_path;; at = parent_path(at)) {
 		const auto found = p_moves.find(at);
 		if (found != p_moves.end()) {
-			return found->second + p_path.substr(at.size());
+			const std::string rest = at == "." ? (p_path == "." ? std::string() : "/" + p_path) : p_path.substr(at.size());
+			return found->second == "." && !rest.empty() ? rest.substr(1) : found->second + rest;
+		}
+		if (at == ".") {
+			return p_path;
 		}
 	}
-	return p_path;
 }
 
+// With a parent that the step adds or removes along with the move, as
+// Reparent to New Node adds one (editor/docks/scene_tree_dock.cpp:3223-3274;
+// ed1daf0), but not inside an instanced scene, whose own nodes are not listed.
 Scene with_moves(Scene p_scene, const std::map<std::string, std::string> &p_moves) {
+	std::set<std::string> paths;
+	std::vector<std::string> moved;
 	for (SceneNode &node : p_scene.nodes) {
-		node.path = moved_path(p_moves, node.path);
+		const std::string path = moved_path(p_moves, node.path);
+		if (path != node.path) {
+			moved.push_back(path);
+		}
+		node.path = path;
+		paths.insert(path);
+	}
+	const auto in_instance = [&](const std::string &p_path) {
+		return std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const SceneNode &p_node) { return p_node.is_instance && p_path.rfind(p_node.path + "/", 0) == 0; });
+	};
+	for (const std::string &path : moved) {
+		for (std::string at = parent_path(path); at != "." && !in_instance(at) && paths.insert(at).second; at = parent_path(at)) {
+			p_scene.nodes.push_back({ at, "Node" });
+		}
 	}
 	return p_scene;
 }
@@ -642,15 +663,21 @@ MovedNodes move_nodes(Analysis &r_analysis, const std::string &p_scene, const st
 	std::map<std::string, std::string> edited;
 	EditedProject after(project, edited);
 	// The scene and those that inherit it have the nodes moved, by their own
-	// paths. They are taken as before or after the move, whichever they are.
-	std::set<std::string> moving;
+	// paths. One that inherits it is taken as before or after the move,
+	// whichever it is, unless the root moves, which every scene has.
+	std::set<std::string> moving{ p_scene };
 	for (const std::string &path : project.scene_paths()) {
 		const std::optional<Scene> scene = project.scene(path);
+		if (!scene) {
+			continue;
+		}
 		std::optional<Scene> at = scene;
 		for (int depth = 0; at && at->path != p_scene && depth < 32; depth++) {
 			at = at->base.empty() ? std::nullopt : project.scene(at->base);
 		}
-		if (at && at->path == p_scene) {
+		if (path == p_scene) {
+			before.scenes[path] = with_moves(*scene, back);
+		} else if (at && at->path == p_scene && !p_moved.count(".")) {
 			moving.insert(path);
 			before.scenes[path] = with_moves(*scene, back);
 			after.scenes[path] = with_moves(*scene, p_moved);
@@ -759,7 +786,7 @@ MovedNodes move_nodes(Analysis &r_analysis, const std::string &p_scene, const st
 	for (const auto &[from, to] : p_moved) {
 		const std::string name = from.substr(from.rfind('/') + 1);
 		const std::string parent = moved_path(p_moved, parent_path(from));
-		if (to != (parent == "." ? name : parent + "/" + name)) {
+		if (from != "." && to != (parent == "." ? name : parent + "/" + name)) {
 			names.insert(name);
 		}
 	}

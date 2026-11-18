@@ -814,6 +814,9 @@ void PetEditorPlugin::take_scene_nodes() {
 	touched.clear();
 	const Node *root = EditorInterface::get_singleton()->get_edited_scene_root();
 	scene_root = root ? root->get_instance_id() : 0;
+	if (root) {
+		scene_nodes[scene_root] = ".";
+	}
 	const TypedArray<Node> nodes = root ? root->find_children("*", "", true, false) : TypedArray<Node>();
 	for (int64_t i = 0; i < nodes.size(); i++) {
 		Node *node = Object::cast_to<Node>(nodes[i]);
@@ -833,15 +836,15 @@ void PetEditorPlugin::node_touched(Node *p_node) {
 
 // The scripts follow the nodes that the action just committed renamed or
 // moved, with their descendants, in a step merged into that action
-// (architecture §2.3). It runs after the undo or the redo returns, as a
-// refactoring does (record()).
+// (architecture §2.3). A node made the root moves them all
+// (editor/docks/scene_tree_dock.cpp:1111-1135; ed1daf0). It runs after the
+// undo or the redo returns, as a refactoring does (record()).
 void PetEditorPlugin::nodes_committed() {
 	Node *root = EditorInterface::get_singleton()->get_edited_scene_root();
-	const bool same_root = root && root->get_instance_id() == scene_root;
-	if (merging || (touched.empty() && same_root)) {
+	if (merging || (touched.empty() && root && root->get_instance_id() == scene_root)) {
 		return;
 	}
-	if (touched.empty() || !same_root || root->get_scene_file_path().is_empty()) {
+	if (touched.empty() || !root || !scene_nodes.count(root->get_instance_id()) || root->get_scene_file_path().is_empty()) {
 		take_scene_nodes();
 		return;
 	}
@@ -850,7 +853,7 @@ void PetEditorPlugin::nodes_committed() {
 	for (const auto &[id, was] : scene_nodes) {
 		Node *node = Object::cast_to<Node>(ObjectDB::get_instance(id));
 		bool moved = false;
-		for (const Node *at = node && root->is_ancestor_of(node) ? node : nullptr; at && at != root && !moved; at = at->get_parent()) {
+		for (const Node *at = node && (node == root || root->is_ancestor_of(node)) ? node : nullptr; at && !moved; at = at == root ? nullptr : at->get_parent()) {
 			moved = touched.count(at->get_instance_id());
 		}
 		const String now = moved ? String(root->get_path_to(node)) : was;

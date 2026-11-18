@@ -55,6 +55,23 @@ TEST_CASE("a node moved is reached by its new path, also with \"..\", from a nod
 	CHECK(moved(project, "res://level.tscn", { { "A", "C/A" }, { "A/B", "C/A/B" } }) == "res://a.pet:3 $\"../D\" -> $\"../../D\"\nres://level.pet:3 $A/B -> $C/A/B\n");
 }
 
+TEST_CASE("a parent that the step removes with the move is still walked through before it") {
+	// Undoing Reparent to New Node removes the new parent.
+	FakeProject project;
+	project.add_script("res://root.pet", "extends Node2D\n\n@onready var gun: Node2D = $Holder/Gun\n");
+	project.add_script("res://gun.pet", "extends Node2D\n\n@onready var hud: Node = $\"../../HUD\"\n");
+	project.scenes = { { "res://moves.tscn", { node(".", "Node2D", "res://root.pet"), node("Gun", "Node2D", "res://gun.pet"), node("HUD", "Node") } } };
+	CHECK(moved(project, "res://moves.tscn", { { "Holder/Gun", "Gun" } }) == "res://gun.pet:3 $\"../../HUD\" -> $\"../HUD\"\nres://root.pet:3 $Holder/Gun -> $Gun\n");
+}
+
+TEST_CASE("a node made the root takes the others along") {
+	FakeProject project;
+	project.add_script("res://old_root.pet", "extends Node2D\n\n@onready var x: Node2D = $N/X\n@onready var sprite: Node2D = $Sprite\n");
+	project.add_script("res://n.pet", "extends Node2D\n\n@onready var sprite: Node2D = $\"../Sprite\"\n");
+	project.scenes = { { "res://root.tscn", { node(".", "Node2D", "res://n.pet"), node("R", "Node2D", "res://old_root.pet"), node("R/Sprite", "Node2D"), node("X", "Node2D") } } };
+	CHECK(moved(project, "res://root.tscn", { { ".", "R" }, { "N", "." } }) == "res://n.pet:3 $\"../Sprite\" -> $R/Sprite\nres://old_root.pet:3 $N/X -> $\"../X\"\n");
+}
+
 TEST_CASE("%Name stays while its node keeps its name, and takes the new one") {
 	FakeProject project;
 	project.add_script("res://ui.pet", "extends Control\n\n@onready var hp: Control = %HealthBar\n@onready var icon: TextureRect = %HealthBar/Icon\n@onready var bar: Control = $Box/%HealthBar\n");
