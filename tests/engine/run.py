@@ -583,6 +583,12 @@ def main():
         expect_run("game run", code, output, GAME_OUTPUT)
 
     if wanted("editor"):
+        # The editor opens again the scenes, scripts and help pages it last
+        # saved as open, which it saves 0.5 s after they change. A help page
+        # left so fails the documentation check of the next run
+        # (editor/editor_node.cpp:6311-6312, 8823-8827,
+        # editor/script/script_editor_plugin.cpp:3208-3209; ed1daf0).
+        (PROJECT / ".godot" / "editor" / "editor_layout.cfg").unlink(missing_ok=True)
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--editor-checks")
         expect_run("editor checks", code, output, ["editor check: 0 failure(s)"], expected_errors(output, "editor check"))
         # Architecture §2.3: the script a rename left unsaved as the checks
