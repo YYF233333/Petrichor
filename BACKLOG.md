@@ -76,6 +76,9 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 ## Editor
 
 - Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Done when someone asks for it.
+- A rename with a scene part writes the scene files and reloads the open ones, which clears their undo histories. An open scene with unsaved changes is saved first (architecture §2.3).
+  - An open scene could take the change through its own history, as the editor rewrites NodePaths. Its nodes would first need the scripts' new exported properties, while the scripts' edits are still unsaved.
+  - Closed scenes and resource files have no unsaved form in the editor.
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
