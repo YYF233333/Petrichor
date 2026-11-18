@@ -448,11 +448,13 @@ void PetReferences::open() {
 
 // A script at the name; a scene at the node, with the property stored
 // there; a resource at the property. A reference in a file changed since
-// is found again first.
+// is found again first, after the Tree's selection: the Tree emits
+// item_selected while it walks its items, which filling it again frees
+// (scene/gui/tree.cpp:3006-3074; ed1daf0).
 void PetReferences::go(size_t p_index) {
 	const compiler::Occurrence &each = found[p_index];
 	if (shown == Shown::References && workspace().version(each.file) > searched) {
-		search_again(p_index);
+		callable_mp(this, &PetReferences::search_again).call_deferred(int64_t(p_index), searched);
 		return;
 	}
 	EditorInterface *editor = EditorInterface::get_singleton();
@@ -712,6 +714,9 @@ void PetEditorPlugin::_enter_tree() {
 	add_child(fix_list);
 	ScriptEditor *script_editor = EditorInterface::get_singleton()->get_script_editor();
 	script_editor->connect("editor_script_changed", callable_mp(this, &PetEditorPlugin::script_changed).unbind(1));
+	// Shown again, as on going back to the Script screen, which does not check
+	// the tab (editor/script/script_editor_plugin.cpp:4318-4325; ed1daf0).
+	script_editor->connect("visibility_changed", callable_mp(this, &PetEditorPlugin::check_shown), CONNECT_DEFERRED);
 	callable_mp(this, &PetEditorPlugin::script_changed).call_deferred();
 	references = memnew(PetReferences);
 	add_control_to_bottom_panel(references, "References");
@@ -753,28 +758,33 @@ void PetEditorPlugin::_enter_tree() {
 void PetEditorPlugin::files_changed() {
 	disk_changed();
 	pack_open_scenes();
-	changed(true);
+	changed();
 }
 
 void PetEditorPlugin::scenes_paused() {
 	pack_open_scenes();
-	changed(true);
+	changed();
 }
 
 // Once for each revision of the workspace: the nodes ask for their errors
-// again, and with `p_tab` the tab shown checks its script again
-// (architecture §2.4).
-void PetEditorPlugin::changed(bool p_tab) {
+// again, and the tab shown checks its script again (architecture §2.4).
+void PetEditorPlugin::changed() {
 	const uint64_t revision = workspace().revision();
 	if (revision == checked) {
 		return;
 	}
 	checked = revision;
+	check_shown();
+	PetScript::update_warnings();
+}
+
+// The tab of a script of this language, while it shows, if the workspace
+// changed since it last checked its script.
+void PetEditorPlugin::check_shown() {
 	CodeEdit *code_edit = fixing_code_edit();
-	if (p_tab && code_edit && code_edit->is_visible_in_tree()) {
+	if (code_edit && code_edit->is_visible_in_tree() && tab_checks[code_edit->get_instance_id()] != workspace().revision()) {
 		code_edit->get_parent()->emit_signal("validate_script");
 	}
-	PetScript::update_warnings();
 }
 
 void PetEditorPlugin::history_changed() {
@@ -1008,7 +1018,11 @@ void PetEditorPlugin::_input(const Ref<InputEvent> &p_event) {
 
 // From the declaration, found by its id as undoing a rename finds it
 // (architecture §2.3); then the reference chosen, by its order in its file.
-void PetReferences::search_again(size_t p_index) {
+// Not once the panel shows another search.
+void PetReferences::search_again(int64_t p_index, uint64_t p_searched) {
+	if (p_searched != searched || size_t(p_index) >= found.size()) {
+		return;
+	}
 	const std::string file = found[p_index].file;
 	const size_t nth = size_t(std::count_if(found.begin(), found.begin() + int64_t(p_index), [&](const compiler::Occurrence &p_each) { return p_each.file == file; }));
 	const compiler::Occurrence &first = found.front();
@@ -1283,7 +1297,7 @@ void PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_save) {
 	}
 	elsewhere = steps;
 	if (!written.empty()) {
-		changed(true);
+		changed();
 	}
 }
 
@@ -1383,10 +1397,12 @@ void PetEditorPlugin::script_changed() {
 }
 
 void PetEditorPlugin::validated(Object *p_code_edit) {
-	if (Object::cast_to<CodeEdit>(p_code_edit) == fixing_code_edit()) {
+	CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
+	tab_checks[code_edit->get_instance_id()] = workspace().revision();
+	if (code_edit == fixing_code_edit()) {
 		refresh_fixes();
 	}
-	changed(false);
+	changed();
 }
 
 CodeEdit *PetEditorPlugin::fixing_code_edit() const {

@@ -60,6 +60,8 @@ func _run() -> void:
 	await _check_rename()
 	await _check_quick_fixes()
 	await _check_unsaved_texts()
+	await _check_stale_reference()
+	await _check_shown_again()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -730,10 +732,99 @@ func _check_unsaved_texts() -> void:
 # The errors and warnings the script editor lists once it checks the script.
 func _listed_errors(code: CodeEdit) -> String:
 	code.get_parent().emit_signal("validate_script")
+	return _shown_errors()
+
+
+# The errors and warnings the script editor lists for the current tab.
+func _shown_errors() -> String:
 	var listed := ""
 	for label: RichTextLabel in EditorInterface.get_script_editor().get_current_editor().find_children("*", "RichTextLabel", true, false):
 		listed += label.get_parsed_text() + "\n"
 	return listed
+
+
+# Spec §13.2: an entry of the References panel in a file changed since the
+# search is found again, and choosing it goes to where it is now
+# (architecture §2.4). Selecting it is what a click does
+# (scene/gui/tree.cpp:3006-3074; ed1daf0).
+func _check_stale_reference() -> void:
+	var dir := "res://editor_stale"
+	var target := dir + "/target.pet"
+	var user := dir + "/user.pet"
+	DirAccess.make_dir_absolute(dir)
+	_write(target, "extends Node\n\npub func boost() -> void:\n\tpass\n")
+	_write(user, "extends Node\n\nconst Target = preload(\"target.pet\")\n\nfunc f(t: Target) -> void:\n\tt.boost()\n")
+	var script_editor := EditorInterface.get_script_editor()
+	EditorInterface.set_main_screen_editor("Script")
+	EditorInterface.edit_script(load(user))
+	var code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	code.set_caret_line(5)
+	code.set_caret_column(4)
+	code.grab_focus()
+	var key := InputEventKey.new()
+	key.keycode = KEY_F12
+	key.shift_pressed = true
+	key.alt_pressed = true
+	key.pressed = true
+	get_viewport().push_input(key)
+	code.insert_text("\n\n", 5, 0)
+	var call: TreeItem = null
+	for file in _references_tree().get_root().get_children():
+		if file.get_text(0) == user:
+			call = file.get_child(0)
+	_check(call != null, "the References panel lists the call")
+	if call:
+		_references_tree().set_selected(call, 0)
+		_check(is_instance_valid(call), "the panel is not filled again while the Tree selects an item, which it walks after")
+		await get_tree().process_frame
+		_check(script_editor.get_current_editor().get_base_editor() == code and code.get_caret_line() == 7, "choosing a reference in a file changed since goes to where it is now")
+	code.undo()
+	_check_errors([], "finding a reference again reports nothing")
+	for file in [target, user]:
+		script_editor.close_file(file)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+	_scanned()
+
+
+# Architecture §2.4: a tab shown again checks its script again when the
+# project changed while it was hidden, here by a scene edit on the 2D screen.
+func _check_shown_again() -> void:
+	var script_path := "res://editor_shown.pet"
+	var scene_path := "res://editor_shown.tscn"
+	_write(script_path, "extends Node\n\n@onready var label: Label = $Label\n")
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Shown" type="Node"]\nscript = ExtResource("1")\n' % script_path)
+	EditorInterface.open_scene_from_path(scene_path)
+	await get_tree().process_frame
+	var root := EditorInterface.get_edited_scene_root()
+	EditorInterface.set_main_screen_editor("Script")
+	EditorInterface.edit_script(load(script_path))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	_check(_listed_errors(code).contains('has no node at "Label"'), "the tab lists the node that the scene lacks")
+	EditorInterface.set_main_screen_editor("2D")
+	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
+	var marks: Timer = plugin.get_children().filter(func(c): return c is Timer)[0]
+	marks.wait_time = 0.05
+	var label := Label.new()
+	label.name = "Label"
+	var undo_redo := get_undo_redo()
+	undo_redo.create_action("Add Label")
+	undo_redo.add_do_method(root, "add_child", label)
+	undo_redo.add_do_property(label, "owner", root)
+	undo_redo.add_do_reference(label)
+	undo_redo.add_undo_method(root, "remove_child", label)
+	undo_redo.commit_action()
+	await marks.timeout
+	EditorInterface.set_main_screen_editor("Script")
+	await get_tree().process_frame
+	_check(not _shown_errors().contains('has no node at "Label"'), "shown again after the scene gained the node, the tab no longer lists it")
+	undo_redo.get_history_undo_redo(undo_redo.get_object_history_id(root)).undo()
+	EditorInterface.close_scene()
+	EditorInterface.get_script_editor().close_file(script_path)
+	for file in [script_path, script_path + ".uid", scene_path, "res://.godot/petrichor/editor_shown.petc"]:
+		DirAccess.remove_absolute(file)
+	_scanned()
 
 
 # Opens the list of quick fixes at the line of the open script, as Alt+Enter

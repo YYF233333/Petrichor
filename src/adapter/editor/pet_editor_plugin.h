@@ -87,7 +87,7 @@ class PetReferences : public godot::VBoxContainer {
 	void fill();
 	void open();
 	void go(size_t p_index);
-	void search_again(size_t p_index);
+	void search_again(int64_t p_index, uint64_t p_searched);
 	void tick();
 	void finish(bool p_apply);
 	void highlight(godot::Object *p_item, const godot::Rect2 &p_rect);
@@ -177,6 +177,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	uint64_t global_version = 0;
 	godot::Timer *marks = nullptr; // Asks the nodes for their errors once scenes stop changing.
 	uint64_t checked = 0; // The workspace's revision when the nodes last asked.
+	std::map<uint64_t, uint64_t> tab_checks; // The workspace's revision at each tab's last check, by its CodeEdit.
 	// The quick fixes of the script in the script editor's current tab: its
 	// errors with fixes at the workspace's `revision`, each edit naming its
 	// file, the stamp of the check they come from, and the line of the caret
@@ -222,7 +223,8 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void run_format_command();
 	void files_changed();
 	void scenes_paused();
-	void changed(bool p_tab);
+	void changed();
+	void check_shown();
 
 protected:
 	static void _bind_methods();
