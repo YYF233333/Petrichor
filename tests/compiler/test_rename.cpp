@@ -594,6 +594,23 @@ TEST_CASE("renaming is refused when a binary or imported file stores the name, o
 	CHECK(refusals(renamed(moved, "res://player.pet", "stunned", "dazed")) == "res://player.tscn:11: tracks/0/path of the resource 3 names \"frame\", not \"stunned\".\n");
 }
 
+TEST_CASE("renaming is refused where a scene that a file embeds stores the name, naming where the file holds that scene") {
+	// As Super Mario Bros. Remastered's LitBobOmb.tscn stores a value.
+	Project project;
+	project.add_script("res://bomb.pet", "extends Node2D\n\n@export pub var timer := 3.0\n");
+	compiler::Scene embedded;
+	embedded.path = "res://level.tscn::PackedScene_1";
+	embedded.nodes = { { ".", "Node2D", "res://bomb.pet", false, "", false, { { "timer", value("float") } } } };
+	compiler::SceneValue held = value("Object");
+	held.class_name = "PackedScene";
+	held.path = embedded.path;
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node2D" }, { "Spawner", "Node", "", false, "", false, { { "bomb", held } } } };
+	project.scenes = { level, embedded };
+	CHECK(refusals(renamed(project, "res://bomb.pet", "timer", "fuse")) == "res://level.tscn:0: It is stored in the scene embedded in \"bomb\" of Spawner, whose names cannot be rewritten. Save that scene to a file of its own first, with \"Save As...\" on the property.\n");
+}
+
 TEST_CASE("renaming is refused where a node or a resource with the class stores the new name already, whose value would then take effect") {
 	// As a removed export leaves it, where the renamed one is not stored.
 	Project project = player();

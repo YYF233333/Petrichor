@@ -142,6 +142,36 @@ std::string script_of(const ProjectApi &p_project, const Scene &p_scene, const s
 	return std::string();
 }
 
+// The property and the node or the resource of a file that hold the scene it
+// embeds at `p_path`, as messages name them (ScriptClasses::root_use).
+std::string holder(const ProjectApi &p_project, const std::string &p_path) {
+	const std::string file = p_path.substr(0, p_path.find("::"));
+	const auto held = [&](const std::vector<std::pair<std::string, SceneValue>> &p_properties) {
+		for (const auto &[name, value] : p_properties) {
+			std::vector<std::string> scenes;
+			value.add_scenes(scenes);
+			if (std::find(scenes.begin(), scenes.end(), p_path) != scenes.end()) {
+				return "\"" + name + "\" of ";
+			}
+		}
+		return std::string();
+	};
+	for (const std::string &path : p_project.scene_paths()) {
+		const std::optional<Scene> scene = path == file || path.rfind(file + "::", 0) == 0 ? p_project.scene(path) : std::nullopt;
+		for (const SceneNode &node : scene ? scene->nodes : std::vector<SceneNode>()) {
+			if (const std::string property = held(node.properties); !property.empty()) {
+				return property + (node.path == "." ? std::string("the root") : node.path);
+			}
+		}
+		for (const SceneResource &resource : scene ? scene->resources : std::vector<SceneResource>()) {
+			if (const std::string property = held(resource.properties); !property.empty()) {
+				return property + resource.shown();
+			}
+		}
+	}
+	return file;
+}
+
 } // namespace
 
 Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset, const std::string &p_new, const std::vector<std::string> &p_other_scripts,
@@ -305,7 +335,7 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 					another(connection.file);
 				}
 			}
-			const std::string type = extension(path);
+			const std::string type = extension(path.substr(0, path.find("::")));
 			if (type != "tscn" && type != "tres") {
 				continue;
 			}
@@ -329,12 +359,12 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 				if (of_owner(resource.script)) {
 					const size_t at = resource.path.find("::");
 					stale.section = at == std::string::npos ? std::string() : resource.path.substr(at + 2);
-					stored[path].insert(stale);
+					stored[resource.path.substr(0, at)].insert(stale);
 				}
 			}
 			// The header of a resource file names its script's class, by which
 			// preload() types it (scene/resources/resource_format_text.cpp:1806; ed1daf0).
-			const std::optional<ResourceInfo> info = !global.empty() && type == "tres" ? project.resource(path) : std::nullopt;
+			const std::optional<ResourceInfo> info = !global.empty() && type == "tres" && path.find("::") == std::string::npos ? project.resource(path) : std::nullopt;
 			if (info && info->script_class == old_name && std::any_of(scene->resources.begin(), scene->resources.end(), [&](const SceneResource &p_resource) { return p_resource.path == path && p_resource.script == global; })) {
 				StoredName header;
 				header.kind = StoredName::Kind::Class;
@@ -342,6 +372,12 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 			}
 		}
 		for (const auto &[file, names] : stored) {
+			// Its nodes' names and their keys share the `names` table of `_bundled`.
+			const size_t embedded = file.find("::");
+			if (embedded != std::string::npos) {
+				refuse(file.substr(0, embedded), 0, "It is stored in the scene embedded in " + holder(project, file) + ", whose names cannot be rewritten. Save that scene to a file of its own first, with \"Save As...\" on the property.");
+				continue;
+			}
 			const std::string type = extension(file);
 			// The binary formats of what stores names: scenes, animations,
 			// synchronization configurations and other resources

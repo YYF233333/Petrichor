@@ -23,11 +23,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - An open scene that instances a scene the rename rewrote keeps its instance as loaded. Check what the editor updates when the tab is shown (`editor/editor_data.cpp:722-811`).
   - Applying a rename shows each open scene it saves. When the current tab is a new scene without a path, the editor stays on the last one saved. Godot shows an open scene only by its path.
   - Then renaming a node in the scene editor updates `$X` and literal paths in scripts. If time is short it moves to 0.3, since a stale `$X` is a compile error, not a silent one.
-  - With it, scenes embedded in a scene file, as a built-in PackedScene in a node's property. The scene index reads their nodes, so checks and find references cover the values they store. A rename that touches one refuses, naming the file, the node and the property. Saving the embedded scene with the property's "Save As…" lets it proceed (`editor/inspector/editor_resource_picker.cpp:365-368`, `ed1daf0`).
-    - Now the index skips them, and a rename leaves such a value under the old name, which the engine drops silently. Corpus v2 has two such files, one storing `timer = 1.0` (Super Mario Bros. Remastered, `LitBobOmb.tscn`).
-    - The editor embeds one without asking when a referenced scene file is deleted while a scene using it is loaded (`editor/file_system/dependency_editor.cpp:787-791`, `ed1daf0`).
-    - The value is not rewritten: its name sits in the `names` table of `_bundled`, which node names share.
-    - Godot 4.8 writes such a scene's nodes as sections of the file that holds it. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
 - The LSP server, after `$X` (architecture §5, step 8). Its design is set with the owner first.
   - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
   - Map `textDocument/typeDefinition` alongside `definition`.
@@ -79,6 +74,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - A rename with a scene part writes the scene files and reloads the open ones, which clears their undo histories. An open scene with unsaved changes is saved first (architecture §2.3).
   - An open scene could take the change through its own history, as the editor rewrites NodePaths. Its nodes would first need the scripts' new exported properties, while the scripts' edits are still unsaved.
   - Closed scenes and resource files have no unsaved form in the editor.
+- Godot 4.8 writes the nodes of a scene embedded in a scene file as sections of that file. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
@@ -309,6 +305,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Whether the spec gives a spelling of GDScript's truthiness for a `Variant` condition. `v != None` misses 0, "" and empty values, and the exact `bool(type_convert(v, TYPE_BOOL))` is no idiom. The second paper migration has no such condition.
 - Whether a class may be named as a standard type of this language, as `class_name Result` (spec §4.1). It is a compile error for now. Corpus v1 has no such class name. Inner classes may take these names, as godot-tiny-mmo's `class Result` does.
 - Whether a member may have the name of a member of another kind in a base class of this language (spec §4.1). It is a compile error, as in GDScript (`modules/gdscript/gdscript_analyzer.cpp:234-253`, `ed1daf0`). An example is a function named as an inherited enum.
+- Whether the scene index finds an inherited scene's overrides by `unique_id`, as the engine does since 4.6. After a base scene renames a node, the engine finds them by id (`scene/resources/packed_scene.cpp:286-299`, `ed1daf0`). The index merges them by path (`read_scene` in `src/adapter/editor/scene_index.cpp`). So a check may report a false error until the inherited scene is saved again.
 - The rule that keeps a member's old name in its declaration (architecture §6.4). It is proposed when a team that edits scenes in parallel needs it. Until then renaming rewrites scenes.
 - A constant named as an autoload, written in a type: a compile error for now (spec §11.1). Allow it later as the nearer name, or as the autoload as GDScript does?
 - Members that are non-null only once the node is ready, which need a design of their own. The owner likens it to linear types. It covers these (spec §6.2, §6.4):

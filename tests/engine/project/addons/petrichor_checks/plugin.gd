@@ -59,6 +59,7 @@ func _run() -> void:
 	_check_autoload_by_uid()
 	await _check_rename()
 	await _check_rename_transaction()
+	await _check_embedded_scene()
 	await _check_quick_fixes()
 	await _check_unsaved_texts()
 	await _check_stale_reference()
@@ -664,6 +665,47 @@ func _check_rename() -> void:
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))
 	DirAccess.remove_absolute(dir)
+
+
+# Architecture §6.4: a scene that a scene file embeds is read as a scene of its
+# own, so a rename finds the value it stores, and refuses, naming where the
+# file holds that scene.
+func _check_embedded_scene() -> void:
+	var dir := "res://editor_embedded"
+	var bomb := dir + "/bomb.pet"
+	var spawner := dir + "/spawner.pet"
+	var level := dir + "/level.tscn"
+	DirAccess.make_dir_absolute(dir)
+	_write(bomb, "extends Node2D\n\n@export pub var timer := 3.0\n")
+	_write(spawner, "extends Node\n\n@export pub var bomb: PackedScene[Node2D]\n")
+	var inner := Node2D.new()
+	inner.name = "Bomb"
+	inner.set_script(load(bomb))
+	inner.set("timer", 1.0)
+	var outer := Node.new()
+	outer.name = "Level"
+	outer.set_script(load(spawner))
+	var packed := PackedScene.new()
+	packed.pack(inner)
+	outer.set("bomb", packed)
+	var saved := PackedScene.new()
+	saved.pack(outer)
+	ResourceSaver.save(saved, level)
+	inner.free()
+	outer.free()
+	EditorInterface.get_resource_filesystem().update_file(level)
+	await get_tree().process_frame
+	EditorInterface.edit_script(load(bomb))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	_rename(code, 2, 17, "fuse")
+	var refused := _references_tree().get_root().get_child(0).get_text(0) if _references_tree().get_root().get_child_count() > 0 else ""
+	_check(refused.begins_with(level + ": It is stored in the scene embedded in \"bomb\" of the root,") and code.text.contains("timer"), "a rename refuses a value that an embedded scene stores, naming the file, the node and the property: " + refused)
+	_check_errors([], "an embedded scene reports nothing")
+	EditorInterface.get_script_editor().close_file(bomb)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+	_scanned()
 
 
 # Architecture §2.3: a refactoring writes the scene files it changes all or

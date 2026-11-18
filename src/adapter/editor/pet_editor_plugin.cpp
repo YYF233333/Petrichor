@@ -160,8 +160,12 @@ void PetExportPlugin::_export_file(const String &p_path, const String &p_type, c
 	const compiler::Analysis::Pass from_files(analysis(), &SceneIndex::get());
 	const String extension = p_path.get_extension().to_lower();
 	if (p_type == "PackedScene" || extension == "tres" || extension == "res") {
-		for (const compiler::Diagnostic &error : check_scene(p_path, true)->errors) {
-			get_export_platform()->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", to_godot(error.message));
+		std::vector<std::string> scenes = SceneIndex::get().embedded_scenes(to_utf8(p_path));
+		scenes.push_back(to_utf8(p_path));
+		for (const std::string &scene : scenes) {
+			for (const compiler::Diagnostic &error : check_scene(to_godot(scene), true)->errors) {
+				get_export_platform()->add_message(EditorExportPlatform::EXPORT_MESSAGE_ERROR, "Petrichor", to_godot(error.message));
+			}
 		}
 		return;
 	}
@@ -447,10 +451,10 @@ void PetReferences::open() {
 }
 
 // A script at the name; a scene at the node, with the property stored
-// there; a resource at the property. A reference in a file changed since
-// is found again first, after the Tree's selection: the Tree emits
-// item_selected while it walks its items, which filling it again frees
-// (scene/gui/tree.cpp:3006-3074; ed1daf0).
+// there; a resource at the property; a scene that a file embeds at that file.
+// A reference in a file changed since is found again first, after the Tree's
+// selection: the Tree emits item_selected while it walks its items, which
+// filling it again frees (scene/gui/tree.cpp:3006-3074; ed1daf0).
 void PetReferences::go(size_t p_index) {
 	const compiler::Occurrence &each = found[p_index];
 	if (shown == Shown::References && workspace().version(each.file) > searched) {
@@ -459,7 +463,7 @@ void PetReferences::go(size_t p_index) {
 	}
 	EditorInterface *editor = EditorInterface::get_singleton();
 	const compiler::Reference &reference = each.reference;
-	const String file = to_godot(each.file);
+	const String file = to_godot(each.file).get_slice("::", 0);
 	const String property = to_godot(reference.property);
 	const String extension = file.get_extension().to_lower();
 	if (extension == "pet" || extension == "gd" || extension == "cs") {
@@ -472,7 +476,7 @@ void PetReferences::go(size_t p_index) {
 	}
 	editor->open_scene_from_path(file);
 	Node *root = editor->get_edited_scene_root();
-	if (!root || root->get_scene_file_path() != file) {
+	if (!root || root->get_scene_file_path() != file || file != to_godot(each.file)) {
 		return;
 	}
 	if (!reference.resource.empty()) {

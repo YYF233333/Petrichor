@@ -368,7 +368,7 @@ std::vector<std::pair<std::string, StoredName>> stored_names(const Reference &p_
 		name.section = name.node ? p_reference.node : id_of(p_reference.resource);
 		name.key = p_reference.property;
 		name.items = p_reference.value_path;
-		found.emplace_back(p_reference.scene, name);
+		found.emplace_back(name.node ? p_reference.scene : file_of(p_reference.resource), name);
 	}
 	return found;
 }

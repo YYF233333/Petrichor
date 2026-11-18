@@ -36,9 +36,11 @@ class SceneIndex : public compiler::ProjectApi {
 	// A scene's files: its own; the scenes it instances, at any depth, as an
 	// instance takes the class and the script of its scene's root; animation
 	// libraries stored apart; and the scripts of this language of its
-	// resources, which give their properties.
+	// resources, which give their properties. The scenes the file embeds,
+	// each by the file's path, "::" and its id, are scenes of their own.
 	struct Entry : Read {
 		compiler::Scene scene;
+		std::vector<compiler::Scene> embedded;
 	};
 	struct Loads : Read {
 		std::vector<std::pair<bool, std::string>> found;
@@ -80,6 +82,8 @@ public:
 	// Files changed on disk, which ones unknown: what was read from them is
 	// checked again, by their modification times.
 	void disk_changed() const;
+	// The paths of the scenes that the file at `p_file` embeds.
+	std::vector<std::string> embedded_scenes(const std::string &p_file) const;
 
 	static const SceneIndex &get();
 };

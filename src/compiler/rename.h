@@ -31,8 +31,8 @@ struct Rename {
 // lists (spec §13.3). `p_text` gives the text of a scene or a resource file,
 // nullopt if it cannot be read. It refuses:
 // - a name that is not an identifier, or a declaration not of this language;
-// - a name stored in a binary or an imported file, whose names cannot be
-//   rewritten;
+// - a name stored in a binary or an imported file, or in a scene that a file
+//   embeds, whose names cannot be rewritten;
 // - a name that a text file does not store where the references say;
 // - a key `p_new` already stored on a node or a resource with the class, or
 //   beside a struct's field it renames, whose value would then take effect;
