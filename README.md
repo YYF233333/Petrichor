@@ -6,7 +6,7 @@ Petrichor is a statically typed scripting language for Godot 4 that keeps GDScri
 
 中文：[README.zh.md](README.zh.md)
 
-![After a node is renamed, the scene dock marks the error on the node that uses it](docs/images/scene-error.png)
+![When a node path in a script matches no node, the scene dock marks the error on the node that uses it](docs/images/scene-error.png)
 
 ## Why
 
@@ -26,7 +26,7 @@ func aim():
     camera.look_at(target.global_position)
 ```
 
-In Petrichor, the scene the script is attached to gives `camera` its type. Renaming the node fails at compile time. `target` becomes `Node3D?`, which must be checked before use:
+In Petrichor, the scene the script is attached to gives `camera` its type. Renaming the node in the scene dock updates the path. A path that matches no node fails at compile time. `target` becomes `Node3D?`, which must be checked before use:
 
 ```gdscript
 @onready var camera = $Head/Camera
@@ -52,7 +52,7 @@ Other differences:
 - Value-type `struct`, `enum` with payloads, exhaustive `match`, interfaces and nested typed containers.
 - `async func` returns an owned `Task`. When its owner is freed, the coroutine is cancelled. Whoever awaits it gets a cancellation or a program error instead of hanging forever.
 - It mixes with GDScript plugins and C# code.
-- The editor has completion, hover types, go to definition, find references, rename, quick fixes, formatting, breakpoints and hot reload of function bodies.
+- The editor has completion, hover types, go to definition, find references, rename, quick fixes, formatting, breakpoints and hot reload of function bodies. Renaming or moving a node in the scene dock updates the paths to it in scripts.
 
 The full rules are in the [language specification](docs/language-spec.md).
 

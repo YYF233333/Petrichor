@@ -6,7 +6,7 @@ Petrichor 是一门面向 Godot 4 的静态类型脚本语言，沿用 GDScript 
 
 English: [README.md](README.md)
 
-![节点改名后，场景面板在用到它的节点上标出错误](docs/images/scene-error.png)
+![脚本中的节点路径对不上节点时，场景面板在用到它的节点上标出错误](docs/images/scene-error.png)
 
 ## 为什么
 
@@ -26,7 +26,7 @@ func aim():
     camera.look_at(target.global_position)
 ```
 
-在 Petrichor 中，`camera` 的类型由挂载脚本的场景推出，节点改名时编译期就报错。`target` 写成 `Node3D?`，读取前要先检查：
+在 Petrichor 中，`camera` 的类型由挂载脚本的场景推出。在场景面板中给节点改名，路径随之更新。对不上节点的路径在编译期报错。`target` 写成 `Node3D?`，读取前要先检查：
 
 ```gdscript
 @onready var camera = $Head/Camera
@@ -52,7 +52,7 @@ func aim():
 - 有值语义的 `struct`、带载荷的 `enum`、穷尽的 `match`、接口和嵌套的带类型容器。
 - `async func` 返回有归属的 `Task`。所属对象被释放时，协程随之取消。等待它的一方得到取消或程序错误，不会永远挂起。
 - 可以与 GDScript 插件和 C# 代码混用。
-- 编辑器提供补全、悬停类型、跳转、查找引用、重命名、快速修复、格式化、断点和函数体热重载。
+- 编辑器提供补全、悬停类型、跳转、查找引用、重命名、快速修复、格式化、断点和函数体热重载。在场景面板中给节点改名或移动节点时，脚本中到它的路径随之更新。
 
 完整规则见[语言规范](docs/language-spec.zh.md)。
 
