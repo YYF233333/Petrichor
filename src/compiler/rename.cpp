@@ -169,6 +169,9 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 	// The scripts of this language, the one renamed in first.
 	std::vector<std::string> scripts{ p_path };
 	std::map<std::string, Edits> edits; // In them, by file.
+	// Where a pattern written out puts the name of a field, by file, and where
+	// the name was before.
+	std::map<std::string, std::map<uint32_t, uint32_t>> anchors;
 	std::set<DeclId> family;
 	std::string old_name;
 	std::string global; // The file whose class's global name it renames.
@@ -218,6 +221,20 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 				global = id.scope;
 			}
 		}
+		// Where `var x` among named fields, which is `x = var x` (spec §5.6),
+		// has the name of one of the two only: its `var`.
+		const auto shorthand = [&](const Occurrence &p_each) -> std::optional<uint32_t> {
+			const std::string &text = text_of(p_each.file);
+			uint32_t start = p_each.reference.begin;
+			while (start > 0 && (text[start - 1] == ' ' || text[start - 1] == '\t')) {
+				start--;
+			}
+			const std::shared_ptr<const CompileResult> checked = r_analysis.compile(p_each.file, text);
+			const bool shared = std::any_of(checked->references.begin(), checked->references.end(), [&](const Reference &p_other) {
+				return p_other.begin == p_each.reference.begin && p_other.end == p_each.reference.end && !family.count(p_other.target);
+			});
+			return shared && start >= 3 && text.compare(start - 3, 3, "var") == 0 ? std::optional<uint32_t>(start - 3) : std::nullopt;
+		};
 		std::map<std::string, std::set<StoredName>> stored; // By file.
 		for (const Occurrence &each : *found) {
 			if (each.line == 0) {
@@ -234,9 +251,22 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 			const RenameEdit renamed{ each, { each.reference.begin, each.reference.end, text.substr(each.reference.begin, each.reference.end - each.reference.begin), p_new } };
 			if (each.candidate) {
 				candidates.push_back(renamed);
-			} else if (renamed.edit.old_text != old_name) {
+				continue;
+			}
+			if (renamed.edit.old_text != old_name) {
 				refuse(each.file, each.line, "The name is written otherwise here: " + renamed.edit.old_text + ".");
-			} else {
+				continue;
+			}
+			// Written out, the pattern keeps the other one's name.
+			const std::optional<uint32_t> var = shorthand(each);
+			const bool field = each.reference.target.kind == Kind::Script;
+			if (var) {
+				const RenameEdit written{ each, { *var, *var, std::string(), (field ? p_new : old_name) + " = " } };
+				result.edits.push_back(written);
+				edits[each.file].push_back(written.edit);
+				anchors[each.file][*var] = each.reference.begin;
+			}
+			if (!var || !field) {
 				result.edits.push_back(renamed);
 				edits[each.file].push_back(renamed.edit);
 			}
@@ -445,7 +475,9 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 				if (target.kind == Kind::Language) {
 					target.scope.clear();
 				}
-				means[moved(in_file, reference.begin, true)].insert({ target, overridden(reference, false) });
+				const uint32_t at = moved(in_file, reference.begin, true);
+				const auto anchor = anchors[path].find(at);
+				means[anchor == anchors[path].end() ? at : anchor->second].insert({ target, overridden(reference, false) });
 			}
 		}
 		std::set<int> lines;

@@ -383,6 +383,16 @@ TEST_CASE("a struct's field is renamed in the values that scenes store, nested o
 	CHECK(contains(after(project, rename, "res://export_check.pet"), "\tvar amount: int\n"));
 }
 
+TEST_CASE("renaming a field or a local that a pattern names in short writes the pattern out") {
+	const Project project = exports();
+	compiler::Rename rename = renamed(project, "res://export_check.pet", "target", "goal");
+	REQUIRE_MESSAGE(rename.refusals.empty(), refusals(rename));
+	CHECK(contains(after(project, rename, "res://export_check.pet"), "\t\tOrder.MOVE(goal = var target):\n\t\t\treturn str(target)\n"));
+	rename = renamed(project, "res://export_check.pet", "target", "aim", 2);
+	REQUIRE_MESSAGE(rename.refusals.empty(), refusals(rename));
+	CHECK(contains(after(project, rename, "res://export_check.pet"), "\t\tOrder.MOVE(target = var aim):\n\t\t\treturn str(aim)\n"));
+}
+
 TEST_CASE("an enum's variant is renamed where a stored value names it") {
 	const Project project = exports();
 	const compiler::Rename rename = renamed(project, "res://export_check.pet", "MOVE", "GO");
