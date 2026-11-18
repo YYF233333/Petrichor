@@ -30,7 +30,6 @@
 #include <godot_cpp/classes/gd_extension_manager.hpp>
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/os.hpp>
-#include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/popup_menu.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
@@ -38,6 +37,7 @@
 #include <godot_cpp/classes/scene_tree.hpp>
 #include <godot_cpp/classes/script_editor.hpp>
 #include <godot_cpp/classes/script_editor_base.hpp>
+#include <godot_cpp/classes/tab_bar.hpp>
 #include <godot_cpp/classes/text_edit.hpp>
 #include <godot_cpp/classes/tree_item.hpp>
 #include <godot_cpp/classes/viewport.hpp>
@@ -983,26 +983,60 @@ std::string byte_order_mark(const std::string &p_bytes) {
 	return p_bytes.rfind("\xEF\xBB\xBF", 0) == 0 ? "\xEF\xBB\xBF" : "";
 }
 
-// The open scenes among `p_files` with unsaved changes saved as Save Scene
-// saves the current one; another is shown while it is saved
-// (editor/editor_interface.cpp:699-704, 775-777, editor/editor_node.h:981-987,
-// editor/editor_node.cpp:2466-2560, 4961-4974; ed1daf0).
+// The scenes whose nodes `p_node` and its descendants show: each instance's,
+// at any depth, with the scenes it inherits.
+void scenes_shown(const Node *p_node, std::set<std::string> &r_scenes) {
+	for (std::string scene = to_utf8(p_node->get_scene_file_path()); !scene.empty() && r_scenes.insert(scene).second;) {
+		const std::optional<compiler::Scene> read = SceneIndex::get().scene(scene);
+		scene = read ? read->base : std::string();
+	}
+	for (int64_t i = 0; i < p_node->get_child_count(); i++) {
+		scenes_shown(p_node->get_child(i), r_scenes);
+	}
+}
+
+// The paths of the open scenes that show nodes of a scene in `p_files`.
+std::vector<std::string> open_scenes_showing(const std::set<std::string> &p_files) {
+	std::vector<std::string> showing;
+	const TypedArray<Node> roots = EditorInterface::get_singleton()->get_open_scene_roots();
+	for (int64_t i = 0; i < roots.size(); i++) {
+		const Node *root = Object::cast_to<Node>(roots[i]);
+		std::set<std::string> shown;
+		scenes_shown(root, shown);
+		if (!root->get_scene_file_path().is_empty() && std::any_of(shown.begin(), shown.end(), [&](const std::string &p_scene) { return p_files.count(p_scene) > 0; })) {
+			showing.push_back(to_utf8(root->get_scene_file_path()));
+		}
+	}
+	return showing;
+}
+
 bool is_unsaved_scene(const std::string &p_file) {
 	return EditorInterface::get_singleton()->get_unsaved_scenes().has(to_godot(p_file));
 }
 
+// The open scenes that show nodes of a scene in `p_files`, with unsaved
+// changes, saved as Save Scene saves the current one; each is shown while it
+// is saved (editor/editor_interface.cpp:699-704, 775-777,
+// editor/editor_node.h:981-987, editor/editor_node.cpp:2466-2560, 4961-4974;
+// ed1daf0). Then the tab shown before is chosen again by its place, which a
+// scene without a path has too: the tabs are the open scenes in order
+// (editor/scene/editor_scene_tabs.cpp:263-292, 463-472,
+// editor/editor_node.cpp:8847; ed1daf0). A scene just opened is their current
+// one from the next frame (editor/editor_node.cpp:884-887, 4983-4987; ed1daf0).
 void save_scenes(const std::set<std::string> &p_files) {
 	EditorInterface *editor = EditorInterface::get_singleton();
-	const Node *current = editor->get_edited_scene_root();
-	const String shown = current ? current->get_scene_file_path() : String();
-	for (const std::string &file : p_files) {
-		if (is_unsaved_scene(file)) {
-			editor->open_scene_from_path(to_godot(file));
-			editor->save_scene_as(to_godot(file), false);
+	const TypedArray<Node> found = editor->get_base_control()->find_children("*", "EditorSceneTabs", true, false);
+	const TypedArray<Node> bars = found.is_empty() ? TypedArray<Node>() : Object::cast_to<Node>(found[0])->find_children("*", "TabBar", true, false);
+	TabBar *tabs = bars.is_empty() ? nullptr : Object::cast_to<TabBar>(bars[0]);
+	const int32_t shown = tabs ? tabs->get_current_tab() : -1;
+	for (const std::string &scene : open_scenes_showing(p_files)) {
+		if (is_unsaved_scene(scene)) {
+			editor->open_scene_from_path(to_godot(scene));
+			editor->save_scene_as(to_godot(scene), false);
 		}
 	}
-	if (!shown.is_empty()) {
-		editor->open_scene_from_path(shown);
+	if (tabs) {
+		tabs->set_current_tab(shown);
 	}
 }
 
@@ -1350,12 +1384,16 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 // replaces or a file cannot be written (architecture §2.3). A script's text
 // changes: an open one's in its tab, as one step to undo there, and a closed
 // one's held unsaved. Other files are written as bytes, the first ones
-// written back if one cannot be, and the open scenes among them reloaded,
-// which clears their undo histories (editor/editor_node.cpp:7124-7160;
+// written back if one cannot be, and the open scenes that show their nodes
+// reloaded, which clears their undo histories (editor/editor_node.cpp:7124-7160;
 // ed1daf0).
 bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 	std::map<std::string, std::pair<std::string, std::string>> texts; // Before and after, by file.
+	std::set<std::string> others; // The files that are not scripts.
 	for (const auto &[file, edits] : p_changes) {
+		if (!is_script(file)) {
+			others.insert(file);
+		}
 		const std::optional<std::string> text = is_script(file) ? workspace().script_source(file) : std::optional<std::string>(file_bytes(to_godot(file)));
 		if (!text || !std::all_of(edits.begin(), edits.end(), [&](const compiler::CheckedEdit &p_edit) { return intact(*text, p_edit); })) {
 			toast(vformat("%s changed while it was being edited, so nothing was changed.", to_godot(file)), EditorToaster::SEVERITY_WARNING);
@@ -1369,6 +1407,7 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 		}
 		texts[file] = { *text, result + text->substr(done) };
 	}
+	const std::vector<std::string> showing = others.empty() ? std::vector<std::string>() : open_scenes_showing(others);
 	std::vector<std::string> written;
 	for (const auto &[file, text] : texts) {
 		if (is_script(file)) {
@@ -1410,22 +1449,27 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 		disk_changed();
 	}
 	// What is loaded is read again once every file is written, as when the
-	// editor sees a file change; it leaves scenes to itself
-	// (editor/editor_node.cpp:1291-1323, core/io/resource.cpp:263-276,
-	// scene/resources/packed_scene.h:256; ed1daf0).
+	// editor sees a file change (editor/editor_node.cpp:1291-1323,
+	// core/io/resource.cpp:263-276; ed1daf0). A cached scene too: the editor
+	// builds an open scene again from the cached scenes it shows, as it shows
+	// its tab after one changed, and clears its history then
+	// (editor/editor_data.cpp:722-771, editor/editor_node.cpp:4747-4753,
+	// scene/resources/packed_scene.cpp:848; ed1daf0). Reading a cached scene
+	// changes the state that the open scenes showing it compare with, so they
+	// are reloaded.
 	EditorInterface *editor = EditorInterface::get_singleton();
-	const PackedStringArray open_scenes = editor->get_open_scenes();
-	// Reloading a scene clears its history, which is no step of its own.
-	const uint64_t steps = elsewhere;
 	for (const std::string &file : written) {
 		const String path = to_godot(file);
 		editor->get_resource_filesystem()->update_file(path);
 		const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(path);
-		if (open_scenes.has(path)) {
-			editor->reload_scene_from_path(path);
-		} else if (loaded.is_valid() && !Object::cast_to<PackedScene>(loaded.ptr())) {
+		if (loaded.is_valid()) {
 			loaded->copy_from_resource(ResourceLoader::get_singleton()->load(path, loaded->get_class(), ResourceLoader::CACHE_MODE_IGNORE));
 		}
+	}
+	// Reloading a scene clears its history, which is no step of its own.
+	const uint64_t steps = elsewhere;
+	for (const std::string &scene : showing) {
+		editor->reload_scene_from_path(to_godot(scene));
 	}
 	elsewhere = steps;
 	changed();
@@ -1573,7 +1617,7 @@ String PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, co
 			why = "a name it changed by text has moved.";
 		} else if (!p_apply) {
 			return String();
-		} else if (!saved && std::any_of(files.begin(), files.end(), is_unsaved_scene)) {
+		} else if (const std::vector<std::string> showing = open_scenes_showing(files); !saved && std::any_of(showing.begin(), showing.end(), is_unsaved_scene)) {
 			save_scenes(files);
 		} else {
 			apply(file, *offset, to_utf8(p_new), chosen, false);

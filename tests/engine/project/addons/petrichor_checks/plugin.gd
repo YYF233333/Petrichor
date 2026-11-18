@@ -58,6 +58,7 @@ func _run() -> void:
 	await _check_script_dialog()
 	_check_autoload_by_uid()
 	await _check_rename()
+	await _check_rename_open_scenes()
 	await _check_rename_transaction()
 	await _check_embedded_scene()
 	await _check_quick_fixes()
@@ -705,6 +706,51 @@ func _check_embedded_scene() -> void:
 	_check(refused.begins_with(level + ": It is stored in the scene embedded in \"bomb\" of the root,") and code.text.contains("timer"), "a rename refuses a value that an embedded scene stores, naming the file, the node and the property: " + refused)
 	_check_errors([], "an embedded scene reports nothing")
 	EditorInterface.get_script_editor().close_file(bomb)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+	_scanned()
+
+
+# Architecture §2.3: before a rename rewrites a scene, an open scene that
+# instances it is saved, and after, reloaded, so that it shows the scene as
+# rewritten. The tab shown before shows again, a scene without a path too.
+func _check_rename_open_scenes() -> void:
+	var dir := "res://editor_rename_open"
+	var unit := dir + "/unit.pet"
+	var scene := dir + "/unit.tscn"
+	var holder := dir + "/holder.tscn"
+	DirAccess.make_dir_absolute(dir)
+	_write(unit, "extends Node\n\n@export pub var stride := 1\n")
+	_write(scene, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Unit" type="Node"]\nscript = ExtResource("1")\nstride = 5\n' % unit)
+	_write(holder, '[gd_scene format=3]\n\n[ext_resource type="PackedScene" path="%s" id="1"]\n\n[node name="Holder" type="Node"]\n\n[node name="Unit" parent="." instance=ExtResource("1")]\n' % scene)
+	for file in [scene, holder]:
+		EditorInterface.get_resource_filesystem().update_file(file)
+	await get_tree().process_frame
+	EditorInterface.open_scene_from_path(holder)
+	var holder_root := EditorInterface.get_edited_scene_root()
+	var holder_id := holder_root.get_instance_id()
+	var undo_redo := get_undo_redo()
+	undo_redo.create_action("Describe holder")
+	undo_redo.add_do_property(holder_root, "editor_description", "Kept")
+	undo_redo.add_undo_property(holder_root, "editor_description", "")
+	undo_redo.commit_action()
+	EditorInterface.open_scene_from_path("res://main.tscn", true)
+	var unnamed := EditorInterface.get_edited_scene_root()
+	await get_tree().process_frame
+	EditorInterface.edit_script(load(unit))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	_rename(code, 2, 17, "pace")
+	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
+	apply.pressed.emit()
+	var holders := EditorInterface.get_open_scene_roots().filter(func(r): return r.scene_file_path == holder)
+	_check(FileAccess.get_file_as_string(scene).contains("\npace = 5\n") and not EditorInterface.get_unsaved_scenes().has(holder) and FileAccess.get_file_as_string(holder).contains("Kept") and holders.size() == 1 and holders[0].get_instance_id() != holder_id, "an open scene instancing a rewritten one is saved first and reloaded")
+	_check(unnamed.scene_file_path.is_empty() and EditorInterface.get_edited_scene_root() == unnamed, "the tab shown before, a scene without a path, shows again")
+	EditorInterface.close_scene()
+	EditorInterface.open_scene_from_path(holder)
+	EditorInterface.close_scene()
+	code.undo()
+	EditorInterface.get_script_editor().close_file(unit)
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))
 	DirAccess.remove_absolute(dir)

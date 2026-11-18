@@ -20,8 +20,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - With the owner: the invitations to review 0.1.
 - Renaming, with the rewriting of scenes (spec §13.3).
-  - An open scene that instances a scene the rename rewrote keeps its instance as loaded. Check what the editor updates when the tab is shown (`editor/editor_data.cpp:722-811`).
-  - Applying a rename shows each open scene it saves. When the current tab is a new scene without a path, the editor stays on the last one saved. Godot shows an open scene only by its path.
 - The LSP server, after `$X` (architecture §5, step 8). Its design is set with the owner first.
   - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
   - Map `textDocument/typeDefinition` alongside `definition`.
@@ -70,7 +68,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 ## Editor
 
 - Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Done when someone asks for it.
-- A rename with a scene part writes the scene files and reloads the open ones, which clears their undo histories. An open scene with unsaved changes is saved first (architecture §2.3).
+- A rename with a scene part writes the scene files and reloads the open ones that show their nodes, which clears their undo histories. An open scene with unsaved changes is saved first (architecture §2.3).
   - An open scene could take the change through its own history, as the editor rewrites NodePaths. Its nodes would first need the scripts' new exported properties, while the scripts' edits are still unsaved.
   - Closed scenes and resource files have no unsaved form in the editor.
 - Godot 4.8 writes the nodes of a scene embedded in a scene file as sections of that file. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
