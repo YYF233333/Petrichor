@@ -188,6 +188,10 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	std::set<uint64_t> touched;
 	bool merging = false;
 	bool exiting = false; // The editor is leaving its tree.
+	// While open scenes are saved before a rename: the tab shown before, and
+	// the scenes saved.
+	int32_t shown_before = -1;
+	std::set<std::string> saving;
 	godot::Timer *marks = nullptr; // Asks the nodes for their errors once scenes stop changing.
 	uint64_t checked = 0; // The workspace's revision when the nodes last asked.
 	std::map<uint64_t, uint64_t> tab_checks; // The workspace's revision at each tab's last check, by its CodeEdit.
@@ -228,6 +232,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	godot::String change_scripts(const FileEdits &p_changes, bool p_apply);
 	godot::String change_scripts_again(const godot::Array &p_edits, bool p_apply);
 	bool change_files(const FileEdits &p_changes);
+	bool scenes_saved(const std::set<std::string> &p_files);
 	void save_held();
 	void record(const godot::String &p_action, const std::set<std::string> &p_files, const godot::Array &p_do, const godot::Array &p_undo);
 	void show_references(godot::Object *p_code_edit);

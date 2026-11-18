@@ -714,7 +714,8 @@ func _check_embedded_scene() -> void:
 
 # Architecture §2.3: before a rename rewrites a scene, an open scene that
 # instances it is saved, and after, reloaded, so that it shows the scene as
-# rewritten. The tab shown before shows again, a scene without a path too.
+# rewritten. The tab shown before shows again, a new scene without a path too.
+# The rewritten scene is cached, and the saved scene has a node selected.
 func _check_rename_open_scenes() -> void:
 	var dir := "res://editor_rename_open"
 	var unit := dir + "/unit.pet"
@@ -727,6 +728,7 @@ func _check_rename_open_scenes() -> void:
 	for file in [scene, holder]:
 		EditorInterface.get_resource_filesystem().update_file(file)
 	await get_tree().process_frame
+	var _held: PackedScene = load(scene)
 	EditorInterface.open_scene_from_path(holder)
 	var holder_root := EditorInterface.get_edited_scene_root()
 	var holder_id := holder_root.get_instance_id()
@@ -735,7 +737,12 @@ func _check_rename_open_scenes() -> void:
 	undo_redo.add_do_property(holder_root, "editor_description", "Kept")
 	undo_redo.add_undo_property(holder_root, "editor_description", "")
 	undo_redo.commit_action()
-	EditorInterface.open_scene_from_path("res://main.tscn", true)
+	EditorInterface.get_selection().add_node(holder_root.get_node("Unit"))
+	await get_tree().process_frame
+	var tabs: Node = EditorInterface.get_base_control().find_children("*", "EditorSceneTabs", true, false)[0]
+	tabs.find_children("*", "TabBar", true, false)[0].find_children("*", "Button", false, false)[0].pressed.emit()
+	await get_tree().process_frame
+	EditorInterface.get_base_control().find_children("*", "Button", true, false).filter(func(b): return b.text == "2D Scene" and b.is_visible_in_tree())[0].pressed.emit()
 	var unnamed := EditorInterface.get_edited_scene_root()
 	await get_tree().process_frame
 	EditorInterface.edit_script(load(unit))
@@ -743,6 +750,8 @@ func _check_rename_open_scenes() -> void:
 	_rename(code, 2, 17, "pace")
 	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
 	apply.pressed.emit()
+	await get_tree().process_frame
+	await get_tree().process_frame
 	var holders := EditorInterface.get_open_scene_roots().filter(func(r): return r.scene_file_path == holder)
 	_check(FileAccess.get_file_as_string(scene).contains("\npace = 5\n") and not EditorInterface.get_unsaved_scenes().has(holder) and FileAccess.get_file_as_string(holder).contains("Kept") and holders.size() == 1 and holders[0].get_instance_id() != holder_id, "an open scene instancing a rewritten one is saved first and reloaded")
 	_check(unnamed.scene_file_path.is_empty() and EditorInterface.get_edited_scene_root() == unnamed, "the tab shown before, a scene without a path, shows again")

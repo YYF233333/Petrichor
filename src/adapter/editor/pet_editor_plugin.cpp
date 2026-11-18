@@ -1014,30 +1014,12 @@ bool is_unsaved_scene(const std::string &p_file) {
 	return EditorInterface::get_singleton()->get_unsaved_scenes().has(to_godot(p_file));
 }
 
-// The open scenes that show nodes of a scene in `p_files`, with unsaved
-// changes, saved as Save Scene saves the current one; each is shown while it
-// is saved (editor/editor_interface.cpp:699-704, 775-777,
-// editor/editor_node.h:981-987, editor/editor_node.cpp:2466-2560, 4961-4974;
-// ed1daf0). Then the tab shown before is chosen again by its place, which a
-// scene without a path has too: the tabs are the open scenes in order
-// (editor/scene/editor_scene_tabs.cpp:263-292, 463-472,
-// editor/editor_node.cpp:8847; ed1daf0). A scene just opened is their current
-// one from the next frame (editor/editor_node.cpp:884-887, 4983-4987; ed1daf0).
-void save_scenes(const std::set<std::string> &p_files) {
-	EditorInterface *editor = EditorInterface::get_singleton();
-	const TypedArray<Node> found = editor->get_base_control()->find_children("*", "EditorSceneTabs", true, false);
+// The tabs of the open scenes, in order (editor/scene/editor_scene_tabs.cpp:263-292,
+// 463-472, editor/editor_node.cpp:8847; ed1daf0).
+TabBar *scene_tabs() {
+	const TypedArray<Node> found = EditorInterface::get_singleton()->get_base_control()->find_children("*", "EditorSceneTabs", true, false);
 	const TypedArray<Node> bars = found.is_empty() ? TypedArray<Node>() : Object::cast_to<Node>(found[0])->find_children("*", "TabBar", true, false);
-	TabBar *tabs = bars.is_empty() ? nullptr : Object::cast_to<TabBar>(bars[0]);
-	const int32_t shown = tabs ? tabs->get_current_tab() : -1;
-	for (const std::string &scene : open_scenes_showing(p_files)) {
-		if (is_unsaved_scene(scene)) {
-			editor->open_scene_from_path(to_godot(scene));
-			editor->save_scene_as(to_godot(scene), false);
-		}
-	}
-	if (tabs) {
-		tabs->set_current_tab(shown);
-	}
+	return bars.is_empty() ? nullptr : Object::cast_to<TabBar>(bars[0]);
 }
 
 // Whether `p_text` still has the text that `p_edit` replaces.
@@ -1257,6 +1239,50 @@ void PetEditorPlugin::rename_to(const String &p_name) {
 	make_bottom_panel_item_visible(references);
 }
 
+// Whether the open scenes that show nodes of a scene in `p_files` are saved.
+// Otherwise it saves one with unsaved changes, as Save Scene saves the current
+// one: shown while it is saved (editor/editor_interface.cpp:699-704, 775-777,
+// editor/editor_node.h:981-987, editor/editor_node.cpp:2466-2560, 4961-4974;
+// ed1daf0). Once all are, it shows again the tab shown before, by its place,
+// which a scene without a path has too. A scene just opened is the current
+// tab from the next frame (editor/editor_node.cpp:884-887, 4983-4987;
+// ed1daf0).
+//
+// It changes tabs at most once, and the caller runs again deferred. Showing a
+// scene defers calls that hold items of the scene dock, which the next change
+// of tabs or reload of the scene frees (editor/editor_node.cpp:4651-4675,
+// editor/scene/scene_tree_editor.cpp:995-1004, 1131-1140; ed1daf0). A scene
+// that is still unsaved is not saved again.
+bool PetEditorPlugin::scenes_saved(const std::set<std::string> &p_files) {
+	EditorInterface *editor = EditorInterface::get_singleton();
+	TabBar *tabs = scene_tabs();
+	for (const std::string &scene : open_scenes_showing(p_files)) {
+		if (!is_unsaved_scene(scene) || !saving.insert(scene).second) {
+			continue;
+		}
+		const Node *current = editor->get_edited_scene_root();
+		const bool shown = current && to_utf8(current->get_scene_file_path()) == scene;
+		if (!shown) {
+			if (shown_before < 0 && tabs) {
+				shown_before = tabs->get_current_tab();
+			}
+			editor->open_scene_from_path(to_godot(scene));
+		}
+		editor->save_scene_as(to_godot(scene), false);
+		if (!shown) {
+			return false;
+		}
+	}
+	saving.clear();
+	const int32_t shown = shown_before;
+	shown_before = -1;
+	if (tabs && shown >= 0 && tabs->get_current_tab() != shown) {
+		tabs->set_current_tab(shown);
+		return false;
+	}
+	return true;
+}
+
 // The scenes it changes are saved, and the changes found again. The preview
 // is shown again if they differ.
 void PetEditorPlugin::apply_previewed() {
@@ -1267,7 +1293,10 @@ void PetEditorPlugin::apply_previewed() {
 			files.insert(renaming.changes.edits[i].occurrence.file);
 		}
 	}
-	save_scenes(files);
+	if (!scenes_saved(files)) {
+		callable_mp(this, &PetEditorPlugin::apply_previewed).call_deferred();
+		return;
+	}
 	const compiler::Rename again = rename(renaming.path, renaming.offset, renaming.name);
 	const auto same = [](const compiler::RenameEdit &p_a, const compiler::RenameEdit &p_b) {
 		const compiler::Occurrence &a = p_a.occurrence;
@@ -1580,49 +1609,44 @@ compiler::DeclId renamed_to(compiler::DeclId p_id, const std::string &p_new) {
 
 // Renames the declaration `p_scope` and `p_name` identify, as undoing and
 // redoing a rename do, from the text as it is now, with the candidates
-// changed at the offsets given. A scene it changes is saved first. One named
-// so already is left, as a menu's undo that was refused leaves it once the
-// history moves on (architecture §2.3). Without `p_apply`, it only finds why
-// it would be refused, or "".
+// changed at the offsets given. A scene it changes is saved first, and it runs
+// again deferred (scenes_saved()). One named so already is left, as a menu's
+// undo that was refused leaves it once the history moves on (architecture
+// §2.3). Without `p_apply`, it only finds why it would be refused, or "".
 String PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, const String &p_name, const String &p_new, const Array &p_candidates, bool p_apply) {
 	const compiler::DeclId id{ compiler::DeclId::Kind(p_kind), to_utf8(p_scope), to_utf8(p_name) };
 	const std::string file = compiler::script_file(id.scope);
+	const std::optional<uint32_t> offset = declaration_offset(file, id);
+	const compiler::Rename found = offset ? rename(file, *offset, to_utf8(p_new)) : compiler::Rename();
+	std::set<std::string> files;
+	std::vector<compiler::RenameEdit> chosen;
+	int64_t candidates = 0;
+	for (const compiler::RenameEdit &edit : found.edits) {
+		files.insert(edit.occurrence.file);
+		const bool candidate = edit.occurrence.candidate && p_candidates.has(Array::make(to_godot(edit.occurrence.file), edit.edit.begin));
+		if (!edit.occurrence.candidate || candidate) {
+			chosen.push_back(edit);
+			candidates += candidate;
+		}
+	}
 	std::string why;
-	for (bool saved = false; why.empty(); saved = true) {
-		const std::optional<uint32_t> offset = declaration_offset(file, id);
-		if (!offset) {
-			if (declaration_offset(file, renamed_to(id, to_utf8(p_new)))) {
-				return String();
-			}
-			why = "its declaration is gone.";
-			break;
-		}
-		const compiler::Rename found = rename(file, *offset, to_utf8(p_new));
-		if (!found.refusals.empty()) {
-			why = found.refusals[0].message;
-			break;
-		}
-		std::set<std::string> files;
-		std::vector<compiler::RenameEdit> chosen;
-		int64_t candidates = 0;
-		for (const compiler::RenameEdit &edit : found.edits) {
-			files.insert(edit.occurrence.file);
-			const bool candidate = edit.occurrence.candidate && p_candidates.has(Array::make(to_godot(edit.occurrence.file), edit.edit.begin));
-			if (!edit.occurrence.candidate || candidate) {
-				chosen.push_back(edit);
-				candidates += candidate;
-			}
-		}
-		if (candidates != p_candidates.size()) {
-			why = "a name it changed by text has moved.";
-		} else if (!p_apply) {
-			return String();
-		} else if (const std::vector<std::string> showing = open_scenes_showing(files); !saved && std::any_of(showing.begin(), showing.end(), is_unsaved_scene)) {
-			save_scenes(files);
-		} else {
-			apply(file, *offset, to_utf8(p_new), chosen, false);
+	if (!offset) {
+		if (declaration_offset(file, renamed_to(id, to_utf8(p_new)))) {
 			return String();
 		}
+		why = "its declaration is gone.";
+	} else if (!found.refusals.empty()) {
+		why = found.refusals[0].message;
+	} else if (candidates != p_candidates.size()) {
+		why = "a name it changed by text has moved.";
+	} else if (!p_apply) {
+		return String();
+	} else if (!scenes_saved(files)) {
+		callable_mp(this, &PetEditorPlugin::rename_declaration).call_deferred(p_kind, p_scope, p_name, p_new, p_candidates, p_apply);
+		return String();
+	} else {
+		apply(file, *offset, to_utf8(p_new), chosen, false);
+		return String();
 	}
 	const String refusal = vformat("Cannot rename it to \"%s\": %s", p_new, to_godot(why));
 	if (p_apply) {
