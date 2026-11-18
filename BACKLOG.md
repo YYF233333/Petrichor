@@ -19,8 +19,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 0.2, due 2026-11-29. Its list and date are set with the owner (architecture §5, step 11).
 
 - With the owner: the invitations to review 0.1.
-- Renaming, with the rewriting of scenes (spec §13.3).
-- The LSP server, after `$X` (architecture §5, step 8). Its design is set with the owner first.
+- The LSP server (architecture §5, step 8). Its design is set with the owner first.
   - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
   - Map `textDocument/typeDefinition` alongside `definition`.
 
