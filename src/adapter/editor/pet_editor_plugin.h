@@ -180,6 +180,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	uint64_t global_version = 0;
 	// Each tab's version after a refactoring last changed it, by its CodeEdit.
 	std::map<uint64_t, uint32_t> refactored;
+	bool exiting = false; // The editor is leaving its tree.
 	godot::Timer *marks = nullptr; // Asks the nodes for their errors once scenes stop changing.
 	uint64_t checked = 0; // The workspace's revision when the nodes last asked.
 	std::map<uint64_t, uint64_t> tab_checks; // The workspace's revision at each tab's last check, by its CodeEdit.

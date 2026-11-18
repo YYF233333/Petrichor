@@ -585,6 +585,11 @@ def main():
     if wanted("editor"):
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--editor-checks")
         expect_run("editor checks", code, output, ["editor check: 0 failure(s)"], expected_errors(output, "editor check"))
+        # Architecture §2.3: the script a rename left unsaved as the checks
+        # ended is not saved as the editor quits.
+        held = PROJECT / "editor_quit" / "user.pet"
+        expect("editor checks: a script left unsaved stays so after quitting", held.is_file() and "unit.held_at_quit" in held.read_text(encoding="utf-8"), output)
+        shutil.rmtree(PROJECT / "editor_quit", ignore_errors=True)
 
     if wanted("language"):
         # Verbose, so that StringNames still referenced at exit are listed.

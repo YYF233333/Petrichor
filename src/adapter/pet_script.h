@@ -35,6 +35,7 @@ class PetScript : public godot::ScriptExtension {
 	GDCLASS(PetScript, godot::ScriptExtension);
 
 	godot::String source;
+	godot::String described; // The source the editor last compiled, which `image` describes then.
 	std::shared_ptr<const ClassImage> image; // Null while the script has errors.
 	PetHeader header;
 	mutable godot::Ref<PetScript> base_script;
@@ -50,6 +51,7 @@ class PetScript : public godot::ScriptExtension {
 	mutable godot::HashSet<PetPlaceholder *> placeholders;
 
 	void update_inner_scripts(const std::shared_ptr<const ClassImage> &p_image);
+	void update_placeholders();
 
 protected:
 	static void _bind_methods();
@@ -68,7 +70,9 @@ public:
 	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});
 	// The class compiled from the current source; null while it has errors.
 	void set_image(const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});
-	bool apply_image(const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});
+	// With `p_report`, the errors of the scripts that extend it, compiled again
+	// in the editor, are printed.
+	bool apply_image(const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {}, bool p_report = true);
 	PetScript();
 	~PetScript();
 	void instance_freed(PetInstance *p_instance);

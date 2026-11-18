@@ -64,6 +64,8 @@ func _run() -> void:
 	await _check_unsaved_texts()
 	await _check_stale_reference()
 	await _check_shown_again()
+	_check_unsaved_export()
+	_leave_held_script()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -932,6 +934,47 @@ func _check_shown_again() -> void:
 	for file in [script_path, script_path + ".uid", scene_path, "res://.godot/petrichor/editor_shown.petc"]:
 		DirAccess.remove_absolute(file)
 	_scanned()
+
+
+# An export added in the script editor, unsaved, reaches the node's
+# placeholder, as the script editor gives the script its text after a check
+# that passes (editor/script/script_text_editor.cpp:874-878; ed1daf0).
+func _check_unsaved_export() -> void:
+	var path := "res://editor_unsaved_export.pet"
+	var text := "extends Node\n\n@export pub var speed := 1.0\n"
+	_write(path, text)
+	var script: Script = load(path)
+	var node := Node.new()
+	node.set_script(script)
+	EditorInterface.edit_script(script)
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	code.insert_text("@export pub var armor := 2\n", code.get_line_count() - 1, 0)
+	_listed_errors(code)
+	var names := node.get_property_list().map(func(p): return p.name)
+	_check(names.has("armor") and node.get("armor") == 2 and FileAccess.get_file_as_string(path) == text, "an unsaved export reaches the placeholder: %s" % [names])
+	node.free()
+	EditorInterface.get_script_editor().close_file(path)
+	for file in [path, path + ".uid"]:
+		DirAccess.remove_absolute(file)
+
+
+# Architecture §2.3: a script that a rename left unsaved stays so as the
+# editor leaves, which asks every plugin to save (editor/editor_node.cpp:969-991;
+# ed1daf0). run.py reads it once the editor has quit.
+func _leave_held_script() -> void:
+	var dir := "res://editor_quit"
+	DirAccess.make_dir_absolute(dir)
+	_write(dir + "/unit.pet", "extends Node\n\npub var held_at_quit := 1\n")
+	_write(dir + "/user.pet", "extends Node\n\nconst Unit = preload(\"unit.pet\")\n\nfunc f(unit: Unit) -> int:\n\treturn unit.held_at_quit\n")
+	EditorInterface.set_main_screen_editor("Script")
+	EditorInterface.edit_script(load(dir + "/unit.pet"))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	# This file has the name too, as a candidate left unchecked.
+	_rename(code, 2, 9, "saved_at_quit")
+	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
+	apply.pressed.emit()
+	_check(code.text.contains("saved_at_quit"), "a rename leaves a closed script unsaved before the editor quits")
+	EditorInterface.get_script_editor().close_file(dir + "/unit.pet")
 
 
 # Opens the list of quick fixes at the line of the open script, as Alt+Enter

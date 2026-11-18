@@ -1296,6 +1296,13 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 		}
 		apply_edits(code_edit, text.first, plain);
 		refactored[code_edit->get_instance_id()] = code_edit->get_version();
+		// Back to its file, as an undo leaves it, the tab is saved. The tab has
+		// no carriage returns (scene/gui/text_edit.cpp:9253-9254; ed1daf0).
+		std::string saved = SceneIndex::get().script_source(file).value_or(std::string());
+		saved.erase(std::remove(saved.begin(), saved.end(), '\r'), saved.end());
+		if (saved == text.second) {
+			code_edit->tag_saved_version();
+		}
 	}
 	if (!written.empty()) {
 		disk_changed();
@@ -1378,9 +1385,16 @@ String PetEditorPlugin::_get_unsaved_status(const String &p_for_scene) const {
 
 // When a scene is saved, or Save finds no scene's root to save, before the game
 // runs, and on quitting when the user chooses to (editor/editor_node.cpp:2415-2420,
-// 2526, 2603, 3488-3495, 3730-3733, 3793-3806; ed1daf0).
+// 2526, 2603, 3488-3495, 3730-3733, 3793-3806; ed1daf0). Not as the editor
+// leaves the tree, which asks every plugin whatever the user chose; the script
+// editor keeps its tabs then too (editor/editor_node.cpp:969-991,
+// editor/script/script_editor_plugin.cpp:4375-4378). This plugin, a child of
+// the editor, leaves first (editor/editor_node.cpp:4365-4370, 9421;
+// scene/main/node.cpp:421-427; ed1daf0).
 void PetEditorPlugin::_save_external_data() {
-	save_held();
+	if (!exiting) {
+		save_held();
+	}
 }
 
 // Adds a step to the editor's global history, already done, that calls the
@@ -1762,6 +1776,7 @@ String PetEditorPlugin::change_scripts_again(const Array &p_edits, bool p_apply)
 }
 
 void PetEditorPlugin::_exit_tree() {
+	exiting = true;
 	memdelete(fix_list);
 	fix_list = nullptr;
 	memdelete(name_popup);

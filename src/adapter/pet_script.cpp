@@ -319,6 +319,7 @@ std::shared_ptr<const ClassImage> PetScript::get_image() const {
 
 void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
 	source = p_source;
+	described = p_source;
 	header = Engine::get_singleton()->is_editor_hint() ? parse_header(p_source) : PetHeader();
 	set_image(p_image, p_base);
 }
@@ -351,7 +352,7 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, cons
 	}
 	update_inner_scripts(p_image);
 	if (p_image) {
-		_update_exports();
+		update_placeholders();
 	}
 }
 
@@ -403,7 +404,7 @@ std::shared_ptr<const ClassImage> rebased(const std::shared_ptr<const ClassImage
 }
 } //namespace
 
-bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
+bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base, bool p_report) {
 	if (!p_image) {
 		// The editor's script has errors: its placeholders keep what scenes
 		// give them (_is_placeholder_fallback_enabled()), as GDScript's do
@@ -445,7 +446,7 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 		std::shared_ptr<const ClassImage> next;
 #ifdef TOOLS_ENABLED
 		if (Engine::get_singleton()->is_editor_hint()) {
-			next = compile_script(script->get_script_path(), script->_get_source_code(), nullptr, true, old && old->module.declarations_only ? compiler::CheckMode::Declarations : compiler::CheckMode::Program);
+			next = compile_script(script->get_script_path(), script->_get_source_code(), nullptr, p_report, old && old->module.declarations_only ? compiler::CheckMode::Declarations : compiler::CheckMode::Program);
 		} else
 #endif
 		{
@@ -640,6 +641,7 @@ Error PetScript::_reload(bool p_keep_state) {
 	const String path = get_script_path();
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
+		described = source;
 		return apply_image(compile_script(path, source, nullptr, true)) ? OK : ERR_PARSE_ERROR;
 	}
 #endif
@@ -821,7 +823,28 @@ Variant PetScript::_get_property_default_value(const StringName &p_property) con
 	return index >= 0 ? initial_value(*current, size_t(index)) : Variant();
 }
 
+// The script editor gives the script its tab's text after each check that
+// passes, and asks for the exports (editor/script/script_text_editor.cpp:874-878),
+// as packing a scene asks too (scene/resources/packed_scene.cpp:982,
+// scene/property_utils.cpp:156-161; ed1daf0). A text not compiled yet is
+// compiled as loading does, so that the placeholders take the members it
+// declares, and those of the scripts extending it, as GDScript's do
+// (modules/gdscript/gdscript.cpp:630-655; ed1daf0). Nothing is saved, so the
+// game does not reload.
 void PetScript::_update_exports() {
+#ifdef TOOLS_ENABLED
+	if (Engine::get_singleton()->is_editor_hint() && inner_path.is_empty() && source != described) {
+		described = source;
+		if (const std::shared_ptr<const ClassImage> compiled = compile_script(get_script_path(), source, nullptr, false, compiler::CheckMode::Declarations)) {
+			apply_image(compiled, Ref<PetScript>(), false);
+			return;
+		}
+	}
+#endif
+	update_placeholders();
+}
+
+void PetScript::update_placeholders() {
 	if (!get_image()) {
 		return; // The placeholders keep what they have (_is_placeholder_fallback_enabled()).
 	}
