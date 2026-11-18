@@ -223,7 +223,7 @@ Dictionary PetLanguage::_validate(const String &p_script, const String &p_path, 
 	}
 	// Those of the scenes are listed, but the script stays valid (architecture §6.4).
 	result["valid"] = diagnostics.empty();
-	const std::vector<compiler::Diagnostic> placed = placed_errors(p_path);
+	const std::vector<compiler::Diagnostic> placed = analysis().placed_errors(to_utf8(p_path));
 	diagnostics.insert(diagnostics.end(), placed.begin(), placed.end());
 	for (const compiler::Diagnostic &diagnostic : diagnostics) {
 		Dictionary error;

@@ -205,9 +205,9 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
   - applying it takes about 100 s. Two thirds of it reload the open scene, which reads every rewritten scene again;
   - `EditorFileSystem::update_file` takes 15 ms for each script there. It saves the whole list of global classes, and `update_files` is not bound (`editor/file_system/editor_file_system.cpp:2160-2197, 3730`, `ed1daf0`);
-  - renaming a local takes 0.4 to 0.5 s. The script editor's check of a script on a node takes 0.65 s unchanged and 1.0 s after a keystroke.
+  - renaming a local takes 0.4 to 0.6 s. The script editor's check of a script on a node takes 10 ms unchanged and 0.45 to 0.65 s after a keystroke.
     - Each pass lists every scene and parses the header of each script on a node.
-    - Collecting the scenes' errors in a script (`placed_errors`) is such a pass, about 0.25 s. A check of the script editor runs it three times: twice for the editor, once for the light bulb.
+    - After a keystroke a check makes two such passes: compiling the script, and collecting the scenes' errors in it (`Analysis::placed_errors`).
   - Once fixed, CI holds these times to a budget (architecture §5, step 11).
 - Benchmarks of real workloads; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.

@@ -38,6 +38,7 @@ class Analysis {
 	const ProjectApi *reading = nullptr; // By the outermost pass.
 	std::unique_ptr<ScriptClasses> classes; // Of the pass.
 	std::map<std::string, Compiled> compiled; // Scripts, and the checks of scenes, by their paths.
+	std::map<std::string, std::pair<uint64_t, std::vector<Diagnostic>>> placed; // placed_errors() by path, with the revision.
 	int checks = 0;
 
 	// The workspace's revision that the pass reads, or 0 for another project.
@@ -76,6 +77,11 @@ public:
 	// the previous result if nothing it read has changed, the text of those
 	// scripts included.
 	std::shared_ptr<const CompileResult> check_scene(const std::string &p_path);
+	// The errors that the checks of the scenes placing the script at `p_path`,
+	// or instancing such a scene, and of the files whose resources have
+	// scripts of this language, report in its source (architecture §6.4);
+	// the previous ones while the workspace's revision stays.
+	std::vector<Diagnostic> placed_errors(const std::string &p_path);
 	// The workspace's revision when the result kept for `p_path` was computed,
 	// for its stamp; 0 if none was computed from the workspace.
 	uint64_t computed(const std::string &p_path);

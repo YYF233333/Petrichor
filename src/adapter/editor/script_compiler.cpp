@@ -173,40 +173,6 @@ std::vector<compiler::Diagnostic> scene_errors(const String &p_path) {
 	return analysis().compile(path, workspace().script_source(path).value_or(std::string()))->errors;
 }
 
-std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
-	const compiler::Analysis::Pass analysis_pass(analysis());
-	compiler::ScriptClasses &classes = analysis().pass_classes();
-	const std::string path = to_utf8(p_path);
-	std::vector<compiler::Diagnostic> placed;
-	// The scenes that place it, and those that instance them, which check the
-	// roots of the scenes they instance and what their tracks name; and the
-	// files whose resources have scripts of this language, which may extend it.
-	std::vector<compiler::Scene> pending = classes.scenes_with_script(path);
-	const compiler::ProjectApi &project = *classes.get_project();
-	for (const std::string &file : project.scene_paths()) {
-		const std::optional<compiler::Scene> held = project.scene(file);
-		if (held && std::any_of(held->resources.begin(), held->resources.end(), [](const compiler::SceneResource &p_resource) { return compiler::is_script_path(p_resource.script); })) {
-			pending.push_back(*held);
-		}
-	}
-	std::set<std::string> seen;
-	while (!pending.empty()) {
-		const std::string scene = pending.back().path;
-		pending.pop_back();
-		if (!seen.insert(scene).second) {
-			continue;
-		}
-		for (const compiler::Diagnostic &error : check_scene(to_godot(scene), false)->errors) {
-			if (error.file == path) {
-				placed.push_back(error);
-			}
-		}
-		const std::vector<compiler::Scene> outer = classes.scenes_instancing(scene);
-		pending.insert(pending.end(), outer.begin(), outer.end());
-	}
-	return placed;
-}
-
 namespace {
 
 // The name GDScript gives the documentation of a script file's class

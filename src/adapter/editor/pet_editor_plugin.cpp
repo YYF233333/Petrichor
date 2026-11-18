@@ -945,7 +945,7 @@ bool same(const compiler::Fix &p_a, const compiler::Fix &p_b) {
 // check, by position, each edit naming its file. Those of the checks of scenes
 // count with fixes in this script only.
 std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_errors, const std::string &p_path) {
-	const std::vector<compiler::Diagnostic> placed = placed_errors(to_godot(p_path));
+	const std::vector<compiler::Diagnostic> placed = analysis().placed_errors(p_path);
 	p_errors.insert(p_errors.end(), placed.begin(), placed.end());
 	std::vector<compiler::Diagnostic> found;
 	for (compiler::Diagnostic &error : p_errors) {

@@ -47,10 +47,6 @@ void disk_changed();
 // The errors of the script, for the nodes that the scene dock asks at each of
 // its updates (spec §13.2).
 std::vector<compiler::Diagnostic> scene_errors(const godot::String &p_path);
-// Those that the checks of the scenes placing the script, or instancing such a
-// scene, and of the files whose resources have scripts of this language,
-// report in its source, for the script editor (architecture §6.4).
-std::vector<compiler::Diagnostic> placed_errors(const godot::String &p_path);
 
 // What the name at byte `p_offset` of the script's text refers to, for the
 // script editor's lookup (spec §13.2).

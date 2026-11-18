@@ -178,6 +178,46 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 	return shared;
 }
 
+std::vector<Diagnostic> Analysis::placed_errors(const std::string &p_path) {
+	const Pass pass(*this);
+	const uint64_t now = revision();
+	const auto found = placed.find(p_path);
+	if (now != 0 && found != placed.end() && found->second.first == now) {
+		return found->second.second;
+	}
+	std::vector<Diagnostic> errors;
+	// The scenes that place it, and those that instance them, which check the
+	// roots of the scenes they instance and what their tracks name; and the
+	// files whose resources have scripts of this language, which may extend it.
+	std::vector<Scene> pending = classes->scenes_with_script(p_path);
+	const ProjectApi &project = *classes->get_project();
+	for (const std::string &file : project.scene_paths()) {
+		const std::optional<Scene> held = project.scene(file);
+		if (held && std::any_of(held->resources.begin(), held->resources.end(), [](const SceneResource &p_resource) { return is_script_path(p_resource.script); })) {
+			pending.push_back(*held);
+		}
+	}
+	std::set<std::string> seen;
+	while (!pending.empty()) {
+		const std::string scene = pending.back().path;
+		pending.pop_back();
+		if (!seen.insert(scene).second) {
+			continue;
+		}
+		for (const Diagnostic &error : check_scene(scene)->errors) {
+			if (error.file == p_path) {
+				errors.push_back(error);
+			}
+		}
+		const std::vector<Scene> outer = classes->scenes_instancing(scene);
+		pending.insert(pending.end(), outer.begin(), outer.end());
+	}
+	if (now != 0) {
+		placed[p_path] = { now, errors };
+	}
+	return errors;
+}
+
 uint64_t Analysis::computed(const std::string &p_path) {
 	const std::lock_guard<std::recursive_mutex> lock(mutex);
 	const auto found = compiled.find(p_path);
@@ -187,6 +227,7 @@ uint64_t Analysis::computed(const std::string &p_path) {
 void Analysis::clear() {
 	const std::lock_guard<std::recursive_mutex> lock(mutex);
 	compiled.clear();
+	placed.clear();
 }
 
 } // namespace petrichor::compiler
