@@ -142,6 +142,7 @@ class Checker : public ClassRelation {
 	std::map<std::string, std::vector<ViewNode>> views; // view_of(), by the scene's path.
 	std::map<std::string, std::vector<std::string>> loaded_files; // loaded_with(), as found.
 	std::vector<Reference> *references; // Recorded for this file only.
+	std::vector<NodePathWalk> *node_paths; // Likewise.
 	std::vector<Diagnostic> *warnings; // Likewise, before @warning_ignore.
 	Completion *completion; // What CheckMode::Cursor gives; null in any other mode.
 	// Trying a name where completion asks: calls are checked without their
@@ -470,6 +471,7 @@ class Checker : public ClassRelation {
 		Checker &checker;
 		const size_t errors;
 		const size_t references;
+		const size_t node_paths;
 		const size_t warnings;
 		const std::string call_hint;
 		const uint32_t hint_at;
@@ -477,7 +479,7 @@ class Checker : public ClassRelation {
 
 	public:
 		explicit Tentative(Checker &r_checker) :
-				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at) {}
+				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at) {}
 		~Tentative() { end(false); }
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
@@ -492,6 +494,9 @@ class Checker : public ClassRelation {
 				checker.errors.resize(errors);
 				if (checker.references) {
 					checker.references->resize(references);
+				}
+				if (checker.node_paths) {
+					checker.node_paths->resize(node_paths);
 				}
 				if (checker.warnings) {
 					checker.warnings->resize(warnings);
@@ -564,6 +569,7 @@ class Checker : public ClassRelation {
 	// is a node the current node owns, or else one its owner does.
 	struct NodeWalk {
 		std::string scene;
+		const ViewNode *from = nullptr;
 		std::vector<const ViewNode *> reached; // The node after each part.
 		const ViewNode *node = nullptr; // Where it ends, unless:
 		std::string missing; // the scene has no such node;
@@ -859,9 +865,6 @@ class Checker : public ClassRelation {
 	/* checker_scenes.cpp */
 
 	static std::string shown_path(const std::string &p_path);
-	static bool plain_path(const std::string &p_path);
-	static std::vector<std::string> path_parts(const std::string &p_path);
-	static std::string parent_path(const std::string &p_path);
 	const std::vector<ViewNode> &view_of(const Scene &p_scene, int p_depth = 0);
 	const ViewNode *view_node(const Scene &p_scene, const std::function<bool(const ViewNode &)> &p_is);
 	NodeWalk walk_node_path(const Scene &p_scene, const std::string &p_from, const std::string &p_path);
@@ -874,6 +877,7 @@ class Checker : public ClassRelation {
 	Type scene_node_at(const Expr &p_path_expr, const std::string &p_shown, bool p_optional);
 	std::optional<Type> literal_node_type(const Expr &p_call, const EngineMethod &p_method);
 	void refer_node_path(const Expr &p_get_node, const NodeWalk &p_walk);
+	void record_walk(const Expr &p_get_node, const NodeWalk &p_walk);
 	Type scene_node_type(const TokenRange &p_at, const SceneNode &p_node, const std::string &p_what);
 	static bool has_extension(const std::string &p_path, std::initializer_list<const char *> p_extensions);
 	std::string preload_path(const Expr &p_call) const;
@@ -1153,8 +1157,9 @@ class Checker : public ClassRelation {
 	void complete_string(const EngineMethod *p_method, size_t p_index, bool p_on_self);
 
 public:
-	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion) :
-			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), classes(r_classes), references(r_references), warnings(r_warnings), completion(r_completion) {}
+	Checker(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion,
+			std::vector<NodePathWalk> *r_node_paths) :
+			cls(r_class), engine(p_engine), options(p_options), errors(r_errors), classes(r_classes), references(r_references), node_paths(r_node_paths), warnings(r_warnings), completion(r_completion) {}
 
 	void attach(FileCheck &r_file, Checker *p_outer) {
 		file = &r_file;

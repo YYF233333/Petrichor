@@ -12,6 +12,29 @@
 
 namespace petrichor::compiler {
 
+// Where a literal node path leads from a node that has the script, in one
+// scene (spec §7.1), for the editor to write it anew when nodes move
+// (§13.3).
+struct NodePathWalk {
+	// A node of the scene walked in: its path there, and the scenes it is in,
+	// innermost first, each with the path of the node it is instanced at, "."
+	// for the scene walked in.
+	struct Node {
+		std::string path;
+		std::vector<std::pair<std::string, std::string>> scenes;
+	};
+	// The path's bytes from its "$" or "%", or of the String of get_node(), and
+	// what it holds.
+	uint32_t begin = 0;
+	uint32_t end = 0;
+	std::string text;
+	std::string scene;
+	// The node it starts from, or the one its last `%Name` part names, and the
+	// node it reaches.
+	Node from;
+	Node to;
+};
+
 struct CompileResult {
 	std::vector<Diagnostic> errors; // Sorted by position.
 	// Warnings that no @warning_ignore ignores, and hints; none with syntax
@@ -20,6 +43,7 @@ struct CompileResult {
 	bytecode::Module module; // Valid when ok().
 	// Where the file resolves names (architecture §2.1), also with syntax errors.
 	std::vector<Reference> references;
+	std::vector<NodePathWalk> node_paths;
 
 	// Without errors, or with only those after which the script runs.
 	bool ok() const {

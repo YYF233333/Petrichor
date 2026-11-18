@@ -1574,14 +1574,15 @@ Checker *FileCheck::find(const std::string &p_path) const {
 	return nullptr;
 }
 
-void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion, Checker *p_outer) {
-	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, r_references, r_warnings, r_completion));
+void add_checkers(FileCheck &r_file, ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion,
+		std::vector<NodePathWalk> *r_node_paths, Checker *p_outer) {
+	r_file.checkers.push_back(std::make_unique<Checker>(r_class, p_engine, p_options, r_errors, r_classes, r_references, r_warnings, r_completion, r_node_paths));
 	Checker *checker = r_file.checkers.back().get();
 	checker->attach(r_file, p_outer);
 	for (std::unique_ptr<ClassDecl> &inner : r_class.classes) {
 		CompileOptions options = p_options;
 		options.path += "::" + inner->name;
-		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, r_references, r_warnings, r_completion, checker);
+		add_checkers(r_file, *inner, p_engine, options, r_errors, r_classes, r_references, r_warnings, r_completion, r_node_paths, checker);
 	}
 }
 
@@ -1591,9 +1592,10 @@ namespace petrichor::compiler {
 
 using namespace checking;
 
-void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion) {
+void check(ClassDecl &r_class, const EngineApi &p_engine, const CompileOptions &p_options, std::vector<Diagnostic> &r_errors, ScriptClasses &r_classes, std::vector<Reference> *r_references, std::vector<Diagnostic> *r_warnings, Completion *r_completion,
+		std::vector<NodePathWalk> *r_node_paths) {
 	FileCheck file;
-	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, r_references, r_warnings, r_completion, nullptr);
+	add_checkers(file, r_class, p_engine, p_options, r_errors, r_classes, r_references, r_warnings, r_completion, r_node_paths, nullptr);
 	r_classes.enter(p_options.path, r_class, [&](const std::string &p_path) -> const ClassDecl * {
 		Checker *checker = file.find(p_path);
 		if (!checker) {

@@ -1,12 +1,14 @@
 #include "compiler/rename.h"
 
 #include "compiler/ast.h"
+#include "compiler/checker.h"
 #include "compiler/lexer.h"
 
 #include <algorithm>
 #include <cctype>
 #include <map>
 #include <set>
+#include <tuple>
 
 namespace petrichor::compiler {
 
@@ -47,8 +49,8 @@ std::string applied(const std::string &p_text, const Edits &p_edits) {
 	return result + p_text.substr(done);
 }
 
-// The project as the edits leave it: the sources of the scripts, and a global
-// class name that renaming changes.
+// The project as the edits leave it: the sources of the scripts, a global
+// class name that renaming changes, and scenes whose nodes moved.
 class EditedProject : public ProjectApi {
 	const ProjectApi &project;
 	const std::map<std::string, std::string> &sources;
@@ -57,6 +59,8 @@ class EditedProject : public ProjectApi {
 	std::string global_path;
 
 public:
+	std::map<std::string, Scene> scenes;
+
 	EditedProject(const ProjectApi &p_project, const std::map<std::string, std::string> &p_sources) :
 			project(p_project), sources(p_sources) {}
 
@@ -67,7 +71,10 @@ public:
 	}
 
 	std::vector<std::string> scene_paths() const override { return project.scene_paths(); }
-	std::optional<Scene> scene(const std::string &p_path) const override { return project.scene(p_path); }
+	std::optional<Scene> scene(const std::string &p_path) const override {
+		const auto found = scenes.find(p_path);
+		return found == scenes.end() ? project.scene(p_path) : std::optional<Scene>(found->second);
+	}
 	std::string main_scene() const override { return project.main_scene(); }
 	// The edits rewrite the headers that name the class (architecture §6.4).
 	std::optional<ResourceInfo> resource(const std::string &p_path) const override {
@@ -126,6 +133,23 @@ Rename refused(const std::string &p_file, int p_line, const std::string &p_why) 
 	return result;
 }
 
+// An edit of the file's text, as finding references shows its place.
+RenameEdit shown_edit(const std::string &p_file, const std::string &p_text, const std::vector<uint32_t> &p_starts, const CheckedEdit &p_edit) {
+	RenameEdit made{ {}, p_edit };
+	Occurrence &shown = made.occurrence;
+	shown.file = p_file;
+	const SourcePosition begin = position_in(p_text, p_starts, p_edit.begin);
+	shown.line = begin.line;
+	shown.column = begin.column;
+	shown.end_column = position_in(p_text, p_starts, p_edit.end).column;
+	const uint32_t line_end = size_t(shown.line) < p_starts.size() ? p_starts[shown.line] - 1 : uint32_t(p_text.size());
+	shown.text = p_text.substr(p_starts[shown.line - 1], line_end - p_starts[shown.line - 1]);
+	if (!shown.text.empty() && shown.text.back() == '\r') {
+		shown.text.pop_back();
+	}
+	return made;
+}
+
 // The script of a node of a scene; a node inside a scene it instances, which
 // it changes, has the one that scene gives it.
 std::string script_of(const ProjectApi &p_project, const Scene &p_scene, const std::string &p_node) {
@@ -170,6 +194,88 @@ std::string holder(const ProjectApi &p_project, const std::string &p_path) {
 		}
 	}
 	return file;
+}
+
+// Where the node at `p_path` is after the moves, which give each moved node's
+// new path by its old one; a descendant moves with it.
+std::string moved_path(const std::map<std::string, std::string> &p_moves, const std::string &p_path) {
+	for (std::string at = p_path; at != "."; at = parent_path(at)) {
+		const auto found = p_moves.find(at);
+		if (found != p_moves.end()) {
+			return found->second + p_path.substr(at.size());
+		}
+	}
+	return p_path;
+}
+
+Scene with_moves(Scene p_scene, const std::map<std::string, std::string> &p_moves) {
+	for (SceneNode &node : p_scene.nodes) {
+		node.path = moved_path(p_moves, node.path);
+	}
+	return p_scene;
+}
+
+// Where a node that a path reaches is after the moves of the nodes of the
+// scenes `p_moving`, by its place in the innermost of them.
+std::string moved_node(const NodePathWalk::Node &p_node, const std::set<std::string> &p_moving, const std::map<std::string, std::string> &p_moves) {
+	for (const auto &[root, scene] : p_node.scenes) {
+		if (p_moving.count(scene)) {
+			const std::string inner = root == "." ? p_node.path : p_node.path == root ? std::string(".")
+																					  : p_node.path.substr(root.size() + 1);
+			const std::string moved = moved_path(p_moves, inner);
+			return root == "." ? moved : moved == "." ? root
+													  : root + "/" + moved;
+		}
+	}
+	return p_node.path;
+}
+
+// The path from one node to another, both from the same root, as
+// NodePath::rel_path_to gives it.
+std::string relative_path(const std::string &p_from, const std::string &p_to) {
+	const std::vector<std::string> from = p_from == "." ? std::vector<std::string>() : path_parts(p_from);
+	const std::vector<std::string> to = p_to == "." ? std::vector<std::string>() : path_parts(p_to);
+	size_t common = 0;
+	while (common < from.size() && common < to.size() && from[common] == to[common]) {
+		common++;
+	}
+	std::string path;
+	for (size_t i = common; i < from.size(); i++) {
+		path += path.empty() ? ".." : "/..";
+	}
+	for (size_t i = common; i < to.size(); i++) {
+		path += (path.empty() ? "" : "/") + to[i];
+	}
+	return path.empty() ? std::string(".") : path;
+}
+
+// A node path in a String, quoted with `p_quote`.
+std::string quoted(const std::string &p_path, char p_quote) {
+	std::string made(1, p_quote);
+	for (const char c : p_path) {
+		made += c == '\\' || c == p_quote ? std::string("\\") + c : std::string(1, c);
+	}
+	return made + p_quote;
+}
+
+// `p_path` written as `p_written` writes a node path: after its "$" or "%",
+// in quotes only when needed; or in the String of get_node(), with its quotes
+// and prefix, and with escapes when needed.
+std::string written_path(const std::string &p_written, const std::string &p_path) {
+	const char sigil = p_written[0];
+	if (sigil == '$' || sigil == '%') {
+		const std::string rest = sigil == '%' ? p_path.substr(1) : p_path;
+		return sigil + (plain_path(rest) ? rest : quoted(rest, '"'));
+	}
+	const size_t open = p_written.find_first_of("\"'");
+	const char quote = p_written[open];
+	const size_t quotes = p_written.size() >= open + 6 && p_written.compare(open, 3, std::string(3, quote)) == 0 ? 3 : 1;
+	if (p_path.find('\\') == std::string::npos && p_path.find(quote) == std::string::npos) {
+		return p_written.substr(0, open + quotes) + p_path + p_written.substr(p_written.size() - quotes);
+	}
+	std::string prefix = p_written.substr(0, open);
+	prefix.erase(std::remove(prefix.begin(), prefix.end(), 'r'), prefix.end());
+	return prefix + quoted(p_path, '"');
 }
 
 } // namespace
@@ -399,19 +505,7 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 			}
 			const std::vector<uint32_t> starts = line_starts_of(*text);
 			for (const CheckedEdit &edit : located.edits) {
-				RenameEdit renamed{ {}, edit };
-				Occurrence &shown = renamed.occurrence;
-				shown.file = file;
-				const SourcePosition begin = position_in(*text, starts, edit.begin);
-				shown.line = begin.line;
-				shown.column = begin.column;
-				shown.end_column = position_in(*text, starts, edit.end).column;
-				const uint32_t line_end = size_t(shown.line) < starts.size() ? starts[shown.line] - 1 : uint32_t(text->size());
-				shown.text = text->substr(starts[shown.line - 1], line_end - starts[shown.line - 1]);
-				if (!shown.text.empty() && shown.text.back() == '\r') {
-					shown.text.pop_back();
-				}
-				result.edits.push_back(renamed);
+				result.edits.push_back(shown_edit(file, *text, starts, edit));
 			}
 		}
 		if (!result.refusals.empty()) {
@@ -534,6 +628,184 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 		return result;
 	}
 	result.edits.insert(result.edits.end(), candidates.begin(), candidates.end());
+	return result;
+}
+
+MovedNodes move_nodes(Analysis &r_analysis, const std::string &p_scene, const std::map<std::string, std::string> &p_moved) {
+	const ProjectApi &project = r_analysis.project_api();
+	std::map<std::string, std::string> back;
+	for (const auto &[from, to] : p_moved) {
+		back[to] = from;
+	}
+	const std::map<std::string, std::string> unedited;
+	EditedProject before(project, unedited);
+	std::map<std::string, std::string> edited;
+	EditedProject after(project, edited);
+	// The scene and those that inherit it have the nodes moved, by their own
+	// paths. They are taken as before or after the move, whichever they are.
+	std::set<std::string> moving;
+	for (const std::string &path : project.scene_paths()) {
+		const std::optional<Scene> scene = project.scene(path);
+		std::optional<Scene> at = scene;
+		for (int depth = 0; at && at->path != p_scene && depth < 32; depth++) {
+			at = at->base.empty() ? std::nullopt : project.scene(at->base);
+		}
+		if (at && at->path == p_scene) {
+			moving.insert(path);
+			before.scenes[path] = with_moves(*scene, back);
+			after.scenes[path] = with_moves(*scene, p_moved);
+		}
+	}
+	const auto after_move = [&](const NodePathWalk::Node &p_node) { return moved_node(p_node, moving, p_moved); };
+	// A path keeps what it has up to its last `%Name`, which takes the node's
+	// new name, and goes on from that node.
+	const auto anew = [&](const NodePathWalk &p_walk) {
+		const std::string from = after_move(p_walk.from);
+		const std::string to = after_move(p_walk.to);
+		const std::vector<std::string> parts = path_parts(p_walk.text);
+		size_t unique = parts.size();
+		for (size_t i = 0; i < parts.size(); i++) {
+			unique = parts[i][0] == '%' ? i : unique;
+		}
+		if (unique == parts.size()) {
+			return relative_path(from, to);
+		}
+		std::string path;
+		for (size_t i = 0; i < unique; i++) {
+			path += parts[i] + "/";
+		}
+		path += "%" + from.substr(from.rfind('/') + 1);
+		return from == to ? path : path + "/" + relative_path(from, to);
+	};
+
+	MovedNodes result;
+	std::map<std::string, std::string> texts;
+	std::map<std::string, std::map<uint32_t, std::vector<NodePathWalk>>> walks; // By file and where each path begins.
+	{
+		const Analysis::Pass pass(r_analysis, &before);
+		for (const std::string &path : project.script_paths()) {
+			const std::optional<std::string> source = is_script_path(path) ? project.script_source(path) : std::nullopt;
+			if (!source) {
+				continue;
+			}
+			texts[path] = *source;
+			for (const NodePathWalk &walk : r_analysis.compile(path, *source)->node_paths) {
+				walks[path][walk.begin].push_back(walk);
+			}
+		}
+	}
+	std::map<std::string, std::vector<RenameEdit>> pending; // By file.
+	std::map<std::string, Edits> edits; // The same.
+	for (const auto &[file, in_file] : walks) {
+		const std::string &text = texts[file];
+		const std::vector<uint32_t> starts = line_starts_of(text);
+		for (const auto &[begin, group] : in_file) {
+			if (std::none_of(group.begin(), group.end(), [&](const NodePathWalk &p_walk) { return after_move(p_walk.from) != p_walk.from.path || after_move(p_walk.to) != p_walk.to.path; })) {
+				continue;
+			}
+			const std::string written = text.substr(begin, group[0].end - begin);
+			std::map<std::string, std::string> paths; // Written anew, each with a scene it is for.
+			for (const NodePathWalk &walk : group) {
+				paths.emplace(anew(walk), walk.scene);
+			}
+			if (paths.size() > 1) {
+				std::string each;
+				for (const auto &[path, scene] : paths) {
+					each += (each.empty() ? "" : " and ") + written_path(written, path) + " in " + scene;
+				}
+				result.reports.push_back(refusal(file, position_in(text, starts, begin).line, written + " is not updated: it would be " + each + "."));
+				continue;
+			}
+			pending[file].push_back(shown_edit(file, text, starts, { begin, group[0].end, written, written_path(written, paths.begin()->first) }));
+			if (paths.begin()->first != group[0].text) {
+				edits[file].push_back(pending[file].back().edit);
+			}
+		}
+	}
+	// Each path, written anew or not, must lead where the nodes it led to are,
+	// in every scene where it did.
+	for (const auto &[file, in_file] : pending) {
+		edited[file] = applied(texts[file], edits[file]);
+	}
+	const Analysis::Pass pass(r_analysis, &after);
+	for (const auto &[file, in_file] : pending) {
+		using Walked = std::set<std::tuple<std::string, std::string, std::string>>;
+		std::map<uint32_t, Walked> reached;
+		for (const NodePathWalk &walk : r_analysis.compile(file, edited[file])->node_paths) {
+			reached[moved(edits[file], walk.begin, true)].insert({ walk.scene, walk.from.path, walk.to.path });
+		}
+		for (const RenameEdit &edit : in_file) {
+			Walked expected;
+			for (const NodePathWalk &walk : walks[file][edit.edit.begin]) {
+				expected.insert({ walk.scene, after_move(walk.from), after_move(walk.to) });
+			}
+			const Walked &found = reached[edit.edit.begin];
+			const auto other = std::find_if(found.begin(), found.end(), [&](const auto &p_walk) { return !expected.count(p_walk); });
+			const auto lacking = std::find_if(expected.begin(), expected.end(), [&](const auto &p_walk) { return !found.count(p_walk); });
+			const bool same = edit.edit.old_text == edit.edit.new_text;
+			if (other == found.end() && lacking == expected.end()) {
+				if (!same) {
+					result.edits.push_back(edit);
+				}
+				continue;
+			}
+			const std::string where = (other != found.end() ? "another node in " : "no node in ") + std::get<0>(other != found.end() ? *other : *lacking) + ".";
+			result.reports.push_back(refusal(file, edit.occurrence.line, edit.edit.old_text + (same ? " now leads to " : " is not updated: " + edit.edit.new_text + " would lead to ") + where));
+		}
+	}
+
+	// The names of the nodes renamed or moved themselves, not with a parent.
+	std::set<std::string> names;
+	for (const auto &[from, to] : p_moved) {
+		const std::string name = from.substr(from.rfind('/') + 1);
+		const std::string parent = moved_path(p_moved, parent_path(from));
+		if (to != (parent == "." ? name : parent + "/" + name)) {
+			names.insert(name);
+		}
+	}
+	std::set<std::string> placed;
+	for (const std::string &scene : moving) {
+		for (const SceneNode &node : before.scenes[scene].nodes) {
+			placed.insert(node.script.empty() ? node.instance_script : node.script);
+		}
+	}
+	for (const std::string &file : placed) {
+		if (!texts.count(file)) {
+			continue;
+		}
+		std::vector<Diagnostic> errors;
+		const std::shared_ptr<const SourceFile> source = tokenize(texts[file], errors);
+		const std::vector<Token> &tokens = source->tokens;
+		for (size_t i = 0; i + 1 < tokens.size(); i++) {
+			if (!(is_word(tokens[i], "get_node") || is_word(tokens[i], "get_node_or_null")) || tokens[i + 1].kind != TokenKind::ParenOpen) {
+				continue;
+			}
+			std::vector<const Token *> strings;
+			size_t close = i + 2;
+			for (int depth = 1; close < tokens.size() && tokens[close].kind != TokenKind::EndOfFile; close++) {
+				depth += tokens[close].kind == TokenKind::ParenOpen ? 1 : tokens[close].kind == TokenKind::ParenClose ? -1
+																													  : 0;
+				if (depth == 0) {
+					break;
+				}
+				if (tokens[close].kind == TokenKind::String) {
+					strings.push_back(&tokens[close]);
+				}
+			}
+			// One String on self is a literal path, written anew above.
+			const bool on_self = i == 0 || tokens[i - 1].kind != TokenKind::Period || (i >= 2 && tokens[i - 2].kind == TokenKind::Self);
+			if (on_self && close == i + 3 && strings.size() == 1) {
+				continue;
+			}
+			for (const Token *string : strings) {
+				const std::vector<std::string> parts = path_parts(string->text);
+				if (std::any_of(parts.begin(), parts.end(), [&](const std::string &p_part) { return names.count(p_part[0] == '%' ? p_part.substr(1) : p_part); })) {
+					result.reports.push_back(refusal(file, source->line(uint32_t(i)), "This get_node() is not updated, though \"" + string->text + "\" names a node renamed or moved."));
+					break;
+				}
+			}
+		}
+	}
 	return result;
 }
 

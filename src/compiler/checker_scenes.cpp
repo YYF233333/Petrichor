@@ -1,20 +1,8 @@
 #include "compiler/checker_internal.h"
 
-namespace petrichor::compiler::checking {
+namespace petrichor::compiler {
 
-/* Node paths and scene views (spec §7.1) */
-
-// A node path as written: $Head/Camera, %Name or $"../Level".
-std::string Checker::shown_path(const std::string &p_path) {
-	if (p_path[0] == '%') {
-		return p_path;
-	}
-	return plain_path(p_path) ? "$" + p_path : "$\"" + p_path + "\"";
-}
-
-// Whether `$` takes a path without quotes: names joined by "/", each
-// possibly after "%".
-bool Checker::plain_path(const std::string &p_path) {
+bool plain_path(const std::string &p_path) {
 	for (const std::string &part : path_parts(p_path)) {
 		const size_t name = !part.empty() && part[0] == '%' ? 1 : 0;
 		if (part.size() == name || std::isdigit((unsigned char)part[name]) || !std::all_of(part.begin() + name, part.end(), [](char p_char) { return std::isalnum((unsigned char)p_char) || p_char == '_'; })) {
@@ -24,7 +12,7 @@ bool Checker::plain_path(const std::string &p_path) {
 	return true;
 }
 
-std::vector<std::string> Checker::path_parts(const std::string &p_path) {
+std::vector<std::string> path_parts(const std::string &p_path) {
 	std::vector<std::string> parts;
 	for (size_t start = 0;;) {
 		const size_t slash = p_path.find('/', start);
@@ -36,9 +24,23 @@ std::vector<std::string> Checker::path_parts(const std::string &p_path) {
 	}
 }
 
-std::string Checker::parent_path(const std::string &p_path) {
+std::string parent_path(const std::string &p_path) {
 	const size_t slash = p_path.rfind('/');
 	return slash == std::string::npos ? std::string(".") : p_path.substr(0, slash);
+}
+
+} // namespace petrichor::compiler
+
+namespace petrichor::compiler::checking {
+
+/* Node paths and scene views (spec §7.1) */
+
+// A node path as written: $Head/Camera, %Name or $"../Level".
+std::string Checker::shown_path(const std::string &p_path) {
+	if (p_path[0] == '%') {
+		return p_path;
+	}
+	return plain_path(p_path) ? "$" + p_path : "$\"" + p_path + "\"";
 }
 
 // The nodes of a scene as the engine builds it (spec §7.1): its own, with
@@ -87,6 +89,7 @@ Checker::NodeWalk Checker::walk_node_path(const Scene &p_scene, const std::strin
 	walk.scene = p_scene.path;
 	walk.missing = p_scene.path + ": " + (p_from == "." ? std::string("the root") : p_from) + " has no node at \"" + p_path + "\".";
 	const ViewNode *at = at_path(p_from);
+	walk.from = at;
 	for (const std::string &part : path_parts(p_path)) {
 		if (!at) {
 			return walk;
@@ -276,6 +279,7 @@ Type Checker::scene_node_at(const Expr &p_path_expr, const std::string &p_shown,
 	std::string type_scene;
 	for (const NodeWalk &walk : found) {
 		refer_node_path(p_path_expr, walk);
+		record_walk(p_path_expr, walk);
 		const Type found_type = scene_node_type(p_path_expr.range, walk.node->node, p_shown);
 		if (found_type.is_error()) {
 			return found_type;
@@ -331,7 +335,8 @@ void Checker::refer_node_path(const Expr &p_get_node, const NodeWalk &p_walk) {
 	const std::vector<Token> &tokens = cls.source->tokens;
 	using Bytes = std::optional<std::pair<uint32_t, uint32_t>>;
 	std::vector<Bytes> parts;
-	for (uint32_t i = p_get_node.range.first; i <= p_get_node.range.last && i < tokens.size(); i++) {
+	const TokenRange range = unparenthesized(p_get_node.range);
+	for (uint32_t i = range.first; i <= range.last && i < tokens.size(); i++) {
 		const Token &token = tokens[i];
 		if (token.kind == TokenKind::Dollar || token.kind == TokenKind::Percent || token.kind == TokenKind::Slash) {
 			continue;
@@ -360,6 +365,31 @@ void Checker::refer_node_path(const Expr &p_get_node, const NodeWalk &p_walk) {
 			refer_bytes(parts[i]->first, parts[i]->second, { DeclId::Kind::Node, p_walk.reached[i]->scene, p_walk.reached[i]->node.path });
 		}
 	}
+}
+
+void Checker::record_walk(const Expr &p_get_node, const NodeWalk &p_walk) {
+	const TokenRange range = unparenthesized(p_get_node.range);
+	if (!node_paths || range.last >= cls.source->tokens.size()) {
+		return;
+	}
+	const std::vector<ViewNode> &view = views.at(p_walk.scene);
+	const auto walked = [&](const ViewNode *p_node) {
+		NodePathWalk::Node made{ p_node->path, {} };
+		while (p_node) {
+			const std::string root = p_node->owner.empty() ? std::string(".") : p_node->owner;
+			made.scenes.emplace_back(root, p_node->scene);
+			const auto owner = std::find_if(view.begin(), view.end(), [&](const ViewNode &p_each) { return root != "." && p_each.path == root; });
+			p_node = owner == view.end() ? nullptr : &*owner;
+		}
+		return made;
+	};
+	const std::vector<std::string> parts = path_parts(p_get_node.text);
+	const ViewNode *from = p_walk.from;
+	for (size_t i = 0; i < parts.size() && i < p_walk.reached.size(); i++) {
+		from = parts[i][0] == '%' ? p_walk.reached[i] : from;
+	}
+	const std::vector<Token> &tokens = cls.source->tokens;
+	node_paths->push_back({ tokens[range.first].offset, tokens[range.last].end(), p_get_node.text, p_walk.scene, walked(from), walked(p_walk.node) });
 }
 
 // The type of a node of a scene (spec §7.1, §7.4): the class of its script

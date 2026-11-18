@@ -4,6 +4,7 @@
 #include "compiler/scene_text.h"
 
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -43,5 +44,27 @@ struct Rename {
 // it is called outside any pass.
 Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset, const std::string &p_new, const std::vector<std::string> &p_other_scripts,
 		const std::function<std::optional<std::string>(const std::string &)> &p_text);
+
+// What the scene editor's renaming or moving nodes of the scene at `p_scene`
+// changes in the scripts of this language (spec §13.3). `p_moved` gives the
+// new path of each node whose path changes, by its old path. The project of
+// `r_analysis` has that scene after the move. The scenes that inherit it may
+// have its nodes as before or as after. A literal node path to or from a
+// node moved is written anew, as the path from where it starts to where it
+// leads (editor/docks/scene_tree_dock.cpp:2077-2120; ed1daf0). A `%Name`
+// part stays, with the node's new name. The edits are by file, then by
+// offset. These are only listed among the reports, each with its file and
+// line:
+// - a path that, written anew, would lead elsewhere in some scene that
+//   places the script, as when another scene has the old node;
+// - a get_node() of no literal path from self, whose Strings name a node
+//   renamed or moved by its own name.
+// It reads the scripts in passes of its own, so it is called outside any
+// pass.
+struct MovedNodes {
+	std::vector<RenameEdit> edits;
+	std::vector<Diagnostic> reports;
+};
+MovedNodes move_nodes(Analysis &r_analysis, const std::string &p_scene, const std::map<std::string, std::string> &p_moved);
 
 } // namespace petrichor::compiler
