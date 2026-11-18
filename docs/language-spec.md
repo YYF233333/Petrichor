@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 2c916336796e70dc859ab6e341651591696c097e. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob fb5e4b153b3ccf8fd5910119ccec4b1887f05df7. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -391,7 +391,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - A class declares variables, constants, signals, enums, anonymous enum values and inner classes, which may clash with its engine base class. When one has the name of a property, signal, constant, enum value or enum name there, it is a compile error. When one is named `script`, it is also a compile error. In an inner class, a bare name can be both an outer class's name and one of those engine names. That is a compile error, and `Outer.X` or `Area3D.X` must be written.
 - When one of these declarations has the name of an engine class or a built-in type, it is a compile error, as in `var Node2D` and `func Vector2()`:
   - a class's variables, constants, signals, functions and anonymous enum values, and a struct's fields and methods;
-  - local variables, parameters of functions and lambdas, `for` variables and `match` bindings.
+  - local variables and local constants, parameters of functions and lambdas, `for` variables and `match` bindings.
 - The values of a named enum and the variants of an enum with payloads are not restricted this way, as in `NodeKind.Node2D`.
 - When a member of a class has the name of a member of a base class of this language, it is a compile error. A function overriding a function is the exception.
 - `new` is the constructor name that the compiler provides for a class. Declaring a function named `new` in a class or an interface is a compile error.
