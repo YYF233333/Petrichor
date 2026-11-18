@@ -454,7 +454,8 @@ Completion complete(Analysis &r_analysis, const std::string &p_path, const std::
 }
 
 std::optional<Lookup> lookup(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset) {
-	const ProjectApi &project = r_analysis.project_api();
+	const Analysis::Pass pass(r_analysis);
+	const ProjectApi &project = *r_analysis.pass_classes().get_project();
 	const std::shared_ptr<const CompileResult> result = r_analysis.compile(p_path, p_source);
 	const Reference *at = reference_at(*result, p_offset);
 	if (!at) {
@@ -637,11 +638,12 @@ bool reflected(ScriptClasses &r_classes, const DeclId &p_id) {
 
 } // namespace
 
-std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts) {
+std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset, const std::vector<std::string> &p_other_scripts) {
 	using Kind = DeclId::Kind;
 	const Analysis::Pass pass(r_analysis);
 	const ProjectApi &project = *r_analysis.pass_classes().get_project();
-	std::vector<Script> scripts{ { p_path, p_source, r_analysis.compile(p_path, p_source) } };
+	const std::string source = project.script_source(p_path).value_or(std::string());
+	std::vector<Script> scripts{ { p_path, source, r_analysis.compile(p_path, source) } };
 	const std::vector<Reference> &own = scripts[0].result->references;
 	const Reference *at = reference_at(*scripts[0].result, p_offset);
 	if (!at || at->target.kind == Kind::Unresolved) {

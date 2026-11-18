@@ -17,9 +17,6 @@
 #include <godot_cpp/godot.hpp>
 
 #include <algorithm>
-#include <functional>
-#include <map>
-#include <mutex>
 #include <optional>
 #include <set>
 #include <vector>
@@ -29,7 +26,8 @@ using namespace godot;
 namespace petrichor {
 
 compiler::Analysis &analysis() {
-	static compiler::Analysis analysis(ClassDBApi::get(), SceneIndex::get());
+	compiler::Workspace &open = workspace();
+	static compiler::Analysis analysis(ClassDBApi::get(), open);
 	return analysis;
 }
 
@@ -84,7 +82,8 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 				return nullptr;
 			}
 			extending.push_back(p_path);
-			const std::shared_ptr<const ClassImage> image = compile_script(file, FileAccess::get_file_as_string(file), nullptr, p_report, p_mode);
+			const compiler::ProjectApi &project = analysis_pass ? *analysis().pass_classes().get_project() : SceneIndex::get();
+			const std::shared_ptr<const ClassImage> image = compile_script(file, to_godot(project.script_source(to_utf8(file)).value_or(std::string())), nullptr, p_report, p_mode);
 			extending.pop_back();
 			return image ? image->find_class(p_class) : nullptr;
 		};
@@ -119,7 +118,7 @@ std::shared_ptr<const compiler::CompileResult> check_scene(const String &p_path,
 }
 
 int build_project(int *r_script_count, int *r_scene_count, int *r_resource_count, bool p_command) {
-	const compiler::Analysis::Pass analysis_pass(analysis());
+	const compiler::Analysis::Pass analysis_pass(analysis(), &SceneIndex::get());
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	int failed = 0;
 	for (const String &path : paths) {
@@ -160,67 +159,22 @@ int build_project(int *r_script_count, int *r_scene_count, int *r_resource_count
 void engine_classes_changed() {
 	ClassDBApi::extensions_changed();
 	analysis().clear();
-	project_changed();
+	disk_changed();
+	PetScript::update_warnings();
 }
 
-namespace {
-
-struct SceneErrors {
-	uint64_t change = 0;
-	uint64_t source_hash = 0;
-	std::vector<compiler::Diagnostic> errors;
-};
-
-std::mutex scene_errors_mutex;
-uint64_t project_change = 1;
-std::map<std::string, SceneErrors> scene_errors_of; // By the path of the script, or of the scene checked.
-
-// The project with the scenes open with unsaved changes as they were at the
-// last change to it, which the marks of errors read (architecture §2.4).
-const compiler::ProjectApi *open_scenes() {
-	static std::unique_ptr<const OpenProject> open;
-	static uint64_t opened = 0;
-	std::lock_guard<std::mutex> lock(scene_errors_mutex);
-	if (opened != project_change) {
-		opened = project_change;
-		open = std::make_unique<const OpenProject>(false);
-	}
-	return open.get();
+void disk_changed() {
+	SceneIndex::get().disk_changed();
+	workspace().disk_changed();
 }
 
-// What `p_check` gives for the file at the path, from a source with that hash,
-// as of the last change to the project.
-std::vector<compiler::Diagnostic> as_of_change(const std::string &p_path, uint64_t p_source_hash, const std::function<std::vector<compiler::Diagnostic>()> &p_check) {
-	uint64_t change;
-	{
-		std::lock_guard<std::mutex> lock(scene_errors_mutex);
-		change = project_change;
-		const auto found = scene_errors_of.find(p_path);
-		if (found != scene_errors_of.end() && found->second.change == change && found->second.source_hash == p_source_hash) {
-			return found->second.errors;
-		}
-	}
-	const compiler::Analysis::Pass analysis_pass(analysis(), open_scenes());
-	const std::vector<compiler::Diagnostic> errors = p_check();
-	std::lock_guard<std::mutex> lock(scene_errors_mutex);
-	scene_errors_of[p_path] = { change, p_source_hash, errors };
-	return errors;
-}
-
-} // namespace
-
-std::vector<compiler::Diagnostic> scene_errors(const String &p_path, const String &p_source) {
+std::vector<compiler::Diagnostic> scene_errors(const String &p_path) {
 	const std::string path = to_utf8(p_path);
-	const std::string source = to_utf8(p_source);
-	return as_of_change(path, bytecode::hash_source(source), [&] { return analysis().compile(path, source)->errors; });
-}
-
-std::vector<compiler::Diagnostic> resource_errors(const String &p_path) {
-	return as_of_change(to_utf8(p_path), 0, [&] { return check_scene(p_path, false)->errors; });
+	return analysis().compile(path, workspace().script_source(path).value_or(std::string()))->errors;
 }
 
 std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
-	const compiler::Analysis::Pass analysis_pass(analysis(), open_scenes());
+	const compiler::Analysis::Pass analysis_pass(analysis());
 	compiler::ScriptClasses &classes = analysis().pass_classes();
 	const std::string path = to_utf8(p_path);
 	std::vector<compiler::Diagnostic> placed;
@@ -242,7 +196,7 @@ std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
 		if (!seen.insert(scene).second) {
 			continue;
 		}
-		for (const compiler::Diagnostic &error : resource_errors(to_godot(scene))) {
+		for (const compiler::Diagnostic &error : check_scene(to_godot(scene), false)->errors) {
 			if (error.file == path) {
 				placed.push_back(error);
 			}
@@ -251,14 +205,6 @@ std::vector<compiler::Diagnostic> placed_errors(const String &p_path) {
 		pending.insert(pending.end(), outer.begin(), outer.end());
 	}
 	return placed;
-}
-
-void project_changed() {
-	{
-		std::lock_guard<std::mutex> lock(scene_errors_mutex);
-		project_change++;
-	}
-	PetScript::update_warnings();
 }
 
 namespace {
@@ -333,19 +279,19 @@ std::vector<std::string> other_scripts() {
 
 } // namespace
 
-std::optional<std::vector<compiler::Occurrence>> find_references(const String &p_path, const std::string &p_source, uint32_t p_offset, const compiler::ProjectApi *p_project) {
-	const compiler::Analysis::Pass analysis_pass(analysis(), p_project);
-	return compiler::find_references(analysis(), to_utf8(p_path), p_source, p_offset, other_scripts());
+std::optional<std::vector<compiler::Occurrence>> find_references(const std::string &p_path, uint32_t p_offset) {
+	pack_open_scenes();
+	return compiler::find_references(analysis(), p_path, p_offset, other_scripts());
 }
 
-compiler::Rename rename(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_new) {
-	const auto text = [&](const std::string &p_file) { return p_project.text(p_file); };
-	return compiler::rename(analysis(), p_path, p_project.script_source(p_path).value_or(std::string()), p_offset, p_new, other_scripts(), text, &p_project);
+compiler::Rename rename(const std::string &p_path, uint32_t p_offset, const std::string &p_new) {
+	pack_open_scenes();
+	return compiler::rename(analysis(), p_path, p_offset, p_new, other_scripts(), file_text);
 }
 
-std::optional<uint32_t> declaration_offset(const compiler::ProjectApi &p_project, const std::string &p_path, const std::string &p_source, const compiler::DeclId &p_id) {
-	const compiler::Analysis::Pass analysis_pass(analysis(), &p_project);
-	for (const compiler::Reference &reference : analysis().compile(p_path, p_source)->references) {
+std::optional<uint32_t> declaration_offset(const std::string &p_path, const compiler::DeclId &p_id) {
+	const std::optional<std::string> source = workspace().script_source(p_path);
+	for (const compiler::Reference &reference : source ? analysis().compile(p_path, *source)->references : std::vector<compiler::Reference>()) {
 		if (reference.declares && reference.target == p_id) {
 			return reference.begin;
 		}

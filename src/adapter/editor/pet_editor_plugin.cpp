@@ -30,6 +30,7 @@
 #include <godot_cpp/classes/gd_extension_manager.hpp>
 #include <godot_cpp/classes/input_event_key.hpp>
 #include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/popup_menu.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/classes/rendering_server.hpp>
@@ -156,6 +157,7 @@ void PetExportPlugin::_export_begin(const PackedStringArray &p_features, bool p_
 void PetExportPlugin::_export_file(const String &p_path, const String &p_type, const PackedStringArray &p_features) {
 	// An error message fails the export in the editor's window
 	// (editor/export/editor_export_platform.cpp:131-148; ed1daf0).
+	const compiler::Analysis::Pass from_files(analysis(), &SceneIndex::get());
 	const String extension = p_path.get_extension().to_lower();
 	if (p_type == "PackedScene" || extension == "tres" || extension == "res") {
 		for (const compiler::Diagnostic &error : check_scene(p_path, true)->errors) {
@@ -327,6 +329,7 @@ void PetReferences::_notification(int p_what) {
 void PetReferences::set_found(std::vector<compiler::Occurrence> p_found) {
 	shown = Shown::References;
 	found = std::move(p_found);
+	searched = workspace().revision();
 	fill();
 }
 
@@ -437,13 +440,21 @@ void PetReferences::highlight(Object *p_item, const Rect2 &p_rect) {
 	RenderingServer::get_singleton()->canvas_item_add_polyline(canvas, outline, PackedColorArray({ Color(accent, 0.33) }), 2.0);
 }
 
-// A script at the name; a scene at the node, with the property stored
-// there; a resource at the property. Not on ticking a change.
 void PetReferences::open() {
-	if (shown == Shown::Changes && tree->get_selected_column() == 0) {
+	if (shown != Shown::Changes || tree->get_selected_column() != 0) {
+		go(size_t(int64_t(tree->get_selected()->get_metadata(0))));
+	}
+}
+
+// A script at the name; a scene at the node, with the property stored
+// there; a resource at the property. A reference in a file changed since
+// is found again first.
+void PetReferences::go(size_t p_index) {
+	const compiler::Occurrence &each = found[p_index];
+	if (shown == Shown::References && workspace().version(each.file) > searched) {
+		search_again(p_index);
 		return;
 	}
-	const compiler::Occurrence &each = found[int64_t(tree->get_selected()->get_metadata(0))];
 	EditorInterface *editor = EditorInterface::get_singleton();
 	const compiler::Reference &reference = each.reference;
 	const String file = to_godot(each.file);
@@ -713,11 +724,11 @@ void PetEditorPlugin::_enter_tree() {
 	highlighter.instantiate();
 	script_editor->register_syntax_highlighter(highlighter);
 	// editor/plugins/editor_plugin.cpp:284-289 (ed1daf0).
-	connect("resource_saved", callable_mp(this, &PetEditorPlugin::resource_saved));
-	connect("scene_saved", callable_mp(this, &PetEditorPlugin::scene_saved));
-	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::files_or_settings_changed));
+	connect("resource_saved", callable_mp(this, &PetEditorPlugin::files_changed).unbind(1));
+	connect("scene_saved", callable_mp(this, &PetEditorPlugin::files_changed).unbind(1));
+	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::files_changed));
 	// Such as the main scene and autoloads (core/config/project_settings.cpp:575, ed1daf0).
-	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &PetEditorPlugin::files_or_settings_changed));
+	ProjectSettings::get_singleton()->connect("settings_changed", callable_mp(this, &PetEditorPlugin::files_changed));
 	// An edit of an open scene, its undo and redo, as the editor learns that a
 	// scene changed (editor/editor_node.cpp:8406-8409,
 	// editor/editor_undo_redo_manager.cpp:298, 327, 380). Once they pause for
@@ -726,7 +737,7 @@ void PetEditorPlugin::_enter_tree() {
 	marks = memnew(Timer);
 	marks->set_one_shot(true);
 	marks->set_wait_time(EditorInterface::get_singleton()->get_editor_settings()->get_setting("text_editor/completion/idle_parse_delay"));
-	marks->connect("timeout", callable_mp_static(&project_changed));
+	marks->connect("timeout", callable_mp(this, &PetEditorPlugin::scenes_paused));
 	add_child(marks);
 	get_undo_redo()->connect("history_changed", callable_mp(this, &PetEditorPlugin::history_changed));
 	get_undo_redo()->connect("version_changed", callable_mp(this, &PetEditorPlugin::history_changed));
@@ -739,20 +750,31 @@ void PetEditorPlugin::_enter_tree() {
 	}
 }
 
-void PetEditorPlugin::resource_saved(Object *p_resource) {
-	if (const Resource *resource = Object::cast_to<Resource>(p_resource)) {
-		SceneIndex::get().forget(to_utf8(resource->get_path()));
+void PetEditorPlugin::files_changed() {
+	disk_changed();
+	pack_open_scenes();
+	changed(true);
+}
+
+void PetEditorPlugin::scenes_paused() {
+	pack_open_scenes();
+	changed(true);
+}
+
+// Once for each revision of the workspace: the nodes ask for their errors
+// again, and with `p_tab` the tab shown checks its script again
+// (architecture §2.4).
+void PetEditorPlugin::changed(bool p_tab) {
+	const uint64_t revision = workspace().revision();
+	if (revision == checked) {
+		return;
 	}
-	project_changed();
-}
-
-void PetEditorPlugin::scene_saved(const String &p_path) {
-	SceneIndex::get().forget(to_utf8(p_path));
-	project_changed();
-}
-
-void PetEditorPlugin::files_or_settings_changed() {
-	project_changed();
+	checked = revision;
+	CodeEdit *code_edit = fixing_code_edit();
+	if (p_tab && code_edit && code_edit->is_visible_in_tree()) {
+		code_edit->get_parent()->emit_signal("validate_script");
+	}
+	PetScript::update_warnings();
 }
 
 void PetEditorPlugin::history_changed() {
@@ -843,13 +865,16 @@ std::string byte_order_mark(const std::string &p_bytes) {
 // saves the current one; another is shown while it is saved
 // (editor/editor_interface.cpp:699-704, 775-777, editor/editor_node.h:981-987,
 // editor/editor_node.cpp:2466-2560, 4961-4974; ed1daf0).
+bool is_unsaved_scene(const std::string &p_file) {
+	return EditorInterface::get_singleton()->get_unsaved_scenes().has(to_godot(p_file));
+}
+
 void save_scenes(const std::set<std::string> &p_files) {
 	EditorInterface *editor = EditorInterface::get_singleton();
-	const OpenProject project;
 	const Node *current = editor->get_edited_scene_root();
 	const String shown = current ? current->get_scene_file_path() : String();
 	for (const std::string &file : p_files) {
-		if (project.is_unsaved_scene(file)) {
+		if (is_unsaved_scene(file)) {
 			editor->open_scene_from_path(to_godot(file));
 			editor->save_scene_as(to_godot(file), false);
 		}
@@ -917,14 +942,11 @@ bool same(const compiler::Fix &p_a, const compiler::Fix &p_b) {
 }
 
 // The errors with fixes of the script at `p_path`, from `p_errors` of its own
-// check of `p_source`, by position, each edit naming its file. The checks of
-// scenes read the saved text (architecture §6.4), so their errors count while
-// the text is that, and only with fixes in this script.
-std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_errors, const std::string &p_path, const std::string &p_source) {
-	if (SceneIndex::get().script_source(p_path) == p_source) {
-		const std::vector<compiler::Diagnostic> placed = placed_errors(to_godot(p_path));
-		p_errors.insert(p_errors.end(), placed.begin(), placed.end());
-	}
+// check, by position, each edit naming its file. Those of the checks of scenes
+// count with fixes in this script only.
+std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_errors, const std::string &p_path) {
+	const std::vector<compiler::Diagnostic> placed = placed_errors(to_godot(p_path));
+	p_errors.insert(p_errors.end(), placed.begin(), placed.end());
 	std::vector<compiler::Diagnostic> found;
 	for (compiler::Diagnostic &error : p_errors) {
 		for (compiler::Fix &fix : error.fixes) {
@@ -984,13 +1006,35 @@ void PetEditorPlugin::_input(const Ref<InputEvent> &p_event) {
 	}
 }
 
+// From the declaration, found by its id as undoing a rename finds it
+// (architecture §2.3); then the reference chosen, by its order in its file.
+void PetReferences::search_again(size_t p_index) {
+	const std::string file = found[p_index].file;
+	const size_t nth = size_t(std::count_if(found.begin(), found.begin() + int64_t(p_index), [&](const compiler::Occurrence &p_each) { return p_each.file == file; }));
+	const compiler::Occurrence &first = found.front();
+	const std::string declared = compiler::script_file(first.reference.target.scope);
+	const std::optional<uint32_t> offset = first.declaration && compiler::is_script_path(declared) ? declaration_offset(declared, first.reference.target) : std::nullopt;
+	std::optional<std::vector<compiler::Occurrence>> again = offset ? find_references(declared, *offset) : std::nullopt;
+	if (!again) {
+		set_found({});
+		toast("The project changed.");
+		return;
+	}
+	set_found(std::move(*again));
+	for (size_t i = 0, seen = 0; i < found.size(); i++) {
+		if (found[i].file == file && seen++ == nth) {
+			go(i);
+			return;
+		}
+	}
+}
+
 void PetEditorPlugin::show_references(Object *p_code_edit) {
 	const std::optional<std::pair<String, uint32_t>> at = at_caret(p_code_edit);
 	if (!at) {
 		return;
 	}
-	const OpenProject project;
-	std::optional<std::vector<compiler::Occurrence>> found = find_references(at->first, to_utf8(Object::cast_to<CodeEdit>(p_code_edit)->get_text()), at->second, &project);
+	std::optional<std::vector<compiler::Occurrence>> found = find_references(to_utf8(at->first), at->second);
 	if (!found) {
 		toast("No declaration at the caret.");
 		return;
@@ -1024,8 +1068,7 @@ void PetEditorPlugin::ask_name(Object *p_code_edit) {
 void PetEditorPlugin::rename_to(const String &p_name) {
 	name_popup->hide();
 	renaming.name = to_utf8(p_name);
-	const OpenProject project;
-	renaming.changes = rename(project, renaming.path, renaming.offset, renaming.name);
+	renaming.changes = rename(renaming.path, renaming.offset, renaming.name);
 	const std::vector<compiler::RenameEdit> &edits = renaming.changes.edits;
 	if (!renaming.changes.refusals.empty()) {
 		references->set_refusals(renaming.changes.refusals);
@@ -1033,7 +1076,7 @@ void PetEditorPlugin::rename_to(const String &p_name) {
 		references->set_changes(edits, callable_mp(this, &PetEditorPlugin::apply_previewed));
 	} else {
 		references->set_found({});
-		apply(project, renaming.path, renaming.offset, renaming.name, edits, true);
+		apply(renaming.path, renaming.offset, renaming.name, edits, true);
 		return;
 	}
 	make_bottom_panel_item_visible(references);
@@ -1050,8 +1093,7 @@ void PetEditorPlugin::apply_previewed() {
 		}
 	}
 	save_scenes(files);
-	const OpenProject project;
-	const compiler::Rename again = rename(project, renaming.path, renaming.offset, renaming.name);
+	const compiler::Rename again = rename(renaming.path, renaming.offset, renaming.name);
 	const auto same = [](const compiler::RenameEdit &p_a, const compiler::RenameEdit &p_b) {
 		const compiler::Occurrence &a = p_a.occurrence;
 		const compiler::Occurrence &b = p_b.occurrence;
@@ -1075,17 +1117,17 @@ void PetEditorPlugin::apply_previewed() {
 		}
 	}
 	references->set_found({});
-	apply(project, renaming.path, renaming.offset, renaming.name, chosen, true);
+	apply(renaming.path, renaming.offset, renaming.name, chosen, true);
 }
 
 // When it changes more than one file, the open scripts are saved too, and
 // the editor's history records the rename (architecture §2.3).
-void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record) {
+void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record) {
 	std::map<std::string, std::vector<const compiler::RenameEdit *>> by_file;
 	for (const compiler::RenameEdit &edit : p_edits) {
 		by_file[edit.occurrence.file].push_back(&edit);
 	}
-	const bool one_buffer = by_file.size() == 1 && p_project.code_edit(by_file.begin()->first);
+	const bool one_buffer = by_file.size() == 1 && open_code_edit(by_file.begin()->first);
 	// Where the name renamed is after the edits, and where the candidates
 	// changed are before and after them.
 	uint32_t offset = p_offset;
@@ -1110,10 +1152,9 @@ void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_p
 			changes[file].push_back(edit);
 		}
 	}
-	change_files(p_project, changes, !one_buffer);
+	change_files(changes, !one_buffer);
 	// What finding references lists of the new name should be what changed.
-	const OpenProject after;
-	const std::optional<std::vector<compiler::Occurrence>> found = find_references(to_godot(p_path), after.script_source(p_path).value_or(std::string()), offset, &after);
+	const std::optional<std::vector<compiler::Occurrence>> found = find_references(p_path, offset);
 	std::map<std::string, size_t> changed;
 	std::map<std::string, size_t> listed;
 	for (const compiler::RenameEdit &edit : p_edits) {
@@ -1157,7 +1198,7 @@ void PetEditorPlugin::apply(const OpenProject &p_project, const std::string &p_p
 // written as bytes, and the open scenes among them reloaded, which clears
 // their undo histories (editor/editor_node.cpp:7124-7160; ed1daf0). With
 // `p_save`, the open scripts are saved too, with their histories cleared.
-void PetEditorPlugin::change_files(const OpenProject &p_project, const FileEdits &p_changes, bool p_save) {
+void PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_save) {
 	EditorInterface *editor = EditorInterface::get_singleton();
 	const PackedStringArray open_scenes = editor->get_open_scenes();
 	// Reloading a scene clears its history, which is no step of its own.
@@ -1166,12 +1207,12 @@ void PetEditorPlugin::change_files(const OpenProject &p_project, const FileEdits
 	std::vector<String> saved; // Open scripts.
 	for (const auto &[file, edits] : p_changes) {
 		const String path = to_godot(file);
-		if (CodeEdit *code_edit = p_project.code_edit(file)) {
+		if (CodeEdit *code_edit = open_code_edit(file)) {
 			std::vector<compiler::Edit> plain;
 			for (const compiler::CheckedEdit &edit : edits) {
 				plain.push_back({ edit.begin, edit.end, edit.new_text });
 			}
-			apply_edits(code_edit, *p_project.script_source(file), plain);
+			apply_edits(code_edit, to_utf8(code_edit->get_text()), plain);
 			if (!p_save) {
 				continue;
 			}
@@ -1202,8 +1243,8 @@ void PetEditorPlugin::change_files(const OpenProject &p_project, const FileEdits
 			written.push_back(path);
 		}
 	}
-	for (const String &path : written) {
-		SceneIndex::get().forget(to_utf8(path));
+	if (!written.empty()) {
+		disk_changed();
 	}
 	// What is loaded is read again once every file is written, as when the
 	// editor sees a file change; it leaves scenes to itself, and a script as the
@@ -1242,7 +1283,7 @@ void PetEditorPlugin::change_files(const OpenProject &p_project, const FileEdits
 	}
 	elsewhere = steps;
 	if (!written.empty()) {
-		project_changed();
+		changed(true);
 	}
 }
 
@@ -1274,14 +1315,12 @@ void PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, cons
 		toast(vformat("Cannot rename it to \"%s\": %s", p_new, to_godot(p_why)), EditorToaster::SEVERITY_WARNING);
 	};
 	for (bool saved = false;; saved = true) {
-		const OpenProject project;
-		const std::optional<std::string> source = project.script_source(file);
-		const std::optional<uint32_t> offset = source ? declaration_offset(project, file, *source, id) : std::nullopt;
+		const std::optional<uint32_t> offset = declaration_offset(file, id);
 		if (!offset) {
 			refuse("its declaration is gone.");
 			return;
 		}
-		const compiler::Rename found = rename(project, file, *offset, to_utf8(p_new));
+		const compiler::Rename found = rename(file, *offset, to_utf8(p_new));
 		if (!found.refusals.empty()) {
 			refuse(found.refusals[0].message);
 			return;
@@ -1297,7 +1336,7 @@ void PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, cons
 				candidates += candidate;
 			}
 		}
-		if (!saved && std::any_of(files.begin(), files.end(), [&](const std::string &p_file) { return project.is_unsaved_scene(p_file); })) {
+		if (!saved && std::any_of(files.begin(), files.end(), is_unsaved_scene)) {
 			save_scenes(files);
 			continue;
 		}
@@ -1305,7 +1344,7 @@ void PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, cons
 			refuse("a name it changed by text has moved.");
 			return;
 		}
-		apply(project, file, *offset, to_utf8(p_new), chosen, false);
+		apply(file, *offset, to_utf8(p_new), chosen, false);
 		return;
 	}
 }
@@ -1327,11 +1366,13 @@ void PetEditorPlugin::script_changed() {
 		code_edit->set_gutter_name(gutter, "petrichor_fixes");
 		code_edit->set_gutter_type(gutter, TextEdit::GUTTER_TYPE_CUSTOM);
 		code_edit->set_gutter_custom_draw(gutter, callable_mp(this, &PetEditorPlugin::draw_bulb).bind(code_edit));
-		size_gutter(code_edit);
+		size_gutter(code_edit->get_instance_id());
 		// Once the line height follows the theme, which it does after the signal
-		// (scene/gui/control.cpp:4633-4637; ed1daf0).
-		code_edit->connect("theme_changed", callable_mp(this, &PetEditorPlugin::size_gutter).bind(code_edit), CONNECT_DEFERRED);
+		// (scene/gui/control.cpp:4633-4637; ed1daf0). By its id, as the tab may
+		// close first.
+		code_edit->connect("theme_changed", callable_mp(this, &PetEditorPlugin::size_gutter).bind(code_edit->get_instance_id()), CONNECT_DEFERRED);
 		code_edit->connect("caret_changed", callable_mp(this, &PetEditorPlugin::show_bulb));
+		code_edit->connect("text_changed", callable_mp(this, &PetEditorPlugin::show_bulb));
 		code_edit->connect("gutter_clicked", callable_mp(this, &PetEditorPlugin::bulb_clicked));
 		// After each check of its script (editor/script/script_editor_base.cpp:522-525; ed1daf0).
 		current->connect("edited_script_changed", callable_mp(this, &PetEditorPlugin::validated).bind(code_edit));
@@ -1345,6 +1386,7 @@ void PetEditorPlugin::validated(Object *p_code_edit) {
 	if (Object::cast_to<CodeEdit>(p_code_edit) == fixing_code_edit()) {
 		refresh_fixes();
 	}
+	changed(false);
 }
 
 CodeEdit *PetEditorPlugin::fixing_code_edit() const {
@@ -1352,28 +1394,37 @@ CodeEdit *PetEditorPlugin::fixing_code_edit() const {
 }
 
 // From the tab's text, whose check the analysis keeps from the script editor's.
+// Its stamp holds the files that its fixes edit.
 void PetEditorPlugin::refresh_fixes() {
 	CodeEdit *code_edit = fixing_code_edit();
 	if (!code_edit) {
 		return;
 	}
-	const std::string source = to_utf8(code_edit->get_text());
-	fixing.errors = fixable(analysis().compile(fixing.path, source)->errors, fixing.path, source);
-	fixing.version = code_edit->get_version();
+	const std::string source = workspace().script_source(fixing.path).value_or(std::string());
+	fixing.errors = fixable(analysis().compile(fixing.path, source)->errors, fixing.path);
+	fixing.revision = workspace().revision();
+	fixing.stamp = { analysis().computed(fixing.path), { fixing.path } };
+	for (const compiler::Diagnostic &error : fixing.errors) {
+		for (const compiler::Fix &fix : error.fixes) {
+			for (const compiler::Fix::Edit &edit : fix.edits) {
+				fixing.stamp.files.insert(edit.file);
+			}
+		}
+	}
 	fixing.bulb = -1;
 	show_bulb();
 	code_edit->queue_redraw();
 }
 
-// On the caret's line, while one of its errors has a fix and the text is the
-// one checked.
+// On the caret's line, while one of its errors has a fix and the workspace is
+// the one checked.
 void PetEditorPlugin::show_bulb() {
 	CodeEdit *code_edit = fixing_code_edit();
 	if (!code_edit) {
 		return;
 	}
 	const int caret = code_edit->get_caret_line();
-	const bool shown = code_edit->get_version() == fixing.version && std::any_of(fixing.errors.begin(), fixing.errors.end(), [&](const compiler::Diagnostic &p_error) { return p_error.line == caret + 1; });
+	const bool shown = workspace().revision() == fixing.revision && std::any_of(fixing.errors.begin(), fixing.errors.end(), [&](const compiler::Diagnostic &p_error) { return p_error.line == caret + 1; });
 	const int line = shown ? caret : -1;
 	if (line != fixing.bulb) {
 		fixing.bulb = line;
@@ -1388,7 +1439,7 @@ void PetEditorPlugin::show_bulb() {
 // (scene/gui/code_edit.cpp:1779-1784; ed1daf0).
 void PetEditorPlugin::draw_bulb(int p_line, int p_gutter, const Rect2 &p_region, Object *p_code_edit) {
 	CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
-	const bool shown = p_line == fixing.bulb && code_edit->get_instance_id() == fixing.code_edit && code_edit->get_version() == fixing.version;
+	const bool shown = p_line == fixing.bulb && code_edit->get_instance_id() == fixing.code_edit;
 	code_edit->set_line_gutter_clickable(p_line, p_gutter, shown);
 	if (!shown) {
 		return;
@@ -1401,9 +1452,10 @@ void PetEditorPlugin::draw_bulb(int p_line, int p_gutter, const Rect2 &p_region,
 	code_edit->draw_rect(Rect2(corner + Vector2(6.5f, 12.5f) * unit, Vector2(3, 1.5f) * unit), color);
 }
 
-void PetEditorPlugin::size_gutter(Object *p_code_edit) {
-	CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
-	code_edit->set_gutter_width(fix_gutter(code_edit), code_edit->get_line_height());
+void PetEditorPlugin::size_gutter(uint64_t p_code_edit) {
+	if (CodeEdit *code_edit = Object::cast_to<CodeEdit>(ObjectDB::get_instance(p_code_edit))) {
+		code_edit->set_gutter_width(fix_gutter(code_edit), code_edit->get_line_height());
+	}
 }
 
 // A click on any gutter is reported, clickable or not
@@ -1432,7 +1484,7 @@ void PetEditorPlugin::list_fixes_at(CodeEdit *p_code_edit, const Vector2 &p_posi
 	if (!at || p_code_edit != fixing_code_edit()) {
 		return;
 	}
-	if (p_code_edit->get_version() != fixing.version) {
+	if (workspace().revision() != fixing.revision) {
 		refresh_fixes();
 	}
 	const uint32_t caret = at->second;
@@ -1484,33 +1536,37 @@ void PetEditorPlugin::list_fixes_at(CodeEdit *p_code_edit, const Vector2 &p_posi
 	fix_list->set_focused_item(0);
 }
 
-// By a check of the texts the editor has now, which keeps nothing from
-// earlier checks: the analysis keeps a check while the other scripts'
-// declarations stay the same, though their offsets may move, and reads them
-// from disk, not from their tabs. The fix chosen is found there again by its
-// error and its title. A change of the tab's script alone is one step to undo
-// there. One of others is one step of the editor's history, undone by its
-// inverse edits, checked as it is (architecture §2.4).
+// The fix chosen is found again by its error and its title: in the check that
+// listed it, while the files its fixes edit are unchanged since that check;
+// otherwise in a check that keeps nothing from earlier ones, as the analysis
+// keeps a check while the other scripts' declarations stay the same, though
+// their offsets may move. A change of the tab's script alone is one step to
+// undo there. One of others is one step of the editor's history, undone by
+// its inverse edits, checked as it is (architecture §2.4).
 void PetEditorPlugin::apply_listed(int p_id) {
 	CodeEdit *code_edit = fixing_code_edit();
 	if (!code_edit) {
 		return;
 	}
-	const OpenProject project;
-	const std::string source = to_utf8(code_edit->get_text());
-	compiler::CompileOptions options;
-	options.path = fixing.path;
-	options.project = &project;
-	const compiler::CompileResult result = compiler::compile(source, ClassDBApi::get(), options);
+	const std::string source = workspace().script_source(fixing.path).value_or(std::string());
+	std::shared_ptr<const compiler::CompileResult> result;
+	if (workspace().changed(fixing.stamp)) {
+		compiler::CompileOptions options;
+		options.path = fixing.path;
+		options.project = &workspace();
+		result = std::make_shared<const compiler::CompileResult>(compiler::compile(source, ClassDBApi::get(), options));
+	} else {
+		result = analysis().compile(fixing.path, source);
+	}
 	FileEdits changes;
 	if (p_id >= int(listed.size())) {
-		const std::vector<compiler::CheckedEdit> edits = compiler::fix_all(result, compiler::FixKind(p_id - int(listed.size())));
+		const std::vector<compiler::CheckedEdit> edits = compiler::fix_all(*result, compiler::FixKind(p_id - int(listed.size())));
 		if (!edits.empty()) {
 			changes[fixing.path] = edits;
 		}
 	} else {
 		const auto &[chosen_error, chosen] = listed[p_id];
-		for (const compiler::Diagnostic &error : fixable(result.errors, fixing.path, source)) {
+		for (const compiler::Diagnostic &error : fixable(result->errors, fixing.path)) {
 			const auto fix = std::find_if(error.fixes.begin(), error.fixes.end(), [&](const compiler::Fix &p_fix) { return p_fix.title == chosen.title; });
 			if (changes.empty() && error.begin == chosen_error.begin && error.end == chosen_error.end && error.message == chosen_error.message && error.file == chosen_error.file && fix != error.fixes.end()) {
 				for (const compiler::Fix::Edit &edit : fix->edits) {
@@ -1536,7 +1592,7 @@ void PetEditorPlugin::apply_listed(int p_id) {
 		}
 		apply_edits(code_edit, source, plain);
 		show_bulb();
-	} else if (change_scripts(project, changes)) {
+	} else if (change_scripts(changes)) {
 		record(fix_list->get_item_text(fix_list->get_item_index(p_id)), files, Array::make("_change_scripts", to_array(changes)), Array::make("_change_scripts", to_array(inverse(changes))));
 	}
 }
@@ -1546,16 +1602,16 @@ void PetEditorPlugin::apply_listed(int p_id) {
 // tab checks its script at once, as when its text stops changing
 // (editor/gui/code_editor.cpp:1696-1699,
 // editor/script/script_editor_base.cpp:653; ed1daf0).
-bool PetEditorPlugin::change_scripts(const OpenProject &p_project, const FileEdits &p_changes) {
+bool PetEditorPlugin::change_scripts(const FileEdits &p_changes) {
 	for (const auto &[file, edits] : p_changes) {
-		const std::optional<std::string> text = p_project.script_source(file);
+		const std::optional<std::string> text = workspace().script_source(file);
 		if (!text || !std::all_of(edits.begin(), edits.end(), [&](const compiler::CheckedEdit &p_edit) { return intact(*text, p_edit); })) {
 			toast("The project changed.");
 			refresh_fixes();
 			return false;
 		}
 	}
-	change_files(p_project, p_changes, true);
+	change_files(p_changes, true);
 	if (CodeEdit *code_edit = fixing_code_edit()) {
 		code_edit->get_parent()->emit_signal("validate_script");
 	}
@@ -1563,8 +1619,7 @@ bool PetEditorPlugin::change_scripts(const OpenProject &p_project, const FileEdi
 }
 
 void PetEditorPlugin::change_scripts_again(const Array &p_edits) {
-	const OpenProject project;
-	change_scripts(project, from_array(p_edits));
+	change_scripts(from_array(p_edits));
 }
 
 void PetEditorPlugin::_exit_tree() {

@@ -5,20 +5,31 @@
 #include "compiler/parser.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <set>
 
 namespace petrichor::compiler {
 
 Analysis::Pass::Pass(Analysis &r_analysis, const ProjectApi *p_project) :
 		analysis(r_analysis), lock(r_analysis.mutex) {
-	if (analysis.passes++ == 0) {
-		analysis.classes = std::make_unique<ScriptClasses>(analysis.engine, p_project ? p_project : &analysis.project, false, true);
+	if (analysis.passes++ > 0) {
+		if (p_project && p_project != analysis.reading) {
+			std::fputs("petrichor: a pass nested in another was given a project of its own.\n", stderr);
+			std::abort();
+		}
+		return;
 	}
+	analysis.reading = p_project ? p_project : &analysis.workspace;
+	analysis.workspace.passes++;
+	analysis.classes = std::make_unique<ScriptClasses>(analysis.engine, analysis.reading, false, true);
 }
 
 Analysis::Pass::~Pass() {
 	if (--analysis.passes == 0) {
 		analysis.classes.reset();
+		analysis.workspace.passes--;
+		analysis.reading = nullptr;
 	}
 }
 
@@ -41,11 +52,26 @@ bool Analysis::unchanged(const Reads &p_reads) {
 	return true;
 }
 
+// Found unchanged at this revision, or read again (salsa's verified_at).
+bool Analysis::current(Compiled &r_entry) {
+	const uint64_t now = revision();
+	if (now != 0 && r_entry.verified == now) {
+		return true;
+	}
+	if (!unchanged(r_entry.reads)) {
+		return false;
+	}
+	if (now != 0) {
+		r_entry.verified = now;
+	}
+	return true;
+}
+
 std::shared_ptr<const CompileResult> Analysis::compile(const std::string &p_path, const std::string &p_source) {
 	const Pass pass(*this);
 	const uint64_t source_hash = bytecode::hash_source(p_source);
 	const auto found = compiled.find(p_path);
-	if (found != compiled.end() && found->second.source_hash == source_hash && unchanged(found->second.reads)) {
+	if (found != compiled.end() && found->second.source_hash == source_hash && current(found->second)) {
 		return found->second.result;
 	}
 	checks++;
@@ -56,14 +82,14 @@ std::shared_ptr<const CompileResult> Analysis::compile(const std::string &p_path
 	classes->begin_compile(p_path, p_source);
 	const std::shared_ptr<const CompileResult> result = std::make_shared<const CompileResult>(compiler::compile(p_source, engine, options, *classes, cls));
 	Compiled &entry = compiled[p_path];
-	entry = { source_hash, result, classes->end_compile() };
+	entry = { source_hash, result, classes->end_compile(), revision(), revision() };
 	return result;
 }
 
 std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_path) {
 	const Pass pass(*this);
 	const auto found = compiled.find(p_path);
-	if (found != compiled.end() && unchanged(found->second.reads)) {
+	if (found != compiled.end() && current(found->second)) {
 		return found->second.result;
 	}
 	checks++;
@@ -148,8 +174,14 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 		}
 	}
 	const std::shared_ptr<const CompileResult> shared = std::make_shared<const CompileResult>(std::move(result));
-	compiled[p_path] = { 0, shared, std::move(reads) };
+	compiled[p_path] = { 0, shared, std::move(reads), revision(), revision() };
 	return shared;
+}
+
+uint64_t Analysis::computed(const std::string &p_path) {
+	const std::lock_guard<std::recursive_mutex> lock(mutex);
+	const auto found = compiled.find(p_path);
+	return found == compiled.end() ? 0 : found->second.computed;
 }
 
 void Analysis::clear() {

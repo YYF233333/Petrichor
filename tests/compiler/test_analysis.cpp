@@ -24,14 +24,30 @@ func hit(base: Base) -> int:
 	return base.damage(3)
 )";
 
-// Compiles each script from the project's sources, in one pass.
-std::vector<Result> compile_all(compiler::Analysis &r_analysis, const FakeProject &p_project, const std::vector<std::string> &p_paths) {
+// The analysis of a project's files, through a workspace with nothing open.
+struct Checked {
+	compiler::Workspace workspace;
+	compiler::Analysis analysis;
+
+	explicit Checked(const compiler::ProjectApi &p_project) :
+			workspace(p_project), analysis(fake_engine(), workspace) {}
+};
+
+// Compiles each script from the workspace's sources, in one pass.
+std::vector<Result> compile_all(compiler::Analysis &r_analysis, const std::vector<std::string> &p_paths) {
 	const compiler::Analysis::Pass pass(r_analysis);
 	std::vector<Result> results;
 	for (const std::string &path : p_paths) {
-		results.push_back(r_analysis.compile(path, *p_project.script_source(path)));
+		results.push_back(r_analysis.compile(path, *r_analysis.project_api().script_source(path)));
 	}
 	return results;
+}
+
+// The same after the files changed on disk, which the editor learns from its
+// events (architecture §2.1).
+std::vector<Result> compile_all(Checked &r_checked, const std::vector<std::string> &p_paths) {
+	r_checked.workspace.disk_changed();
+	return compile_all(r_checked.analysis, p_paths);
 }
 
 } // namespace
@@ -40,15 +56,16 @@ TEST_CASE("a script is checked again only when what it read changes") {
 	FakeProject project;
 	project.add_script("res://base.pet", BASE, "Base");
 	project.add_script("res://user.pet", USER);
-	compiler::Analysis analysis(fake_engine(), project);
+	Checked checked(project);
+	compiler::Analysis &analysis = checked.analysis;
 	const std::vector<std::string> paths = { "res://base.pet", "res://user.pet" };
-	const std::vector<Result> before = compile_all(analysis, project, paths);
+	const std::vector<Result> before = compile_all(checked, paths);
 	REQUIRE(before[0]->ok());
 	REQUIRE(before[1]->ok());
 	REQUIRE(analysis.checks_run() == 2);
 
 	SUBCASE("nothing") {
-		const std::vector<Result> after = compile_all(analysis, project, paths);
+		const std::vector<Result> after = compile_all(checked, paths);
 		CHECK((after == before));
 		CHECK(analysis.checks_run() == 2);
 	}
@@ -61,7 +78,7 @@ pub func damage(amount: int) -> int:
 		return amount * 2
 	return 0
 )";
-		const std::vector<Result> after = compile_all(analysis, project, paths);
+		const std::vector<Result> after = compile_all(checked, paths);
 		CHECK((after[0] != before[0]));
 		CHECK((after[1] == before[1]));
 		CHECK(analysis.checks_run() == 3);
@@ -72,7 +89,7 @@ extends Node
 pub func damage(amount: int, scale: int) -> int:
 	return amount * scale
 )";
-		const std::vector<Result> after = compile_all(analysis, project, paths);
+		const std::vector<Result> after = compile_all(checked, paths);
 		CHECK((after[1] != before[1]));
 		CHECK_FALSE(after[1]->ok());
 	}
@@ -82,7 +99,7 @@ extends Node
 pub func damage(amount: int) -> int:
 	return amount *
 )";
-		const std::vector<Result> after = compile_all(analysis, project, paths);
+		const std::vector<Result> after = compile_all(checked, paths);
 		CHECK((after[1] != before[1]));
 		CHECK_FALSE(after[0]->ok());
 		CHECK(after[1]->ok());
@@ -92,14 +109,14 @@ pub func damage(amount: int) -> int:
 func hit(base: Base) -> int:
 	return base.damage(4)
 )";
-		const std::vector<Result> after = compile_all(analysis, project, paths);
+		const std::vector<Result> after = compile_all(checked, paths);
 		CHECK((after[0] == before[0]));
 		CHECK((after[1] != before[1]));
 		CHECK(analysis.checks_run() == 3);
 	}
 	SUBCASE("the class a global name refers to") {
 		project.add_script("res://other.pet", "class_name Base\nextends Node\n", "Base");
-		const std::vector<Result> after = compile_all(analysis, project, paths);
+		const std::vector<Result> after = compile_all(checked, paths);
 		CHECK((after[1] != before[1]));
 		CHECK_FALSE(after[1]->ok());
 	}
@@ -115,8 +132,9 @@ TEST_CASE("a script is checked again only when the nodes of a scene that uses it
 	bar.nodes = { { ".", "Control", "" }, { "Fill", "TextureRect", "" } };
 	project.scenes = { scene, bar };
 	project.add_script("res://hud.pet", "extends CanvasLayer\n\npub var shown := 0\n\npub func show_health():\n\t$Health.text = \"full\"\n\t$Bar/Fill.z_index = 1\n");
-	compiler::Analysis analysis(fake_engine(), project);
-	const Result before = compile_all(analysis, project, { "res://hud.pet" })[0];
+	Checked checked(project);
+	compiler::Analysis &analysis = checked.analysis;
+	const Result before = compile_all(checked, { "res://hud.pet" })[0];
 	REQUIRE(before->ok());
 	REQUIRE(analysis.checks_run() == 1);
 
@@ -127,18 +145,18 @@ TEST_CASE("a script is checked again only when the nodes of a scene that uses it
 		project.scenes[0].nodes[0].properties = { { "shown", value } };
 		project.scenes[0].connections = { { "ready", "Health", ".", "show_health" } };
 		project.scenes[1].nodes[1].properties = { { "color", value } };
-		CHECK((compile_all(analysis, project, { "res://hud.pet" })[0] == before));
+		CHECK((compile_all(checked, { "res://hud.pet" })[0] == before));
 		CHECK(analysis.checks_run() == 1);
 	}
 	SUBCASE("its nodes") {
 		project.scenes[0].nodes[1].type = "Node3D";
-		const Result after = compile_all(analysis, project, { "res://hud.pet" })[0];
+		const Result after = compile_all(checked, { "res://hud.pet" })[0];
 		CHECK((after != before));
 		CHECK_FALSE(after->ok());
 	}
 	SUBCASE("the nodes of a scene it instances") {
 		project.scenes[1].nodes[1].type = "Node3D";
-		const Result after = compile_all(analysis, project, { "res://hud.pet" })[0];
+		const Result after = compile_all(checked, { "res://hud.pet" })[0];
 		CHECK((after != before));
 		CHECK_FALSE(after->ok());
 	}
@@ -151,8 +169,10 @@ TEST_CASE("a scene is checked again only when it, a script on it or its use as a
 	scene.nodes = { { ".", "Node3D", "" }, { "Unit", "Node3D", "res://unit.pet" } };
 	project.scenes = { scene };
 	project.add_script("res://unit.pet", "@abstract\nextends Node3D\n\nfunc aim() -> float:\n\treturn 1.0\n");
-	compiler::Analysis analysis(fake_engine(), project);
+	Checked checked(project);
+	compiler::Analysis &analysis = checked.analysis;
 	const auto check = [&] {
+		checked.workspace.disk_changed();
 		const compiler::Analysis::Pass pass(analysis);
 		return analysis.check_scene("res://enemies.tscn");
 	};
@@ -193,8 +213,10 @@ TEST_CASE("a scene's errors in a script on it move with its lines; a script usin
 	};
 	project.add_script("res://hud.pet", hud("pass", "$Score"), "Hud");
 	project.add_script("res://user.pet", "extends Node\n\nfunc f(hud: Hud) -> void:\n\thud.show()\n");
-	compiler::Analysis analysis(fake_engine(), project);
+	Checked checked(project);
+	compiler::Analysis &analysis = checked.analysis;
 	const auto check = [&] {
+		checked.workspace.disk_changed();
 		const compiler::Analysis::Pass pass(analysis);
 		const Result user = analysis.compile("res://user.pet", *project.script_source("res://user.pet"));
 		REQUIRE(user->ok());
@@ -228,8 +250,10 @@ TEST_CASE("a resource file is checked again when it or a script of its resources
 	file.resources = { { file.path, "res://item.pet" } };
 	project.scenes = { file };
 	project.add_script("res://item.pet", "extends Resource\n\n@export pub var icon: Texture2D\n");
-	compiler::Analysis analysis(fake_engine(), project);
+	Checked checked(project);
+	compiler::Analysis &analysis = checked.analysis;
 	const auto check = [&] {
+		checked.workspace.disk_changed();
 		const compiler::Analysis::Pass pass(analysis);
 		return analysis.check_scene("res://sword.tres");
 	};
@@ -256,18 +280,19 @@ TEST_CASE("a script is checked again when the _init of a class it extends change
 	const std::string base = "class_name Base\nextends Node\n\npub var target: Node\n\nfunc _init():\n";
 	project.add_script("res://base.pet", base + "\ttarget = Node.new()\n\nfunc aim() -> void:\n\tpass\n", "Base");
 	project.add_script("res://unit.pet", "extends Base\n\nfunc spawn(s: PackedScene[Base]) -> void:\n\tadd_child(s.instantiate())\n");
-	compiler::Analysis analysis(fake_engine(), project);
-	const Result before = compile_all(analysis, project, { "res://unit.pet" })[0];
+	Checked checked(project);
+	compiler::Analysis &analysis = checked.analysis;
+	const Result before = compile_all(checked, { "res://unit.pet" })[0];
 	REQUIRE(before->ok());
 
 	SUBCASE("another function body") {
 		project.sources["res://base.pet"] = base + "\ttarget = Node.new()\n\nfunc aim() -> void:\n\tprint(1)\n";
-		CHECK((compile_all(analysis, project, { "res://unit.pet" })[0] == before));
+		CHECK((compile_all(checked, { "res://unit.pet" })[0] == before));
 		CHECK(analysis.checks_run() == 1);
 	}
 	SUBCASE("_init") {
 		project.sources["res://base.pet"] = base + "\tpass\n\nfunc aim() -> void:\n\tpass\n";
-		CHECK(contains(messages(*compile_all(analysis, project, { "res://unit.pet" })[0]), "instantiate() needs target = ..., a member of Base that must be assigned and the scene cannot."));
+		CHECK(contains(messages(*compile_all(checked, { "res://unit.pet" })[0]), "instantiate() needs target = ..., a member of Base that must be assigned and the scene cannot."));
 	}
 }
 
@@ -275,18 +300,94 @@ TEST_CASE("a script is checked again when a file it preloads adds a preload of i
 	FakeProject project;
 	project.add_script("res://a.pet", "extends Node\n\nconst B = preload(\"res://b.pet\")\n");
 	project.add_script("res://b.pet", "extends Node\n\nfunc make() -> void:\n\tpass\n");
-	compiler::Analysis analysis(fake_engine(), project);
-	REQUIRE(compile_all(analysis, project, { "res://a.pet" })[0]->ok());
+	Checked checked(project);
+	REQUIRE(compile_all(checked, { "res://a.pet" })[0]->ok());
 	project.sources["res://b.pet"] = "extends Node\n\nfunc make() -> void:\n\tprint(preload(\"res://a.pet\"))\n";
-	CHECK(contains(messages(*compile_all(analysis, project, { "res://a.pet" })[0]), "This preload loads this script again (res://b.pet -> res://a.pet)"));
+	CHECK(contains(messages(*compile_all(checked, { "res://a.pet" })[0]), "This preload loads this script again (res://b.pet -> res://a.pet)"));
+}
+
+// The editor's buffers over the files (architecture §2.1). Versions go into
+// the stamps of results used later, so one given twice would let a result of
+// another text through.
+TEST_CASE("the workspace's revision goes up only when what it gives changes; a version is never given twice") {
+	FakeProject project;
+	project.add_script("res://a.pet", "extends Node\n");
+	compiler::Scene scene;
+	scene.path = "res://s.tscn";
+	scene.nodes = { { ".", "Node", "" } };
+	project.scenes = { scene };
+	compiler::Workspace workspace(project);
+	const uint64_t start = workspace.revision();
+	workspace.set_script("res://a.pet", "extends Node\n");
+	workspace.set_scene("res://s.tscn", scene);
+	CHECK(workspace.revision() == start);
+
+	workspace.set_script("res://a.pet", "extends Node2D\n");
+	const uint64_t edited = workspace.version("res://a.pet");
+	CHECK(edited > start);
+	workspace.set_script("res://a.pet", "extends Node2D\n");
+	CHECK(workspace.revision() == edited);
+	workspace.drop_script("res://a.pet");
+	const uint64_t closed = workspace.version("res://a.pet");
+	CHECK(closed > edited);
+	workspace.set_script("res://a.pet", "extends Node2D\n");
+	CHECK(workspace.version("res://a.pet") > closed);
+
+	scene.nodes[0].type = "Node2D";
+	workspace.set_scene("res://s.tscn", scene);
+	const uint64_t unsaved = workspace.version("res://s.tscn");
+	CHECK(unsaved > closed);
+	workspace.drop_scene("res://s.tscn");
+	CHECK(workspace.version("res://s.tscn") > unsaved);
+
+	// Any file not open may have changed on disk; an open one keeps its text.
+	workspace.disk_changed();
+	CHECK(workspace.version("res://s.tscn") == workspace.revision());
+	CHECK(workspace.version("res://a.pet") < workspace.revision());
+	CHECK(workspace.script_source("res://a.pet") == "extends Node2D\n");
+}
+
+TEST_CASE("a result is not read again until the workspace's revision changes") {
+	FakeProject project;
+	project.add_script("res://base.pet", BASE, "Base");
+	project.add_script("res://user.pet", USER);
+	Checked checked(project);
+	const std::vector<std::string> paths = { "res://user.pet" };
+	const Result before = compile_all(checked.analysis, paths)[0];
+	REQUIRE(before->ok());
+
+	// A change on disk is seen at its event.
+	project.sources["res://base.pet"] = "class_name Base\nextends Node\npub func damage() -> int:\n\treturn 2\n";
+	CHECK((compile_all(checked.analysis, paths)[0] == before));
+	CHECK(checked.analysis.checks_run() == 1);
+	CHECK_FALSE(compile_all(checked, paths)[0]->ok());
+
+	// A buffer's change is seen at once.
+	checked.workspace.set_script("res://base.pet", BASE);
+	CHECK(compile_all(checked.analysis, paths)[0]->ok());
+}
+
+// A fix of a reused check edits other files at the places they had when it
+// was computed.
+TEST_CASE("a result reused after the declarations it read moved has a stale stamp") {
+	FakeProject project;
+	project.add_script("res://base.pet", BASE, "Base");
+	project.add_script("res://user.pet", USER);
+	Checked checked(project);
+	const Result before = compile_all(checked.analysis, { "res://user.pet" })[0];
+	const compiler::Stamp stamp{ checked.analysis.computed("res://user.pet"), { "res://user.pet", "res://base.pet" } };
+	CHECK_FALSE(checked.workspace.changed(stamp));
+	checked.workspace.set_script("res://base.pet", std::string("# Moved down.\n") + BASE);
+	CHECK((compile_all(checked.analysis, { "res://user.pet" })[0] == before));
+	CHECK(checked.workspace.changed(stamp));
 }
 
 namespace {
 
 // Each script compiled in one pass, in order, is as it is compiled alone.
 void check_as_alone(const FakeProject &p_project, const std::vector<std::string> &p_paths) {
-	compiler::Analysis analysis(fake_engine(), p_project);
-	const std::vector<Result> together = compile_all(analysis, p_project, p_paths);
+	Checked checked(p_project);
+	const std::vector<Result> together = compile_all(checked.analysis, p_paths);
 	for (size_t i = 0; i < p_paths.size(); i++) {
 		compiler::CompileOptions options;
 		options.path = p_paths[i];

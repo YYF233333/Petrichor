@@ -32,7 +32,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
   - Map `textDocument/typeDefinition` alongside `definition`.
   - Before it, measure the memory of the reference table. By estimate an entry takes about 600 bytes, with the strings of scene entries in each, and the analysis keeps every script's table (`src/compiler/references.h`).
-  - Before it, one change counter for the analysis caches. Now four places decide when a result is stale: `Analysis`, the adapter's cache, `SceneIndex` and `ClassDBApi`.
 
 ## Language
 
@@ -82,8 +81,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
 - The hints of the spec other than `unused_ignore`, as the one on a redundant `as` (spec §5.3). None is implemented.
-- The scene index trusts modification times, which count whole seconds. A file rewritten outside the editor in the second it was read stays stale.
-- The script editor checks a script against the scenes as saved, and again only when its text changes. The marks on nodes read the open scenes unsaved (architecture §2.4). So after a scene edit the two can differ until the scene is saved.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;
   - two RefCounted classes referring to each other through strong fields;

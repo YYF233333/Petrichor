@@ -24,6 +24,7 @@
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/classes/script_editor.hpp>
 #include <godot_cpp/classes/script_editor_base.hpp>
+#include <godot_cpp/classes/time.hpp>
 
 #include <algorithm>
 #include <optional>
@@ -454,10 +455,44 @@ const SceneIndex &SceneIndex::get() {
 	return index;
 }
 
+// Checked since the last change on disk, or else by the times of its files,
+// unless one was too recent to tell (gopls internal/cache/fs_memoized.go:72-80,
+// v0.24.0). The editor reports changes on disk by its events (architecture
+// §2.1).
+bool SceneIndex::current(const Read &p_read) const {
+	uint64_t now;
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		now = changes;
+		if (p_read.checked == now) {
+			return true;
+		}
+	}
+	if (p_read.recent || !std::all_of(p_read.files.begin(), p_read.files.end(), [](const auto &p_file) { return FileAccess::get_modified_time(to_godot(p_file.first)) == p_file.second; })) {
+		return false;
+	}
+	std::lock_guard<std::mutex> lock(mutex);
+	p_read.checked = now;
+	return true;
+}
+
+void SceneIndex::stamp(Read &r_read, const std::set<std::string> &p_files, double p_time) const {
+	for (const std::string &file : p_files) {
+		const uint64_t modified = FileAccess::get_modified_time(to_godot(file));
+		r_read.files.emplace_back(file, modified);
+		r_read.recent = r_read.recent || double(modified) + 2 > p_time;
+	}
+	std::lock_guard<std::mutex> lock(mutex);
+	r_read.checked = changes;
+}
+
+void SceneIndex::disk_changed() const {
+	std::lock_guard<std::mutex> lock(mutex);
+	changes++;
+}
+
 std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_path) const {
 	const String path = to_godot(p_path);
-	// Before loading, so that a change during the load is seen next time.
-	const uint64_t modified = FileAccess::get_modified_time(path);
 	std::shared_ptr<const Entry> cached;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
@@ -466,18 +501,17 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 			cached = found->second;
 		}
 	}
-	if (cached && cached->modified == modified && std::all_of(cached->files.begin(), cached->files.end(), [](const auto &p_file) {
-			return FileAccess::get_modified_time(to_godot(p_file.first)) == p_file.second;
-		})) {
+	if (cached && current(*cached)) {
 		return cached;
 	}
 
 	const std::shared_ptr<Entry> entry = std::make_shared<Entry>();
-	entry->modified = modified;
+	// Before loading, so that a change during the load is seen as recent.
+	const double time = Time::get_singleton()->get_unix_time_from_system();
 	// From the file: the editor keeps the scene it loaded once, such as one in
 	// an exported property, after the file changes (core/io/resource_loader.cpp:800-803,
 	// scene/resources/packed_scene.h:256).
-	std::set<std::string> files;
+	std::set<std::string> files{ p_path };
 	const String extension = path.get_extension().to_lower();
 	if (extension == "tscn" || extension == "scn") {
 		const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
@@ -499,25 +533,10 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 			read_resources(path, ResourceLoader::get_singleton()->load(path, "", ResourceLoader::CACHE_MODE_IGNORE), entry->scene, files, seen);
 		}
 	}
-	for (const std::string &file : files) {
-		entry->files.emplace_back(file, FileAccess::get_modified_time(to_godot(file)));
-	}
+	stamp(*entry, files, time);
 	std::lock_guard<std::mutex> lock(mutex);
 	scenes.insert_or_assign(p_path, entry);
 	return entry;
-}
-
-void SceneIndex::forget(const std::string &p_path) const {
-	std::lock_guard<std::mutex> lock(mutex);
-	loads.erase(p_path);
-	for (auto entry = scenes.begin(); entry != scenes.end();) {
-		const auto &files = entry->second->files;
-		if (entry->first == p_path || std::any_of(files.begin(), files.end(), [&](const auto &p_file) { return p_file.first == p_path; })) {
-			entry = scenes.erase(entry);
-		} else {
-			++entry;
-		}
-	}
 }
 
 std::vector<std::string> SceneIndex::scene_paths() const {
@@ -805,85 +824,6 @@ std::optional<compiler::ForeignClass> SceneIndex::foreign_class(const std::strin
 	return result;
 }
 
-OpenProject::OpenProject(bool p_scripts) {
-	EditorInterface *editor = EditorInterface::get_singleton();
-	// The open scripts are those of the editors of ScriptTextEditor, in order;
-	// the others edit text files (editor/script/script_editor_plugin.cpp:3549-3575,
-	// script_text_editor.cpp:2788-2793, text_editor.cpp:68-73; ed1daf0).
-	const TypedArray<Ref<Script>> scripts = editor->get_script_editor()->get_open_scripts();
-	const TypedArray<ScriptEditorBase> editors = editor->get_script_editor()->get_open_script_editors();
-	int64_t index = 0;
-	for (int64_t i = 0; p_scripts && i < editors.size(); i++) {
-		const ScriptEditorBase *each = Object::cast_to<ScriptEditorBase>(editors[i]);
-		if (each->get_class() != String("ScriptTextEditor")) {
-			continue;
-		}
-		const Ref<Script> script = scripts[index++];
-		CodeEdit *code_edit = Object::cast_to<CodeEdit>(each->get_base_editor());
-		const String path = script->get_path();
-		if (code_edit && path.begins_with("res://") && !path.contains("::")) {
-			code_edits[to_utf8(path)] = code_edit;
-			buffers[to_utf8(path)] = to_utf8(code_edit->get_text());
-		}
-	}
-	const PackedStringArray unsaved = editor->get_unsaved_scenes();
-	const TypedArray<Node> roots = editor->get_open_scene_roots();
-	for (int64_t i = 0; i < roots.size(); i++) {
-		Node *root = Object::cast_to<Node>(roots[i]);
-		const String path = root->get_scene_file_path();
-		Ref<PackedScene> scene;
-		scene.instantiate();
-		if (!path.is_empty() && unsaved.has(path) && scene->pack(root) == OK) {
-			std::set<std::string> files;
-			packed[to_utf8(path)] = scene;
-			scenes[to_utf8(path)] = read_scene(path, scene->get_state(), files);
-		}
-	}
-}
-
-CodeEdit *OpenProject::code_edit(const std::string &p_path) const {
-	const auto found = code_edits.find(p_path);
-	return found == code_edits.end() ? nullptr : found->second;
-}
-
-std::optional<std::string> OpenProject::text(const std::string &p_path) const {
-	String path = to_godot(p_path);
-	const auto unsaved = packed.find(p_path);
-	if (unsaved != packed.end()) {
-		// Outside res://, so that the editor does not take it as a file of the
-		// project; under .godot/, so that it gives it no uid
-		// (core/io/resource_saver.cpp:146-147, editor/file_system/editor_file_system.cpp:3672-3676; ed1daf0).
-		path = ProjectSettings::get_singleton()->globalize_path("res://.godot/petrichor/rename." + path.get_extension());
-		DirAccess::make_dir_recursive_absolute(path.get_base_dir());
-		if (ResourceSaver::get_singleton()->save(unsaved->second, path) != OK) {
-			return std::nullopt;
-		}
-	}
-	const PackedByteArray bytes = FileAccess::get_file_as_bytes(path);
-	const Error error = FileAccess::get_open_error();
-	if (unsaved != packed.end()) {
-		DirAccess::remove_absolute(path);
-	}
-	if (error != OK) {
-		return std::nullopt;
-	}
-	return bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
-}
-
-std::optional<compiler::Scene> OpenProject::scene(const std::string &p_path) const {
-	const auto found = scenes.find(p_path);
-	return found == scenes.end() ? SceneIndex::get().scene(p_path) : std::optional<compiler::Scene>(found->second);
-}
-
-std::optional<std::string> OpenProject::script_source(const std::string &p_path) const {
-	const auto found = buffers.find(p_path);
-	return found == buffers.end() ? SceneIndex::get().script_source(p_path) : std::optional<std::string>(found->second);
-}
-
-std::vector<std::pair<bool, std::string>> OpenProject::literal_loads(const std::string &p_path) const {
-	return buffers.count(p_path) ? ProjectApi::literal_loads(p_path) : SceneIndex::get().literal_loads(p_path);
-}
-
 std::vector<std::string> SceneIndex::script_paths() const {
 	std::vector<std::string> paths;
 	for (const String &path : project_files(PackedStringArray({ "pet", "gd" }))) {
@@ -902,18 +842,144 @@ std::optional<std::string> SceneIndex::script_source(const std::string &p_path) 
 
 // Read again only when the file changed, as a scene is.
 std::vector<std::pair<bool, std::string>> SceneIndex::literal_loads(const std::string &p_path) const {
-	const uint64_t modified = FileAccess::get_modified_time(to_godot(p_path));
+	std::shared_ptr<const Loads> cached;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		const auto found = loads.find(p_path);
-		if (found != loads.end() && found->second.first == modified) {
-			return found->second.second;
+		if (found != loads.end()) {
+			cached = found->second;
 		}
 	}
-	std::vector<std::pair<bool, std::string>> found = ProjectApi::literal_loads(p_path);
+	if (cached && current(*cached)) {
+		return cached->found;
+	}
+	const std::shared_ptr<Loads> read = std::make_shared<Loads>();
+	const double time = Time::get_singleton()->get_unix_time_from_system();
+	read->found = ProjectApi::literal_loads(p_path);
+	stamp(*read, { p_path }, time);
 	std::lock_guard<std::mutex> lock(mutex);
-	loads.insert_or_assign(p_path, std::make_pair(modified, found));
-	return found;
+	loads.insert_or_assign(p_path, read);
+	return read->found;
+}
+
+namespace {
+
+// By path: the editor of each script open in the script editor, and the
+// version of its text that the workspace has.
+std::map<std::string, std::pair<uint64_t, uint32_t>> open_scripts;
+std::set<std::string> packed_scenes;
+
+// The scenes open with unsaved changes, by path.
+std::map<std::string, Ref<PackedScene>> unsaved_scenes() {
+	EditorInterface *editor = EditorInterface::get_singleton();
+	const PackedStringArray unsaved = editor->get_unsaved_scenes();
+	const TypedArray<Node> roots = editor->get_open_scene_roots();
+	std::map<std::string, Ref<PackedScene>> packed;
+	for (int64_t i = 0; i < roots.size(); i++) {
+		Node *root = Object::cast_to<Node>(roots[i]);
+		const String path = root->get_scene_file_path();
+		Ref<PackedScene> scene;
+		scene.instantiate();
+		if (!path.is_empty() && unsaved.has(path) && scene->pack(root) == OK) {
+			packed[to_utf8(path)] = scene;
+		}
+	}
+	return packed;
+}
+
+} // namespace
+
+compiler::Workspace &workspace() {
+	static compiler::Workspace workspace(SceneIndex::get());
+	EditorInterface *editor = EditorInterface::get_singleton();
+	ScriptEditor *script_editor = editor ? editor->get_script_editor() : nullptr;
+	if (!script_editor || workspace.in_pass()) {
+		return workspace;
+	}
+	// The open scripts are those of the editors of ScriptTextEditor, in order;
+	// the others edit text files (editor/script/script_editor_plugin.cpp:3549-3575,
+	// script_text_editor.cpp:2788-2793, text_editor.cpp:68-73). An editor's
+	// version goes up with each edit, and undoing or redoing one gives back the
+	// version of its text (scene/gui/text_edit.cpp:4784-4848, 9193, 9233; ed1daf0).
+	const TypedArray<Ref<Script>> scripts = script_editor->get_open_scripts();
+	const TypedArray<ScriptEditorBase> editors = script_editor->get_open_script_editors();
+	std::set<std::string> shown;
+	int64_t index = 0;
+	for (int64_t i = 0; i < editors.size(); i++) {
+		const ScriptEditorBase *each = Object::cast_to<ScriptEditorBase>(editors[i]);
+		if (each->get_class() != String("ScriptTextEditor")) {
+			continue;
+		}
+		const Ref<Script> script = scripts[index++];
+		const CodeEdit *code_edit = Object::cast_to<CodeEdit>(each->get_base_editor());
+		const String path = script->get_path();
+		if (!code_edit || !path.begins_with("res://") || path.contains("::")) {
+			continue;
+		}
+		const std::string file = to_utf8(path);
+		const std::pair<uint64_t, uint32_t> now{ code_edit->get_instance_id(), code_edit->get_version() };
+		shown.insert(file);
+		if (open_scripts[file] != now) {
+			open_scripts[file] = now;
+			workspace.set_script(file, to_utf8(code_edit->get_text()));
+		}
+	}
+	for (auto entry = open_scripts.begin(); entry != open_scripts.end();) {
+		if (shown.count(entry->first)) {
+			++entry;
+			continue;
+		}
+		workspace.drop_script(entry->first);
+		entry = open_scripts.erase(entry);
+	}
+	return workspace;
+}
+
+void pack_open_scenes() {
+	compiler::Workspace &open = workspace();
+	std::set<std::string> packed;
+	for (const auto &[path, scene] : unsaved_scenes()) {
+		std::set<std::string> files;
+		open.set_scene(path, read_scene(to_godot(path), scene->get_state(), files));
+		packed.insert(path);
+	}
+	for (const std::string &path : packed_scenes) {
+		if (!packed.count(path)) {
+			open.drop_scene(path);
+		}
+	}
+	packed_scenes = std::move(packed);
+}
+
+CodeEdit *open_code_edit(const std::string &p_path) {
+	workspace();
+	const auto found = open_scripts.find(p_path);
+	return found == open_scripts.end() ? nullptr : Object::cast_to<CodeEdit>(ObjectDB::get_instance(found->second.first));
+}
+
+std::optional<std::string> file_text(const std::string &p_path) {
+	String path = to_godot(p_path);
+	const std::map<std::string, Ref<PackedScene>> unsaved = unsaved_scenes();
+	const auto scene = unsaved.find(p_path);
+	if (scene != unsaved.end()) {
+		// Outside res://, so that the editor does not take it as a file of the
+		// project; under .godot/, so that it gives it no uid
+		// (core/io/resource_saver.cpp:146-147, editor/file_system/editor_file_system.cpp:3672-3676; ed1daf0).
+		path = ProjectSettings::get_singleton()->globalize_path("res://.godot/petrichor/rename." + path.get_extension());
+		DirAccess::make_dir_recursive_absolute(path.get_base_dir());
+		if (ResourceSaver::get_singleton()->save(scene->second, path) != OK) {
+			return std::nullopt;
+		}
+	}
+	const PackedByteArray bytes = FileAccess::get_file_as_bytes(path);
+	const Error error = FileAccess::get_open_error();
+	if (scene != unsaved.end()) {
+		DirAccess::remove_absolute(path);
+	}
+	if (error != OK) {
+		return std::nullopt;
+	}
+	return bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
 }
 
 } // namespace petrichor

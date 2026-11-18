@@ -58,7 +58,8 @@ TEST_CASE("the _init of two files that make each other's objects counts what eac
 	project.add_script("res://a.pet", source("A", "B"), "A");
 	project.add_script("res://b.pet", source("B", "A"), "B");
 	CHECK(messages(compile_in("extends Node\n\nfunc f(a: PackedScene[A], b: PackedScene[B]) -> void:\n\tadd_child(a.instantiate())\n\tadd_child(b.instantiate())\n", project)).empty());
-	compiler::Analysis analysis(fake_engine(), project);
+	compiler::Workspace workspace(project);
+	compiler::Analysis analysis(fake_engine(), workspace);
 	const compiler::Analysis::Pass pass(analysis);
 	for (const char *path : { "res://a.pet", "res://b.pet" }) {
 		const std::string errors = messages(*analysis.compile(path, *project.script_source(path)));

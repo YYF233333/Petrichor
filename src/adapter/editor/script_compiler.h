@@ -16,7 +16,8 @@
 namespace petrichor {
 
 // The project's scripts as the editor and the headless build check them,
-// each checked again only when what it read changes (architecture §2.4).
+// each checked again only when what it read changes (architecture §2.4). It
+// reads workspace(), the build and the export SceneIndex.
 compiler::Analysis &analysis();
 
 // Compiles a script in the editor; CheckMode::Declarations while it is being
@@ -39,38 +40,33 @@ std::shared_ptr<const compiler::CompileResult> check_scene(const godot::String &
 // When an extension loads, unloads or reloads, ClassDB changes, and every
 // compiled script may change with it.
 void engine_classes_changed();
+// Files changed on disk, or the project settings, as the editor's events tell
+// (architecture §2.1).
+void disk_changed();
 
-// The errors of the script from `p_source`, as of the last change to the
-// project, for the nodes that the scene dock asks at each of its updates
-// (spec §13.2).
-std::vector<compiler::Diagnostic> scene_errors(const godot::String &p_path, const godot::String &p_source);
-// The errors of the check of the scene or resource file at the path, as of the
-// last change to the project.
-std::vector<compiler::Diagnostic> resource_errors(const godot::String &p_path);
+// The errors of the script, for the nodes that the scene dock asks at each of
+// its updates (spec §13.2).
+std::vector<compiler::Diagnostic> scene_errors(const godot::String &p_path);
 // Those that the checks of the scenes placing the script, or instancing such a
 // scene, and of the files whose resources have scripts of this language,
 // report in its source, for the script editor (architecture §6.4).
 std::vector<compiler::Diagnostic> placed_errors(const godot::String &p_path);
-// A file of the project was saved or changed: the nodes ask again.
-void project_changed();
 
 // What the name at byte `p_offset` of the script's text refers to, for the
 // script editor's lookup (spec §13.2).
 std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
 
 // Where what the name at byte `p_offset` of the script's text refers to is
-// declared and referred to in the project, read from `p_project` if given,
-// with the candidates in GDScript and C# files (spec §13.2); nullopt where it
-// refers to nothing.
-std::optional<std::vector<compiler::Occurrence>> find_references(const godot::String &p_path, const std::string &p_source, uint32_t p_offset, const compiler::ProjectApi *p_project = nullptr);
+// declared and referred to in the project, with the candidates in GDScript
+// and C# files (spec §13.2); nullopt where it refers to nothing.
+std::optional<std::vector<compiler::Occurrence>> find_references(const std::string &p_path, uint32_t p_offset);
 
 // What renaming the name at byte `p_offset` of the script's text to `p_new`
-// changes (spec §13.3), with what the editor has not saved.
-compiler::Rename rename(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_new);
+// changes (spec §13.3).
+compiler::Rename rename(const std::string &p_path, uint32_t p_offset, const std::string &p_new);
 
-// Where the script compiled from `p_source` declares `p_id`; nullopt if it
-// does not.
-std::optional<uint32_t> declaration_offset(const compiler::ProjectApi &p_project, const std::string &p_path, const std::string &p_source, const compiler::DeclId &p_id);
+// Where the script declares `p_id`; nullopt if it does not.
+std::optional<uint32_t> declaration_offset(const std::string &p_path, const compiler::DeclId &p_id);
 
 // What can be written at the cursor, which U+FFFF marks in `p_source`, for
 // the script editor's completion (spec §13.2).

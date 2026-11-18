@@ -64,7 +64,8 @@ compiler::Completion completion(const std::string &p_source) {
 	REQUIRE(at != std::string::npos);
 	source.replace(at, mark.size(), "\xEF\xBF\xBF");
 	const FakeProject classes = project();
-	compiler::Analysis analysis(fake_engine(), classes);
+	compiler::Workspace workspace(classes);
+	compiler::Analysis analysis(fake_engine(), workspace);
 	return compiler::complete(analysis, "res://test.pet", source);
 }
 

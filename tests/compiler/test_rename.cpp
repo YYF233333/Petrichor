@@ -43,14 +43,15 @@ compiler::Rename renamed(const Project &p_project, const std::string &p_path, co
 		offset = source.find(p_name, offset + 1);
 	}
 	REQUIRE(offset != std::string::npos);
-	compiler::Analysis analysis(fake_engine(), p_project);
+	compiler::Workspace workspace(p_project);
+	compiler::Analysis analysis(fake_engine(), workspace);
 	std::vector<std::string> others;
 	for (const auto &[path, text] : p_project.sources) {
 		if (!compiler::is_script_path(path)) {
 			others.push_back(path);
 		}
 	}
-	return compiler::rename(analysis, p_path, source, uint32_t(offset), p_new, others, [&](const std::string &p_file) {
+	return compiler::rename(analysis, p_path, uint32_t(offset), p_new, others, [&](const std::string &p_file) {
 		const auto found = p_project.texts.find(p_file);
 		return found == p_project.texts.end() ? std::nullopt : std::optional<std::string>(found->second);
 	});

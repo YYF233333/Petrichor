@@ -144,7 +144,8 @@ compiler::CompileResult compile_in(const std::string &p_source, const FakeProjec
 
 compiler::CompileResult check_scenes_in(const std::string &p_source, FakeProject p_project) {
 	p_project.add_script("res://test.pet", p_source);
-	compiler::Analysis analysis(fake_engine(), p_project);
+	compiler::Workspace workspace(p_project);
+	compiler::Analysis analysis(fake_engine(), workspace);
 	const compiler::Analysis::Pass pass(analysis);
 	compiler::CompileResult result;
 	for (const compiler::Scene &scene : p_project.scenes) {

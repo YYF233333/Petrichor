@@ -114,6 +114,9 @@ Error PetResourceSaver::_save(const Ref<Resource> &p_resource, const String &p_p
 	file->close();
 #ifdef TOOLS_ENABLED
 	if (Engine::get_singleton()->is_editor_hint()) {
+		// The scripts that use it compile as it reloads, before the editor
+		// reports the save.
+		disk_changed();
 		const std::shared_ptr<const ClassImage> image = compile_script(p_path, script->_get_source_code(), nullptr, false);
 		// Keeps the bytecode cache current, so that a running game can reload
 		// the script right after the editor saves it (spec §12.4).

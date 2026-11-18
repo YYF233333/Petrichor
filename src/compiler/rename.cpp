@@ -144,8 +144,8 @@ std::string script_of(const ProjectApi &p_project, const Scene &p_scene, const s
 
 } // namespace
 
-Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::string &p_new, const std::vector<std::string> &p_other_scripts,
-		const std::function<std::optional<std::string>(const std::string &)> &p_text, const ProjectApi *p_project) {
+Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset, const std::string &p_new, const std::vector<std::string> &p_other_scripts,
+		const std::function<std::optional<std::string>(const std::string &)> &p_text) {
 	std::vector<Diagnostic> lexed_errors;
 	const std::shared_ptr<const SourceFile> lexed = tokenize(p_new, lexed_errors);
 	const Token &word = lexed->tokens[0];
@@ -156,15 +156,16 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 	const auto refuse = [&](const std::string &p_file, int p_line, const std::string &p_why) {
 		result.refusals.push_back(refusal(p_file, p_line, p_why));
 	};
-	const ProjectApi &project = p_project ? *p_project : r_analysis.project_api();
+	const ProjectApi &project = r_analysis.project_api();
 	std::map<std::string, std::string> texts; // Of the scripts read, by path.
 	const auto text_of = [&](const std::string &p_file) -> const std::string & {
 		auto known = texts.find(p_file);
 		if (known == texts.end()) {
-			known = texts.emplace(p_file, p_file == p_path ? p_source : project.script_source(p_file).value_or(std::string())).first;
+			known = texts.emplace(p_file, project.script_source(p_file).value_or(std::string())).first;
 		}
 		return known->second;
 	};
+	const std::string &source = text_of(p_path);
 	// The scripts of this language, the one renamed in first.
 	std::vector<std::string> scripts{ p_path };
 	std::map<std::string, Edits> edits; // In them, by file.
@@ -172,13 +173,11 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 	std::string old_name;
 	std::string global; // The file whose class's global name it renames.
 	std::vector<RenameEdit> candidates;
-	// The scripts as the unsaved one is, without the edits and with them.
-	const std::map<std::string, std::string> unedited_sources{ { p_path, p_source } };
-	const EditedProject unedited(project, unedited_sources);
+	// The scripts without the edits and with them.
 	std::map<std::string, std::shared_ptr<const CompileResult>> before;
 	{
-		const Analysis::Pass pass(r_analysis, &unedited);
-		const std::optional<std::vector<Occurrence>> found = find_references(r_analysis, p_path, p_source, p_offset, p_other_scripts);
+		const Analysis::Pass pass(r_analysis);
+		const std::optional<std::vector<Occurrence>> found = find_references(r_analysis, p_path, p_offset, p_other_scripts);
 		if (!found) {
 			return refused(p_path, 0, "There is no name here to rename.");
 		}
@@ -204,7 +203,7 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, const std::string
 				owners.insert(reference.target.scope);
 			}
 			if (each.file == p_path && each.line > 0 && reference.begin <= p_offset && p_offset <= reference.end) {
-				old_name = p_source.substr(reference.begin, reference.end - reference.begin);
+				old_name = source.substr(reference.begin, reference.end - reference.begin);
 			}
 		}
 		if (old_name.empty() || old_name == p_new) {

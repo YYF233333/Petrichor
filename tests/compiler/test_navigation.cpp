@@ -68,7 +68,8 @@ std::optional<compiler::Lookup> find(const std::string &p_text, int p_nth = 0) {
 	}
 	REQUIRE(offset != std::string::npos);
 	const FakeProject classes = project();
-	compiler::Analysis analysis(fake_engine(), classes);
+	compiler::Workspace workspace(classes);
+	compiler::Analysis analysis(fake_engine(), workspace);
 	const compiler::Analysis::Pass pass(analysis);
 	const auto compiled = analysis.compile("res://test.pet", SOURCE);
 	REQUIRE_MESSAGE(compiled->ok(), messages(*compiled));

@@ -2,6 +2,7 @@
 
 #include "compiler/compiler.h"
 #include "compiler/script_classes.h"
+#include "compiler/workspace.h"
 
 #include <cstdint>
 #include <map>
@@ -16,34 +17,45 @@ namespace petrichor::compiler {
 // other scripts and the project's answers (architecture §2.1). In a pass the project is taken to stay
 // as it is, so each answer is checked once and each other script's
 // declarations are checked once; between passes only the results are kept,
-// since checked declarations point into the syntax trees of other files.
+// since checked declarations point into the syntax trees of other files. A
+// result found unchanged at a revision of the workspace is not read again
+// until the revision changes.
 class Analysis {
 	struct Compiled {
 		uint64_t source_hash = 0;
 		std::shared_ptr<const CompileResult> result;
 		Reads reads;
+		// The workspace's revisions when it was computed and when it was last
+		// found unchanged; 0 when read from another project.
+		uint64_t computed = 0;
+		uint64_t verified = 0;
 	};
 
 	const EngineApi &engine;
-	const ProjectApi &project;
+	Workspace &workspace;
 	std::recursive_mutex mutex;
 	int passes = 0; // Nested on the thread that holds `mutex`.
+	const ProjectApi *reading = nullptr; // By the outermost pass.
 	std::unique_ptr<ScriptClasses> classes; // Of the pass.
 	std::map<std::string, Compiled> compiled; // Scripts, and the checks of scenes, by their paths.
 	int checks = 0;
 
+	// The workspace's revision that the pass reads, or 0 for another project.
+	uint64_t revision() const { return reading == &workspace ? workspace.revision() : 0; }
 	bool unchanged(const Reads &p_reads);
+	bool current(Compiled &r_entry);
 
 public:
-	Analysis(const EngineApi &p_engine, const ProjectApi &p_project) :
-			engine(p_engine), project(p_project) {}
+	Analysis(const EngineApi &p_engine, Workspace &r_workspace) :
+			engine(p_engine), workspace(r_workspace) {}
 
 	const EngineApi &engine_api() const { return engine; }
-	const ProjectApi &project_api() const { return project; }
+	const ProjectApi &project_api() const { return workspace; }
 
-	// One at a time; nested ones are part of the outermost. An outermost one
-	// may read the project from `p_project`, as renaming checks the scripts it
-	// would edit; what it compiles is kept as any other pass's.
+	// One at a time; nested ones are part of the outermost, and read its
+	// project. An outermost one may read the project from `p_project`, as
+	// renaming checks the scripts it would edit and the build reads the files;
+	// what it compiles is kept as any other pass's.
 	class Pass {
 		Analysis &analysis;
 		std::lock_guard<std::recursive_mutex> lock;
@@ -64,6 +76,9 @@ public:
 	// the previous result if nothing it read has changed, the text of those
 	// scripts included.
 	std::shared_ptr<const CompileResult> check_scene(const std::string &p_path);
+	// The workspace's revision when the result kept for `p_path` was computed,
+	// for its stamp; 0 if none was computed from the workspace.
+	uint64_t computed(const std::string &p_path);
 	// The other scripts as the pass that is open reads them, for a check whose
 	// result is not kept.
 	ScriptClasses &pass_classes() { return *classes; }

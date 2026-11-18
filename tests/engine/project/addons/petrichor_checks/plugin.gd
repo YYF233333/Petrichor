@@ -59,6 +59,7 @@ func _run() -> void:
 	_check_autoload_by_uid()
 	await _check_rename()
 	await _check_quick_fixes()
+	await _check_unsaved_texts()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -265,6 +266,7 @@ func _check_instanced_scene_change() -> void:
 	var written := maxi(FileAccess.get_modified_time(inner), FileAccess.get_modified_time(base))
 	await _write_after(inner, '[gd_scene format=3]\n\n[node name="Inner" type="Node2D"]\n', written)
 	await _write_after(base, '[gd_scene format=3]\n\n[node name="Base" type="Node"]\n\n[node name="X" type="Node2D" parent="."]\n', written)
+	_scanned()
 	_check(not _compiles(scripts[outer], outer), "a change to the instanced scene alone reaches the next analysis ($X.position is now a Vector2)")
 	_check(not _compiles(scripts[derived], derived), "a change to the base scene alone reaches the next analysis")
 	for path in [outer, derived]:
@@ -280,6 +282,12 @@ func _compiles(script: Script, path: String) -> bool:
 	DirAccess.remove_absolute(bytecode)
 	ResourceSaver.save(script, path)
 	return FileAccess.file_exists(bytecode)
+
+
+# The editor learns of files changed outside it at its next scan, as when its
+# window takes the focus (editor/editor_node.cpp:1048-1058; ed1daf0).
+func _scanned() -> void:
+	EditorInterface.get_resource_filesystem().filesystem_changed.emit()
 
 
 func _write(path: String, text: String) -> void:
@@ -396,10 +404,17 @@ func _check_lookup() -> void:
 	_check(script_editor.get_current_script().resource_path == base_gd and reached.get_caret_line() == 2, "Ctrl+click on an inherited GDScript constant goes to the base script")
 	reached = click.call("hit")
 	_check(script_editor.get_current_script() == script and reached.get_caret_line() == 5, "Ctrl+click on a parameter goes to its declaration")
+	EditorInterface.edit_script(load(hit_path))
+	var hit_code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	hit_code.insert_text("# Moved down.\n", 0, 0)
+	reached = click.call("damage")
+	_check(reached == hit_code and reached.get_caret_line() == 3, "Ctrl+click goes to the declaration's line in its unsaved text")
+	hit_code.undo()
 	_check_errors([], "looking up reports nothing")
 	for path in [hit_path, base_gd, child_gd, script_path]:
 		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 			DirAccess.remove_absolute(file)
+	_scanned()
 
 
 # Spec §13.2: completion offers what checks at the cursor, which the script
@@ -425,6 +440,7 @@ func _check_completion() -> void:
 	for path in [hit_path, script_path]:
 		for file in [path, path + ".uid", path.replace("res://", "res://.godot/petrichor/").replace(".pet", ".petc")]:
 			DirAccess.remove_absolute(file)
+	_scanned()
 
 
 # The script editor colors a script by the lexer's tokens, in the colors of the
@@ -667,6 +683,57 @@ func _check_quick_fixes() -> void:
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))
 	DirAccess.remove_absolute(dir)
+
+
+# Architecture §2.1: every check in the editor reads the unsaved texts of the
+# open scripts. The script editor shows a scene's error in a script at its
+# line there. A call to a function added to another open script has no error
+# and no fix.
+func _check_unsaved_texts() -> void:
+	var dir := "res://editor_unsaved"
+	var hud := dir + "/hud.pet"
+	var target := dir + "/target.pet"
+	var user := dir + "/user.pet"
+	DirAccess.make_dir_absolute(dir)
+	_write(hud, "extends Node\n\nfunc f() -> void:\n\tprint($Score)\n")
+	_write(dir + "/menu.tscn", '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Menu" type="Node"]\nscript = ExtResource("1")\n\n[node name="Score" type="Label" parent="."]\n' % hud)
+	_write(dir + "/main.tscn", '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Main" type="Node"]\n\n[node name="HUD" type="Node" parent="."]\nscript = ExtResource("1")\n' % hud)
+	_write(target, "extends Node\n")
+	_write(user, "extends Node\n\nconst Target = preload(\"target.pet\")\n\nfunc f(t: Target) -> void:\n\tt.heal()\n")
+	for scene in ["menu.tscn", "main.tscn"]:
+		EditorInterface.get_resource_filesystem().update_file(dir.path_join(scene))
+	await get_tree().process_frame
+	var script_editor := EditorInterface.get_script_editor()
+	EditorInterface.edit_script(load(hud))
+	var code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	code.insert_text("# Moved down.\n", 0, 0)
+	var listed := _listed_errors(code)
+	_check(RegEx.create_from_string("Line 5:\\s*res://editor_unsaved/main.tscn: HUD has no node").search(listed) != null, "a scene's error in a script is at its line in the unsaved text: " + listed)
+	code.undo()
+	EditorInterface.edit_script(load(target))
+	var other: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	other.insert_text("\npub func heal() -> void:\n\tpass\n", 1, 0)
+	EditorInterface.edit_script(load(user))
+	code = script_editor.get_current_editor().get_base_editor()
+	listed = _listed_errors(code)
+	_check(not listed.contains("heal") and _quick_fixes(code, 5).item_count == 0, "a call to a function added to another open script, unsaved, has no error and no fix: " + listed)
+	other.undo()
+	_check_errors([], "reading unsaved texts reports nothing")
+	for file in [hud, target, user]:
+		script_editor.close_file(file)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+	_scanned()
+
+
+# The errors and warnings the script editor lists once it checks the script.
+func _listed_errors(code: CodeEdit) -> String:
+	code.get_parent().emit_signal("validate_script")
+	var listed := ""
+	for label: RichTextLabel in EditorInterface.get_script_editor().get_current_editor().find_children("*", "RichTextLabel", true, false):
+		listed += label.get_parsed_text() + "\n"
+	return listed
 
 
 # Opens the list of quick fixes at the line of the open script, as Alt+Enter

@@ -193,9 +193,9 @@ static PackedStringArray node_errors(const PetPlaceholder &p_placeholder) {
 			places.emplace_back(to_utf8(root->get_scene_file_path()), to_utf8(String(root->get_path_to(node))));
 		}
 	}
-	std::vector<compiler::Diagnostic> found = scene_errors(path, p_placeholder.script->_get_source_code());
+	std::vector<compiler::Diagnostic> found = scene_errors(path);
 	for (const auto &[scene, at] : places) {
-		const std::vector<compiler::Diagnostic> checked = resource_errors(to_godot(scene));
+		const std::vector<compiler::Diagnostic> checked = check_scene(to_godot(scene), false)->errors;
 		found.insert(found.end(), checked.begin(), checked.end());
 	}
 	for (const compiler::Diagnostic &error : found) {

@@ -80,11 +80,14 @@ class PetReferences : public godot::VBoxContainer {
 	godot::HBoxContainer *actions = nullptr;
 	Shown shown = Shown::References;
 	std::vector<compiler::Occurrence> found;
+	uint64_t searched = 0; // The workspace's revision then.
 	std::vector<bool> ticked; // Of the changes.
 	godot::Callable apply;
 
 	void fill();
 	void open();
+	void go(size_t p_index);
+	void search_again(size_t p_index);
 	void tick();
 	void finish(bool p_apply);
 	void highlight(godot::Object *p_item, const godot::Rect2 &p_rect);
@@ -173,13 +176,16 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	uint64_t elsewhere = 0;
 	uint64_t global_version = 0;
 	godot::Timer *marks = nullptr; // Asks the nodes for their errors once scenes stop changing.
+	uint64_t checked = 0; // The workspace's revision when the nodes last asked.
 	// The quick fixes of the script in the script editor's current tab: its
-	// errors with fixes, of its text at `version`, each edit naming its file,
-	// and the line of the caret when it has one of them.
+	// errors with fixes at the workspace's `revision`, each edit naming its
+	// file, the stamp of the check they come from, and the line of the caret
+	// when it has one of them.
 	struct Fixing {
 		uint64_t code_edit = 0;
 		std::string path;
-		uint32_t version = 0;
+		uint64_t revision = 0;
+		compiler::Stamp stamp;
 		std::vector<compiler::Diagnostic> errors;
 		int bulb = -1;
 	};
@@ -196,27 +202,27 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void refresh_fixes();
 	void show_bulb();
 	void draw_bulb(int p_line, int p_gutter, const godot::Rect2 &p_region, godot::Object *p_code_edit);
-	void size_gutter(godot::Object *p_code_edit);
+	void size_gutter(uint64_t p_code_edit);
 	void bulb_clicked(int p_line, int p_gutter);
 	void list_fixes(godot::Object *p_code_edit);
 	void list_fixes_at(godot::CodeEdit *p_code_edit, const godot::Vector2 &p_position);
 	void apply_listed(int p_id);
-	bool change_scripts(const OpenProject &p_project, const FileEdits &p_changes);
+	bool change_scripts(const FileEdits &p_changes);
 	void change_scripts_again(const godot::Array &p_edits);
-	void change_files(const OpenProject &p_project, const FileEdits &p_changes, bool p_save);
+	void change_files(const FileEdits &p_changes, bool p_save);
 	void record(const godot::String &p_action, const std::set<std::string> &p_files, const godot::Array &p_do, const godot::Array &p_undo);
 	void show_references(godot::Object *p_code_edit);
 	void ask_name(godot::Object *p_code_edit);
 	void rename_to(const godot::String &p_name);
 	void apply_previewed();
-	void apply(const OpenProject &p_project, const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record);
+	void apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record);
 	void rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates);
 	bool waits_for_scan(void (PetEditorPlugin::*p_command)());
 	void run_build_command();
 	void run_format_command();
-	void resource_saved(godot::Object *p_resource);
-	void scene_saved(const godot::String &p_path);
-	void files_or_settings_changed();
+	void files_changed();
+	void scenes_paused();
+	void changed(bool p_tab);
 
 protected:
 	static void _bind_methods();

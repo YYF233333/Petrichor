@@ -75,7 +75,7 @@ struct Occurrence {
 };
 
 // Where what the name at byte `p_offset` of the script at `p_path` refers to
-// is declared and referred to, the script compiled from `p_source`; also
+// is declared and referred to, as the pass reads the project; also
 // every declaration of this language that overriding or implementing joins
 // to it, through others, as an interface joins its implementations. It
 // searches the project's scripts of this language and the checks of its
@@ -84,7 +84,7 @@ struct Occurrence {
 // Then, for a declaration of this language that the engine finds by name
 // (spec §10.5), the candidates by file, the whole words in `p_other_scripts`
 // among them. nullopt where the name refers to nothing.
-std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const std::string &p_path, const std::string &p_source, uint32_t p_offset, const std::vector<std::string> &p_other_scripts);
+std::optional<std::vector<Occurrence>> find_references(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset, const std::vector<std::string> &p_other_scripts);
 
 // As the script editor shows a name it completes
 // (core/object/script_language.h:293-306).
