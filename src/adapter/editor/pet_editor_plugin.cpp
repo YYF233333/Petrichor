@@ -677,6 +677,7 @@ void PetEditorPlugin::_bind_methods() {
 	// For the editor's undo history, which calls methods by name.
 	ClassDB::bind_method(D_METHOD("_rename_declaration", "kind", "scope", "name", "new_name", "candidates", "apply"), &PetEditorPlugin::rename_declaration, DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("_change_scripts", "edits", "apply"), &PetEditorPlugin::change_scripts_again, DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("_move_nodes", "scene", "moves"), &PetEditorPlugin::move_nodes);
 }
 
 void PetEditorPlugin::_enter_tree() {
@@ -751,6 +752,14 @@ void PetEditorPlugin::_enter_tree() {
 	get_undo_redo()->connect("history_changed", callable_mp(this, &PetEditorPlugin::history_changed));
 	get_undo_redo()->connect("version_changed", callable_mp(this, &PetEditorPlugin::history_changed));
 	connect("scene_closed", callable_mp(this, &PetEditorPlugin::history_changed).unbind(1));
+	// A rename or a move in the scene editor, but not an undo or a redo, nor
+	// a change outside an action, as @tool code makes
+	// (editor/editor_undo_redo_manager.cpp:252-260, 298, 327, 380; ed1daf0).
+	get_undo_redo()->connect("history_changed", callable_mp(this, &PetEditorPlugin::nodes_committed));
+	get_undo_redo()->connect("version_changed", callable_mp(this, &PetEditorPlugin::take_scene_nodes));
+	connect("scene_changed", callable_mp(this, &PetEditorPlugin::take_scene_nodes).unbind(1));
+	get_tree()->connect("node_renamed", callable_mp(this, &PetEditorPlugin::node_touched));
+	get_tree()->connect("node_added", callable_mp(this, &PetEditorPlugin::node_touched));
 	const PackedStringArray args = OS::get_singleton()->get_cmdline_user_args();
 	if (args.has("--petrichor-build")) {
 		callable_mp(this, &PetEditorPlugin::run_build_command).call_deferred();
@@ -797,6 +806,96 @@ void PetEditorPlugin::history_changed() {
 		const uint64_t version = get_undo_redo()->get_history_undo_redo(EditorUndoRedoManager::GLOBAL_HISTORY)->get_version();
 		elsewhere += version == global_version;
 		global_version = version;
+	}
+}
+
+void PetEditorPlugin::take_scene_nodes() {
+	scene_nodes.clear();
+	touched.clear();
+	const Node *root = EditorInterface::get_singleton()->get_edited_scene_root();
+	scene_root = root ? root->get_instance_id() : 0;
+	const TypedArray<Node> nodes = root ? root->find_children("*", "", true, false) : TypedArray<Node>();
+	for (int64_t i = 0; i < nodes.size(); i++) {
+		Node *node = Object::cast_to<Node>(nodes[i]);
+		if (node->get_owner() == root) {
+			scene_nodes[node->get_instance_id()] = String(root->get_path_to(node));
+		}
+	}
+}
+
+// A node moves into the tree again (editor/docks/scene_tree_dock.cpp:2562-2563;
+// ed1daf0).
+void PetEditorPlugin::node_touched(Node *p_node) {
+	if (get_undo_redo()->is_committing_action() && !merging) {
+		touched.insert(p_node->get_instance_id());
+	}
+}
+
+// The scripts follow the nodes that the action just committed renamed or
+// moved, with their descendants, in a step merged into that action
+// (architecture §2.3). It runs after the undo or the redo returns, as a
+// refactoring does (record()).
+void PetEditorPlugin::nodes_committed() {
+	Node *root = EditorInterface::get_singleton()->get_edited_scene_root();
+	const bool same_root = root && root->get_instance_id() == scene_root;
+	if (merging || (touched.empty() && same_root)) {
+		return;
+	}
+	if (touched.empty() || !same_root || root->get_scene_file_path().is_empty()) {
+		take_scene_nodes();
+		return;
+	}
+	Dictionary moves;
+	Dictionary back;
+	for (const auto &[id, was] : scene_nodes) {
+		Node *node = Object::cast_to<Node>(ObjectDB::get_instance(id));
+		bool moved = false;
+		for (const Node *at = node && root->is_ancestor_of(node) ? node : nullptr; at && at != root && !moved; at = at->get_parent()) {
+			moved = touched.count(at->get_instance_id());
+		}
+		const String now = moved ? String(root->get_path_to(node)) : was;
+		if (now != was) {
+			moves[was] = now;
+			back[now] = was;
+		}
+	}
+	take_scene_nodes();
+	if (moves.is_empty()) {
+		return;
+	}
+	EditorUndoRedoManager *undo_redo = get_undo_redo();
+	const String scene = root->get_scene_file_path();
+	merging = true;
+	undo_redo->create_action(undo_redo->get_history_undo_redo(undo_redo->get_object_history_id(root))->get_current_action_name(), UndoRedo::MERGE_ALL, root);
+	undo_redo->add_do_method(this, "callv", "call_deferred", Array::make("_move_nodes", scene, moves));
+	undo_redo->add_undo_method(this, "callv", "call_deferred", Array::make("_move_nodes", scene, back));
+	undo_redo->commit_action();
+	merging = false;
+}
+
+// From the texts as they are, as an undo of a rename recomputes it
+// (rename_declaration()). Each change and each path left is a line of the
+// Output panel.
+void PetEditorPlugin::move_nodes(const String &p_scene, const Dictionary &p_moves) {
+	pack_open_scenes();
+	std::map<std::string, std::string> moves;
+	const Array keys = p_moves.keys();
+	for (int64_t i = 0; i < keys.size(); i++) {
+		moves[to_utf8(keys[i])] = to_utf8(p_moves[keys[i]]);
+	}
+	const compiler::MovedNodes found = compiler::move_nodes(analysis(), to_utf8(p_scene), moves);
+	FileEdits changes;
+	for (const compiler::RenameEdit &edit : found.edits) {
+		changes[edit.occurrence.file].push_back(edit.edit);
+	}
+	if (!changes.empty() && !change_files(changes)) {
+		return;
+	}
+	for (const compiler::RenameEdit &edit : found.edits) {
+		UtilityFunctions::print(to_godot(edit.occurrence.file + ":" + std::to_string(edit.occurrence.line) + " " + edit.edit.old_text + " → " + edit.edit.new_text));
+	}
+	for (const compiler::Diagnostic &report : found.reports) {
+		UtilityFunctions::print(to_godot(report.file + ":" + std::to_string(report.line) + ": " + report.message));
 	}
 }
 

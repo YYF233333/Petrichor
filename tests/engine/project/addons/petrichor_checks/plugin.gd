@@ -64,6 +64,7 @@ func _run() -> void:
 	await _check_unsaved_texts()
 	await _check_stale_reference()
 	await _check_shown_again()
+	await _check_node_moves()
 	_check_unsaved_export()
 	_leave_held_script()
 
@@ -934,6 +935,87 @@ func _check_shown_again() -> void:
 	for file in [script_path, script_path + ".uid", scene_path, "res://.godot/petrichor/editor_shown.petc"]:
 		DirAccess.remove_absolute(file)
 	_scanned()
+
+
+# Spec §13.3: renaming or moving a node in the scene dock writes the paths to
+# it anew in the scripts' texts, unsaved: an open one's tab and a closed one's
+# held text. The change joins the action's step in the scene's history, and
+# the Output panel lists it. It undoes there, as the undo probe of 768bec5 did.
+func _check_node_moves() -> void:
+	var dir := "res://editor_moves"
+	var root_script := dir + "/root.pet"
+	var gun_script := dir + "/gun.pet"
+	var scene := dir + "/moves.tscn"
+	DirAccess.make_dir_absolute(dir)
+	_write(root_script, "extends Node2D\n\n@onready var sprite: Node2D = $Sprite\n@onready var gun: Node2D = $Gun\n")
+	var gun_text := "extends Node2D\n\n@onready var hud: Node = $\"../HUD\"\n"
+	_write(gun_script, gun_text)
+	_write(scene, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="Script" path="%s" id="2"]\n\n[node name="Moves" type="Node2D"]\nscript = ExtResource("1")\n\n[node name="Sprite" type="Node2D" parent="."]\n\n[node name="Hand" type="Node2D" parent="."]\n\n[node name="Gun" type="Node2D" parent="."]\nscript = ExtResource("2")\n\n[node name="HUD" type="Node" parent="."]\n' % [root_script, gun_script])
+	_scanned()
+	EditorInterface.open_scene_from_path(scene)
+	await get_tree().process_frame
+	var root := EditorInterface.get_edited_scene_root()
+	EditorInterface.edit_script(load(root_script))
+	var script_editor := EditorInterface.get_script_editor()
+	var code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	var text := code.text
+	var renamed := text.replace("$Sprite", "$Body")
+	var undo := get_undo_redo()
+	var history := undo.get_history_undo_redo(undo.get_object_history_id(root))
+	var printed := Printed.new()
+	OS.add_logger(printed)
+	var dock: Node = EditorInterface.get_base_control().find_children("*", "SceneTreeDock", true, false)[0]
+	var scene_tree_editor: Node = dock.get_tree_editor()
+	var tree: Tree = scene_tree_editor.find_children("*", "Tree", true, false)[0]
+
+	# As typing a new name in the dock's tree does.
+	var steps := history.get_history_count()
+	tree.set_selected(_find_item(tree.get_root(), root.get_node("Sprite")), 0)
+	tree.edit_selected(true)
+	var line_edit: LineEdit = tree.find_children("*", "LineEdit", true, false)[0]
+	line_edit.text = "Body"
+	line_edit.text_submitted.emit("Body")
+	await get_tree().process_frame
+	_check(code.text == renamed and history.get_history_count() == steps + 1, "renaming a node renames it in the open script, in the rename's step")
+	_check(printed.lines.has("%s:3 $Sprite → $Body" % root_script), "the Output panel lists the change: %s" % [printed.lines])
+	history.undo()
+	await get_tree().process_frame
+	_check(root.has_node("Sprite") and code.text == text, "one undo in the scene's history restores the node and the script")
+	history.redo()
+	await get_tree().process_frame
+	_check(root.has_node("Body") and code.text == renamed, "one redo renames both again")
+
+	# As dropping the node on another in the dock does.
+	steps = history.get_history_count()
+	EditorInterface.get_selection().clear()
+	EditorInterface.get_selection().add_node(root.get_node("Gun"))
+	scene_tree_editor.nodes_rearranged.emit([root.get_node("Gun").get_path()], root.get_node("Hand").get_path(), 0)
+	await get_tree().process_frame
+	_check(code.text == renamed.replace("$Gun", "$Hand/Gun") and history.get_history_count() == steps + 1, "moving a node writes the path to it anew, in the move's step")
+	EditorInterface.edit_script(load(gun_script))
+	var gun_code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	_check(gun_code.text == gun_text.replace("../HUD", "../../HUD") and FileAccess.get_file_as_string(gun_script) == gun_text, "a closed script holds the path from the node moved, unsaved")
+	history.undo()
+	await get_tree().process_frame
+	_check(root.get_node("Gun").get_parent() == root and code.text == renamed and gun_code.text == gun_text, "one undo restores the node and both scripts")
+	history.undo()
+	await get_tree().process_frame
+	OS.remove_logger(printed)
+	_check_errors([], "moving nodes reports nothing")
+	EditorInterface.close_scene()
+	for file in [root_script, gun_script]:
+		script_editor.close_file(file)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+	_scanned()
+
+
+class Printed extends Logger:
+	var lines: Array[String] = []
+
+	func _log_message(message: String, _error: bool) -> void:
+		lines.append(message.strip_edges(false, true))
 
 
 # An export added in the script editor, unsaved, reaches the node's

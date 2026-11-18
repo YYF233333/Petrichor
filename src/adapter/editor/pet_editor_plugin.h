@@ -180,6 +180,13 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	uint64_t global_version = 0;
 	// Each tab's version after a refactoring last changed it, by its CodeEdit.
 	std::map<uint64_t, uint32_t> refactored;
+	// The paths from the edited scene's root of the nodes it owns, by id, as
+	// they were after the last step; the root's id. The nodes renamed or added
+	// while an action is committed (spec §13.3).
+	std::map<uint64_t, godot::String> scene_nodes;
+	uint64_t scene_root = 0;
+	std::set<uint64_t> touched;
+	bool merging = false;
 	bool exiting = false; // The editor is leaving its tree.
 	godot::Timer *marks = nullptr; // Asks the nodes for their errors once scenes stop changing.
 	uint64_t checked = 0; // The workspace's revision when the nodes last asked.
@@ -203,6 +210,10 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	std::vector<std::pair<compiler::Diagnostic, compiler::Fix>> listed;
 
 	void history_changed();
+	void take_scene_nodes();
+	void node_touched(godot::Node *p_node);
+	void nodes_committed();
+	void move_nodes(const godot::String &p_scene, const godot::Dictionary &p_moves);
 	void script_changed();
 	void validated(godot::Object *p_code_edit);
 	godot::CodeEdit *fixing_code_edit() const;
