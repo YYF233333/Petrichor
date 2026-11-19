@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob fb5e4b153b3ccf8fd5910119ccec4b1887f05df7. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob c73c45be9cf4686157e685d1e492bc4400c41bc9. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -1015,7 +1015,9 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 13.3 Refactoring
 
 - A refactoring includes its half in the scenes. Changes that are mechanical and meaning-preserving are previewed, then done automatically with the refactoring, and can be undone. They include exported property keys, method names of signal connections, animation track paths and lossless value conversions. Changes that need judgment are only reported, with options. Examples are a changed node type and an existing resource that does not fit the new type.
-- Renaming or moving a node in the scene editor automatically updates `$X`, `%X` and literal `get_node` paths in scripts. The update joins the same undo step, without a preview, and is listed in the Output panel afterwards. Non-literal paths, and paths that still point elsewhere in other scenes, are only reported, with a quick fix.
+- Renaming or moving a node in the scene editor automatically updates `$X`, `%X` and literal `get_node` paths in scripts. The update joins the same undo step, without a preview, and is listed in the Output panel afterwards. These paths are not updated, only listed in the Output panel:
+  - a path that the update would make point elsewhere in another scene the script is attached to. It is then reported under the rules for structures that differ between scenes;
+  - a string in a non-literal path that spells out the name of the changed node.
 
 ### 13.4 Migration
 
