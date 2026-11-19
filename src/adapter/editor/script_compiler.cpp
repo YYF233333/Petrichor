@@ -12,7 +12,9 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/dir_access.hpp>
+#include <godot_cpp/classes/editor_interface.hpp>
 #include <godot_cpp/classes/file_access.hpp>
+#include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/godot.hpp>
 
@@ -254,9 +256,53 @@ std::optional<std::vector<compiler::Occurrence>> find_references(const std::stri
 	return compiler::find_references(analysis(), p_path, p_offset, other_scripts());
 }
 
+namespace {
+
+// Whether an open scene that has no file yet has a node with one of the
+// scripts, or with a script extending one.
+bool unnamed_scene_places(const std::set<std::string> &p_scripts) {
+	const TypedArray<Node> roots = EditorInterface::get_singleton()->get_open_scene_roots();
+	for (int64_t i = 0; i < roots.size(); i++) {
+		Node *root = Object::cast_to<Node>(roots[i]);
+		if (!root->get_scene_file_path().is_empty()) {
+			continue;
+		}
+		TypedArray<Node> nodes = root->find_children("*", "", true, false);
+		nodes.push_back(root);
+		for (int64_t n = 0; n < nodes.size(); n++) {
+			const Ref<Script> script = Object::cast_to<Node>(nodes[n])->get_script();
+			const String path = script.is_valid() ? script->get_path() : String();
+			if (!path.is_empty() && std::any_of(p_scripts.begin(), p_scripts.end(), [&](const std::string &p_base) { return to_utf8(path) == p_base || script_extends(path, script->get_source_code(), to_godot(p_base)); })) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+} // namespace
+
+// A scene with no file is not in the workspace (pack_open_scenes()), so a
+// value it stores under a member's name would not be renamed: a scene that
+// may store one stops renaming the member.
 compiler::Rename rename(const std::string &p_path, uint32_t p_offset, const std::string &p_new) {
 	pack_open_scenes();
-	return compiler::rename(analysis(), p_path, p_offset, p_new, other_scripts(), file_text);
+	compiler::Rename found = compiler::rename(analysis(), p_path, p_offset, p_new, other_scripts(), file_text);
+	std::set<std::string> declaring;
+	for (const compiler::RenameEdit &each : found.edits) {
+		const compiler::Reference &reference = each.occurrence.reference;
+		if (each.occurrence.declaration && reference.target.kind == compiler::DeclId::Kind::Script) {
+			declaring.insert(compiler::script_file(reference.target.scope));
+		}
+	}
+	if (!declaring.empty() && unnamed_scene_places(declaring)) {
+		compiler::Diagnostic refusal;
+		refusal.file = p_path;
+		refusal.message = "An open scene that has no file yet has nodes with this script. Save that scene first.";
+		found.edits.clear();
+		found.refusals.push_back(refusal);
+	}
+	return found;
 }
 
 compiler::RenamedName renamed_name(const std::string &p_path, uint32_t p_offset) {

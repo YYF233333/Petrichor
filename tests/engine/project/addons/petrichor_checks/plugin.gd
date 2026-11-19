@@ -760,6 +760,14 @@ func _check_rename_open_scenes() -> void:
 	var holders := EditorInterface.get_open_scene_roots().filter(func(r): return r.scene_file_path == holder)
 	_check(FileAccess.get_file_as_string(scene).contains("\npace = 5\n") and not EditorInterface.get_unsaved_scenes().has(holder) and FileAccess.get_file_as_string(holder).contains("Kept") and holders.size() == 1 and holders[0].get_instance_id() != holder_id, "an open scene instancing a rewritten one is saved first and reloaded")
 	_check(unnamed.scene_file_path.is_empty() and EditorInterface.get_edited_scene_root() == unnamed, "the tab shown before, a scene without a path, shows again")
+	var instance := (load(scene) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	unnamed.add_child(instance)
+	instance.owner = unnamed
+	var renamed := code.text
+	_rename(code, 2, 17, "stride")
+	var refused := _references_tree().get_root().get_child(0).get_text(0) if _references_tree().get_root().get_child_count() > 0 else ""
+	_check(refused.begins_with(unit + ": An open scene that has no file yet") and code.text == renamed, "a rename is refused while a scene without a file places the script: " + refused)
+	instance.free()
 	EditorInterface.close_scene()
 	EditorInterface.open_scene_from_path(holder)
 	EditorInterface.close_scene()
