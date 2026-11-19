@@ -68,7 +68,8 @@ const Reference *reference_at(const CompileResult &p_result, uint32_t p_offset);
 // holds are declared, as lookup() finds a class: the classes, structs,
 // interfaces and enums of this language and the classes of others in the
 // type, also inside T? and containers, as rust-analyzer goes to each
-// (ide/src/goto_type_definition.rs). The script is checked from `p_source`.
+// (crates/ide/src/goto_type_definition.rs:41-53, rust-analyzer master). The
+// script is checked from `p_source`.
 std::vector<Lookup> type_definition(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset);
 
 // A declaration in the outline of a script: its bytes and its name's, and
