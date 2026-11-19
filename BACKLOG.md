@@ -19,9 +19,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 0.2, due 2026-11-29. Its list and date are set with the owner (architecture §5, step 11).
 
 - With the owner: the invitations to review 0.1.
-- The LSP server (architecture §5, step 8). Its design is set with the owner first.
-  - A minimal VS Code extension alongside it. It highlights `.pet` files and connects to the editor's LSP port.
-  - Map `textDocument/typeDefinition` alongside `definition`.
+- The LSP server and the VS Code extension (architecture §2.4).
 
 ## Language
 
@@ -77,6 +75,8 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - On Windows, `--petrichor-build` cannot copy the extension's library while an editor has the same project open. Each editor process loads a copy named `~<library>`, which the open editor holds (`platform/windows/os_windows.cpp:488-504`, `core/extension/gdextension_library_loader.cpp:196`, `ed1daf0`).
   - The build still runs and prints its result. The process then ends with 0xC0000005 instead of its own exit code (two headless editors, 11-19).
   - The same holds for any second editor process on the project, such as a language server started apart from the editor.
+- A language server when no editor is open: the VS Code extension would start a headless editor with `--petrichor-lsp`. On Windows the editor the user opens afterwards then lacks this language, as above. Both processes also write the same `.godot/`. A large project takes 80–150 s to open headless.
+- After a save, check the whole project and send the diagnostics of every file with errors, as gopls does. The server now sends them for the files the client has open (architecture §2.4). Turn it on once a whole-project check is fast enough; measure it on the generated 1000-script project first.
 - The hints of the spec other than `unused_ignore`, as the one on a redundant `as` (spec §5.3). None is implemented.
 - The warnings of spec §6.7:
   - a lambda capturing self stored in a member of self, a signal connection or a container;

@@ -449,6 +449,41 @@
 - 本语言的类经 `_get_documentation` 提供文档，取自声明的检查，命名同 GDScript，类型按本语言的写法（`modules/gdscript/editor/gdscript_docgen.cpp:40-46, 339-347, 594-598`）。
   - 文档也列出没有 pub 的成员，因为悬停与帮助页共用文档，而类里悬停的多是自己的成员。
   - `##` 注释（规范 §2.2）按 GDScript 的读法成为说明（`modules/gdscript/gdscript_parser.cpp:3938-4243`）；局部变量的注释在悬停时显示。
+- LSP 服务器在编辑器进程中，与编辑器共用分析和工作区（§2.1）。
+  - 成熟的服务器由客户端启动，经 stdio 通信。本语言的检查要用运行中的 ClassDB 和场景，所以不这样做。
+  - 扩展不另启无界面编辑器。Windows 上同一项目的第二个编辑器进程加载不了扩展（`core/extension/gdextension_library_loader.cpp:196`，`platform/windows/os_windows.cpp:488-504`）。
+  - 无界面编辑器只在 `--petrichor-lsp` 下开服务器。所以构建、测试和 godot-tools 启动的无界面编辑器都不开。
+- 连接：
+  - 编辑器插件只监听 127.0.0.1，端口由系统分配。端口和进程号写进 `.godot/petrichor/lsp.json`。
+  - 扩展按项目根读这个文件，同时打开的几个项目各连自己的编辑器。GDScript 用固定端口，第二个编辑器绑不上（`modules/gdscript/language_server/gdscript_language_server.cpp:95-99`）。
+  - 不用 6005 和 6008。godot-tools 连这两个端口，会把它当作 GDScript 的服务器。
+  - 主线程每帧轮询，分析也在主线程，与编辑器的检查相同。
+  - 编辑器失焦时每帧睡 100 毫秒，请求因此最多多等这么久（`editor/editor_node.cpp:1064-1073`）。GDScript 的服务器亦然。
+- 文本：
+  - 同步是增量的，编辑应用到全文。
+  - 客户端打开一个文件后，工作区取它的文本，不再取 Godot 标签页的。这是 LSP 对 `didOpen` 的要求。Godot 的标签页仍检查自己的文本。
+  - 客户端关闭文件后，工作区回到 Godot 的标签页或磁盘。
+  - 客户端打开重构留下文本的脚本时（§2.3），服务器经 `workspace/applyEdit` 把这段文本推给它。它在客户端也是未保存的改动，改名的两半保持一致。
+  - 客户端保存后，服务器通知工作区和编辑器的文件系统，再走编辑器保存脚本后的热重载。
+  - 这时不动 Godot 的标签页。编辑器重获焦点时自己检查：没改过的重载，改过的询问（`editor/script/script_editor_plugin.cpp:803-850`）。
+  - GDScript 的服务器在保存时直接换掉标签页的文本，其中未保存的改动丢失（`modules/gdscript/language_server/gdscript_text_document.cpp:95-124`，`editor/script/script_editor_plugin.cpp:2535-2588`）。
+- LSP 按 UTF-16 码元计列，编译器按码点（§2.1）。服务器只接受项目根之下的文件。
+- 诊断只发给客户端打开的文件，与编辑器只检查显示的标签页相同。
+- 服务器提供诊断、补全、参数提示、悬停、定义、类型定义、引用、重命名、快速修复、格式化、大纲和同名高亮。
+  - GDScript 的服务器没有类型定义、快速修复和格式化（`modules/gdscript/language_server/godot_lsp.h:1744-1798`）。
+  - 场景中的位置给 `.tscn` 中的行，客户端以文本打开。二进制的 `.scn` 没有行，给文件开头。
+  - 引用不列候选，因为 LSP 的位置没有候选的标记。
+- 重命名：
+  - 脚本和场景的改动都作为文本编辑，放进同一个 `WorkspaceEdit`。客户端预览、写入和撤销，改名的两半一起撤回。
+  - 候选标为需要确认，预览中起初不勾选。
+  - 受影响的文件在 Godot 中有未保存的内容时，拒绝并提示先保存。服务器按工作区算位置，客户端却按磁盘上的文本应用。
+  - 未保存的内容包括标签页、重构留下的文本和未保存的场景。
+  - 打开的场景在磁盘上改了，编辑器重获焦点时自己询问是否重载（`editor/editor_node.cpp:1049-1058, 1550-1590`）。
+  - VS Code 默认在多文件重构后保存全部文件，编辑器中的重构则留在文本中（§2.3）。两者各按各的编辑器。
+- VS Code 扩展在 `editors/vscode/` 中：
+  - 语言 id 为 `petrichor`，扩展名为 `.pet`。TextMate 语法按本语言的词法 token 另写。
+  - 它读 `lsp.json`，经 socket 连接。连不上或断开后定时重连，状态栏显示连接状态。
+  - `.vsix` 附在 GitHub 的 release 上。上架扩展市场和 Open VSX 在 0.9（§5 第 12 步）。
 - 从编辑器运行时，运行前编译（`_build`），字节码写入 `.godot/petrichor/`，游戏只读取。因为 `$X` 等的类型取决于场景（规范 §7）。游戏自己编译要重新分析全部场景，启动更慢，结果也可能与编辑器不同。
 - 无界面命令同样写出字节码，供测试和 CI 使用；导出插件把字节码放进导出包。
 - 场景缺必须赋值导出的值的错误标为 `Diagnostic::runs`，不妨碍运行前的编译（规范 §7.5）。
@@ -470,6 +505,7 @@ tests/engine/          以无界面模式运行的 Godot 项目及其运行器�
 tests/acceptance/      发布包的验收：用官方编辑器和导出模板编辑、导出和运行一个项目
 benchmarks/            各基准及其 GDScript 对照版本，以及运行器（§4）
 tools/                 提交钩子和检查、打包脚本和演示包的说明、规范的翻译说明
+editors/vscode/        VS Code 扩展：语言配置、语法和连接 LSP 服务器的客户端
 docs/                  规范、本文和其他说明文档
 thirdparty/doctest/
 thirdparty/godot-cpp/  git 子模块
@@ -776,5 +812,4 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
 
 ## 7. 暂不决定
 
-- 原生代码的生成时机（规范 §12.2、§14.3）；
-- LSP 的细节。
+- 原生代码的生成时机（规范 §12.2、§14.3）。
