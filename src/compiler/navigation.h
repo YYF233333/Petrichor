@@ -50,10 +50,12 @@ struct Lookup {
 	int line = 0;
 	uint32_t begin = 0;
 	uint32_t end = 0;
-	// Of a member of the engine, which the extension has no documentation of:
-	// its type, or a method's or a signal's signature, as completion's call
-	// hint shows it (spec §10.2).
-	std::string signature;
+	// As hover shows it, the extension having no documentation of the engine's
+	// (architecture §2.4): its keyword, its class and its name, with a
+	// function's or a signal's signature as completion's call hint writes it,
+	// or a variable's or a constant's type, as
+	// `static func Tour.move(amount: float) -> void`.
+	std::string declaration;
 };
 
 // What the name at byte `p_offset` of the script at `p_path` refers to, the

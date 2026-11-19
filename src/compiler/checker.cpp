@@ -1115,22 +1115,6 @@ std::string Checker::signature_text(const FuncDecl &p_function) {
 	return type.to_string();
 }
 
-// The engine passes what its signals declare, an object only where the
-// audit says it may pass null being T? (spec §4.7, §10.2). A script of
-// another language, the owner by its path, passes T? as reflected (§11.1).
-Type Checker::signal_type(const EngineMethod &p_signal) {
-	const bool audited = p_signal.owner.rfind("res://", 0) != 0;
-	std::vector<Type> params;
-	for (const EngineParam &param : p_signal.params) {
-		Type type = param.type;
-		if (audited) {
-			type.nullable = type.kind == TypeKind::Object && builtin::signal_param_nullable(p_signal.owner, p_signal.name, uint32_t(params.size()));
-		}
-		params.push_back(type);
-	}
-	return Type::signal(params);
-}
-
 /* Results of expressions */
 
 Type Checker::set(Expr &r_expr, const Type &p_type) {
@@ -1656,6 +1640,83 @@ std::vector<std::pair<std::string, bool>> export_annotations() {
 		names.emplace_back(annotation.name, annotation.most > 0);
 	}
 	return names;
+}
+
+std::string signature(const std::string &p_name, std::vector<std::string> p_params, bool p_vararg, int p_current, const std::string &p_result) {
+	if (p_vararg) {
+		p_params.push_back("...args");
+		p_current = std::min(p_current, int(p_params.size()) - 1);
+	}
+	std::string text = p_name + "(";
+	for (size_t i = 0; i < p_params.size(); i++) {
+		const std::string mark = int(i) == p_current ? CURSOR : "";
+		text += (i > 0 ? ", " : "") + mark + p_params[i] + mark;
+	}
+	return text + ")" + (p_result.empty() ? "" : " -> " + p_result);
+}
+
+std::string declared_signature(const std::string &p_name, const FuncDecl &p_function, const SourceFile &p_source, int p_current, const Type &p_result) {
+	std::vector<std::string> params;
+	for (const ParamDecl &param : p_function.params) {
+		params.push_back((param.is_rest ? "..." : "") + param.name + ": " + param.type.to_string());
+		if (param.default_value) {
+			params.back() += " = " + p_source.text_of(param.default_value->range);
+		}
+	}
+	// A rest parameter takes the arguments after the others.
+	if (p_function.has_rest()) {
+		p_current = std::min(p_current, int(params.size()) - 1);
+	}
+	return signature(p_name, params, false, p_current, p_result.to_string());
+}
+
+std::string api_signature(const std::string &p_name, const builtin::Argument *p_args, uint32_t p_count, bool p_vararg, const char *p_result, int p_current) {
+	std::vector<std::string> params;
+	for (uint32_t i = 0; i < p_count; i++) {
+		params.push_back(std::string(p_args[i].name) + ": " + api_type(p_args[i].type, true).to_string());
+		if (p_args[i].has_default) {
+			params.back() += std::string(" = ") + p_args[i].default_value;
+		}
+	}
+	return signature(p_name, params, p_vararg, p_current, *p_result ? api_type(p_result, true).to_string() : "void");
+}
+
+std::string engine_signature(const std::string &p_name, const EngineMethod &p_method, const std::vector<Type> &p_params, int p_current, const std::string &p_result) {
+	std::vector<std::string> texts;
+	for (size_t i = 0; i < p_params.size(); i++) {
+		const std::string &value = p_method.params[i].default_value;
+		texts.push_back(p_method.params[i].name + ": " + p_params[i].to_string() + (value.empty() ? "" : " = " + (value == "null" ? "None" : value)));
+	}
+	return signature(p_name, texts, p_method.is_vararg, p_current, p_result);
+}
+
+Type engine_param(const EngineMethod &p_method, size_t p_index) {
+	Type type = p_method.params[p_index].type;
+	if (type.kind == TypeKind::Object && builtin::param_non_null(p_method.owner, p_method.name, uint32_t(p_index))) {
+		type.nullable = false;
+	}
+	return type;
+}
+
+Type engine_result(const EngineMethod &p_method) {
+	Type type = p_method.return_type;
+	if (type.kind == TypeKind::Object && builtin::returns_non_null(p_method.owner, p_method.name)) {
+		type.nullable = false;
+	}
+	return type;
+}
+
+Type signal_type(const EngineMethod &p_signal) {
+	const bool audited = p_signal.owner.rfind("res://", 0) != 0;
+	std::vector<Type> params;
+	for (const EngineParam &param : p_signal.params) {
+		Type type = param.type;
+		if (audited) {
+			type.nullable = type.kind == TypeKind::Object && builtin::signal_param_nullable(p_signal.owner, p_signal.name, uint32_t(params.size()));
+		}
+		params.push_back(type);
+	}
+	return Type::signal(params);
 }
 
 } // namespace petrichor::compiler

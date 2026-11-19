@@ -226,21 +226,6 @@ void Checker::hint(const Expr &p_call, const std::function<std::string(int)> &p_
 	completion->call_hint = p_signature(current);
 }
 
-// `name(a: T, b: U = 1) -> R`, the parameter at `p_current` between two
-// U+FFFF; with `p_vararg`, a last `...args` takes the rest.
-std::string Checker::signature(const std::string &p_name, std::vector<std::string> p_params, bool p_vararg, int p_current, const std::string &p_result) {
-	if (p_vararg) {
-		p_params.push_back("...args");
-		p_current = std::min(p_current, int(p_params.size()) - 1);
-	}
-	std::string text = p_name + "(";
-	for (size_t i = 0; i < p_params.size(); i++) {
-		const std::string mark = int(i) == p_current ? CURSOR : "";
-		text += (i > 0 ? ", " : "") + mark + p_params[i] + mark;
-	}
-	return text + ") -> " + p_result;
-}
-
 // The parameters of a function value or a signal, which have no names.
 std::vector<std::string> Checker::type_names(const std::vector<Type> &p_types) {
 	std::vector<std::string> names;
@@ -248,34 +233,6 @@ std::vector<std::string> Checker::type_names(const std::vector<Type> &p_types) {
 		names.push_back(type.to_string());
 	}
 	return names;
-}
-
-// A function of this language's, its defaults as written in `p_source`.
-std::string Checker::declared_signature(const std::string &p_name, const FuncDecl &p_function, const SourceFile &p_source, int p_current, const Type &p_result) {
-	std::vector<std::string> params;
-	for (const ParamDecl &param : p_function.params) {
-		params.push_back((param.is_rest ? "..." : "") + param.name + ": " + param.type.to_string());
-		if (param.default_value) {
-			params.back() += " = " + p_source.text_of(param.default_value->range);
-		}
-	}
-	// A rest parameter takes the arguments after the others.
-	if (p_function.has_rest()) {
-		p_current = std::min(p_current, int(params.size()) - 1);
-	}
-	return signature(p_name, params, false, p_current, p_result.to_string());
-}
-
-// A function of the engine's API (builtin_api.h).
-std::string Checker::api_signature(const std::string &p_name, const builtin::Argument *p_args, uint32_t p_count, bool p_vararg, const char *p_result, int p_current) {
-	std::vector<std::string> params;
-	for (uint32_t i = 0; i < p_count; i++) {
-		params.push_back(std::string(p_args[i].name) + ": " + api_type(p_args[i].type, true).to_string());
-		if (p_args[i].has_default) {
-			params.back() += std::string(" = ") + p_args[i].default_value;
-		}
-	}
-	return signature(p_name, params, p_vararg, p_current, *p_result ? api_type(p_result, true).to_string() : "void");
 }
 
 // The classes a member may be declared in, nearest first: one of this

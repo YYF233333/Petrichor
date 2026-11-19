@@ -42,4 +42,31 @@ std::string quoted(const std::string &p_path, char p_quote);
 // each with whether it takes arguments.
 std::vector<std::pair<std::string, bool>> export_annotations();
 
+namespace builtin {
+struct Argument;
+}
+
+// A signature as completion's call hint writes it (spec §13.2):
+// `name(a: T, b: U = 1) -> R`, the parameter at `p_current` between two
+// U+FFFF, none for -1, and without a result, a signal's. With `p_vararg`, a
+// last `...args` takes the rest.
+std::string signature(const std::string &p_name, std::vector<std::string> p_params, bool p_vararg, int p_current, const std::string &p_result);
+// A function of this language's, its defaults as written in `p_source`.
+std::string declared_signature(const std::string &p_name, const FuncDecl &p_function, const SourceFile &p_source, int p_current, const Type &p_result);
+// A function of the engine's API (builtin_api.h).
+std::string api_signature(const std::string &p_name, const builtin::Argument *p_args, uint32_t p_count, bool p_vararg, const char *p_result, int p_current);
+// A method of an engine class, which takes `p_params`.
+std::string engine_signature(const std::string &p_name, const EngineMethod &p_method, const std::vector<Type> &p_params, int p_current, const std::string &p_result);
+
+// What an engine method takes at `p_index`: an object, unless the engine
+// requires one (spec §10.2), may be None.
+Type engine_param(const EngineMethod &p_method, size_t p_index);
+// What the engine returns: T? unless the binding metadata says it is null
+// only when misused (spec §10.2), which a check at run time reports.
+Type engine_result(const EngineMethod &p_method);
+// What an engine signal passes, an object only where the audit says it may
+// pass null being T? (spec §4.7, §10.2). A script of another language, the
+// owner by its path, passes T? as reflected (§11.1).
+Type signal_type(const EngineMethod &p_signal);
+
 } // namespace petrichor::compiler

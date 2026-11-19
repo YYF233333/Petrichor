@@ -29,42 +29,23 @@ const Reference *declaration_of(const std::vector<Reference> &p_references, cons
 	return nullptr;
 }
 
-// `name(a: T, b: U = 1) -> R`, as completion's call hint writes it.
-std::string signature(const std::string &p_name, std::vector<std::string> p_params, bool p_vararg, const std::string &p_result) {
-	if (p_vararg) {
-		p_params.push_back("...args");
-	}
-	std::string text = p_name + "(";
-	for (size_t i = 0; i < p_params.size(); i++) {
-		text += (i > 0 ? ", " : "") + p_params[i];
-	}
-	return text + ")" + (p_result.empty() ? "" : " -> " + p_result);
+// The keyword that declares each SymbolKind.
+constexpr const char *DECLARED_BY[] = { "class", "const", "var", "func", "signal", "enum", "var", "const" };
+
+// As hover shows a declaration: its qualifiers and keyword, its class, and
+// `p_written` after it, or else its name.
+void declare(Lookup &r_found, const std::string &p_qualifiers, const std::string &p_written) {
+	const std::string &named = p_written.empty() ? r_found.member : p_written;
+	r_found.declaration = p_qualifiers + DECLARED_BY[int(r_found.kind)] + " " + r_found.class_name + (named.empty() ? "" : "." + named);
 }
 
-std::string api_signature(const std::string &p_name, const builtin::Argument *p_args, uint32_t p_count, bool p_vararg, const char *p_result) {
+// The parameters a signal passes, with their types (spec §4.7).
+std::string signal_signature(const std::string &p_name, const std::vector<std::string> &p_names, const std::vector<Type> &p_types) {
 	std::vector<std::string> params;
-	for (uint32_t i = 0; i < p_count; i++) {
-		params.push_back(std::string(p_args[i].name) + ": " + api_type(p_args[i].type, true).to_string() + (p_args[i].has_default ? std::string(" = ") + p_args[i].default_value : ""));
+	for (size_t i = 0; i < p_names.size(); i++) {
+		params.push_back(p_names[i] + ": " + p_types[i].to_string());
 	}
-	return signature(p_name, params, p_vararg, *p_result ? api_type(p_result, true).to_string() : "void");
-}
-
-// With the nullability that the checker gives the engine's objects (spec §10.2).
-std::string engine_signature(const EngineMethod &p_method, bool p_signal) {
-	std::vector<std::string> params;
-	for (size_t i = 0; i < p_method.params.size(); i++) {
-		const EngineParam &param = p_method.params[i];
-		Type type = param.type;
-		if (type.kind == TypeKind::Object) {
-			type.nullable = p_signal ? builtin::signal_param_nullable(p_method.owner, p_method.name, uint32_t(i)) : type.nullable && !builtin::param_non_null(p_method.owner, p_method.name, uint32_t(i));
-		}
-		params.push_back(param.name + ": " + type.to_string() + (param.default_value.empty() ? "" : " = " + (param.default_value == "null" ? "None" : param.default_value)));
-	}
-	Type result = p_method.return_type;
-	if (result.kind == TypeKind::Object && builtin::returns_non_null(p_method.owner, p_method.name)) {
-		result.nullable = false;
-	}
-	return signature(p_method.name, params, p_method.is_vararg, p_signal ? std::string() : result.to_string());
+	return signature(p_name, params, false, -1, std::string());
 }
 
 // Where the documentation files a declaration of the engine: under its class,
@@ -75,6 +56,7 @@ std::optional<Lookup> engine_lookup(const EngineApi &p_engine, const DeclId &p_t
 	Lookup found;
 	found.class_name = owner;
 	found.member = name;
+	std::string written; // A function's or a signal's signature, a property's type.
 	const builtin::Class *type = builtin::find_class(owner);
 	if (builtin::find_enum(name.empty() ? owner : owner + "." + name)) {
 		found.kind = Kind::Enum;
@@ -87,29 +69,37 @@ std::optional<Lookup> engine_lookup(const EngineApi &p_engine, const DeclId &p_t
 	} else if (owner == "@GlobalScope") {
 		const builtin::Utility *utility = builtin::find_utility(name);
 		found.kind = utility ? Kind::Method : Kind::Constant;
-		found.signature = utility ? api_signature(name, utility->arguments, utility->argument_count, utility->is_vararg, utility->return_type) : std::string();
+		written = utility ? api_signature(name, utility->arguments, utility->argument_count, utility->is_vararg, utility->return_type, -1) : std::string();
 	} else if (owner == "@GDScript") {
 		found.kind = name == "PI" || name == "TAU" || name == "INF" || name == "NAN" ? Kind::Constant : Kind::Method;
 	} else if (const builtin::Member *member = type ? builtin::find_member(*type, name) : nullptr) {
 		found.kind = Kind::Property;
-		found.signature = name + ": " + api_type(member->type, true).to_string();
+		written = name + ": " + api_type(member->type, true).to_string();
 	} else if (const builtin::Method *method = type ? builtin::find_method(*type, name) : nullptr) {
 		found.kind = Kind::Method;
-		found.signature = api_signature(name, method->arguments, method->argument_count, method->is_vararg, method->return_type);
+		written = api_signature(name, method->arguments, method->argument_count, method->is_vararg, method->return_type, -1);
 	} else if (type) {
 		// An enum's values are constants of the type to the documentation.
 		found.kind = Kind::Constant;
 	} else if (const std::optional<EngineMethod> signal = p_engine.find_signal(owner, name)) {
 		found.kind = Kind::Signal;
-		found.signature = engine_signature(*signal, true);
+		std::vector<std::string> names;
+		for (const EngineParam &param : signal->params) {
+			names.push_back(param.name);
+		}
+		written = signal_signature(name, names, signal_type(*signal).args);
 	} else if (const std::optional<EngineProperty> property = p_engine.find_property(owner, name)) {
 		found.kind = Kind::Property;
 		Type value = property->type;
 		value.nullable = value.nullable && !builtin::property_non_null(property->owner, name);
-		found.signature = name + ": " + value.to_string();
+		written = name + ": " + value.to_string();
 	} else if (const std::optional<EngineMethod> method = p_engine.find_method(owner, name)) {
 		found.kind = Kind::Method;
-		found.signature = engine_signature(*method, false);
+		std::vector<Type> params;
+		for (size_t i = 0; i < method->params.size(); i++) {
+			params.push_back(engine_param(*method, i));
+		}
+		written = engine_signature(name, *method, params, -1, engine_result(*method).to_string());
 	} else if (p_engine.find_constant(owner, name)) {
 		found.kind = Kind::Constant;
 	} else if (p_engine.find_enum(owner, name)) {
@@ -117,6 +107,7 @@ std::optional<Lookup> engine_lookup(const EngineApi &p_engine, const DeclId &p_t
 	} else {
 		return std::nullopt;
 	}
+	declare(found, std::string(), written);
 	return found;
 }
 
@@ -463,6 +454,63 @@ namespace {
 
 // A class or a member of this language or another, as lookup() shows it.
 // `p_result` is the script at `p_path` compiled from `p_source`.
+// A member of a checked class as hover shows it after the class: a
+// function's or a signal's signature as completion's call hint writes it, a
+// variable's or a constant's name and type; "" for another, as a value of an
+// enum. `r_qualifiers` gets a function's.
+std::string written(const ClassDecl &p_class, const std::string &p_member, std::string &r_qualifiers) {
+	const size_t dot = p_member.find('.');
+	const std::string outer = dot == std::string::npos ? std::string() : p_member.substr(0, dot);
+	const std::string name = p_member.substr(dot == std::string::npos ? 0 : dot + 1);
+	const FuncDecl *called = nullptr;
+	const auto find = [&](const std::vector<FuncDecl> &p_functions, const std::string &p_name) {
+		for (const FuncDecl &function : p_functions) {
+			called = function.name == p_name ? &function : called;
+		}
+	};
+	const auto typed = [&](const auto &p_decls) {
+		for (const auto &decl : p_decls) {
+			if (decl.name == name) {
+				return name + ": " + decl.type.to_string();
+			}
+		}
+		return std::string();
+	};
+	const auto signal = [&](const std::vector<SignalDecl> &p_signals) {
+		for (const SignalDecl &decl : p_signals) {
+			if (decl.name == name) {
+				std::vector<std::string> names;
+				std::vector<Type> types;
+				for (const ParamDecl &param : decl.params) {
+					names.push_back(param.name);
+					types.push_back(param.type);
+				}
+				return signal_signature(name, names, types);
+			}
+		}
+		return std::string();
+	};
+	std::string text;
+	if (outer.empty()) {
+		find(p_class.functions, name);
+		text = typed(p_class.members) + typed(p_class.static_vars) + typed(p_class.constants) + signal(p_class.signals);
+	} else if (const StructDecl *decl = p_class.find_struct(outer)) {
+		find(decl->methods, p_member);
+		text = typed(decl->fields);
+	}
+	for (const InterfaceDecl &decl : p_class.interfaces) {
+		if (decl.name == outer) {
+			find(decl.methods, name);
+			text = typed(decl.properties) + signal(decl.signals);
+		}
+	}
+	if (!called) {
+		return text;
+	}
+	r_qualifiers = std::string(called->is_static ? "static " : "") + (called->is_async ? "async " : "");
+	return declared_signature(name, *called, *p_class.source, -1, called->return_type);
+}
+
 std::optional<Lookup> declared(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, const std::shared_ptr<const CompileResult> &p_result, const DeclId &p_target) {
 	const ProjectApi &project = *r_analysis.pass_classes().get_project();
 	if (p_target.kind == DeclId::Kind::Foreign) {
@@ -482,6 +530,7 @@ std::optional<Lookup> declared(Analysis &r_analysis, const DocName &p_doc_name, 
 			found->class_name = p_doc_name(p_target.scope);
 			found->member = p_target.name;
 			found->path = p_target.scope;
+			declare(*found, std::string(), std::string());
 		}
 		return found;
 	}
@@ -531,6 +580,10 @@ std::optional<Lookup> declared(Analysis &r_analysis, const DocName &p_doc_name, 
 			}
 		}
 	}
+	std::string qualifiers;
+	const ClassDecl *owner = r_analysis.pass_classes().declarations(p_target.scope);
+	const std::string text = owner && !p_target.name.empty() ? written(*owner, p_target.name, qualifiers) : std::string();
+	declare(found, qualifiers, text);
 	return found;
 }
 
@@ -621,6 +674,7 @@ std::optional<Lookup> lookup(Analysis &r_analysis, const DocName &p_doc_name, co
 			found.line = file->position(offset).line;
 			found.begin = offset;
 			found.end = name != file->tokens.end() && name->offset == offset ? name->end() : offset;
+			found.declaration = std::string(DECLARED_BY[int(found.kind)]) + " " + p_source.substr(found.begin, found.end - found.begin) + (found.type.empty() ? "" : ": " + found.type);
 			return found;
 		}
 		case DeclId::Kind::Script:

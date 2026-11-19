@@ -456,8 +456,6 @@ String refused_rename(const std::vector<compiler::Diagnostic> &p_refusals, const
 constexpr int COMPLETION_KINDS[] = { 7, 2, 23, 6, 10, 13, 21, 18, 17, 1, 14 };
 // LSP 3.17, SymbolKind, by compiler::Symbol::Kind.
 constexpr int SYMBOL_KINDS[] = { 5, 11, 23, 10, 22, 14, 8, 6, 24 };
-// The keyword that declares each compiler::SymbolKind.
-constexpr const char *DECLARED_BY[] = { "class", "const", "var", "func", "signal", "enum", "var", "const" };
 constexpr const char *CURSOR = "\xEF\xBF\xBF"; // U+FFFF, as the script editor marks the cursor.
 
 } // namespace
@@ -748,6 +746,7 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		{ "textDocument/documentHighlight", &LspServer::on_highlight },
 		{ "textDocument/formatting", &LspServer::on_formatting },
 		{ "textDocument/codeAction", &LspServer::on_code_action },
+		{ "codeAction/resolve", &LspServer::on_resolve_action },
 		{ "textDocument/prepareRename", &LspServer::on_prepare_rename },
 		{ "textDocument/rename", &LspServer::on_rename },
 	};
@@ -758,7 +757,10 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		applies_edits = files.get("applyEdit", false) == Variant(true);
 		annotates = dictionary(files.get("workspaceEdit", Variant())).get("changeAnnotationSupport", Variant()).get_type() == Variant::DICTIONARY;
 		snippets = dictionary(dictionary(document.get("completion", Variant())).get("completionItem", Variant())).get("snippetSupport", false) == Variant(true);
-		shows_disabled = dictionary(document.get("codeAction", Variant())).get("disabledSupport", false) == Variant(true);
+		const Dictionary code_actions = dictionary(document.get("codeAction", Variant()));
+		shows_disabled = code_actions.get("disabledSupport", false) == Variant(true);
+		const Variant resolved = dictionary(code_actions.get("resolveSupport", Variant())).get("properties", Variant());
+		resolves_edits = resolved.get_type() == Variant::ARRAY && Array(resolved).has("edit");
 		Dictionary sync;
 		sync["openClose"] = true;
 		sync["change"] = 2; // Incremental.
@@ -770,6 +772,7 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		signature_help["triggerCharacters"] = Array::make("(", ",");
 		Dictionary code_action;
 		code_action["codeActionKinds"] = Array::make("quickfix");
+		code_action["resolveProvider"] = true;
 		Dictionary renaming;
 		renaming["prepareProvider"] = true;
 		Dictionary offered;
@@ -1274,15 +1277,7 @@ Variant LspServer::on_hover(const Dictionary &p_params) {
 	if (!found) {
 		return Variant();
 	}
-	std::string head = std::string(DECLARED_BY[int(found->kind)]) + " ";
-	if (found->kind == compiler::SymbolKind::Local || found->kind == compiler::SymbolKind::LocalConstant) {
-		head += at->text.substr(found->begin, found->end - found->begin) + (found->type.empty() ? "" : ": " + found->type);
-	} else if (!found->signature.empty()) {
-		head += found->class_name + "." + found->signature;
-	} else {
-		head += found->class_name + (found->member.empty() ? "" : "." + found->member);
-	}
-	std::string text = "```petrichor\n" + head + "\n```";
+	std::string text = "```petrichor\n" + found->declaration + "\n```";
 	const compiler::DocComment &comment = found->comment;
 	if (comment.deprecated) {
 		text += "\n\n**Deprecated**" + (comment.deprecated->empty() ? "" : ": " + *comment.deprecated);
@@ -1525,10 +1520,12 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 	const uint32_t last = compiler::utf16_offset(at->text, { end->line, UINT32_MAX });
 	std::shared_ptr<const compiler::CompileResult> result;
 	std::vector<compiler::Diagnostic> errors;
+	uint64_t revision = 0;
 	{
 		const compiler::Analysis::Pass pass(analysis());
 		result = analysis().compile(at->path, at->text);
 		errors = fixable(result->errors, at->path);
+		revision = analysis().computed(at->path);
 	}
 	std::vector<const compiler::Diagnostic *> on_lines;
 	for (const compiler::Diagnostic &error : errors) {
@@ -1537,7 +1534,9 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 		}
 	}
 	std::stable_partition(on_lines.begin(), on_lines.end(), [&](const compiler::Diagnostic *p_error) { return p_error->begin <= to && from <= p_error->end; });
-	const auto add = [&](const String &p_title, const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, const compiler::Diagnostic *p_error, bool p_preferred) {
+	// `p_data` names the fix, which the stamp of the check and the files it
+	// edits complete for codeAction/resolve.
+	const auto add = [&](const String &p_title, const FileEdits &p_edits, const compiler::Diagnostic *p_error, bool p_preferred, Dictionary p_data) {
 		Dictionary action;
 		action["title"] = p_title;
 		action["kind"] = "quickfix";
@@ -1547,16 +1546,25 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 		if (p_preferred) {
 			action["isPreferred"] = true;
 		}
+		Array files = Array::make(to_godot(at->path));
+		for (const auto &[file, edits] : p_edits) {
+			files.push_back(to_godot(file));
+		}
+		p_data["uri"] = uri_of(at->path);
+		p_data["revision"] = int64_t(revision);
+		p_data["files"] = files;
+		action["data"] = p_data;
 		String refused;
 		const Dictionary edit = edit_of(p_edits, refused);
-		if (refused.is_empty()) {
-			action["edit"] = edit;
-		} else if (shows_disabled) {
+		if (!refused.is_empty() && !shows_disabled) {
+			return;
+		}
+		if (!refused.is_empty()) {
 			Dictionary disabled;
 			disabled["reason"] = refused;
 			action["disabled"] = disabled;
-		} else {
-			return;
+		} else if (!resolves_edits) {
+			action["edit"] = edit;
 		}
 		actions.push_back(action);
 	};
@@ -1568,11 +1576,17 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 				continue;
 			}
 			listed.push_back(&fix);
-			std::map<std::string, std::vector<compiler::CheckedEdit>> edits;
+			FileEdits edits;
 			for (const compiler::Fix::Edit &edit : fix.edits) {
 				edits[edit.file].push_back(edit.change);
 			}
-			add(to_godot(fix.title), edits, error, fix.automatic());
+			Dictionary data;
+			data["title"] = to_godot(fix.title);
+			data["begin"] = int64_t(error->begin);
+			data["end"] = int64_t(error->end);
+			data["message"] = to_godot(error->message);
+			data["file"] = to_godot(error->file);
+			add(to_godot(fix.title), edits, error, fix.automatic(), data);
 			if (fix.automatic() && std::find(kinds.begin(), kinds.end(), fix.kind) == kinds.end()) {
 				kinds.push_back(fix.kind);
 			}
@@ -1580,10 +1594,54 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 	}
 	for (const compiler::FixKind kind : kinds) {
 		if (fixes_all(errors, at->path, kind)) {
-			add(vformat("Fix all '%s' in file", compiler::FIX_KINDS[size_t(kind)].name), { { at->path, compiler::fix_all(*result, kind) } }, nullptr, false);
+			Dictionary data;
+			data["kind"] = int64_t(kind);
+			add(vformat("Fix all '%s' in file", compiler::FIX_KINDS[size_t(kind)].name), { { at->path, compiler::fix_all(*result, kind) } }, nullptr, false, data);
 		}
 	}
 	return actions;
+}
+
+// The edit of a code action chosen, found again from its data as the editor
+// finds a fix it listed (fix_again()), against the texts as they are now: the
+// client applies it to them without checking their versions. Where the fix
+// is not found or is refused, the action has no edit, and the client is told.
+Variant LspServer::on_resolve_action(const Dictionary &p_params) {
+	Dictionary action = p_params.duplicate();
+	action.erase("edit");
+	const Dictionary data = dictionary(p_params.get("data", Variant()));
+	const std::string path = script_path(data.get("uri", Variant()));
+	const std::optional<int64_t> revision = integer(data.get("revision", Variant()), 0, int64_t(1) << 53);
+	const Variant files = data.get("files", Variant());
+	const Variant title = data.get("title", Variant());
+	const std::optional<int64_t> kind = integer(data.get("kind", Variant()), 0, int64_t(compiler::FixKind::GetNodeOrNull));
+	if (path.empty() || !revision || files.get_type() != Variant::ARRAY || (title.get_type() != Variant::STRING && !kind)) {
+		return action;
+	}
+	compiler::Stamp stamp{ uint64_t(*revision), {} };
+	const Array listed = files;
+	for (int64_t i = 0; i < listed.size(); i++) {
+		stamp.files.insert(to_utf8(String(listed[i])));
+	}
+	compiler::Diagnostic error;
+	error.begin = uint32_t(integer(data.get("begin", Variant()), 0, UINT32_MAX).value_or(0));
+	error.end = uint32_t(integer(data.get("end", Variant()), 0, UINT32_MAX).value_or(0));
+	error.message = to_utf8(String(data.get("message", String())));
+	error.file = to_utf8(String(data.get("file", String())));
+	const bool one = title.get_type() == Variant::STRING;
+	const FileEdits changes = fix_again(path, stamp, one ? &error : nullptr, one ? to_utf8(title) : std::string(), compiler::FixKind(kind.value_or(0)));
+	if (changes.empty()) {
+		show_message("The project changed. Ask for the quick fixes again.");
+		return action;
+	}
+	String refused;
+	const Dictionary edit = edit_of(changes, refused);
+	if (!refused.is_empty()) {
+		show_message(refused);
+		return action;
+	}
+	action["edit"] = edit;
+	return action;
 }
 
 // The name, where the editor asks for a new one (PetEditorPlugin::ask_name());

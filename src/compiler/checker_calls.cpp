@@ -72,24 +72,9 @@ std::vector<Type> Checker::engine_params(const EngineMethod &p_method, Expr &r_c
 			r_ok = false;
 			return params;
 		}
-		Type type = param.type;
-		// A parameter the engine requires to be an object (spec §10.2).
-		if (type.kind == TypeKind::Object && builtin::param_non_null(p_method.owner, p_method.name, uint32_t(params.size()))) {
-			type.nullable = false;
-		}
-		params.push_back(type);
+		params.push_back(engine_param(p_method, params.size()));
 	}
 	return params;
-}
-
-// What the engine returns: T? unless the binding metadata says it is
-// null only when misused (spec §10.2), which a check at run time reports.
-Type Checker::engine_result(const EngineMethod &p_method) {
-	Type type = p_method.return_type;
-	if (type.kind == TypeKind::Object && builtin::returns_non_null(p_method.owner, p_method.name)) {
-		type.nullable = false;
-	}
-	return type;
 }
 
 // The property's type, and the range its setter takes (spec §10.6); Error
@@ -214,14 +199,7 @@ Type Checker::check_engine_call(Expr &r_expr, const EngineMethod &p_method, std:
 	if (!ok) {
 		return fail_call(r_expr);
 	}
-	hint(r_expr, [&](int p_current) {
-		std::vector<std::string> texts;
-		for (size_t i = 0; i < params.size(); i++) {
-			const std::string &value = p_method.params[i].default_value;
-			texts.push_back(p_method.params[i].name + ": " + params[i].to_string() + (value.empty() ? "" : " = " + (value == "null" ? "None" : value)));
-		}
-		return signature(r_expr.text, texts, p_method.is_vararg, p_current, (r_expr.getter ? tried_result(p_method, *r_expr.getter) : engine_result(p_method)).to_string());
-	});
+	hint(r_expr, [&](int p_current) { return engine_signature(r_expr.text, p_method, params, p_current, (r_expr.getter ? tried_result(p_method, *r_expr.getter) : engine_result(p_method)).to_string()); });
 	check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
 	if (p_method.owner == "Node" && (p_method.name == "get_node" || p_method.name == "get_node_or_null") && !r_expr.args.empty() && r_expr.args[0]->kind == ExprKind::StringLiteral) {
 		const std::string autoload = through_autoload(r_expr.args[0]->text, r_expr.text + "(\"" + r_expr.args[0]->text + "\")");

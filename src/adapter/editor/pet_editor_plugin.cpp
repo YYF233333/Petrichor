@@ -1823,53 +1823,24 @@ void PetEditorPlugin::list_fixes_at(CodeEdit *p_code_edit, const Vector2 &p_posi
 	fix_list->set_focused_item(0);
 }
 
-// The fix chosen is found again by its error and its title: in the check that
-// listed it, while the files its fixes edit are unchanged since that check;
-// otherwise in a check that keeps nothing from earlier ones, as the analysis
-// keeps a check while the other scripts' declarations stay the same, though
-// their offsets may move. A change of the tab's script alone is one step to
-// undo there. One of others is one step of the editor's history, undone by
-// its inverse edits, checked as it is (architecture §2.4).
+// The fix chosen is found again (fix_again()). A change of the tab's script
+// alone is one step to undo there. One of others is one step of the editor's
+// history, undone by its inverse edits, checked as it is (architecture §2.4).
 void PetEditorPlugin::apply_listed(int p_id) {
 	CodeEdit *code_edit = fixing_code_edit();
 	if (!code_edit) {
 		return;
 	}
 	const std::string source = workspace().script_source(fixing.path).value_or(std::string());
-	std::shared_ptr<const compiler::CompileResult> result;
-	if (workspace().changed(fixing.stamp)) {
-		compiler::CompileOptions options;
-		options.path = fixing.path;
-		options.project = &workspace();
-		result = std::make_shared<const compiler::CompileResult>(compiler::compile(source, ClassDBApi::get(), options));
-	} else {
-		result = analysis().compile(fixing.path, source);
-	}
-	FileEdits changes;
-	if (p_id >= int(listed.size())) {
-		const std::vector<compiler::CheckedEdit> edits = compiler::fix_all(*result, compiler::FixKind(p_id - int(listed.size())));
-		if (!edits.empty()) {
-			changes[fixing.path] = edits;
-		}
-	} else {
-		const auto &[chosen_error, chosen] = listed[p_id];
-		for (const compiler::Diagnostic &error : fixable(result->errors, fixing.path)) {
-			const auto fix = std::find_if(error.fixes.begin(), error.fixes.end(), [&](const compiler::Fix &p_fix) { return p_fix.title == chosen.title; });
-			if (changes.empty() && error.begin == chosen_error.begin && error.end == chosen_error.end && error.message == chosen_error.message && error.file == chosen_error.file && fix != error.fixes.end()) {
-				for (const compiler::Fix::Edit &edit : fix->edits) {
-					changes[edit.file].push_back(edit.change);
-				}
-			}
-		}
-	}
+	const bool all = p_id >= int(listed.size());
+	FileEdits changes = all ? fix_again(fixing.path, fixing.stamp, nullptr, std::string(), compiler::FixKind(p_id - int(listed.size()))) : fix_again(fixing.path, fixing.stamp, &listed[p_id].first, listed[p_id].second.title, listed[p_id].second.kind);
 	if (changes.empty()) {
 		toast("The project changed.");
 		refresh_fixes();
 		return;
 	}
 	std::set<std::string> files;
-	for (auto &[file, edits] : changes) {
-		std::stable_sort(edits.begin(), edits.end(), [](const compiler::CheckedEdit &p_a, const compiler::CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
+	for (const auto &[file, edits] : changes) {
 		files.insert(file);
 	}
 	if (files == std::set<std::string>{ fixing.path }) {

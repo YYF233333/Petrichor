@@ -784,7 +784,6 @@ class Checker : public ClassRelation {
 	Type container_element(const TypeRef &p_ref, const std::string &p_what);
 	static Type function_type(const FuncDecl &p_function);
 	static std::string signature_text(const FuncDecl &p_function);
-	static Type signal_type(const EngineMethod &p_signal);
 	Type set(Expr &r_expr, const Type &p_type);
 	Type fail(Expr &r_expr, const std::string &p_message);
 	Type fail_call(Expr &r_call, const std::string &p_message);
@@ -985,7 +984,6 @@ class Checker : public ClassRelation {
 	static std::string argument_count(int p_required, int p_max, bool p_vararg);
 	void check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest = Type::of(TypeKind::Variant), const FuncDecl *p_declared = nullptr);
 	std::vector<Type> engine_params(const EngineMethod &p_method, Expr &r_call, bool &r_ok);
-	static Type engine_result(const EngineMethod &p_method);
 	Type property_type(const EngineProperty &p_property, Expr &r_expr);
 	Type engine_method_value(Expr &r_expr, const EngineMethod &p_method);
 	Type tried_value(Expr &r_expr, const EngineMethod &p_method, const EngineMethod &p_getter);
@@ -1140,10 +1138,7 @@ class Checker : public ClassRelation {
 	void add_global_classes(std::map<std::string, CompletionItem> &r_found, bool p_extendable) const;
 	void set_completions(std::map<std::string, CompletionItem> &r_found);
 	void hint(const Expr &p_call, const std::function<std::string(int)> &p_signature);
-	static std::string signature(const std::string &p_name, std::vector<std::string> p_params, bool p_vararg, int p_current, const std::string &p_result);
 	static std::vector<std::string> type_names(const std::vector<Type> &p_types);
-	static std::string declared_signature(const std::string &p_name, const FuncDecl &p_function, const SourceFile &p_source, int p_current, const Type &p_result);
-	static std::string api_signature(const std::string &p_name, const builtin::Argument *p_args, uint32_t p_count, bool p_vararg, const char *p_result, int p_current);
 	std::vector<std::string> class_chain(const Type &p_class);
 	static CompletionKind value_kind(const Expr &p_checked);
 	std::optional<CompletionItem> probe(Expr &r_site, const std::string &p_name, const std::vector<std::string> &p_chain);

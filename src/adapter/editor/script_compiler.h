@@ -9,8 +9,10 @@
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
 
+#include <map>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace petrichor {
@@ -84,6 +86,19 @@ bool same_fix(const compiler::Fix &p_a, const compiler::Fix &p_b);
 // more than one fix of it that changes only this script, as fixing all takes
 // them (architecture §2.1). `p_fixable` is what fixable() gave.
 bool fixes_all(const std::vector<compiler::Diagnostic> &p_fixable, const std::string &p_path, compiler::FixKind p_kind);
+
+// Edits, each in the text of the file it changes, by its path.
+using FileEdits = std::map<std::string, std::vector<compiler::CheckedEdit>>;
+
+// A quick fix listed from the check of the script at `p_path` that `p_stamp`
+// stamps, found again (architecture §2.4): the fix titled `p_title` of the
+// error with the range, the message and the file of `p_error`, or without
+// `p_error`, fixing all of `p_kind`. It is found in that check while the
+// files its fixes edit are unchanged since. Otherwise it is found in a check
+// that keeps nothing from earlier ones, as the analysis keeps a check while
+// the other scripts' declarations stay the same, though their offsets may
+// move. Its edits in order; none where it is not found.
+FileEdits fix_again(const std::string &p_path, const compiler::Stamp &p_stamp, const compiler::Diagnostic *p_error, const std::string &p_title, compiler::FixKind p_kind);
 
 // The class header of the script at `p_path`, read from `p_source` as the
 // compiler reads it (spec §4.1): the path of the script it extends, empty for

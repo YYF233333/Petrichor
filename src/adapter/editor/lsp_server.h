@@ -60,6 +60,7 @@ class LspServer {
 	bool applies_edits = false;
 	bool snippets = false; // In completion items.
 	bool shows_disabled = false; // Code actions with a reason they are disabled.
+	bool resolves_edits = false; // Of code actions, when one is chosen.
 	bool annotates = false; // Edits that need confirmation.
 	godot::String failure; // Why the query being answered failed.
 	std::map<std::string, Document> documents;
@@ -104,6 +105,7 @@ class LspServer {
 	godot::Variant on_highlight(const godot::Dictionary &p_params);
 	godot::Variant on_formatting(const godot::Dictionary &p_params);
 	godot::Variant on_code_action(const godot::Dictionary &p_params);
+	godot::Variant on_resolve_action(const godot::Dictionary &p_params);
 	godot::Variant on_prepare_rename(const godot::Dictionary &p_params);
 	godot::Variant on_rename(const godot::Dictionary &p_params);
 

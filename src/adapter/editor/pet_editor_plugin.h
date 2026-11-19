@@ -2,6 +2,7 @@
 
 #include "adapter/editor/lsp_server.h"
 #include "adapter/editor/scene_index.h"
+#include "adapter/editor/script_compiler.h"
 #include "compiler/diagnostic.h"
 #include "compiler/rename.h"
 
@@ -136,9 +137,6 @@ public:
 	void _update_cache() override;
 	godot::Dictionary _get_line_syntax_highlighting(int32_t p_line) const override;
 };
-
-// Edits, each in the text of the file it changes, by its path.
-using FileEdits = std::map<std::string, std::vector<compiler::CheckedEdit>>;
 
 // Compiles the project before it runs (architecture §2.4), provides the
 // headless commands (spec §13.1, §13.2):

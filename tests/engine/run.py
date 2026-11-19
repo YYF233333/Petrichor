@@ -884,7 +884,7 @@ class LspClient:
         self.notify("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": "petrichor", "version": version, "text": text}})
 
     def initialize(self, annotations=True):
-        document = {"completion": {"completionItem": {"snippetSupport": True}}, "codeAction": {"disabledSupport": True}}
+        document = {"completion": {"completionItem": {"snippetSupport": True}}, "codeAction": {"disabledSupport": True, "resolveSupport": {"properties": ["edit"]}}}
         workspace = {"applyEdit": True, **({"workspaceEdit": {"changeAnnotationSupport": {}}} if annotations else {})}
         return self.request("initialize", {"capabilities": {"workspace": workspace, "textDocument": document}})
 
@@ -900,8 +900,8 @@ def file_name(uri):
 
 def edits(edit):
     """The changes of a WorkspaceEdit, each as its file's name, its version
-    and its edits."""
-    return [(file_name(change["textDocument"]["uri"]), change["textDocument"]["version"], change["edits"]) for change in edit["documentChanges"]]
+    and its edits; None for none."""
+    return edit and [(file_name(change["textDocument"]["uri"]), change["textDocument"]["version"], change["edits"]) for change in edit["documentChanges"]]
 
 
 def text_edit(text, needle, new, length=None):
@@ -1205,8 +1205,12 @@ def check_queries(client, project, uri):
     signature = ask("textDocument/signatureHelp", "2.0)")
     expect("lsp: signature help shows the innermost call with the parameter at the cursor", signature == {"signatures": [{"label": "maxf(a: float, b: float) -> float", "parameters": [{"label": [15, 23]}], "activeParameter": 0}], "activeSignature": 0}, str(signature))
 
-    shown = [hover and hover["contents"]["value"] for hover in (ask("textDocument/hover", needle) for needle in ["雨,", "move(maxf", "rotate_y"])]
-    expect("lsp: hover shows a local's type, the docs, and an engine member's signature", shown == ["```petrichor\nvar 雨: String\n```", "```petrichor\nfunc Tour.move\n```\n\nMoves by [param amount].", "```petrichor\nfunc Node3D.rotate_y(angle: float) -> void\n```"], str(shown))
+    shown = [hover and hover["contents"]["value"] for hover in (ask("textDocument/hover", needle) for needle in ["雨,", "move(maxf", "speed = maxf", "rotate_y"])]
+    expect(
+        "lsp: hover shows the call hint's signature or the type, and the docs",
+        shown == ["```petrichor\nvar 雨: String\n```", "```petrichor\nfunc Tour.move(amount: float, player: Player) -> void\n```\n\nMoves by [param amount].", "```petrichor\nvar Tour.speed: float\n```", "```petrichor\nfunc Node3D.rotate_y(angle: float) -> void\n```"],
+        str(shown),
+    )
 
     speed = ask("textDocument/definition", "speed, player.armor")
     camera = ask("textDocument/definition", "Camera.rotate")
@@ -1250,27 +1254,43 @@ def check_queries(client, project, uri):
     def actions(needle):
         return client.request("textDocument/codeAction", {"textDocument": {"uri": tour}, "range": span(needle, 0), "context": {"diagnostics": []}})["result"]
 
+    def resolved(action):
+        reply = client.request("codeAction/resolve", action)
+        return (reply and reply.get("result") or {}).get("edit")
+
     truth = actions("shots:\n")
     pub = actions("User.new().f")
     test = {"range": span("shots:\n", 5), "newText": "not shots.is_empty()"}
     expect(
-        "lsp: quick fixes come as the editor lists them, versioned, the automatic one preferred, one refused for a script Godot has unsaved",
-        [(each["title"], each.get("isPreferred")) for each in truth] == [("Write not shots.is_empty()", True), ("Fix all 'Write the truth test' in file", None)]
+        "lsp: quick fixes come as the editor lists them, the automatic one preferred, one refused for a script Godot has unsaved, each edit resolved when chosen",
+        [(each["title"], each.get("isPreferred"), "edit" in each) for each in truth] == [("Write not shots.is_empty()", True, False), ("Fix all 'Write the truth test' in file", None, False)]
         and truth[0]["diagnostics"][0]["range"] == test["range"]
-        and edits(truth[0]["edit"]) == [("tour.pet", 1, [test])]
-        and edits(truth[1]["edit"]) == [("tour.pet", 1, [test, {"range": span("speed:\n", 5), "newText": "speed != 0"}])]
+        and edits(resolved(truth[0])) == [("tour.pet", 1, [test])]
+        and edits(resolved(truth[1])) == [("tour.pet", 1, [test, {"range": span("speed:\n", 5), "newText": "speed != 0"}])]
         and [each["title"] for each in pub] == ['Make "f" pub', 'Make "armor" pub']
-        and "res://user.pet" in pub[0]["disabled"]["reason"] and "edit" not in pub[0]
-        and edits(pub[1]["edit"]) == [("player.pet", None, [{"range": span("var armor", name="player.pet"), "newText": "pub var armor"}])],
+        and "res://user.pet" in pub[0]["disabled"]["reason"]
+        and edits(resolved(pub[1])) == [("player.pet", None, [{"range": span("var armor", name="player.pet"), "newText": "pub var armor"}])],
         f"{truth}\n{pub}",
     )
 
+    # VS Code applies a resolved edit without checking the version it names.
+    client.notify("textDocument/didChange", {"textDocument": {"uri": tour, "version": 2}, "contentChanges": [{"range": {"start": start, "end": start}, "text": "\n"}]})
+    moved = resolved(truth[0])
+    told = client.take(lambda m: m.get("method") == "window/showMessage")
+    client.notify("textDocument/didChange", {"textDocument": {"uri": tour, "version": 3}, "contentChanges": [{"text": text + "# The end.\n"}]})
+    kept = resolved(truth[0])
+    expect(
+        "lsp: a fix chosen after its text changed is found again, at the offsets it was listed at, or refused with a message",
+        moved is None and told and "changed" in told["params"]["message"] and kept and edits(kept) == [("tour.pet", 3, [test])],
+        f"{moved}\n{told}\n{kept}",
+    )
+
     messy = text.replace("var shots", "var  shots").replace("雨 :=", "雨  :=").replace("move(amount", "move( amount")
-    client.notify("textDocument/didChange", {"textDocument": {"uri": tour, "version": 2}, "contentChanges": [{"text": messy}]})
+    client.notify("textDocument/didChange", {"textDocument": {"uri": tour, "version": 4}, "contentChanges": [{"text": messy}]})
     formatted = messy
     for edit in reversed(client.request("textDocument/formatting", {"textDocument": {"uri": tour}, "options": {"tabSize": 4, "insertSpaces": False}})["result"] or []):
         formatted = formatted[: lsp_index(formatted, edit["range"]["start"])] + edit["newText"] + formatted[lsp_index(formatted, edit["range"]["end"]) :]
-    client.notify("textDocument/didChange", {"textDocument": {"uri": tour, "version": 3}, "contentChanges": [{"text": "func ("}]})
+    client.notify("textDocument/didChange", {"textDocument": {"uri": tour, "version": 5}, "contentChanges": [{"text": "func ("}]})
     broken = client.request("textDocument/formatting", {"textDocument": {"uri": tour}, "options": {}})
     client.notify("textDocument/didClose", {"textDocument": {"uri": tour}})
     expect("lsp: formatting edits make the editor's layout, and a syntax error fails it", formatted == text and broken and broken["error"]["code"] == -32803, f"{formatted!r}\n{broken}")

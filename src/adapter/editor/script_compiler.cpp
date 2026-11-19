@@ -319,6 +319,38 @@ bool fixes_all(const std::vector<compiler::Diagnostic> &p_fixable, const std::st
 	return found.size() > 1;
 }
 
+FileEdits fix_again(const std::string &p_path, const compiler::Stamp &p_stamp, const compiler::Diagnostic *p_error, const std::string &p_title, compiler::FixKind p_kind) {
+	const std::string source = workspace().script_source(p_path).value_or(std::string());
+	std::shared_ptr<const compiler::CompileResult> result;
+	if (workspace().changed(p_stamp)) {
+		compiler::CompileOptions options;
+		options.path = p_path;
+		options.project = &workspace();
+		result = std::make_shared<const compiler::CompileResult>(compiler::compile(source, ClassDBApi::get(), options));
+	} else {
+		result = analysis().compile(p_path, source);
+	}
+	FileEdits changes;
+	if (!p_error) {
+		const std::vector<compiler::CheckedEdit> edits = compiler::fix_all(*result, p_kind);
+		if (!edits.empty()) {
+			changes[p_path] = edits;
+		}
+	}
+	for (const compiler::Diagnostic &error : p_error ? fixable(result->errors, p_path) : std::vector<compiler::Diagnostic>()) {
+		const auto fix = std::find_if(error.fixes.begin(), error.fixes.end(), [&](const compiler::Fix &p_fix) { return p_fix.title == p_title; });
+		if (changes.empty() && error.begin == p_error->begin && error.end == p_error->end && error.message == p_error->message && error.file == p_error->file && fix != error.fixes.end()) {
+			for (const compiler::Fix::Edit &edit : fix->edits) {
+				changes[edit.file].push_back(edit.change);
+			}
+		}
+	}
+	for (auto &[file, edits] : changes) {
+		std::stable_sort(edits.begin(), edits.end(), [](const compiler::CheckedEdit &p_a, const compiler::CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
+	}
+	return changes;
+}
+
 namespace {
 
 // The headers of a script and of its bases. A file's own is read from its
