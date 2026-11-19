@@ -733,7 +733,6 @@ class Checker : public ClassRelation {
 	void fix(const std::vector<Write> &p_writes, FixKind p_kind);
 	void fix(std::optional<Fix> p_fix);
 	std::optional<Fix> pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range = TokenRange()) const;
-	static std::vector<Type> shown_types(const ClassDecl &p_cls, uint32_t p_name);
 	void error(const TokenRange &p_range, const Refusal &p_refusal);
 	bool refuse(const TokenRange &p_range, const std::optional<Refusal> &p_refusal);
 	TokenRange unparenthesized(TokenRange p_range) const;
@@ -1121,7 +1120,17 @@ class Checker : public ClassRelation {
 	static std::vector<std::pair<std::string, const VarDecl *>> value_fields(const ClassDecl &p_header, const std::string &p_name);
 	bool holds(const ClassDecl &p_decl, const std::string &p_path, const std::string &p_name, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen);
 	static std::vector<Type> held_types(const Type &p_type);
-	std::optional<Refusal> hidden_part(const Type &p_type, const std::string &p_but, bool p_fixed = true) const;
+	std::optional<Refusal> hidden_part(const Type &p_type, const std::string &p_but, bool p_fixed = true, const std::string &p_owner = std::string(), uint32_t p_name = 0) const;
+	// A part of a declaration that shows types wherever the declaration is
+	// seen, when it is pub (spec §4.2).
+	struct ShownPart {
+		uint32_t declaration; // Its name's token.
+		bool pub;
+		TokenRange at;
+		std::string but; // How it shows them, as an error ends.
+		std::vector<Type> types;
+	};
+	static std::vector<ShownPart> shown_parts(const ClassDecl &p_cls);
 	void check_pub_signatures();
 	void check_engine_options();
 	void declare_signals();

@@ -201,6 +201,9 @@ TEST_CASE("a pub declaration shows only pub types (spec §4.2)") {
 	CHECK(errors_of_class("var coins: Array[Coin] = []\n\nfunc take(lock: Lock) -> Coin:\n\treturn Coin()\n").empty());
 	CHECK(contains(errors_of_class("pub var coins: Array[Coin] = []\n"), "Vault.Coin is not pub, but the pub \"coins\" shows it."));
 	CHECK(fixed_in("class_name Vault\nextends Node\n\nstruct Coin:\n\tvar value: int = 1\n\npub var coins: Array[Coin] = []\n", FakeProject()) == "res://test.pet:\nclass_name Vault\nextends Node\n\npub struct Coin:\n\tvar value: int = 1\n\npub var coins: Array[Coin] = []\n");
+	// Not where pub would show another type that is not pub.
+	CHECK(fixed_in("class_name Vault\nextends Node\n\nstruct Inner:\n\tvar value: int = 1\n\nstruct Box:\n\tvar value: Inner\n\npub func take(b: Box) -> void:\n\tpass\n", FakeProject()) == "no such fix");
+	CHECK(contains(fixed_in("class_name Vault\nextends Node\n\nstruct Twig:\n\tvar children: Array[Twig] = []\n\npub func take(t: Twig) -> void:\n\tpass\n", FakeProject()), "pub struct Twig:"));
 	CHECK(contains(errors_of_class("pub func pick(lock: Lock?) -> void:\n\tpass\n"), "Vault.Lock is not pub, but the pub \"pick()\" shows it"));
 	CHECK(contains(errors_of_class("pub signal turned(state: Hidden)\n"), "is not pub, but the pub signal \"turned\" shows it"));
 	CHECK(contains(errors_of_class("pub func make() -> Badge:\n\treturn Badge.new()\n"), "Vault.Badge is not pub, but the pub \"make()\" shows it"));

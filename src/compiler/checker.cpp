@@ -55,9 +55,11 @@ void Checker::fix(std::optional<Fix> p_fix) {
 // would show a type that is not pub (spec §4.2).
 std::optional<Fix> Checker::pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range) const {
 	if (const ClassDecl *decl = p_name == 0 ? nullptr : script_decl(p_owner)) {
-		for (const Type &type : shown_types(*decl, p_name)) {
-			if (hidden_part(type, std::string(), false)) {
-				return std::nullopt;
+		for (const ShownPart &part : shown_parts(*decl)) {
+			for (const Type &type : part.declaration == p_name ? part.types : std::vector<Type>()) {
+				if (hidden_part(type, std::string(), false, p_owner, p_name)) {
+					return std::nullopt;
+				}
 			}
 		}
 	}
@@ -76,25 +78,6 @@ std::optional<Fix> Checker::pub_fix(const std::string &p_owner, uint32_t p_name,
 	const std::string text = source.text.substr(begin, end - begin);
 	const std::string title = p_name == 0 ? std::string("Make the enum pub") : "Make \"" + source.tokens[p_name].text + "\" pub";
 	return Fix{ title, FixKind::Pub, { { in_this_file(path) ? std::string() : path, { begin, end, text, "pub " + text } } } };
-}
-
-// The types that the variable, constant, function or signal of `p_cls`
-// whose name is token `p_name` shows when it is pub.
-std::vector<Type> Checker::shown_types(const ClassDecl &p_cls, uint32_t p_name) {
-	const auto named = [&](const auto &p_decl) { return p_decl.name_token == p_name; };
-	for (const std::vector<VarDecl> *variables : { &p_cls.members, &p_cls.static_vars }) {
-		if (const auto found = std::find_if(variables->begin(), variables->end(), named); found != variables->end()) {
-			return { found->type };
-		}
-	}
-	if (const auto found = std::find_if(p_cls.constants.begin(), p_cls.constants.end(), named); found != p_cls.constants.end()) {
-		return { found->type };
-	}
-	if (const auto found = std::find_if(p_cls.functions.begin(), p_cls.functions.end(), named); found != p_cls.functions.end()) {
-		return signature_types(*found);
-	}
-	const auto found = std::find_if(p_cls.signals.begin(), p_cls.signals.end(), named);
-	return found == p_cls.signals.end() ? std::vector<Type>() : param_types(found->params);
 }
 
 void Checker::error(const TokenRange &p_range, const Refusal &p_refusal) {

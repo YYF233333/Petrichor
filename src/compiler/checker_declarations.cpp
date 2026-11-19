@@ -1197,10 +1197,6 @@ void Checker::declare_interfaces() {
 			if (!parent.is_error() && !parent.is_interface) {
 				error(ref.range, parent.to_string() + " is not an interface.");
 			} else if (!parent.is_error()) {
-				// It shows the parent's members wherever it is seen (spec §4.2).
-				if (const std::optional<Refusal> hidden = interface.is_pub ? hidden_part(parent, "the pub " + interface.name + " extends it") : std::nullopt) {
-					error(ref.range, *hidden);
-				}
 				interface.parents.push_back(parent);
 			}
 		}
@@ -1608,10 +1604,11 @@ std::vector<Type> Checker::held_types(const Type &p_type) {
 // The part of a type that is not seen everywhere: a struct, an enum, an
 // interface or an inner class without pub, or one inside a class without
 // it (spec §4.2); nullopt when there is none. The error says that `p_but`,
-// and with `p_fixed` the fix makes it pub.
-std::optional<Checker::Refusal> Checker::hidden_part(const Type &p_type, const std::string &p_but, bool p_fixed) const {
+// and with `p_fixed` the fix makes it pub. The declaration of the class at
+// `p_owner` whose name is token `p_name` counts as pub, as a fix makes it.
+std::optional<Checker::Refusal> Checker::hidden_part(const Type &p_type, const std::string &p_but, bool p_fixed, const std::string &p_owner, uint32_t p_name) const {
 	for (const Type &arg : p_type.args) {
-		if (std::optional<Refusal> part = hidden_part(arg, p_but, p_fixed)) {
+		if (std::optional<Refusal> part = hidden_part(arg, p_but, p_fixed, p_owner, p_name)) {
 			return part;
 		}
 	}
@@ -1620,8 +1617,11 @@ std::optional<Checker::Refusal> Checker::hidden_part(const Type &p_type, const s
 	}
 	Type shown = p_type;
 	shown.nullable = false;
-	const auto refusal = [&](const auto *p_decl, const std::string &p_owner) {
-		return p_decl && !p_decl->is_pub ? std::optional<Refusal>(Refusal{ shown.to_string() + " is not pub, but " + p_but + ".", p_fixed ? pub_fix(p_owner, p_decl->name_token, p_decl->range) : std::nullopt }) : std::nullopt;
+	const auto refusal = [&](const auto *p_decl, const std::string &p_class) {
+		if (!p_decl || p_decl->is_pub || (p_decl->name_token == p_name && p_class == p_owner)) {
+			return std::optional<Refusal>();
+		}
+		return std::optional<Refusal>(Refusal{ shown.to_string() + " is not pub, but " + p_but + ".", p_fixed ? pub_fix(p_class, p_decl->name_token, p_decl->range) : std::nullopt });
 	};
 	const ClassDecl *header = script_header(p_type.script);
 	const std::string name = p_type.interface_name();
@@ -1640,57 +1640,72 @@ std::optional<Checker::Refusal> Checker::hidden_part(const Type &p_type, const s
 	return found;
 }
 
-// A pub declaration shows the types of its signature wherever it is seen,
-// so each of them must be seen there too (spec §4.2).
-void Checker::check_pub_signatures() {
-	const auto check = [&](bool p_pub, uint32_t p_token, const std::string &p_what, const std::vector<Type> &p_types) {
-		for (const Type &type : p_types) {
-			if (const std::optional<Refusal> part = p_pub ? hidden_part(type, p_what + " shows it") : std::nullopt) {
-				error(TokenRange{ p_token, p_token }, *part);
-				return;
-			}
-		}
+// What each declaration of `p_cls` shows when it is pub: the types of its
+// signature, of a struct's fields and methods, of an enum's variants and of
+// an interface's members and parents.
+std::vector<Checker::ShownPart> Checker::shown_parts(const ClassDecl &p_cls) {
+	std::vector<ShownPart> parts;
+	const auto shows = [&](const auto &p_decl, uint32_t p_token, const std::string &p_what, std::vector<Type> p_types) {
+		parts.push_back({ p_decl.name_token, p_decl.is_pub, { p_token, p_token }, p_what + " shows it", std::move(p_types) });
 	};
-	for (const std::vector<VarDecl> *variables : { &cls.members, &cls.static_vars }) {
+	for (const std::vector<VarDecl> *variables : { &p_cls.members, &p_cls.static_vars }) {
 		for (const VarDecl &variable : *variables) {
-			check(variable.is_pub, variable.name_token, "the pub \"" + variable.name + "\"", { variable.type });
+			shows(variable, variable.name_token, "the pub \"" + variable.name + "\"", { variable.type });
 		}
 	}
-	for (const ConstDecl &constant : cls.constants) {
-		check(constant.is_pub, constant.name_token, "the pub \"" + constant.name + "\"", { constant.type });
+	for (const ConstDecl &constant : p_cls.constants) {
+		shows(constant, constant.name_token, "the pub \"" + constant.name + "\"", { constant.type });
 	}
-	for (const FuncDecl &function : cls.functions) {
-		check(function.is_pub, function.name_token, "the pub \"" + function.name + "()\"", signature_types(function));
+	for (const FuncDecl &function : p_cls.functions) {
+		shows(function, function.name_token, "the pub \"" + function.name + "()\"", signature_types(function));
 	}
-	for (const SignalDecl &signal : cls.signals) {
-		check(signal.is_pub, signal.name_token, "the pub signal \"" + signal.name + "\"", param_types(signal.params));
+	for (const SignalDecl &signal : p_cls.signals) {
+		shows(signal, signal.name_token, "the pub signal \"" + signal.name + "\"", param_types(signal.params));
 	}
-	for (const StructDecl &decl : cls.structs) {
+	for (const StructDecl &decl : p_cls.structs) {
 		for (const VarDecl &field : decl.fields) {
-			check(decl.is_pub, field.name_token, "the field \"" + field.name + "\" of the pub " + decl.name, { field.type });
+			shows(decl, field.name_token, "the field \"" + field.name + "\" of the pub " + decl.name, { field.type });
 		}
 		for (const FuncDecl &method : decl.methods) {
-			check(decl.is_pub, method.name_token, "the method \"" + method.name.substr(decl.name.size() + 1) + "()\" of the pub " + decl.name, signature_types(method));
+			shows(decl, method.name_token, "the method \"" + method.name.substr(decl.name.size() + 1) + "()\" of the pub " + decl.name, signature_types(method));
 		}
 	}
-	for (const EnumDecl &decl : cls.enums) {
+	for (const EnumDecl &decl : p_cls.enums) {
 		for (size_t v = 0; decl.has_payloads && decl.type.values && v < decl.values.size(); v++) {
 			std::vector<Type> fields;
 			for (const auto &[name, type] : decl.type.values->fields[v]) {
 				fields.push_back(type);
 			}
-			check(decl.is_pub, decl.values[v].name_token, "the variant " + decl.values[v].name + " of the pub " + decl.name, fields);
+			shows(decl, decl.values[v].name_token, "the variant " + decl.values[v].name + " of the pub " + decl.name, fields);
 		}
 	}
-	for (const InterfaceDecl &decl : cls.interfaces) {
+	for (const InterfaceDecl &decl : p_cls.interfaces) {
 		for (const FuncDecl &method : decl.methods) {
-			check(decl.is_pub, method.name_token, "the method \"" + method.name + "()\" of the pub " + decl.name, signature_types(method));
+			shows(decl, method.name_token, "the method \"" + method.name + "()\" of the pub " + decl.name, signature_types(method));
 		}
 		for (const InterfaceProperty &property : decl.properties) {
-			check(decl.is_pub, property.name_token, "the property \"" + property.name + "\" of the pub " + decl.name, { property.type });
+			shows(decl, property.name_token, "the property \"" + property.name + "\" of the pub " + decl.name, { property.type });
 		}
 		for (const SignalDecl &signal : decl.signals) {
-			check(decl.is_pub, signal.name_token, "the signal \"" + signal.name + "\" of the pub " + decl.name, param_types(signal.params));
+			shows(decl, signal.name_token, "the signal \"" + signal.name + "\" of the pub " + decl.name, param_types(signal.params));
+		}
+		// Its parents' members, wherever it is seen.
+		if (!decl.extends.empty()) {
+			parts.push_back({ decl.name_token, decl.is_pub, { decl.extends.front().range.first, decl.extends.back().range.last }, "the pub " + decl.name + " extends it", decl.parents });
+		}
+	}
+	return parts;
+}
+
+// A pub declaration shows the types of its signature wherever it is seen,
+// so each of them must be seen there too (spec §4.2).
+void Checker::check_pub_signatures() {
+	for (const ShownPart &part : shown_parts(cls)) {
+		for (const Type &type : part.pub ? part.types : std::vector<Type>()) {
+			if (const std::optional<Refusal> hidden = hidden_part(type, part.but)) {
+				error(part.at, *hidden);
+				break;
+			}
 		}
 	}
 }
