@@ -347,6 +347,17 @@ TEST_CASE("the workspace's revision goes up only when what it gives changes; a v
 	CHECK(workspace.script_source("res://a.pet") == "extends Node2D\n");
 }
 
+// A file opened with its text on disk after that text changed.
+TEST_CASE("a file taken into the workspace keeps the version a change on disk gave it") {
+	FakeProject project;
+	project.add_script("res://a.pet", "extends Node\n");
+	compiler::Workspace workspace(project);
+	const compiler::Stamp stamp{ workspace.revision(), { "res://a.pet" } };
+	workspace.disk_changed();
+	workspace.set_script("res://a.pet", "extends Node\n");
+	CHECK(workspace.changed(stamp));
+}
+
 TEST_CASE("a result is not read again until the workspace's revision changes") {
 	FakeProject project;
 	project.add_script("res://base.pet", BASE, "Base");

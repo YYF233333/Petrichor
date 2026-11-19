@@ -36,6 +36,7 @@ class Workspace : public ProjectApi {
 
 	void write() const;
 	void touch(const std::string &p_path);
+	void take_in(const std::string &p_path, bool p_taken);
 
 public:
 	explicit Workspace(const ProjectApi &p_disk) :

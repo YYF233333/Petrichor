@@ -18,8 +18,17 @@ void Workspace::touch(const std::string &p_path) {
 	versions[p_path] = ++current;
 }
 
+// A file taken in from the disk keeps the version it has, which a change on
+// disk may have given it, so that a stamp from before that change is stale.
+void Workspace::take_in(const std::string &p_path, bool p_taken) {
+	if (!p_taken) {
+		versions[p_path] = version(p_path);
+	}
+}
+
 void Workspace::set_script(const std::string &p_path, std::string p_text) {
 	write();
+	take_in(p_path, scripts.count(p_path));
 	if (script_source(p_path) != p_text) {
 		touch(p_path);
 	}
@@ -41,6 +50,7 @@ void Workspace::drop_script(const std::string &p_path) {
 
 void Workspace::set_scene(const std::string &p_path, Scene p_scene) {
 	write();
+	take_in(p_path, scenes.count(p_path));
 	if (!(scene(p_path) == p_scene)) {
 		touch(p_path);
 	}
