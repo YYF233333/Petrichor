@@ -1460,17 +1460,23 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 			code_edit->tag_saved_version();
 		}
 	}
-	reload_written(written);
+	std::set<std::string> files;
+	for (const auto &[file, edits] : p_changes) {
+		files.insert(file);
+	}
+	reload_written(files);
 	return true;
 }
 
-// After a refactoring wrote files of the project, the editor's or the LSP
-// client's (architecture §2.3, §2.4). The loaded scripts among them take their
-// texts and reload in one pass, so that each compiles once against the others'
-// new texts; a tab without unsaved changes takes its text too, as the script
-// editor reloads it (editor/script/script_editor_plugin.cpp:2535-2588;
-// ed1daf0). Then what else is loaded is read again, as when the editor sees a
-// file change, with the scripts' new members (editor/editor_node.cpp:1291-1323,
+// After a refactoring changed files of the project, the editor's or the LSP
+// client's (architecture §2.3, §2.4): scripts in their texts, held or in tabs,
+// or written, and the other files written. The loaded scripts among them take
+// the workspace's texts, as a tab's script takes its checked text, and reload
+// in one pass, so that each compiles once against the others' new texts. A tab
+// without unsaved changes takes a script's text written, as the script editor
+// reloads it (editor/script/script_editor_plugin.cpp:2535-2588; ed1daf0). Then
+// what else is loaded is read again, as when the editor sees a file change,
+// with the scripts' new members (editor/editor_node.cpp:1291-1323,
 // core/io/resource.cpp:263-276; ed1daf0). A cached scene too: the editor builds
 // an open scene again from the cached scenes it shows, as it shows its tab
 // after one changed, and clears its history then (editor/editor_data.cpp:722-771,
@@ -1486,17 +1492,18 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 	EditorInterface *editor = EditorInterface::get_singleton();
 	std::set<std::string> others;
 	std::vector<Ref<Script>> scripts;
+	// A changed script_class takes effect (editor/file_system/editor_file_system.cpp:2400-2492; ed1daf0).
+	const auto written = [&](const String &p_path) { editor->get_resource_filesystem()->update_file(p_path); };
 	for (const std::string &file : p_files) {
 		const String path = to_godot(file);
-		// A changed script_class takes effect (editor/file_system/editor_file_system.cpp:2400-2492; ed1daf0).
-		editor->get_resource_filesystem()->update_file(path);
 		if (!is_script(file)) {
+			written(path);
 			others.insert(file);
 			continue;
 		}
-		const String text = FileAccess::get_file_as_string(path);
+		const String text = FileAccess::get_file_as_string(path).replace("\r", "");
 		CodeEdit *code_edit = open_code_edit(file);
-		if (code_edit && code_edit->get_version() == code_edit->get_saved_version() && code_edit->get_text() != text.replace("\r", "")) {
+		if (code_edit && code_edit->get_version() == code_edit->get_saved_version() && code_edit->get_text() != text) {
 			const int line = code_edit->get_caret_line();
 			const int column = code_edit->get_caret_column();
 			code_edit->set_text(text);
@@ -1504,9 +1511,13 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 			code_edit->set_caret_column(column);
 			code_edit->tag_saved_version();
 		}
+		const String current = to_godot(workspace().script_source(file).value_or(std::string()));
+		if (current.replace("\r", "") == text) {
+			written(path);
+		}
 		const Ref<Script> loaded = ResourceLoader::get_singleton()->get_cached_ref(path);
 		if (loaded.is_valid()) {
-			loaded->set_source_code(text);
+			loaded->set_source_code(current);
 			scripts.push_back(loaded);
 		}
 	}

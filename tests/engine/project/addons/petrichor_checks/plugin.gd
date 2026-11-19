@@ -60,6 +60,7 @@ func _run() -> void:
 	await _check_rename()
 	await _check_rename_open_scenes()
 	await _check_rename_transaction()
+	await _check_rename_loaded()
 	await _check_embedded_scene()
 	await _check_quick_fixes()
 	await _check_unsaved_texts()
@@ -588,8 +589,8 @@ func _check_autoload_by_uid() -> void:
 # undo. A member's rename reads the open script's text and the open scene's
 # unsaved change, which it saves before rewriting the scene. The scripts stay
 # unsaved: the open one changes in its tab, whose history stays, and a closed
-# one is held, which the editor's save writes byte for byte, and a loaded one
-# reloads then. Ctrl+Z in the script, with the rename's edit last there,
+# one is held, which the editor's save writes byte for byte; a loaded one takes
+# the text held at once. Ctrl+Z in the script, with the rename's edit last there,
 # undoes it everywhere, and Ctrl+Shift+Z redoes it. A closed script opened
 # shows its text held, unsaved. An undo or redo that would be refused is not
 # made, and no history moves.
@@ -633,7 +634,7 @@ func _check_rename() -> void:
 	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
 	apply.pressed.emit()
 	_check(code.text == kept.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "a member is renamed in the open script and in the open scene, with its unsaved change")
-	_check(FileAccess.get_file_as_string(unit) == kept and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer() and not loaded_user.source_code.contains("pace"), "the scripts stay unsaved, and a loaded one keeps its text")
+	_check(FileAccess.get_file_as_string(unit) == kept and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer() and loaded_user.source_code.contains("unit.pace"), "the scripts stay unsaved, and a loaded one takes the text held for it")
 	await _press(code, "ui_undo")
 	_check(code.text == kept and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n"), "Ctrl+Z in the script, with the rename's edit last there, restores the script and the scene")
 	await _press(code, "ui_redo")
@@ -760,6 +761,42 @@ func _check_rename_open_scenes() -> void:
 	EditorInterface.close_scene()
 	code.undo()
 	EditorInterface.get_script_editor().close_file(unit)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+	_scanned()
+
+
+# Architecture §2.3: a rename reads a loaded resource that stores the member
+# again against the scripts' new texts, also one it holds unsaved, so that
+# Ctrl+S, which saves the resource before the held scripts
+# (editor/editor_node.cpp:2518-2526; ed1daf0), keeps the value.
+func _check_rename_loaded() -> void:
+	var dir := "res://editor_rename_loaded"
+	var weapon := dir + "/weapon.pet"
+	var user := dir + "/user.pet"
+	var blaster := dir + "/blaster.tres"
+	var scene := dir + "/arena.tscn"
+	DirAccess.make_dir_absolute(dir)
+	_write(weapon, "extends Resource\n\n@export pub var spread := 0.0\n")
+	_write(user, "extends Node\n\nconst Weapon = preload(\"weapon.pet\")\n\n@export pub var weapon: Weapon\n\n\nfunc aim() -> float:\n\treturn weapon.spread\n")
+	_write(blaster, '[gd_resource type="Resource" format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[resource]\nscript = ExtResource("1")\nspread = 1.0\n' % weapon)
+	_write(scene, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n[ext_resource type="Resource" path="%s" id="2"]\n\n[node name="Arena" type="Node"]\nscript = ExtResource("1")\nweapon = ExtResource("2")\n' % [user, blaster])
+	for file in [weapon, user, blaster, scene]:
+		EditorInterface.get_resource_filesystem().update_file(file)
+	await get_tree().process_frame
+	EditorInterface.open_scene_from_path(scene)
+	EditorInterface.edit_script(load(user))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	_rename(code, 8, 16, "shot_spread")
+	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
+	apply.pressed.emit()
+	await get_tree().process_frame
+	var value = load(blaster).get("shot_spread")
+	EditorInterface.save_scene()
+	_check(value == 1.0 and FileAccess.get_file_as_string(blaster).contains("\nshot_spread = 1.0\n") and FileAccess.get_file_as_string(weapon).contains("shot_spread"), "a loaded resource holds its value under the new name, which saving keeps: %s %s" % [value, FileAccess.get_file_as_string(blaster).c_escape()])
+	EditorInterface.close_scene()
+	EditorInterface.get_script_editor().close_file(user)
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))
 	DirAccess.remove_absolute(dir)
