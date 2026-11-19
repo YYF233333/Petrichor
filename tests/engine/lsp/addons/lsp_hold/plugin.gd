@@ -5,8 +5,9 @@ extends EditorPlugin
 # does, so that the editor holds its text unsaved (architecture §2.3), and
 # saves tour.tscn as a binary scene too. Opens arena.tscn, and gunner.pet in a
 # tab. Once the file res://check is there, prints what the loaded blaster.tres
-# holds and saves the scene shown, as Ctrl+S does. Quits once the file
-# res://quit is there.
+# holds and saves the scene shown, as Ctrl+S does. Once res://refactor is
+# there, makes the refactoring's edit it holds and prints the tab's text.
+# Quits once the file res://quit is there.
 
 
 func _enter_tree() -> void:
@@ -31,5 +32,10 @@ func _hold() -> void:
 			print("lsp check: %s %s" % [blaster.get("shot_spread"), blaster.get("spread")])
 			EditorInterface.save_scene()
 			print("lsp check: saved")
+		if FileAccess.file_exists("res://refactor"):
+			var edit: Array = JSON.parse_string(FileAccess.get_file_as_string("res://refactor"))
+			DirAccess.remove_absolute("res://refactor")
+			plugin.call("_change_scripts", [edit], true)
+			print("lsp refactor: ", EditorInterface.get_script_editor().get_current_editor().get_base_editor().text.c_escape())
 		await get_tree().create_timer(0.1).timeout
 	get_tree().quit()

@@ -1400,6 +1400,18 @@ def check_rename_written(client, project, uri, editor):
         f"{renamed}\n{held}\n{arena}\n{blaster}",
     )
 
+    # A refactoring in Godot, its edits computed on the client's text, of a
+    # script whose tab has another text changes nothing.
+    gunner = uri("gunner.pet")
+    other = "# From the client.\n" + (project / "gunner.pet").read_text(encoding="utf-8")
+    client.open(gunner, other)
+    start = len(other[: other.index("var weapon") + 4].encode())
+    (project / "refactor").write_text(json.dumps(["res://gunner.pet", start, start + 6, "weapon", "gun"]), encoding="utf-8")
+    refactored = editor.wait_for(b"lsp refactor:")
+    tab = re.findall(r"lsp refactor: (.*)", editor.output.decode("utf-8", "replace"))
+    client.notify("textDocument/didClose", {"textDocument": {"uri": gunner}})
+    expect("lsp: a refactoring in Godot of a script whose tab differs from the client's text changes nothing", refactored and len(tab) == 1 and "var weapon" in tab[0] and "movement_speed" in tab[0] and "gun" not in tab[0], str(tab))
+
 
 def run_debugger_groups(godot):
     # Spec §12.5: breakpoints, locals, members, stepping and a break on a

@@ -240,6 +240,18 @@ void apply_edits(CodeEdit *p_code_edit, const std::string &p_source, const std::
 	p_code_edit->end_complex_operation();
 }
 
+// Whether the tab of the script at `p_path` has the text that edits were
+// computed on; not when the LSP client has it open with another (architecture
+// §2.4), which it tells.
+bool tab_has(const CodeEdit *p_code_edit, const std::string &p_path, std::string p_text) {
+	p_text.erase(std::remove(p_text.begin(), p_text.end(), '\r'), p_text.end());
+	if (to_utf8(p_code_edit->get_text()) == p_text) {
+		return true;
+	}
+	EditorInterface::get_singleton()->get_editor_toaster()->push_toast(vformat("%s: its text in the LSP client differs from its tab in Godot, so nothing was changed.", to_godot(p_path)), EditorToaster::SEVERITY_WARNING);
+	return false;
+}
+
 } // namespace
 
 void PetCodeMenu::format(Object *p_code_edit) {
@@ -1343,6 +1355,9 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 			changes[file].push_back(edit);
 		}
 	}
+	if (one_buffer && !tab_has(one_buffer, by_file.begin()->first, workspace().script_source(by_file.begin()->first).value_or(std::string()))) {
+		return;
+	}
 	if (one_buffer) {
 		std::vector<compiler::Edit> plain;
 		for (const compiler::CheckedEdit &edit : changes.begin()->second) {
@@ -1413,6 +1428,9 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 		const std::optional<std::string> text = is_script(file) ? workspace().script_source(file) : std::optional<std::string>(file_bytes(to_godot(file)));
 		if (!text || !std::all_of(edits.begin(), edits.end(), [&](const compiler::CheckedEdit &p_edit) { return intact(*text, p_edit); })) {
 			toast(vformat("%s changed while it was being edited, so nothing was changed.", to_godot(file)), EditorToaster::SEVERITY_WARNING);
+			return false;
+		}
+		if (const CodeEdit *code_edit = is_script(file) ? open_code_edit(file) : nullptr; code_edit && !tab_has(code_edit, file, *text)) {
 			return false;
 		}
 		std::string result;
@@ -1880,6 +1898,9 @@ void PetEditorPlugin::apply_listed(int p_id) {
 	std::set<std::string> files;
 	for (const auto &[file, edits] : changes) {
 		files.insert(file);
+	}
+	if (files == std::set<std::string>{ fixing.path } && !tab_has(code_edit, fixing.path, source)) {
+		return;
 	}
 	if (files == std::set<std::string>{ fixing.path }) {
 		std::vector<compiler::Edit> plain;
