@@ -12,22 +12,13 @@
 #include <map>
 #include <set>
 #include <tuple>
+#include <type_traits>
 
 namespace petrichor::compiler {
 
 namespace {
 
 using Kind = SymbolKind;
-
-// The reference whose name holds byte `p_offset` or ends at it.
-const Reference *reference_at(const CompileResult &p_result, uint32_t p_offset) {
-	for (const Reference &reference : p_result.references) {
-		if (reference.begin <= p_offset && p_offset <= reference.end) {
-			return &reference;
-		}
-	}
-	return nullptr;
-}
 
 const Reference *declaration_of(const std::vector<Reference> &p_references, const DeclId &p_target) {
 	for (const Reference &reference : p_references) {
@@ -36,6 +27,44 @@ const Reference *declaration_of(const std::vector<Reference> &p_references, cons
 		}
 	}
 	return nullptr;
+}
+
+// `name(a: T, b: U = 1) -> R`, as completion's call hint writes it.
+std::string signature(const std::string &p_name, std::vector<std::string> p_params, bool p_vararg, const std::string &p_result) {
+	if (p_vararg) {
+		p_params.push_back("...args");
+	}
+	std::string text = p_name + "(";
+	for (size_t i = 0; i < p_params.size(); i++) {
+		text += (i > 0 ? ", " : "") + p_params[i];
+	}
+	return text + ")" + (p_result.empty() ? "" : " -> " + p_result);
+}
+
+std::string api_signature(const std::string &p_name, const builtin::Argument *p_args, uint32_t p_count, bool p_vararg, const char *p_result) {
+	std::vector<std::string> params;
+	for (uint32_t i = 0; i < p_count; i++) {
+		params.push_back(std::string(p_args[i].name) + ": " + api_type(p_args[i].type, true).to_string() + (p_args[i].has_default ? std::string(" = ") + p_args[i].default_value : ""));
+	}
+	return signature(p_name, params, p_vararg, *p_result ? api_type(p_result, true).to_string() : "void");
+}
+
+// With the nullability that the checker gives the engine's objects (spec §10.2).
+std::string engine_signature(const EngineMethod &p_method, bool p_signal) {
+	std::vector<std::string> params;
+	for (size_t i = 0; i < p_method.params.size(); i++) {
+		const EngineParam &param = p_method.params[i];
+		Type type = param.type;
+		if (type.kind == TypeKind::Object) {
+			type.nullable = p_signal ? builtin::signal_param_nullable(p_method.owner, p_method.name, uint32_t(i)) : type.nullable && !builtin::param_non_null(p_method.owner, p_method.name, uint32_t(i));
+		}
+		params.push_back(param.name + ": " + type.to_string() + (param.default_value.empty() ? "" : " = " + (param.default_value == "null" ? "None" : param.default_value)));
+	}
+	Type result = p_method.return_type;
+	if (result.kind == TypeKind::Object && builtin::returns_non_null(p_method.owner, p_method.name)) {
+		result.nullable = false;
+	}
+	return signature(p_method.name, params, p_method.is_vararg, p_signal ? std::string() : result.to_string());
 }
 
 // Where the documentation files a declaration of the engine: under its class,
@@ -56,22 +85,31 @@ std::optional<Lookup> engine_lookup(const EngineApi &p_engine, const DeclId &p_t
 	} else if (name.empty()) {
 		found.kind = Kind::Class;
 	} else if (owner == "@GlobalScope") {
-		found.kind = builtin::find_utility(name) ? Kind::Method : Kind::Constant;
+		const builtin::Utility *utility = builtin::find_utility(name);
+		found.kind = utility ? Kind::Method : Kind::Constant;
+		found.signature = utility ? api_signature(name, utility->arguments, utility->argument_count, utility->is_vararg, utility->return_type) : std::string();
 	} else if (owner == "@GDScript") {
 		found.kind = name == "PI" || name == "TAU" || name == "INF" || name == "NAN" ? Kind::Constant : Kind::Method;
-	} else if (type && builtin::find_member(*type, name)) {
+	} else if (const builtin::Member *member = type ? builtin::find_member(*type, name) : nullptr) {
 		found.kind = Kind::Property;
-	} else if (type && builtin::find_method(*type, name)) {
+		found.signature = name + ": " + api_type(member->type, true).to_string();
+	} else if (const builtin::Method *method = type ? builtin::find_method(*type, name) : nullptr) {
 		found.kind = Kind::Method;
+		found.signature = api_signature(name, method->arguments, method->argument_count, method->is_vararg, method->return_type);
 	} else if (type) {
 		// An enum's values are constants of the type to the documentation.
 		found.kind = Kind::Constant;
-	} else if (p_engine.find_signal(owner, name)) {
+	} else if (const std::optional<EngineMethod> signal = p_engine.find_signal(owner, name)) {
 		found.kind = Kind::Signal;
-	} else if (p_engine.find_property(owner, name)) {
+		found.signature = engine_signature(*signal, true);
+	} else if (const std::optional<EngineProperty> property = p_engine.find_property(owner, name)) {
 		found.kind = Kind::Property;
-	} else if (p_engine.find_method(owner, name)) {
+		Type value = property->type;
+		value.nullable = value.nullable && !builtin::property_non_null(property->owner, name);
+		found.signature = name + ": " + value.to_string();
+	} else if (const std::optional<EngineMethod> method = p_engine.find_method(owner, name)) {
 		found.kind = Kind::Method;
+		found.signature = engine_signature(*method, false);
 	} else if (p_engine.find_constant(owner, name)) {
 		found.kind = Kind::Constant;
 	} else if (p_engine.find_enum(owner, name)) {
@@ -132,11 +170,14 @@ std::optional<Lookup> gdscript_declaration(const std::string &p_source, const st
 			keyword = word(at);
 		}
 		blanks(at);
+		const size_t name = at;
 		for (const auto &[spelling, kind] : KEYWORDS) {
 			if (keyword == spelling && word(at) == p_name) {
 				Lookup found;
 				found.kind = kind;
 				found.line = line;
+				found.begin = uint32_t(name);
+				found.end = uint32_t(at);
 				return found;
 			}
 		}
@@ -399,6 +440,15 @@ public:
 
 } // namespace
 
+const Reference *reference_at(const CompileResult &p_result, uint32_t p_offset) {
+	for (const Reference &reference : p_result.references) {
+		if (reference.begin <= p_offset && p_offset <= reference.end) {
+			return &reference;
+		}
+	}
+	return nullptr;
+}
+
 std::string doc_class_name(const DocName &p_doc_name, const std::string &p_path) {
 	std::string name = p_doc_name(script_file(p_path));
 	for (size_t at = p_path.find("::"); at != std::string::npos;) {
@@ -408,6 +458,83 @@ std::string doc_class_name(const DocName &p_doc_name, const std::string &p_path)
 	}
 	return name;
 }
+
+namespace {
+
+// A class or a member of this language or another, as lookup() shows it.
+// `p_result` is the script at `p_path` compiled from `p_source`.
+std::optional<Lookup> declared(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, const std::shared_ptr<const CompileResult> &p_result, const DeclId &p_target) {
+	const ProjectApi &project = *r_analysis.pass_classes().get_project();
+	if (p_target.kind == DeclId::Kind::Foreign) {
+		const std::optional<std::string> source = p_target.scope.empty() ? std::nullopt : project.script_source(p_target.scope);
+		if (!source) {
+			return std::nullopt;
+		}
+		std::optional<Lookup> found;
+		if (p_target.name.empty()) {
+			found.emplace();
+			found->kind = Kind::Class;
+			found->line = 1;
+		} else {
+			found = gdscript_declaration(*source, p_target.name);
+		}
+		if (found) {
+			found->class_name = p_doc_name(p_target.scope);
+			found->member = p_target.name;
+			found->path = p_target.scope;
+		}
+		return found;
+	}
+	const std::string file = script_file(p_target.scope);
+	const std::optional<std::string> source = file == p_path ? p_source : project.script_source(file);
+	if (!source) {
+		return std::nullopt;
+	}
+	// Each file records its own declarations.
+	const std::shared_ptr<const CompileResult> declared_in = file == p_path ? p_result : r_analysis.compile(file, *source);
+	const Reference *declaration = declaration_of(declared_in->references, p_target);
+	if (!declaration && !p_target.name.empty()) {
+		return std::nullopt;
+	}
+	Lookup found;
+	found.kind = declaration ? *declaration->declares : Kind::Class;
+	found.class_name = doc_class_name(p_doc_name, p_target.scope);
+	found.member = p_target.name;
+	// A field of a struct or a member of an interface is in that one's
+	// documentation, a value of an enum in the class's.
+	const size_t dot = found.member.find('.');
+	if (dot != std::string::npos) {
+		if (found.kind != Kind::Constant) {
+			found.class_name += "." + found.member.substr(0, dot);
+		}
+		found.member = found.member.substr(dot + 1);
+	}
+	if (found.kind == Kind::Class && !found.member.empty()) {
+		found.class_name += "." + found.member;
+		found.member.clear();
+	}
+	found.path = file;
+	found.line = declaration ? position_in(*source, line_starts_of(*source), declaration->begin).line : 1;
+	found.begin = declaration ? declaration->begin : 0;
+	found.end = declaration ? declaration->end : 0;
+	// As its help page has it, which the script editor shows itself.
+	const ClassDecl *checked = r_analysis.pass_classes().declarations(file);
+	for (const ClassDoc &doc : checked ? document(*checked, file, p_doc_name) : std::vector<ClassDoc>()) {
+		if (doc.name == found.class_name && found.member.empty()) {
+			found.comment = doc.comment;
+		}
+		for (const std::vector<DocMember> *members : { &doc.constants, &doc.properties, &doc.methods, &doc.signals, &doc.enums }) {
+			for (const DocMember &member : *members) {
+				if (doc.name == found.class_name && member.name == found.member) {
+					found.comment = member.comment;
+				}
+			}
+		}
+	}
+	return found;
+}
+
+} // namespace
 
 Completion complete(Analysis &r_analysis, const std::string &p_path, const std::string &p_source) {
 	const Analysis::Pass pass(r_analysis);
@@ -492,66 +619,208 @@ std::optional<Lookup> lookup(Analysis &r_analysis, const DocName &p_doc_name, co
 			}
 			found.path = p_path;
 			found.line = file->position(offset).line;
+			found.begin = offset;
+			found.end = name != file->tokens.end() && name->offset == offset ? name->end() : offset;
 			return found;
 		}
-		case DeclId::Kind::Script: {
-			const std::string file = script_file(target.scope);
-			const std::optional<std::string> source = file == p_path ? p_source : project.script_source(file);
-			if (!source) {
-				return std::nullopt;
-			}
-			// Each file records its own declarations.
-			const std::shared_ptr<const CompileResult> declared_in = file == p_path ? result : r_analysis.compile(file, *source);
-			const Reference *declaration = declaration_of(declared_in->references, target);
-			if (!declaration && !target.name.empty()) {
-				return std::nullopt;
-			}
-			Lookup found;
-			found.kind = declaration ? *declaration->declares : Kind::Class;
-			found.class_name = doc_class_name(p_doc_name, target.scope);
-			found.member = target.name;
-			// A field of a struct or a member of an interface is in that one's
-			// documentation, a value of an enum in the class's.
-			const size_t dot = found.member.find('.');
-			if (dot != std::string::npos) {
-				if (found.kind != Kind::Constant) {
-					found.class_name += "." + found.member.substr(0, dot);
-				}
-				found.member = found.member.substr(dot + 1);
-			}
-			if (found.kind == Kind::Class && !found.member.empty()) {
-				found.class_name += "." + found.member;
-				found.member.clear();
-			}
-			found.path = file;
-			found.line = declaration ? position_in(*source, line_starts_of(*source), declaration->begin).line : 1;
-			return found;
-		}
-		case DeclId::Kind::Foreign: {
-			const std::optional<std::string> source = target.scope.empty() ? std::nullopt : project.script_source(target.scope);
-			if (!source) {
-				return std::nullopt;
-			}
-			std::optional<Lookup> found;
-			if (target.name.empty()) {
-				found.emplace();
-				found->kind = Kind::Class;
-				found->line = 1;
-			} else {
-				found = gdscript_declaration(*source, target.name);
-			}
-			if (found) {
-				found->class_name = p_doc_name(target.scope);
-				found->member = target.name;
-				found->path = target.scope;
-			}
-			return found;
-		}
+		case DeclId::Kind::Script:
+		case DeclId::Kind::Foreign:
+			return declared(r_analysis, p_doc_name, p_path, p_source, result, target);
 		case DeclId::Kind::Engine:
 			return engine_lookup(r_analysis.engine_api(), target);
 		default:
 			return std::nullopt;
 	}
+}
+
+namespace {
+
+// The type of what the innermost name or expression at an offset holds, in
+// a checked syntax tree.
+class TypeAt {
+	const SourceFile &file;
+	const uint32_t offset;
+	const FuncDecl *function = nullptr;
+
+	bool on(uint32_t p_token) const {
+		return p_token < file.tokens.size() && file.tokens[p_token].offset <= offset && offset <= file.tokens[p_token].end();
+	}
+
+public:
+	std::optional<Type> found;
+
+	TypeAt(const SourceFile &p_file, uint32_t p_offset) :
+			file(p_file), offset(p_offset) {}
+
+	template <typename Node>
+	void visit(const Node &p_node) {
+		if constexpr (std::is_same_v<Node, Expr>) {
+			const bool named = p_node.kind == ExprKind::Name || p_node.kind == ExprKind::Member || p_node.kind == ExprKind::Call;
+			const bool within = file.begin(p_node.range) <= offset && offset <= file.end(p_node.range);
+			if (named ? on(p_node.name_token) : within) {
+				found = p_node.type;
+			}
+		} else if constexpr (std::is_same_v<Node, VarDecl> || std::is_same_v<Node, ParamDecl> || std::is_same_v<Node, ConstDecl> || std::is_same_v<Node, InterfaceProperty>) {
+			if (on(p_node.name_token)) {
+				found = p_node.type;
+			}
+		} else if constexpr (std::is_same_v<Node, Stmt> || std::is_same_v<Node, Pattern>) {
+			bool declares = false;
+			if constexpr (std::is_same_v<Node, Stmt>) {
+				declares = p_node.kind == StmtKind::Var || p_node.kind == StmtKind::Const || p_node.kind == StmtKind::For;
+			} else {
+				declares = p_node.kind == PatternKind::Bind;
+			}
+			if (declares && function && p_node.local >= 0 && size_t(p_node.local) < function->locals.size() && on(p_node.name_token)) {
+				found = function->locals[p_node.local].type;
+			}
+		}
+		const FuncDecl *outer = function;
+		if constexpr (std::is_same_v<Node, FuncDecl>) {
+			function = &p_node;
+		}
+		for_each_child(p_node, [&](const auto &p_child) { visit(p_child); });
+		function = outer;
+	}
+};
+
+// The declarations of the classes, structs, interfaces and enums of scripts
+// in a type.
+void declarations_in(const Type &p_type, std::vector<DeclId> &r_found) {
+	if (!p_type.script.empty()) {
+		const bool member = p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::Enum || p_type.kind == TypeKind::PayloadEnum || p_type.is_interface;
+		const DeclId id{ is_script_path(p_type.script) ? DeclId::Kind::Script : DeclId::Kind::Foreign, p_type.script, member ? p_type.interface_name() : std::string() };
+		if (std::find(r_found.begin(), r_found.end(), id) == r_found.end()) {
+			r_found.push_back(id);
+		}
+	}
+	for (const Type &arg : p_type.args) {
+		declarations_in(arg, r_found);
+	}
+}
+
+} // namespace
+
+std::vector<Lookup> type_definition(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset) {
+	const Analysis::Pass pass(r_analysis);
+	ScriptClasses &classes = r_analysis.pass_classes();
+	CompileOptions options;
+	options.path = p_path;
+	options.project = classes.get_project();
+	std::vector<Diagnostic> errors;
+	ClassDecl decl = parse(p_source, errors);
+	TypeAt at(*decl.source, p_offset);
+	classes.begin_compile(p_path, p_source);
+	check(decl, r_analysis.engine_api(), options, errors, classes);
+	at.visit(decl);
+	classes.end_compile();
+	std::vector<DeclId> ids;
+	if (at.found) {
+		declarations_in(*at.found, ids);
+	}
+	std::vector<Lookup> found;
+	const std::shared_ptr<const CompileResult> result = r_analysis.compile(p_path, p_source);
+	for (const DeclId &id : ids) {
+		if (std::optional<Lookup> each = declared(r_analysis, p_doc_name, p_path, p_source, result, id)) {
+			found.push_back(std::move(*each));
+		}
+	}
+	return found;
+}
+
+namespace {
+
+class Outline {
+	const SourceFile &file;
+
+	Symbol make(Symbol::Kind p_kind, const std::string &p_name, const TokenRange &p_range, uint32_t p_name_token) const {
+		Symbol made;
+		made.kind = p_kind;
+		made.name = p_name;
+		made.begin = file.begin(p_range);
+		made.end = file.end(p_range);
+		const bool named = p_name_token < file.tokens.size();
+		made.name_begin = named ? file.tokens[p_name_token].offset : made.begin;
+		made.name_end = named ? file.tokens[p_name_token].end() : made.begin;
+		return made;
+	}
+
+	template <typename Decl>
+	void add(std::vector<Symbol> &r_to, Symbol::Kind p_kind, const std::vector<Decl> &p_decls) const {
+		for (const Decl &decl : p_decls) {
+			r_to.push_back(make(p_kind, decl.name, decl.range, decl.name_token));
+		}
+	}
+
+	void add_functions(std::vector<Symbol> &r_to, const std::vector<FuncDecl> &p_functions, size_t p_prefix) const {
+		for (const FuncDecl &function : p_functions) {
+			// Not the parser's inline accessors, named "@set_x", nor what it
+			// kept of a broken line.
+			if (!function.name.empty() && function.name[0] != '@') {
+				r_to.push_back(make(Symbol::Kind::Method, function.name.substr(p_prefix), function.range, function.name_token));
+			}
+		}
+	}
+
+public:
+	explicit Outline(const SourceFile &p_file) :
+			file(p_file) {}
+
+	void fill(Symbol &r_class, const ClassDecl &p_class) const {
+		std::vector<Symbol> &into = r_class.children;
+		add(into, Symbol::Kind::Variable, p_class.members);
+		add(into, Symbol::Kind::Variable, p_class.static_vars);
+		add(into, Symbol::Kind::Constant, p_class.constants);
+		add(into, Symbol::Kind::Signal, p_class.signals);
+		add_functions(into, p_class.functions, 0);
+		for (const EnumDecl &decl : p_class.enums) {
+			// An unnamed enum's values are constants of the class.
+			Symbol named = make(Symbol::Kind::Enum, decl.name, decl.range, decl.name_token);
+			std::vector<Symbol> &values = decl.name.empty() ? into : named.children;
+			for (const EnumValueDecl &value : decl.values) {
+				values.push_back(make(Symbol::Kind::Value, value.name, value.range, value.name_token));
+				add(values.back().children, Symbol::Kind::Variable, value.fields);
+			}
+			if (!decl.name.empty()) {
+				into.push_back(std::move(named));
+			}
+		}
+		for (const StructDecl &decl : p_class.structs) {
+			into.push_back(make(Symbol::Kind::Struct, decl.name, decl.range, decl.name_token));
+			add(into.back().children, Symbol::Kind::Variable, decl.fields);
+			add_functions(into.back().children, decl.methods, decl.name.size() + 1);
+		}
+		for (const InterfaceDecl &decl : p_class.interfaces) {
+			into.push_back(make(Symbol::Kind::Interface, decl.name, decl.range, decl.name_token));
+			add(into.back().children, Symbol::Kind::Variable, decl.properties);
+			add(into.back().children, Symbol::Kind::Signal, decl.signals);
+			add_functions(into.back().children, decl.methods, 0);
+		}
+		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+			into.push_back(make(Symbol::Kind::Class, inner->name, inner->range, inner->name_token));
+			fill(into.back(), *inner);
+		}
+		for (Symbol &each : into) {
+			std::stable_sort(each.children.begin(), each.children.end(), [](const Symbol &p_a, const Symbol &p_b) { return p_a.begin < p_b.begin; });
+		}
+		std::stable_sort(into.begin(), into.end(), [](const Symbol &p_a, const Symbol &p_b) { return p_a.begin < p_b.begin; });
+	}
+};
+
+} // namespace
+
+Symbol outline(const std::string &p_source, const std::string &p_name) {
+	std::vector<Diagnostic> errors;
+	const ClassDecl decl = parse(p_source, errors);
+	Symbol file;
+	file.name = decl.class_name.empty() ? p_name : decl.class_name;
+	file.end = uint32_t(p_source.size());
+	if (decl.class_name_token < decl.source->tokens.size()) {
+		file.name_begin = decl.source->tokens[decl.class_name_token].offset;
+		file.name_end = decl.source->tokens[decl.class_name_token].end();
+	}
+	Outline(*decl.source).fill(file, decl);
+	return file;
 }
 
 namespace {

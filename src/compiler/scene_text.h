@@ -4,6 +4,7 @@
 #include "compiler/references.h"
 
 #include <cstdint>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -53,5 +54,10 @@ struct LocatedNames {
 	int line = 0;
 };
 LocatedNames locate_names(const std::string &p_text, const std::set<StoredName> &p_names, bool p_signal, const std::string &p_old, const std::string &p_new);
+
+// Where the text of a scene declares the node at `p_node`, its path from the
+// root, "." for the root: the offset of its [node] header; nullopt where it
+// has none, as for a node inside a scene it instances.
+std::optional<uint32_t> node_header(const std::string &p_text, const std::string &p_node);
 
 } // namespace petrichor::compiler

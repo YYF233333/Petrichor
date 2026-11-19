@@ -502,4 +502,17 @@ LocatedNames locate_names(const std::string &p_text, const std::set<StoredName> 
 	return located;
 }
 
+std::optional<uint32_t> node_header(const std::string &p_text, const std::string &p_node) {
+	StoredName name;
+	name.node = true;
+	name.section = p_node;
+	Reader reader(p_text);
+	for (const Section &section : reader.sections()) {
+		if (holds(p_text, section, name)) {
+			return section.begin;
+		}
+	}
+	return std::nullopt;
+}
+
 } // namespace petrichor::compiler

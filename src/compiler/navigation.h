@@ -45,14 +45,58 @@ struct Lookup {
 	std::string type;
 	DocComment comment;
 	// The file that declares it and the line, from 1; none for the engine's.
+	// The bytes of its name there, where it has one.
 	std::string path;
 	int line = 0;
+	uint32_t begin = 0;
+	uint32_t end = 0;
+	// Of a member of the engine, which the extension has no documentation of:
+	// its type, or a method's or a signal's signature, as completion's call
+	// hint shows it (spec §10.2).
+	std::string signature;
 };
 
 // What the name at byte `p_offset` of the script at `p_path` refers to, the
 // script compiled from `p_source`; nullopt where nothing is, or what the
 // editor cannot show, such as a node of a scene.
 std::optional<Lookup> lookup(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset);
+
+// The reference whose name holds byte `p_offset` or ends at it.
+const Reference *reference_at(const CompileResult &p_result, uint32_t p_offset);
+
+// Where the types of what the name or the expression at byte `p_offset`
+// holds are declared, as lookup() finds a class: the classes, structs,
+// interfaces and enums of this language and the classes of others in the
+// type, also inside T? and containers, as rust-analyzer goes to each
+// (ide/src/goto_type_definition.rs). The script is checked from `p_source`.
+std::vector<Lookup> type_definition(Analysis &r_analysis, const DocName &p_doc_name, const std::string &p_path, const std::string &p_source, uint32_t p_offset);
+
+// A declaration in the outline of a script: its bytes and its name's, and
+// those it declares inside it, in order.
+struct Symbol {
+	enum class Kind {
+		Class,
+		Interface,
+		Struct,
+		Enum,
+		Value, // Of an enum.
+		Constant,
+		Variable, // Also a field, or a property of an interface.
+		Method,
+		Signal,
+	};
+	Kind kind = Kind::Class;
+	std::string name;
+	uint32_t begin = 0;
+	uint32_t end = 0;
+	uint32_t name_begin = 0;
+	uint32_t name_end = 0;
+	std::vector<Symbol> children;
+};
+
+// The file's class with what it declares, parsed from `p_source`, named
+// `p_name` unless it has a class_name.
+Symbol outline(const std::string &p_source, const std::string &p_name);
 
 // A place that refers to what a name declares, as finding references lists it
 // (spec §13.2) and renaming changes it (§13.3).
