@@ -1566,11 +1566,20 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 			scripts.push_back(loaded);
 		}
 	}
+	std::set<std::string> reloaded;
 	{
 		const compiler::Analysis::Pass pass(analysis());
 		for (const Ref<Script> &script : scripts) {
 			script->reload(true);
+			reloaded.insert(to_utf8(script->get_path()));
 		}
+	}
+	// Compiling one of them may have had the scene index read a resource with
+	// the placeholder of another still to reload, which gave it the members
+	// of the old text.
+	if (!reloaded.empty()) {
+		SceneIndex::get().scripts_reloaded(reloaded);
+		disk_changed();
 	}
 	for (const std::string &file : others) {
 		const String path = to_godot(file);

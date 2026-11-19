@@ -509,6 +509,16 @@ void SceneIndex::disk_changed() const {
 	changes++;
 }
 
+void SceneIndex::scripts_reloaded(const std::set<std::string> &p_scripts) const {
+	std::lock_guard<std::mutex> lock(mutex);
+	for (auto entry = scenes.begin(); entry != scenes.end();) {
+		const auto &files = entry->second->files;
+		const bool read = std::any_of(files.begin(), files.end(), [&](const auto &p_file) { return p_scripts.count(p_file.first) > 0; });
+		entry = read ? scenes.erase(entry) : std::next(entry);
+	}
+	changes++;
+}
+
 std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_path) const {
 	const String path = to_godot(p_path);
 	std::shared_ptr<const Entry> cached;

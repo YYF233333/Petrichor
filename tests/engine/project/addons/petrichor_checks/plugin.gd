@@ -860,10 +860,20 @@ func _check_rename_unsaveable() -> void:
 	_scanned()
 
 
+# The warnings the engine reports while it is added.
+class WarningLog extends Logger:
+	var warnings: Array[String] = []
+
+	func _log_error(_function: String, _file: String, _line: int, code: String, rationale: String, _editor_notify: bool, error_type: int, _script_backtraces: Array[ScriptBacktrace]) -> void:
+		if error_type == ERROR_TYPE_WARNING:
+			warnings.append(code if rationale.is_empty() else rationale)
+
+
 # Architecture §2.3: a rename reads a loaded resource that stores the member
 # again against the scripts' new texts, also one it holds unsaved, so that
 # Ctrl+S, which saves the resource before the held scripts
-# (editor/editor_node.cpp:2518-2526; ed1daf0), keeps the value.
+# (editor/editor_node.cpp:2518-2526; ed1daf0), keeps the value. Finding
+# references after it lists what it changed, so it warns of nothing.
 func _check_rename_loaded() -> void:
 	var dir := "res://editor_rename_loaded"
 	var weapon := dir + "/weapon.pet"
@@ -881,10 +891,14 @@ func _check_rename_loaded() -> void:
 	EditorInterface.open_scene_from_path(scene)
 	EditorInterface.edit_script(load(user))
 	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var log := WarningLog.new()
+	OS.add_logger(log)
 	_rename(code, 8, 16, "shot_spread")
 	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
 	apply.pressed.emit()
 	await get_tree().process_frame
+	OS.remove_logger(log)
+	_check(log.warnings.is_empty(), "a rename warns of nothing when it changed what finding references lists after it: %s" % [log.warnings])
 	var value = load(blaster).get("shot_spread")
 	EditorInterface.save_scene()
 	_check(value == 1.0 and FileAccess.get_file_as_string(blaster).contains("\nshot_spread = 1.0\n") and FileAccess.get_file_as_string(weapon).contains("shot_spread"), "a loaded resource holds its value under the new name, which saving keeps: %s %s" % [value, FileAccess.get_file_as_string(blaster).c_escape()])

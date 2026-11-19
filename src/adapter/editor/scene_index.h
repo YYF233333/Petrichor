@@ -82,6 +82,10 @@ public:
 	// Files changed on disk, which ones unknown: what was read from them is
 	// checked again, by their modification times.
 	void disk_changed() const;
+	// Loaded scripts took new declarations, which no file's time tells: what
+	// was read with their placeholders, as a resource's stored values, is read
+	// again.
+	void scripts_reloaded(const std::set<std::string> &p_scripts) const;
 	// The paths of the scenes that the file at `p_file` embeds.
 	std::vector<std::string> embedded_scenes(const std::string &p_file) const;
 
