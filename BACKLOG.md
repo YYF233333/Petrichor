@@ -19,7 +19,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 0.2, due 2026-11-29. Its list and date are set with the owner (architecture §5, step 11).
 
 - With the owner: the invitations to review 0.1.
-- The LSP server and the VS Code extension (architecture §2.4).
 
 ## Language
 
