@@ -907,11 +907,6 @@ std::map<std::string, std::string> held;
 std::map<std::string, std::string> held_bases;
 std::set<std::string> client_scripts;
 
-std::string without_cr(std::string p_text) {
-	p_text.erase(std::remove(p_text.begin(), p_text.end(), '\r'), p_text.end());
-	return p_text;
-}
-
 String dropped_message(const std::string &p_path) {
 	return vformat("%s changed after a refactoring left a change to it unsaved, so that change is dropped.", to_godot(p_path));
 }
@@ -935,6 +930,11 @@ std::map<std::string, Ref<PackedScene>> unsaved_scenes() {
 }
 
 } // namespace
+
+std::string without_cr(std::string p_text) {
+	p_text.erase(std::remove(p_text.begin(), p_text.end(), '\r'), p_text.end());
+	return p_text;
+}
 
 compiler::Workspace &workspace() {
 	static compiler::Workspace workspace(SceneIndex::get());
@@ -1033,7 +1033,8 @@ CodeEdit *open_code_edit(const std::string &p_path) {
 void hold_script(const std::string &p_path, std::string p_text) {
 	compiler::Workspace &open = workspace();
 	const bool in_client = client_scripts.count(p_path);
-	if (!in_client && SceneIndex::get().script_source(p_path) == p_text) {
+	const std::optional<std::string> disk = SceneIndex::get().script_source(p_path);
+	if (!in_client && disk && without_cr(*disk) == without_cr(p_text)) {
 		drop_held(p_path);
 		return;
 	}

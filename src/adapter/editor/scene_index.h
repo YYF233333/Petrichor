@@ -88,6 +88,10 @@ public:
 	static const SceneIndex &get();
 };
 
+// A text as a tab of the script editor holds it, which drops carriage returns
+// (scene/gui/text_edit.cpp:9253-9254; ed1daf0), as from a file with CRLF.
+std::string without_cr(std::string p_text);
+
 // The project as the editor has it (architecture §2.1), over SceneIndex.
 // Outside a pass of the analysis, it first takes in the text of each script
 // open in the script editor that changed.

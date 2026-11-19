@@ -243,9 +243,8 @@ void apply_edits(CodeEdit *p_code_edit, const std::string &p_source, const std::
 // Whether the tab of the script at `p_path` has the text that edits were
 // computed on; not when the LSP client has it open with another (architecture
 // §2.4), which it tells.
-bool tab_has(const CodeEdit *p_code_edit, const std::string &p_path, std::string p_text) {
-	p_text.erase(std::remove(p_text.begin(), p_text.end(), '\r'), p_text.end());
-	if (to_utf8(p_code_edit->get_text()) == p_text) {
+bool tab_has(const CodeEdit *p_code_edit, const std::string &p_path, const std::string &p_text) {
+	if (to_utf8(p_code_edit->get_text()) == without_cr(p_text)) {
 		return true;
 	}
 	EditorInterface::get_singleton()->get_editor_toaster()->push_toast(vformat("%s: its text in the LSP client differs from its tab in Godot, so nothing was changed.", to_godot(p_path)), EditorToaster::SEVERITY_WARNING);
@@ -1490,11 +1489,8 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 		}
 		apply_edits(code_edit, text.first, plain);
 		refactored[code_edit->get_instance_id()] = code_edit->get_version();
-		// Back to its file, as an undo leaves it, the tab is saved. The tab has
-		// no carriage returns (scene/gui/text_edit.cpp:9253-9254; ed1daf0).
-		std::string saved = SceneIndex::get().script_source(file).value_or(std::string());
-		saved.erase(std::remove(saved.begin(), saved.end(), '\r'), saved.end());
-		if (saved == text.second) {
+		// Back to its file, as an undo leaves it, the tab is saved.
+		if (without_cr(SceneIndex::get().script_source(file).value_or(std::string())) == text.second) {
 			code_edit->tag_saved_version();
 		}
 	}

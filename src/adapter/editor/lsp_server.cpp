@@ -1184,14 +1184,15 @@ Dictionary LspServer::location(const std::string &p_path, const std::string &p_t
 // start, annotated to need confirmation. None where a file that the client
 // does not have open has content in Godot that is not saved, a script's or an
 // open scene's, which `r_unsaved` lists: the client edits the file
-// (architecture §2.4).
+// (architecture §2.4). A tab's text, without carriage returns, is compared
+// with its file's without them; the positions are the same in both.
 Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, PackedStringArray &r_unsaved, const std::set<std::pair<std::string, uint32_t>> &p_confirm) const {
 	const PackedStringArray scenes = EditorInterface::get_singleton()->get_unsaved_scenes();
 	Array changes;
 	for (const auto &[file, edits] : p_edits) {
 		const std::string text = workspace().script_source(file).value_or(std::string());
 		const auto open = documents.find(file);
-		if (open == documents.end() && (text != SceneIndex::get().script_source(file).value_or(std::string()) || scenes.has(to_godot(file)))) {
+		if (open == documents.end() && (without_cr(text) != without_cr(SceneIndex::get().script_source(file).value_or(std::string())) || scenes.has(to_godot(file)))) {
 			r_unsaved.push_back(to_godot(file));
 			continue;
 		}

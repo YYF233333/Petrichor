@@ -916,6 +916,10 @@ def run_lsp_group(godot):
     with tempfile.TemporaryDirectory() as tmp:
         project = Path(tmp).resolve() / "lsp 项目"
         shutil.copytree(LSP, project)
+        # With CRLF, as a Windows checkout may write it; its tab in Godot has
+        # no carriage returns.
+        gunner = project / "gunner.pet"
+        gunner.write_bytes(gunner.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
         (project / "bin").mkdir()
         shutil.copy(PROJECT / host_library("editor"), project / host_library("editor"))
         shutil.copy(PROJECT / "petrichor.gdextension", project)
