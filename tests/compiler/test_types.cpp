@@ -58,6 +58,11 @@ TEST_CASE("a class names the constants and enums of its engine base by bare name
 	CHECK(has_error(ambiguous, "\"PROCESS_MODE_ALWAYS\" is both a name of Node"));
 	CHECK(has_error("extends RefCounted\nenum ProcessMode { A }\nclass Inner extends Node:\n\tvar m: ProcessMode\n", "\"ProcessMode\" is both a name of Node"));
 	CHECK(errors_of("extends RefCounted\nclass Inner extends Node:\n\tfunc f() -> bool:\n\t\treturn PROCESS_MODE_ALWAYS == ProcessMode(3)\n").empty());
+	// So is a property or a signal, which self names.
+	const std::string outer = "extends RefCounted\nconst PROCESS_MODE_ALWAYS = 9\nconst position := Vector2(7, 0)\nconst ready := 1\nclass Inner extends Node2D:\n\tfunc f() -> float:\n\t\t";
+	CHECK(has_error(outer + "return position.x\n", "\"position\" is both a name of Node2D"));
+	CHECK(has_error(outer + "print(ready)\n\t\treturn 0.0\n", "write self.ready or"));
+	CHECK(errors_of(outer + "print(self.ready, self.PROCESS_MODE_ALWAYS)\n\t\treturn self.position.x\n").empty());
 }
 
 TEST_CASE("a member or a function is not named as an engine class or a built-in type (spec §4.1)") {

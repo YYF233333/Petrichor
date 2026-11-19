@@ -375,11 +375,12 @@ bool Checker::declares_in_script(const std::string &p_name) const {
 
 // A name of the engine class this one extends, used bare in an inner class
 // whose classes around it declare it too: GDScript would take theirs, this
-// language the inherited one, so it is an error (spec §4.1).
-bool Checker::refuse_ambiguous_engine_name(const std::string &p_name, const TokenRange &p_at) {
+// language the inherited one, so it is an error (spec §4.1). The message
+// writes the inherited one as Node2D.x, or with `p_of_self` as self.x.
+bool Checker::refuse_ambiguous_engine_name(const std::string &p_name, const TokenRange &p_at, bool p_of_self) {
 	for (Checker *around = outer_checker; around; around = around->outer_checker) {
 		if (around->declares_in_script(p_name)) {
-			error(p_at, "\"" + p_name + "\" is both a name of " + cls.native_base + ", which " + display_name(cls, options.path) + " extends, and one of " + display_name(around->cls, around->path()) + "; write " + cls.native_base + "." + p_name + " or " + display_name(around->cls, around->path()) + "." + p_name + ".");
+			error(p_at, "\"" + p_name + "\" is both a name of " + cls.native_base + ", which " + display_name(cls, options.path) + " extends, and one of " + display_name(around->cls, around->path()) + "; write " + (p_of_self ? std::string("self") : cls.native_base) + "." + p_name + " or " + display_name(around->cls, around->path()) + "." + p_name + ".");
 			return true;
 		}
 	}

@@ -900,7 +900,7 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		return set(r_expr, cls.owner_type);
 	}
 	if (const auto property = engine.find_property(cls.native_base, r_expr.text)) {
-		if (refuse_in_static(r_expr, r_expr.text)) {
+		if ((!r_expr.base && refuse_ambiguous_engine_name(r_expr.text, r_expr.range, true)) || refuse_in_static(r_expr, r_expr.text)) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		r_expr.target = Target::SelfProperty;
@@ -935,7 +935,7 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		return set(r_expr, Type::signal(param_types(signal.params)));
 	}
 	if (const auto signal = engine.find_signal(cls.native_base, r_expr.text)) {
-		if (refuse_in_static(r_expr, r_expr.text)) {
+		if ((!r_expr.base && refuse_ambiguous_engine_name(r_expr.text, r_expr.range, true)) || refuse_in_static(r_expr, r_expr.text)) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		r_expr.target = Target::SelfSignal;
@@ -948,7 +948,7 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		}
 		return engine_method_value(r_expr, *method);
 	}
-	if ((engine.find_constant(cls.native_base, r_expr.text) || engine.find_enum(cls.native_base, r_expr.text)) && refuse_ambiguous_engine_name(r_expr.text, r_expr.range)) {
+	if (!r_expr.base && (engine.find_constant(cls.native_base, r_expr.text) || engine.find_enum(cls.native_base, r_expr.text)) && refuse_ambiguous_engine_name(r_expr.text, r_expr.range)) {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	return engine_class_value(r_expr, cls.native_base);
