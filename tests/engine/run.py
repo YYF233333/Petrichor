@@ -1404,8 +1404,9 @@ def check_rename(client, project, uri):
 
 
 def check_rename_written(client, project, uri, editor):
-    """A rename the client writes, as VS Code saves it: Godot's loaded
-    blaster.tres holds the value under the new name, and saving arena.tscn,
+    """A rename the client writes, the resource saved seconds before the
+    scripts: Godot's loaded blaster.tres holds the value under the new
+    name, and saving arena.tscn,
     open in Godot with gunner.pet in a tab, keeps its defaults, its
     connection and the resource's value."""
     weapon = uri("weapon.pet")
@@ -1424,18 +1425,29 @@ def check_rename_written(client, project, uri, editor):
 
     renamed = client.request("textDocument/rename", {"textDocument": {"uri": weapon}, "position": lsp_position(texts["weapon.pet"], texts["weapon.pet"].index("spread")), "newName": "shot_spread"})
     changes = [change for change in edits(renamed["result"]) if change[0] in texts] if renamed and "result" in renamed else []
+    # The client applies the edit to the scripts' buffers, and the user saves
+    # the resource first and the scripts seconds later, as with VS Code's
+    # refactoring auto-save off.
+    written = {}
     for name, _, file_edits in changes:
         text = texts[name]
         for edit in reversed(file_edits):
             text = text[: lsp_index(text, edit["range"]["start"])] + edit["newText"] + text[lsp_index(text, edit["range"]["end"]) :]
-        (project / name).write_text(text, encoding="utf-8", newline="")
-        if name == "weapon.pet":
-            client.notify("textDocument/didChange", {"textDocument": {"uri": weapon, "version": 2}, "contentChanges": [{"text": text}]})
-    for name in ["weapon.pet", "gunner.pet"]:
-        client.notify("textDocument/didSave", {"textDocument": {"uri": uri(name)}})
-    client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri(name), "type": 2} for name in texts]})
-    client.notify("textDocument/didClose", {"textDocument": {"uri": weapon}})
-    time.sleep(2)
+        written[name] = text
+    gunner = uri("gunner.pet")
+    if changes:
+        client.notify("textDocument/didChange", {"textDocument": {"uri": weapon, "version": 2}, "contentChanges": [{"text": written["weapon.pet"]}]})
+        client.open(gunner, written["gunner.pet"])
+        (project / "blaster.tres").write_text(written["blaster.tres"], encoding="utf-8", newline="")
+        client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri("blaster.tres"), "type": 2}]})
+        time.sleep(3)
+        for name in ["weapon.pet", "gunner.pet"]:
+            (project / name).write_text(written[name], encoding="utf-8", newline="")
+            client.notify("textDocument/didSave", {"textDocument": {"uri": uri(name)}})
+        client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri(name), "type": 2} for name in ["weapon.pet", "gunner.pet"]]})
+    for document in [weapon, gunner]:
+        client.notify("textDocument/didClose", {"textDocument": {"uri": document}})
+    time.sleep(1)
     (project / "check").touch()
     saved = editor.wait_for(b"lsp check: saved")
     held = re.findall(r"lsp check: (\S+) (\S+)", editor.output.decode("utf-8", "replace"))
@@ -1454,7 +1466,6 @@ def check_rename_written(client, project, uri, editor):
 
     # A refactoring in Godot, its edits computed on the client's text, of a
     # script whose tab has another text changes nothing.
-    gunner = uri("gunner.pet")
     other = "# From the client.\n" + (project / "gunner.pet").read_text(encoding="utf-8")
     client.open(gunner, other)
     start = len(other[: other.index("var weapon") + 4].encode())

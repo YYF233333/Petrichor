@@ -1545,12 +1545,23 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 			code_edit->set_caret_column(column);
 			code_edit->tag_saved_version();
 		}
-		const String current = to_godot(workspace().script_source(file).value_or(std::string()));
-		if (current.replace("\r", "") == text) {
+		if (without_cr(workspace().script_source(file).value_or(std::string())) == to_utf8(text)) {
 			written(path);
 		}
-		const Ref<Script> loaded = ResourceLoader::get_singleton()->get_cached_ref(path);
-		if (loaded.is_valid()) {
+	}
+	// Before what else is loaded is read again, also the scripts that the LSP
+	// client or a refactoring has unsaved texts of, which carry a rename the
+	// client has not saved all of yet.
+	std::set<std::string> taking = others.empty() ? std::set<std::string>() : overlaid_scripts();
+	for (const std::string &file : p_files) {
+		if (is_script(file)) {
+			taking.insert(file);
+		}
+	}
+	for (const std::string &file : taking) {
+		const String current = to_godot(workspace().script_source(file).value_or(std::string()));
+		const Ref<Script> loaded = ResourceLoader::get_singleton()->get_cached_ref(to_godot(file));
+		if (loaded.is_valid() && loaded->get_source_code() != current) {
 			loaded->set_source_code(current);
 			scripts.push_back(loaded);
 		}

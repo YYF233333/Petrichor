@@ -49,9 +49,6 @@ constexpr uint64_t INITIALIZE_WAIT = 10000;
 // In ms, before a connection is told that it is refused: the client before it
 // may be leaving, which is seen only once what it sent last has been read.
 constexpr uint64_t REFUSE_AFTER = 1000;
-// In ms after the client last wrote a file of a rename, when it has not
-// written them all: it saves them one by one, or leaves some out.
-constexpr uint64_t RENAME_SETTLE = 2000;
 
 #if defined(_WIN32) || defined(__APPLE__)
 constexpr bool FOLDS_CASE = true; // As their file systems do by default.
@@ -471,12 +468,6 @@ uint32_t completion_start(const std::string &p_text, uint32_t p_offset, std::str
 	return uint32_t(start);
 }
 
-// The bytes of a file, none if it cannot be read.
-std::string bytes_of(const std::string &p_path) {
-	const PackedByteArray bytes = FileAccess::get_file_as_bytes(to_godot(p_path));
-	return bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
-}
-
 // Why an edit of files that Godot has unsaved is refused.
 String unsaved_reason(const PackedStringArray &p_unsaved) {
 	return vformat("Godot has unsaved changes to %s. Save them in Godot first.", String(", ").join(p_unsaved));
@@ -674,9 +665,6 @@ void LspServer::step() {
 	client.read = 0;
 	if (state != State::Running || client.closing) {
 		return;
-	}
-	if (written_at > 0 && start - written_at >= RENAME_SETTLE) {
-		finish_rename();
 	}
 	// Once the workspace has stayed for as long as the script editor waits
 	// before it checks a script, or the editor has taken in a change; a script
@@ -884,68 +872,60 @@ void LspServer::notification(const String &p_method, const Dictionary &p_params)
 		closed(p_params);
 	} else if (p_method == "textDocument/didSave") {
 		// A scene or a resource file too, as renaming changes them.
-		const Variant uri = dictionary(p_params.get("textDocument", Variant())).get("uri", Variant());
-		const std::string path = project_path(uri);
-		if (path.empty() || rename_written(path)) {
-			return;
-		}
-		if (!script_path(uri).empty()) {
-			saved(path);
-		} else {
-			files_changed();
+		const std::string path = project_path(dictionary(p_params.get("textDocument", Variant())).get("uri", Variant()));
+		if (!path.empty()) {
+			files_written({ path }, false);
 		}
 	} else if (p_method == "workspace/didChangeWatchedFiles") {
 		const Variant changes = p_params.get("changes", Variant());
 		const Array list = changes.get_type() == Variant::ARRAY ? Array(changes) : Array();
+		std::set<std::string> written;
 		bool others = false;
 		for (int64_t i = 0; i < list.size(); i++) {
-			const std::string path = project_path(dictionary(list[i]).get("uri", Variant()));
-			others = (!path.empty() && !rename_written(path)) || others;
+			const Dictionary change = dictionary(list[i]);
+			const std::string path = project_path(change.get("uri", Variant()));
+			if (path.empty()) {
+				continue;
+			}
+			// LSP 3.17, FileChangeType: one changed, not one created or deleted.
+			if (integer(change.get("type", Variant()), 0, 3) == std::optional<int64_t>(2)) {
+				written.insert(path);
+			} else {
+				others = true;
+			}
 		}
-		if (others) {
-			files_changed();
-		}
+		files_written(written, others);
 	}
 }
 
-// A file of the rename answered last, which the client wrote. They are taken
-// in once all are written, so that the scripts reload against each other's
-// new texts, and what is loaded of the scenes and the resources after them
-// (PetEditorPlugin::reload_written()). Until then the analysis reads the disk.
-bool LspServer::rename_written(const std::string &p_path) {
-	if (!renamed.count(p_path)) {
-		return false;
-	}
-	disk_changed();
-	written_at = Time::get_singleton()->get_ticks_msec();
-	if (std::all_of(renamed.begin(), renamed.end(), [](const auto &p_file) { return bytes_of(p_file.first) != p_file.second; })) {
-		finish_rename();
-	}
-	return true;
-}
-
-// The files that the client wrote; those it did not are left as they are.
-void LspServer::finish_rename() {
-	std::set<std::string> files;
-	for (const auto &[file, before] : renamed) {
-		if (bytes_of(file) != before) {
-			files.insert(file);
+// Files the client wrote, or that changed on disk. A script, a scene or a
+// resource file in the text format is taken in as after a refactoring
+// (PetEditorPlugin::reload_written()): the loaded scripts take the workspace's
+// texts, the client's for those it has open, before what is loaded of the
+// others is read again, so that whatever the order the client saves a
+// rename's files in, nothing is read against a script's old members. Each
+// script's bytecode is written (script_written()). Other files, and files
+// added or removed, as the editor scans when it has focus again.
+void LspServer::files_written(const std::set<std::string> &p_files, bool p_scan) {
+	std::set<std::string> taken;
+	for (const std::string &file : p_files) {
+		const std::string extension = lower_ascii(file.substr(file.find_last_of("./") + 1));
+		if (extension == "pet" || extension == "tscn" || extension == "tres") {
+			taken.insert(file);
+		} else {
+			p_scan = true;
 		}
 	}
-	renamed.clear();
-	written_at = 0;
-	editor_written(files);
-	for (const std::string &file : files) {
+	editor_written(taken);
+	for (const std::string &file : taken) {
 		if (compiler::is_script_path(file)) {
 			script_written(to_godot(file), sessions);
 		}
 	}
-	if (scan_waits) {
-		scan_waits = false;
+	if (p_scan) {
 		files_changed();
 	}
 }
-
 // As the editor scans when it has focus again: a file loaded that changed is
 // read again (editor/editor_node.cpp:1049-1058, 1291-1323,
 // editor/file_system/editor_file_system.cpp:1597-1607, 1018-1025, 1076-1078;
@@ -954,12 +934,6 @@ void LspServer::finish_rename() {
 // the editor, which asks once it has focus (architecture §2.4).
 void LspServer::files_changed() {
 	disk_changed();
-	// A scan while the client writes a rename would read a scene or a resource
-	// against the scripts as loaded.
-	if (written_at > 0) {
-		scan_waits = true;
-		return;
-	}
 	EditorInterface::get_singleton()->get_resource_filesystem()->scan_sources();
 }
 
@@ -1064,17 +1038,6 @@ void LspServer::release(const std::string &p_path) {
 	}
 }
 
-// As the editor's own save of a script (architecture §2.4): the editor's file
-// system takes the file in, and a loaded script that no tab has reads it again
-// (editor/file_system/editor_file_system.cpp:2259-2271, 2292-2309; ed1daf0),
-// and its bytecode is written (script_written()). Tabs are left to the editor,
-// which reloads or asks once it has focus again (architecture §2.4).
-void LspServer::saved(const std::string &p_path) {
-	disk_changed();
-	EditorInterface::get_singleton()->get_resource_filesystem()->update_file(to_godot(p_path));
-	script_written(to_godot(p_path), sessions);
-}
-
 // A text that a refactoring in the editor holds for a script the client has
 // open goes to the client as an unsaved change of its own (architecture §2.3,
 // §2.4), at the version it was made from; once each.
@@ -1174,10 +1137,6 @@ void LspServer::disconnect() {
 	const bool had = !documents.empty();
 	documents.clear();
 	offers.clear();
-	if (written_at > 0) {
-		finish_rename();
-	}
-	renamed.clear();
 	client = Connection();
 	state = State::Waiting;
 	applies_edits = false;
@@ -1791,20 +1750,6 @@ Variant LspServer::on_rename(const Dictionary &p_params) {
 	PackedStringArray unsaved;
 	const Dictionary edit = edit_of(edits, unsaved, candidates);
 	failure = unsaved.is_empty() ? String() : unsaved_reason(unsaved);
-	if (!unsaved.is_empty()) {
-		return edit;
-	}
-	// The files it surely changes, which the client is to write; not those
-	// with candidates only, which the user may leave out.
-	if (written_at > 0) {
-		finish_rename();
-	}
-	renamed.clear();
-	for (const compiler::RenameEdit &each : found.edits) {
-		if (!each.occurrence.candidate) {
-			renamed.emplace(each.occurrence.file, bytes_of(each.occurrence.file));
-		}
-	}
 	return edit;
 }
 

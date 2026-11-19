@@ -1068,6 +1068,14 @@ const std::map<std::string, std::string> &held_scripts() {
 	return held;
 }
 
+std::set<std::string> overlaid_scripts() {
+	std::set<std::string> scripts = client_scripts;
+	for (const auto &[path, text] : held) {
+		scripts.insert(path);
+	}
+	return scripts;
+}
+
 void set_client_script(const std::string &p_path, std::string p_text) {
 	compiler::Workspace &open = workspace();
 	client_scripts.insert(p_path);

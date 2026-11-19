@@ -113,6 +113,8 @@ void drop_held(const std::string &p_path);
 bool keep_held(const std::string &p_path, const std::string &p_text, godot::String &r_why);
 // The texts held, by path.
 const std::map<std::string, std::string> &held_scripts();
+// The scripts whose text the LSP client has open or a refactoring holds.
+std::set<std::string> overlaid_scripts();
 // The text of a script open in the LSP client, which the workspace takes over
 // its tab's and the one held, until the client closes it (architecture §2.4).
 // A script held while the client has it open is held all the same.

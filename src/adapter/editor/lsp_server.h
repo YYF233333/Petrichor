@@ -58,12 +58,6 @@ class LspServer {
 	std::function<void()> editor_changed;
 	std::function<void(const std::set<std::string> &)> editor_written;
 	uint64_t told = 0; // The workspace's revision that editor_changed() was last called at.
-	// The files of the last rename answered, each with its bytes before, until
-	// the client has written them all (architecture §2.4); when it last wrote
-	// one, in ms; and whether a scan waits for them.
-	std::map<std::string, std::string> renamed;
-	uint64_t written_at = 0;
-	bool scan_waits = false;
 	Connection client;
 	std::vector<Connection> refused; // Other clients, each told so on its first request.
 	State state = State::Waiting;
@@ -93,10 +87,8 @@ class LspServer {
 	void changed(const godot::Dictionary &p_params);
 	void closed(const godot::Dictionary &p_params);
 	void release(const std::string &p_path);
-	void saved(const std::string &p_path);
 	void files_changed();
-	bool rename_written(const std::string &p_path);
-	void finish_rename();
+	void files_written(const std::set<std::string> &p_files, bool p_scan);
 	void offer_held(const std::string &p_path, Document &r_document);
 	void publish(const std::string &p_path, Document &r_document);
 	void notify(const char *p_method, const godot::Dictionary &p_params);
