@@ -1,0 +1,34 @@
+## A tour of what the language server answers.
+class_name Tour extends Node
+
+const User = preload("user.pet")
+
+signal hit(amount: int)
+
+enum State {IDLE, RUN}
+
+
+struct Shot:
+	var damage: int
+
+
+@export pub var speed := 5.0
+var shots: Array[Shot] = []
+
+
+## Moves by [param amount].
+func move(amount: float, player: Player) -> void:
+	var 雨 := "😀"
+	print(雨, player.speed, player.armor, User.new().f)
+	move(maxf(speed, 2.0), player)
+	$Head/Camera.rotate_y(amount)
+	speed = maxf(speed, 1.0)
+	if shots:
+		pass
+	while speed:
+		pass
+
+
+func count() -> int:
+	var speed := 2
+	return speed

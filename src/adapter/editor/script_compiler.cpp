@@ -233,6 +233,10 @@ std::optional<compiler::Lookup> lookup_name(const String &p_path, const std::str
 	return compiler::lookup(analysis(), file_doc_name, to_utf8(p_path), p_source, p_offset);
 }
 
+std::vector<compiler::Lookup> type_definition(const std::string &p_path, const std::string &p_source, uint32_t p_offset) {
+	return compiler::type_definition(analysis(), file_doc_name, p_path, p_source, p_offset);
+}
+
 namespace {
 
 std::vector<std::string> other_scripts() {
@@ -267,6 +271,47 @@ std::optional<uint32_t> declaration_offset(const std::string &p_path, const comp
 
 compiler::Completion completion(const String &p_path, const std::string &p_source) {
 	return compiler::complete(analysis(), to_utf8(p_path), p_source);
+}
+
+std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_errors, const std::string &p_path) {
+	const std::vector<compiler::Diagnostic> placed = analysis().placed_errors(p_path);
+	p_errors.insert(p_errors.end(), placed.begin(), placed.end());
+	std::vector<compiler::Diagnostic> found;
+	for (compiler::Diagnostic &error : p_errors) {
+		for (compiler::Fix &fix : error.fixes) {
+			for (compiler::Fix::Edit &edit : fix.edits) {
+				edit.file = edit.file.empty() ? p_path : edit.file;
+			}
+		}
+		const auto elsewhere_too = [&](const compiler::Fix &p_fix) {
+			return !error.file.empty() && std::any_of(p_fix.edits.begin(), p_fix.edits.end(), [&](const compiler::Fix::Edit &p_edit) { return p_edit.file != p_path; });
+		};
+		error.fixes.erase(std::remove_if(error.fixes.begin(), error.fixes.end(), elsewhere_too), error.fixes.end());
+		if (!error.fixes.empty()) {
+			found.push_back(std::move(error));
+		}
+	}
+	std::stable_sort(found.begin(), found.end(), [](const compiler::Diagnostic &p_a, const compiler::Diagnostic &p_b) { return p_a.begin < p_b.begin; });
+	return found;
+}
+
+bool same_fix(const compiler::Fix &p_a, const compiler::Fix &p_b) {
+	return p_a.title == p_b.title && std::equal(p_a.edits.begin(), p_a.edits.end(), p_b.edits.begin(), p_b.edits.end(), [](const compiler::Fix::Edit &p_x, const compiler::Fix::Edit &p_y) {
+		return p_x.file == p_y.file && p_x.change.begin == p_y.change.begin && p_x.change.end == p_y.change.end && p_x.change.new_text == p_y.change.new_text;
+	});
+}
+
+bool fixes_all(const std::vector<compiler::Diagnostic> &p_fixable, const std::string &p_path, compiler::FixKind p_kind) {
+	std::vector<const compiler::Fix *> found;
+	for (const compiler::Diagnostic &error : p_fixable) {
+		for (const compiler::Fix &fix : error.fixes) {
+			const bool here = error.file.empty() && std::all_of(fix.edits.begin(), fix.edits.end(), [&](const compiler::Fix::Edit &p_edit) { return p_edit.file == p_path; });
+			if (fix.kind == p_kind && here && std::none_of(found.begin(), found.end(), [&](const compiler::Fix *p_found) { return same_fix(*p_found, fix); })) {
+				found.push_back(&fix);
+			}
+		}
+	}
+	return found.size() > 1;
 }
 
 namespace {

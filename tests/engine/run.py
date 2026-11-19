@@ -881,7 +881,8 @@ class LspClient:
         self.notify("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": "petrichor", "version": version, "text": text}})
 
     def initialize(self):
-        return self.request("initialize", {"capabilities": {"workspace": {"applyEdit": True}}})
+        document = {"completion": {"completionItem": {"snippetSupport": True}}, "codeAction": {"disabledSupport": True}}
+        return self.request("initialize", {"capabilities": {"workspace": {"applyEdit": True}, "textDocument": document}})
 
 
 def says(published, text):
@@ -995,6 +996,9 @@ def check_lsp(project, info, editor):
     at = [d["range"]["start"] for d in published["diagnostics"] if "missing2" in d["message"]] if published else []
     expect("lsp: changes apply in order, and diagnostics carry the version they are for", at == [place("missing2")] and versions[-1:] == [4] and 2 not in versions and 3 not in versions, f"{versions}\n{published}\n{text!r}")
 
+    # Before user.pet's held text is applied, which a quick fix is refused for.
+    check_queries(first, project, uri)
+
     user = uri("user.pet")
     user_text = (project / "user.pet").read_text(encoding="utf-8")
     first.open(user, user_text)
@@ -1049,6 +1053,123 @@ def check_lsp(project, info, editor):
     after = second.request("petrichor/unknown")
     second.notify("exit", None)
     expect("lsp: shutdown, then exit closes the connection", down and down["result"] is None and after and after["error"]["code"] == -32600 and second.closed(), f"{down}\n{after}")
+
+
+def check_queries(client, project, uri):
+    """The queries on tour.pet, which tour.tscn places and tour.scn, a binary
+    copy, too. What the compiler answers the editor tests check; these check
+    what the server makes of it: places, kinds, ranges, URIs and versions."""
+    tour = uri("tour.pet")
+    texts = {name: (project / name).read_text(encoding="utf-8") for name in ["tour.pet", "player.pet", "tour.tscn"]}
+    text = texts["tour.pet"]
+    client.open(tour, text)
+
+    def span(needle, length=None, plus=0, name="tour.pet"):
+        start = texts[name].index(needle) + plus
+        return {"start": lsp_position(texts[name], start), "end": lsp_position(texts[name], start + (len(needle) if length is None else length))}
+
+    def ask(method, needle, plus=0, **params):
+        reply = client.request(method, {"textDocument": {"uri": tour}, "position": span(needle, 0, plus)["start"], **params})
+        return reply and reply.get("result")
+
+    def file_name(uri):
+        return urllib.parse.unquote(uri).rsplit("/", 1)[1]
+
+    def located(location):
+        return file_name(location["uri"]), location["range"]
+
+    def edits(edit):
+        return [(file_name(change["textDocument"]["uri"]), change["textDocument"]["version"], change["edits"]) for change in edit["documentChanges"]]
+
+    listed = ask("textDocument/completion", "speed, player.armor", 2, context={"triggerKind": 1})
+    items = {item["label"]: item for item in listed["items"]} if listed else {}
+    paths = ask("textDocument/completion", "Camera.rotate", 2, context={"triggerKind": 2, "triggerCharacter": "a"})
+    files = ask("textDocument/completion", 'user.pet")', 2, context={"triggerKind": 1})
+    after_parenthesis = ask("textDocument/completion", "maxf(", 5, context={"triggerKind": 2, "triggerCharacter": "("})
+    expect(
+        "lsp: completion replaces what the editor does, a call as a snippet, a path in a string quoted",
+        items.get("speed", {}).get("kind") == 10
+        and items["speed"]["textEdit"] == {"range": span("speed, player.armor", 2), "newText": "speed"}
+        and items.get("add_child", {}).get("textEdit", {}).get("newText") == "add_child($1)"
+        and items["add_child"].get("insertTextFormat") == 2
+        and {"label": "Head/Camera", "range": span("Head/Ca"), "newText": "Head/Camera"} in [{"label": i["label"], **i["textEdit"]} for i in paths["items"]]
+        and {"range": span('"us'), "newText": '"res://user.pet"'} in [i["textEdit"] for i in files["items"]]
+        and after_parenthesis["items"] == [],
+        f"{items.get('speed')}\n{items.get('add_child')}\n{paths}\n{files and files['items'][:3]}\n{after_parenthesis}",
+    )
+
+    signature = ask("textDocument/signatureHelp", "2.0)")
+    expect("lsp: signature help shows the innermost call with the parameter at the cursor", signature == {"signatures": [{"label": "maxf(a: float, b: float) -> float", "parameters": [{"label": [15, 23]}], "activeParameter": 0}], "activeSignature": 0}, str(signature))
+
+    shown = [hover and hover["contents"]["value"] for hover in (ask("textDocument/hover", needle) for needle in ["雨,", "move(maxf", "rotate_y"])]
+    expect("lsp: hover shows a local's type, the docs, and an engine member's signature", shown == ["```petrichor\nvar 雨: String\n```", "```petrichor\nfunc Tour.move\n```\n\nMoves by [param amount].", "```petrichor\nfunc Node3D.rotate_y(angle: float) -> void\n```"], str(shown))
+
+    speed = ask("textDocument/definition", "speed, player.armor")
+    camera = ask("textDocument/definition", "Camera.rotate")
+    expect(
+        "lsp: definition goes to the name, not into the engine, and from a node path to its node in the scene",
+        speed and located(speed) == ("player.pet", span("speed", name="player.pet")) and ask("textDocument/definition", "rotate_y") is None and camera and [located(each) for each in camera] == [("tour.tscn", span('[node name="Camera"', 0, name="tour.tscn"))],
+        f"{speed}\n{camera}",
+    )
+
+    types = [[located(each) for each in ask("textDocument/typeDefinition", needle) or []] for needle in ["player.speed", "shots:\n"]]
+    expect("lsp: type definition goes to the class and to the struct an array holds", types == [[("player.pet", span("Player", name="player.pet"))], [("tour.pet", span("Shot"))]], str(types))
+
+    found = sorted((located(each) for each in ask("textDocument/references", "speed := 5.0", context={"includeDeclaration": False}) or []), key=str)
+    uses = [("tour.pet", span(needle, 5)) for needle in ["speed, 2.0", "speed = maxf", "speed, 1.0", "speed:\n"]]
+    start = {"line": 0, "character": 0}
+    stored = [("tour.tscn", span("speed", name="tour.tscn")), ("tour.scn", {"start": start, "end": start})]
+    expect("lsp: references reach the line a text scene stores the name at and the start of a binary one, without the declaration", found == sorted(uses + stored, key=str), str(found))
+
+    symbols = client.request("textDocument/documentSymbol", {"textDocument": {"uri": tour}})["result"]
+
+    def tree(symbol):
+        return [symbol["name"], symbol["kind"], [tree(child) for child in symbol["children"]]]
+
+    move = symbols[0]["children"][-2] if symbols else {}
+    expect(
+        "lsp: the outline nests the class's members, an enum's values and a struct's fields",
+        [tree(each) for each in symbols] == [["Tour", 5, [["User", 14, []], ["hit", 24, []], ["State", 10, [["IDLE", 22, []], ["RUN", 22, []]]], ["Shot", 23, [["damage", 8, []]]], ["speed", 8, []], ["shots", 8, []], ["move", 6, []], ["count", 6, []]]]]
+        and move.get("range") == {"start": span("func move", 0)["start"], "end": span("pass\n\n\nfunc", 4)["end"]}
+        and move.get("selectionRange") == span("move(amount", 4),
+        str(symbols),
+    )
+
+    member = [each["range"] for each in ask("textDocument/documentHighlight", "speed = maxf") or []]
+    local = [each["range"] for each in ask("textDocument/documentHighlight", "speed\n") or []]
+    expect(
+        "lsp: highlights are the names of one declaration, a local apart from the member it shadows",
+        member == [span(needle, 5) for needle in ["speed := 5.0", "speed, 2.0", "speed = maxf", "speed, 1.0", "speed:\n"]] and local == [span(needle, 5) for needle in ["speed := 2", "speed\n"]],
+        f"{member}\n{local}",
+    )
+
+    def actions(needle):
+        return client.request("textDocument/codeAction", {"textDocument": {"uri": tour}, "range": span(needle, 0), "context": {"diagnostics": []}})["result"]
+
+    truth = actions("shots:\n")
+    pub = actions("User.new().f")
+    test = {"range": span("shots:\n", 5), "newText": "not shots.is_empty()"}
+    expect(
+        "lsp: quick fixes come as the editor lists them, versioned, the automatic one preferred, one refused for a script Godot has unsaved",
+        [(each["title"], each.get("isPreferred")) for each in truth] == [("Write not shots.is_empty()", True), ("Fix all 'Write the truth test' in file", None)]
+        and truth[0]["diagnostics"][0]["range"] == test["range"]
+        and edits(truth[0]["edit"]) == [("tour.pet", 1, [test])]
+        and edits(truth[1]["edit"]) == [("tour.pet", 1, [test, {"range": span("speed:\n", 5), "newText": "speed != 0"}])]
+        and [each["title"] for each in pub] == ['Make "f" pub', 'Make "armor" pub']
+        and "res://user.pet" in pub[0]["disabled"]["reason"] and "edit" not in pub[0]
+        and edits(pub[1]["edit"]) == [("player.pet", None, [{"range": span("var armor", name="player.pet"), "newText": "pub var armor"}])],
+        f"{truth}\n{pub}",
+    )
+
+    messy = text.replace("var shots", "var  shots").replace("雨 :=", "雨  :=").replace("move(amount", "move( amount")
+    client.notify("textDocument/didChange", {"textDocument": {"uri": tour, "version": 2}, "contentChanges": [{"text": messy}]})
+    formatted = messy
+    for edit in reversed(client.request("textDocument/formatting", {"textDocument": {"uri": tour}, "options": {"tabSize": 4, "insertSpaces": False}})["result"] or []):
+        formatted = formatted[: lsp_index(formatted, edit["range"]["start"])] + edit["newText"] + formatted[lsp_index(formatted, edit["range"]["end"]) :]
+    client.notify("textDocument/didChange", {"textDocument": {"uri": tour, "version": 3}, "contentChanges": [{"text": "func ("}]})
+    broken = client.request("textDocument/formatting", {"textDocument": {"uri": tour}, "options": {}})
+    client.notify("textDocument/didClose", {"textDocument": {"uri": tour}})
+    expect("lsp: formatting edits make the editor's layout, and a syntax error fails it", formatted == text and broken and broken["error"]["code"] == -32803, f"{formatted!r}\n{broken}")
 
 
 def run_debugger_groups(godot):

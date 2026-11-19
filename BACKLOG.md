@@ -76,6 +76,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - The build still runs and prints its result. The process then ends with 0xC0000005 instead of its own exit code (two headless editors, 11-19).
   - The same holds for any second editor process on the project, such as a language server started apart from the editor.
 - A language server when no editor is open: the VS Code extension would start a headless editor with `--petrichor-lsp`. On Windows the editor the user opens afterwards then lacks this language, as above. Both processes also write the same `.godot/`. A large project takes 80–150 s to open headless.
+- Hover in the language server shows a `##` comment as written, its BBCode tags such as `[param amount]` included. GDScript's server turns them into Markdown (`modules/gdscript/language_server/godot_lsp.h:1919`, `ed1daf0`).
 - After a save, check the whole project and send the diagnostics of every file with errors, as gopls does. The server now sends them for the files the client has open (architecture §2.4). Turn it on once a whole-project check is fast enough; measure it on the generated 1000-script project first.
 - The hints of the spec other than `unused_ignore`, as the one on a redundant `as` (spec §5.3). None is implemented.
 - The warnings of spec §6.7:

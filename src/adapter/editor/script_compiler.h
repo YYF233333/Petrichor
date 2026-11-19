@@ -51,6 +51,8 @@ std::vector<compiler::Diagnostic> scene_errors(const godot::String &p_path);
 // What the name at byte `p_offset` of the script's text refers to, for the
 // script editor's lookup (spec §13.2).
 std::optional<compiler::Lookup> lookup_name(const godot::String &p_path, const std::string &p_source, uint32_t p_offset);
+// Where the types of what it holds are declared (compiler::type_definition()).
+std::vector<compiler::Lookup> type_definition(const std::string &p_path, const std::string &p_source, uint32_t p_offset);
 
 // Where what the name at byte `p_offset` of the script's text refers to is
 // declared and referred to in the project, with the candidates in GDScript
@@ -67,6 +69,18 @@ std::optional<uint32_t> declaration_offset(const std::string &p_path, const comp
 // What can be written at the cursor, which U+FFFF marks in `p_source`, for
 // the script editor's completion (spec §13.2).
 compiler::Completion completion(const godot::String &p_path, const std::string &p_source);
+
+// The errors with quick fixes of the script at `p_path` (spec §13.2), from
+// `p_errors` of its own check and from the checks of its scenes, by
+// position, each edit naming its file. Those of the scenes count with fixes
+// in this script only.
+std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_errors, const std::string &p_path);
+// The same fix, as two errors on a line can offer.
+bool same_fix(const compiler::Fix &p_a, const compiler::Fix &p_b);
+// Whether fixing all of the kind in the script is offered: its own check has
+// more than one fix of it that changes only this script, as fixing all takes
+// them (architecture §2.1). `p_fixable` is what fixable() gave.
+bool fixes_all(const std::vector<compiler::Diagnostic> &p_fixable, const std::string &p_path, compiler::FixKind p_kind);
 
 // The class header of the script at `p_path`, read from `p_source` as the
 // compiler reads it (spec §4.1): the path of the script it extends, empty for

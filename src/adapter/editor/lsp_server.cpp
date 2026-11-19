@@ -4,6 +4,7 @@
 #include "adapter/editor/script_compiler.h"
 #include "adapter/pet_compiled.h"
 #include "compiler/analysis.h"
+#include "compiler/formatter.h"
 #include "compiler/lexer.h"
 #include "runtime/text.h"
 
@@ -20,10 +21,14 @@
 #include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <climits>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <optional>
+#include <set>
+#include <tuple>
 
 using namespace godot;
 
@@ -308,6 +313,104 @@ std::string script_path(const Variant &p_uri) {
 	return path.size() > 4 && path.compare(path.size() - 4, 4, ".pet") == 0 ? path : std::string();
 }
 
+// A file the engine reads as text, which the engine's String takes without
+// printing a fault: a script, or a scene or a resource file in the text format.
+bool is_text(const std::string &p_path) {
+	const std::string extension = lower_ascii(p_path.substr(p_path.find_last_of("./") + 1));
+	return p_path.find("::") == std::string::npos && (extension == "pet" || extension == "gd" || extension == "cs" || extension == "tscn" || extension == "tres");
+}
+
+// The script a request is for, as the workspace has it, and the offset of the
+// request's position, which `p_position` requires.
+struct Place {
+	std::string path;
+	std::string text;
+	uint32_t offset = 0;
+};
+
+std::optional<Place> place_of(const Dictionary &p_params, bool p_position) {
+	const std::string path = script_path(dictionary(p_params.get("textDocument", Variant())).get("uri", Variant()));
+	const std::optional<std::string> text = path.empty() ? std::nullopt : workspace().script_source(path);
+	const std::optional<compiler::Utf16Position> at = position(p_params.get("position", Variant()));
+	if (!text || (p_position && !at)) {
+		return std::nullopt;
+	}
+	return Place{ path, *text, at ? compiler::utf16_offset(*text, *at) : 0 };
+}
+
+uint32_t utf16_length(const std::string &p_line) {
+	return compiler::utf16_positions(p_line, { uint32_t(p_line.size()) })[0].character;
+}
+
+Dictionary range_of(const std::string &p_text, uint32_t p_begin, uint32_t p_end) {
+	const std::vector<compiler::Utf16Position> at = compiler::utf16_positions(p_text, { p_begin, std::max(p_begin, p_end) });
+	return range(at[0], at[1]);
+}
+
+Dictionary text_edit(const std::string &p_text, uint32_t p_begin, uint32_t p_end, const std::string &p_new) {
+	Dictionary edit;
+	edit["range"] = range_of(p_text, p_begin, p_end);
+	edit["newText"] = to_godot(p_new);
+	return edit;
+}
+
+Dictionary diagnostic(const compiler::Diagnostic &p_diagnostic, const Dictionary &p_range) {
+	Dictionary each;
+	each["range"] = p_range;
+	each["severity"] = severity(p_diagnostic.severity);
+	each["source"] = "petrichor";
+	each["message"] = to_godot(p_diagnostic.message);
+	if (!p_diagnostic.warning.empty()) {
+		each["code"] = to_godot(p_diagnostic.warning);
+	}
+	return each;
+}
+
+// Where the text that completion replaces begins, as the script editor finds
+// it (scene/gui/code_edit.cpp:3837-3875; ed1daf0): in a string begun on the
+// line, at its quote, which `r_quote` gets; otherwise at the word before the
+// cursor, "/" taken as part of it.
+uint32_t completion_start(const std::string &p_text, uint32_t p_offset, std::string &r_quote) {
+	const size_t newline = p_offset == 0 ? std::string::npos : p_text.find_last_of("\r\n", p_offset - 1);
+	const size_t line = newline == std::string::npos ? 0 : newline + 1;
+	size_t opened = 0;
+	r_quote.clear();
+	for (size_t at = line; at < p_offset; at++) {
+		const char c = p_text[at];
+		if (!r_quote.empty()) {
+			if (c == '\\') {
+				at++;
+			} else if (p_text.compare(at, r_quote.size(), r_quote) == 0) {
+				at += r_quote.size() - 1;
+				r_quote.clear();
+			}
+		} else if (c == '#') {
+			break;
+		} else if (c == '"' || c == '\'') {
+			r_quote = std::string(p_text.compare(at, 3, std::string(3, c)) == 0 ? 3 : 1, c);
+			opened = at;
+			at += r_quote.size() - 1;
+		}
+	}
+	if (!r_quote.empty()) {
+		return uint32_t(opened);
+	}
+	const auto in_word = [](unsigned char p_char) { return p_char == '/' || p_char == '_' || std::isalnum(p_char) || p_char >= 0x7F; };
+	size_t start = p_offset;
+	while (start > line && in_word(static_cast<unsigned char>(p_text[start - 1]))) {
+		start--;
+	}
+	return uint32_t(start);
+}
+
+// LSP 3.17, CompletionItemKind, by compiler::CompletionKind.
+constexpr int COMPLETION_KINDS[] = { 7, 2, 23, 6, 10, 13, 21, 18, 17, 1, 14 };
+// LSP 3.17, SymbolKind, by compiler::Symbol::Kind.
+constexpr int SYMBOL_KINDS[] = { 5, 11, 23, 10, 22, 14, 8, 6, 24 };
+// The keyword that declares each compiler::SymbolKind.
+constexpr const char *DECLARED_BY[] = { "class", "const", "var", "func", "signal", "enum", "var", "const" };
+constexpr const char *CURSOR = "\xEF\xBF\xBF"; // U+FFFF, as the script editor marks the cursor.
+
 } // namespace
 
 LspServer::LspServer(Ref<EditorDebuggerPlugin> p_sessions) :
@@ -495,16 +598,44 @@ void LspServer::handle(Connection &r_connection, const std::string &p_body) {
 // Before `initialize` and after `shutdown`, only `exit` is taken
 // (LSP 3.17, Lifecycle Messages).
 void LspServer::request(const Variant &p_id, const String &p_method, const Variant &p_params) {
+	static const std::map<std::string, Variant (LspServer::*)(const Dictionary &)> QUERIES = {
+		{ "textDocument/completion", &LspServer::on_completion },
+		{ "textDocument/signatureHelp", &LspServer::on_signature_help },
+		{ "textDocument/hover", &LspServer::on_hover },
+		{ "textDocument/definition", &LspServer::on_definition },
+		{ "textDocument/typeDefinition", &LspServer::on_type_definition },
+		{ "textDocument/references", &LspServer::on_references },
+		{ "textDocument/documentSymbol", &LspServer::on_document_symbol },
+		{ "textDocument/documentHighlight", &LspServer::on_highlight },
+		{ "textDocument/formatting", &LspServer::on_formatting },
+		{ "textDocument/codeAction", &LspServer::on_code_action },
+	};
 	if (p_method == "initialize" && state == State::Waiting) {
 		const Dictionary capabilities = dictionary(dictionary(p_params).get("capabilities", Variant()));
+		const Dictionary document = dictionary(capabilities.get("textDocument", Variant()));
 		applies_edits = dictionary(capabilities.get("workspace", Variant())).get("applyEdit", false) == Variant(true);
+		snippets = dictionary(dictionary(document.get("completion", Variant())).get("completionItem", Variant())).get("snippetSupport", false) == Variant(true);
+		shows_disabled = dictionary(document.get("codeAction", Variant())).get("disabledSupport", false) == Variant(true);
 		Dictionary sync;
 		sync["openClose"] = true;
 		sync["change"] = 2; // Incremental.
 		sync["save"] = true;
+		// As the script editor completes after them (editor/gui/code_editor.cpp:2077; ed1daf0).
+		Dictionary completion;
+		completion["triggerCharacters"] = Array::make(".", ",", "(", "=", "$", "@", "\"", "'");
+		Dictionary signature_help;
+		signature_help["triggerCharacters"] = Array::make("(", ",");
+		Dictionary code_action;
+		code_action["codeActionKinds"] = Array::make("quickfix");
 		Dictionary offered;
 		offered["positionEncoding"] = "utf-16";
 		offered["textDocumentSync"] = sync;
+		offered["completionProvider"] = completion;
+		offered["signatureHelpProvider"] = signature_help;
+		offered["codeActionProvider"] = code_action;
+		for (const char *each : { "hoverProvider", "definitionProvider", "typeDefinitionProvider", "referencesProvider", "documentSymbolProvider", "documentHighlightProvider", "documentFormattingProvider" }) {
+			offered[each] = true;
+		}
 		Dictionary info;
 		info["name"] = "Petrichor";
 		Dictionary result;
@@ -519,6 +650,14 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 	} else if (p_method == "shutdown") {
 		state = State::ShutDown;
 		reply(client.out, p_id, Variant());
+	} else if (const auto query = QUERIES.find(to_utf8(p_method)); query != QUERIES.end()) {
+		failure = String();
+		const Variant result = (this->*query->second)(dictionary(p_params));
+		if (failure.is_empty()) {
+			reply(client.out, p_id, result);
+		} else {
+			reply_error(client.out, p_id, REQUEST_FAILED, failure);
+		}
 	} else {
 		reply_error(client.out, p_id, METHOD_NOT_FOUND, "Unknown method: " + p_method);
 	}
@@ -724,22 +863,14 @@ void LspServer::publish(const std::string &p_path, Document &r_document) {
 		found.insert(found.end(), result->warnings.begin(), result->warnings.end());
 	}
 	std::vector<uint32_t> offsets;
-	for (const compiler::Diagnostic &diagnostic : found) {
-		offsets.push_back(diagnostic.begin);
-		offsets.push_back(std::max(diagnostic.begin, diagnostic.end));
+	for (const compiler::Diagnostic &each : found) {
+		offsets.push_back(each.begin);
+		offsets.push_back(std::max(each.begin, each.end));
 	}
 	const std::vector<compiler::Utf16Position> at = compiler::utf16_positions(text, offsets);
 	Array diagnostics;
 	for (size_t i = 0; i < found.size(); i++) {
-		Dictionary each;
-		each["range"] = range(at[2 * i], at[2 * i + 1]);
-		each["severity"] = severity(found[i].severity);
-		each["source"] = "petrichor";
-		each["message"] = to_godot(found[i].message);
-		if (!found[i].warning.empty()) {
-			each["code"] = to_godot(found[i].warning);
-		}
-		diagnostics.push_back(each);
+		diagnostics.push_back(diagnostic(found[i], range(at[2 * i], at[2 * i + 1])));
 	}
 	Dictionary params;
 	params["uri"] = r_document.uri;
@@ -774,6 +905,490 @@ void LspServer::disconnect() {
 	client = Connection();
 	state = State::Waiting;
 	applies_edits = false;
+}
+
+// The client's own for a script it has open.
+String LspServer::uri_of(const std::string &p_path) const {
+	const auto open = documents.find(p_path);
+	if (open != documents.end()) {
+		return open->second.uri;
+	}
+	const std::string path = to_utf8(ProjectSettings::get_singleton()->globalize_path(to_godot(p_path)));
+	std::string uri = path.compare(0, 1, "/") == 0 ? "file://" : "file:///";
+	for (const unsigned char c : path) {
+		if (std::isalnum(c) || std::strchr("-._~/", c)) {
+			uri += char(c);
+		} else {
+			uri += '%';
+			uri += "0123456789ABCDEF"[c >> 4];
+			uri += "0123456789ABCDEF"[c & 15];
+		}
+	}
+	return to_godot(uri);
+}
+
+Dictionary LspServer::location(const std::string &p_path, const std::string &p_text, uint32_t p_begin, uint32_t p_end) const {
+	Dictionary result;
+	result["uri"] = uri_of(p_path);
+	result["range"] = range_of(p_text, p_begin, p_end);
+	return result;
+}
+
+// Against the texts the workspace has. None, with the reason, where a file
+// that the client does not have open has content in Godot that is not saved:
+// the client edits the file (architecture §2.4).
+Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, String &r_refused) const {
+	Array changes;
+	for (const auto &[file, edits] : p_edits) {
+		const std::string text = workspace().script_source(file).value_or(std::string());
+		const auto open = documents.find(file);
+		if (open == documents.end() && text != SceneIndex::get().script_source(file).value_or(std::string())) {
+			r_refused = vformat("%s has changes in Godot that are not saved. Save them there first.", to_godot(file));
+			return Dictionary();
+		}
+		std::vector<compiler::CheckedEdit> ordered = edits;
+		std::stable_sort(ordered.begin(), ordered.end(), [](const compiler::CheckedEdit &p_a, const compiler::CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
+		Array text_edits;
+		for (const compiler::CheckedEdit &edit : ordered) {
+			text_edits.push_back(text_edit(text, edit.begin, edit.end, edit.new_text));
+		}
+		Dictionary document;
+		document["uri"] = uri_of(file);
+		document["version"] = open == documents.end() ? Variant() : Variant(open->second.version);
+		Dictionary change;
+		change["textDocument"] = document;
+		change["edits"] = text_edits;
+		changes.push_back(change);
+	}
+	Dictionary result;
+	result["documentChanges"] = changes;
+	return result;
+}
+
+// The editor's list (spec §13.2). An insertion ending in "(" is a snippet
+// with the cursor inside, as GDScript's server makes it, or without the "("
+// for a client without snippets
+// (modules/gdscript/language_server/gdscript_language_protocol.cpp:559-569;
+// ed1daf0). Each replaces what the editor replaces; in a string, it is
+// quoted as the string is, and replaces the closing quote after the cursor
+// (scene/gui/code_edit.cpp:2614-2618, 3916-3927). Typed right after "(", the
+// list is empty unless it is forced, as in the editor (:3832-3835).
+Variant LspServer::on_completion(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	if (!at) {
+		return Variant();
+	}
+	std::string marked = at->text;
+	marked.insert(at->offset, CURSOR);
+	const compiler::Completion found = completion(to_godot(at->path), marked);
+	const bool invoked = integer(dictionary(p_params.get("context", Variant())).get("triggerKind", Variant()), 0, 3) == std::optional<int64_t>(1);
+	Array items;
+	if (found.force || invoked || at->offset == 0 || at->text[at->offset - 1] != '(') {
+		std::string quote;
+		const uint32_t start = completion_start(at->text, at->offset, quote);
+		quote = quote.substr(0, 1);
+		const bool closes = !quote.empty() && at->text.compare(at->offset, 1, quote) == 0;
+		for (const compiler::CompletionItem &item : found.items) {
+			Dictionary each;
+			std::string insert = item.insert;
+			if (!quote.empty()) {
+				const bool quoted = insert.size() > 1 && (insert[0] == '"' || insert[0] == '\'') && insert.back() == insert[0];
+				insert = quote + (quoted ? insert.substr(1, insert.size() - 2) : insert) + quote;
+			}
+			const std::string filter = insert;
+			if (!insert.empty() && insert.back() == '(') {
+				insert.pop_back();
+				if (snippets) {
+					std::string escaped;
+					for (const char c : insert) {
+						escaped += c == '$' || c == '}' || c == '\\' ? std::string("\\") + c : std::string(1, c);
+					}
+					insert = escaped + "($1)";
+					each["insertTextFormat"] = 2; // Snippet.
+				}
+			}
+			// The editor's order: by where the name is declared, then by name.
+			int rank = 1 << 10;
+			if (item.place == compiler::CompletionItem::Place::Local) {
+				rank = 0;
+			} else if (item.place == compiler::CompletionItem::Place::Member) {
+				rank = (1 << 8) | item.depth;
+			} else if (item.place == compiler::CompletionItem::Place::Project) {
+				rank = 1 << 9;
+			}
+			each["label"] = to_godot(item.name);
+			each["kind"] = COMPLETION_KINDS[int(item.kind)];
+			each["sortText"] = to_godot(std::to_string(10000 + rank) + item.name);
+			each["filterText"] = to_godot(filter);
+			each["textEdit"] = text_edit(at->text, start, at->offset + (closes ? 1 : 0), insert);
+			items.push_back(each);
+		}
+	}
+	Dictionary result;
+	result["isIncomplete"] = false;
+	result["items"] = items;
+	return result;
+}
+
+// The editor's call hint, one signature for each of its lines, the
+// parameter it marks as the active one.
+Variant LspServer::on_signature_help(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	if (!at) {
+		return Variant();
+	}
+	std::string marked = at->text;
+	marked.insert(at->offset, CURSOR);
+	const std::string hint = completion(to_godot(at->path), marked).call_hint;
+	if (hint.empty()) {
+		return Variant();
+	}
+	Array signatures;
+	for (size_t begin = 0; begin <= hint.size();) {
+		const size_t end = std::min(hint.find('\n', begin), hint.size());
+		std::string label = hint.substr(begin, end - begin);
+		begin = end + 1;
+		Dictionary signature;
+		Array parameters;
+		const size_t open = label.find(CURSOR);
+		const size_t close = open == std::string::npos ? std::string::npos : label.find(CURSOR, open + 3);
+		if (close != std::string::npos) {
+			const uint32_t from = utf16_length(label.substr(0, open));
+			Dictionary parameter;
+			parameter["label"] = Array::make(from, from + utf16_length(label.substr(open + 3, close - open - 3)));
+			parameters.push_back(parameter);
+			signature["activeParameter"] = 0;
+			label.erase(close, 3);
+			label.erase(open, 3);
+		}
+		signature["label"] = to_godot(label);
+		signature["parameters"] = parameters;
+		signatures.push_back(signature);
+	}
+	Dictionary result;
+	result["signatures"] = signatures;
+	result["activeSignature"] = 0;
+	return result;
+}
+
+// What the editor's lookup gives, as Markdown: the declaration, as far as it
+// is known, then its documentation.
+Variant LspServer::on_hover(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<compiler::Lookup> found = at ? lookup_name(to_godot(at->path), at->text, at->offset) : std::nullopt;
+	if (!found) {
+		return Variant();
+	}
+	std::string head = std::string(DECLARED_BY[int(found->kind)]) + " ";
+	if (found->kind == compiler::SymbolKind::Local || found->kind == compiler::SymbolKind::LocalConstant) {
+		head += at->text.substr(found->begin, found->end - found->begin) + (found->type.empty() ? "" : ": " + found->type);
+	} else if (!found->signature.empty()) {
+		head += found->class_name + "." + found->signature;
+	} else {
+		head += found->class_name + (found->member.empty() ? "" : "." + found->member);
+	}
+	std::string text = "```petrichor\n" + head + "\n```";
+	const compiler::DocComment &comment = found->comment;
+	if (comment.deprecated) {
+		text += "\n\n**Deprecated**" + (comment.deprecated->empty() ? "" : ": " + *comment.deprecated);
+	}
+	if (comment.experimental) {
+		text += "\n\n**Experimental**" + (comment.experimental->empty() ? "" : ": " + *comment.experimental);
+	}
+	for (const std::string *paragraph : { &comment.brief, &comment.description }) {
+		if (!paragraph->empty()) {
+			text += "\n\n" + *paragraph;
+		}
+	}
+	Dictionary contents;
+	contents["kind"] = "markdown";
+	contents["value"] = to_godot(text);
+	Dictionary result;
+	result["contents"] = contents;
+	return result;
+}
+
+// A declaration of this language or another at its name; none of the
+// engine's. A node path leads to the node's header in each text scene that
+// places the script.
+Variant LspServer::on_definition(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	if (!at) {
+		return Variant();
+	}
+	const std::optional<compiler::Lookup> found = lookup_name(to_godot(at->path), at->text, at->offset);
+	if (found && !found->path.empty()) {
+		return location(found->path, workspace().script_source(found->path).value_or(std::string()), found->begin, found->end);
+	}
+	std::vector<compiler::DeclId> nodes;
+	{
+		const compiler::Analysis::Pass pass(analysis());
+		for (const compiler::Reference &reference : analysis().compile(at->path, at->text)->references) {
+			if (reference.target.kind == compiler::DeclId::Kind::Node && reference.begin <= at->offset && at->offset <= reference.end) {
+				nodes.push_back(reference.target);
+			}
+		}
+	}
+	Array headers;
+	for (const compiler::DeclId &node : nodes) {
+		const std::optional<std::string> text = is_text(node.scope) ? workspace().script_source(node.scope) : std::nullopt;
+		const std::optional<uint32_t> header = text ? compiler::node_header(*text, node.name) : std::nullopt;
+		if (header) {
+			headers.push_back(location(node.scope, *text, *header, *header));
+		}
+	}
+	return headers.is_empty() ? Variant() : Variant(headers);
+}
+
+Variant LspServer::on_type_definition(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	Array found;
+	for (const compiler::Lookup &each : at ? type_definition(at->path, at->text, at->offset) : std::vector<compiler::Lookup>()) {
+		found.push_back(location(each.path, workspace().script_source(each.path).value_or(std::string()), each.begin, each.end));
+	}
+	return found;
+}
+
+// Without candidates, which a Location cannot mark (architecture §2.4). A
+// place in a scene or a resource file is where renaming rewrites the name
+// in its text, as compiler::rename() finds it; the line it would refuse at;
+// or the file's start, of a binary one.
+Variant LspServer::on_references(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<std::vector<compiler::Occurrence>> found = at ? find_references(at->path, at->offset) : std::nullopt;
+	if (!found) {
+		return Variant();
+	}
+	const bool declarations = dictionary(p_params.get("context", Variant())).get("includeDeclaration", false) == Variant(true);
+	bool signal = false;
+	std::string name;
+	for (const compiler::Occurrence &each : *found) {
+		signal = signal || each.reference.declares == compiler::SymbolKind::Signal;
+		if (each.file == at->path && each.line > 0 && each.reference.begin <= at->offset && at->offset <= each.reference.end) {
+			name = at->text.substr(each.reference.begin, each.reference.end - each.reference.begin);
+		}
+	}
+	std::map<std::string, std::string> texts;
+	const auto text_of = [&](const std::string &p_file) -> const std::string & {
+		auto known = texts.find(p_file);
+		if (known == texts.end()) {
+			known = texts.emplace(p_file, is_text(p_file) ? workspace().script_source(p_file).value_or(std::string()) : std::string()).first;
+		}
+		return known->second;
+	};
+	std::set<std::tuple<std::string, uint32_t, uint32_t>> places;
+	for (const compiler::Occurrence &each : *found) {
+		const compiler::Reference &reference = each.reference;
+		if (each.candidate || (each.declaration && !declarations)) {
+			continue;
+		}
+		if (each.line > 0) {
+			places.emplace(each.file, reference.begin, reference.end);
+			continue;
+		}
+		if (reference.target.kind == compiler::DeclId::Kind::Node) {
+			const uint32_t header = compiler::node_header(text_of(each.file), reference.target.name).value_or(0);
+			places.emplace(each.file.substr(0, each.file.find("::")), header, header);
+			continue;
+		}
+		for (const auto &[file, stored] : compiler::stored_names(reference)) {
+			const std::string own = file.substr(0, file.find("::"));
+			const compiler::LocatedNames located = is_text(file) ? compiler::locate_names(text_of(own), { stored }, signal, name, std::string()) : compiler::LocatedNames();
+			for (const compiler::CheckedEdit &edit : located.edits) {
+				places.emplace(own, edit.begin, edit.end);
+			}
+			if (located.edits.empty()) {
+				const uint32_t line = located.line > 0 ? compiler::line_starts_of(text_of(own))[located.line - 1] : 0;
+				places.emplace(own, line, line);
+			}
+		}
+	}
+	Array result;
+	for (const auto &[file, begin, end] : places) {
+		result.push_back(location(file, text_of(file), begin, end));
+	}
+	return result;
+}
+
+Variant LspServer::on_document_symbol(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, false);
+	if (!at) {
+		return Variant();
+	}
+	const compiler::Symbol file = compiler::outline(at->text, at->path.substr(at->path.rfind('/') + 1));
+	std::vector<uint32_t> offsets;
+	const std::function<void(const compiler::Symbol &)> gather = [&](const compiler::Symbol &p_symbol) {
+		offsets.insert(offsets.end(), { p_symbol.begin, p_symbol.end, p_symbol.name_begin, p_symbol.name_end });
+		for (const compiler::Symbol &child : p_symbol.children) {
+			gather(child);
+		}
+	};
+	gather(file);
+	const std::vector<compiler::Utf16Position> places = compiler::utf16_positions(at->text, offsets);
+	size_t next = 0;
+	// One without a name is what a syntax error left, which LSP does not take.
+	const std::function<Variant(const compiler::Symbol &)> made = [&](const compiler::Symbol &p_symbol) -> Variant {
+		Dictionary symbol;
+		symbol["name"] = to_godot(p_symbol.name);
+		symbol["kind"] = SYMBOL_KINDS[int(p_symbol.kind)];
+		symbol["range"] = range(places[next], places[next + 1]);
+		symbol["selectionRange"] = range(places[next + 2], places[next + 3]);
+		next += 4;
+		Array children;
+		for (const compiler::Symbol &child : p_symbol.children) {
+			const Variant each = made(child);
+			if (each.get_type() != Variant::NIL) {
+				children.push_back(each);
+			}
+		}
+		symbol["children"] = children;
+		return p_symbol.name.empty() ? Variant() : Variant(symbol);
+	};
+	return Array::make(made(file));
+}
+
+// The names in the script that refer to what the name at the position does,
+// from its own references; each one of a node path, which refers to the node
+// in each scene, once.
+Variant LspServer::on_highlight(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	if (!at) {
+		return Variant();
+	}
+	std::set<std::pair<uint32_t, uint32_t>> names;
+	{
+		const compiler::Analysis::Pass pass(analysis());
+		const std::shared_ptr<const compiler::CompileResult> result = analysis().compile(at->path, at->text);
+		const compiler::Reference *name = compiler::reference_at(*result, at->offset);
+		if (!name || name->target.kind == compiler::DeclId::Kind::Unresolved) {
+			return Variant();
+		}
+		for (const compiler::Reference &reference : result->references) {
+			if (reference.target == name->target && reference.end > reference.begin) {
+				names.emplace(reference.begin, reference.end);
+			}
+		}
+	}
+	Array found;
+	for (const auto &[begin, end] : names) {
+		Dictionary each;
+		each["range"] = range_of(at->text, begin, end);
+		found.push_back(each);
+	}
+	return found;
+}
+
+// As the editor's Format, which fails with the reason on a syntax error.
+Variant LspServer::on_formatting(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, false);
+	if (!at) {
+		return Variant();
+	}
+	std::string error;
+	const std::optional<std::string> formatted = compiler::format(at->text, &error);
+	if (!formatted) {
+		failure = to_godot(error);
+		return Variant();
+	}
+	const std::vector<compiler::Edit> edits = compiler::format_edits(at->text, *formatted);
+	std::vector<uint32_t> offsets;
+	for (const compiler::Edit &edit : edits) {
+		offsets.push_back(edit.begin);
+		offsets.push_back(edit.end);
+	}
+	const std::vector<compiler::Utf16Position> places = compiler::utf16_positions(at->text, offsets);
+	Array result;
+	for (size_t i = 0; i < edits.size(); i++) {
+		Dictionary each;
+		each["range"] = range(places[2 * i], places[2 * i + 1]);
+		each["newText"] = to_godot(edits[i].text);
+		result.push_back(each);
+	}
+	return result;
+}
+
+// The quick fixes on the lines of the range, as the script editor lists them
+// (PetEditorPlugin::list_fixes_at()): first those of the errors the range
+// meets, then of the others by position, each once; after them, fixing all
+// of each automatic kind among them where the editor offers it.
+Variant LspServer::on_code_action(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, false);
+	const Dictionary span = dictionary(p_params.get("range", Variant()));
+	const std::optional<compiler::Utf16Position> start = position(span.get("start", Variant()));
+	const std::optional<compiler::Utf16Position> end = position(span.get("end", Variant()));
+	const Variant only = dictionary(p_params.get("context", Variant())).get("only", Variant());
+	if (!at || !start || !end) {
+		return Variant();
+	}
+	Array actions;
+	if (only.get_type() == Variant::ARRAY && !Array(only).has("quickfix")) {
+		return actions;
+	}
+	const uint32_t from = compiler::utf16_offset(at->text, *start);
+	const uint32_t to = compiler::utf16_offset(at->text, *end);
+	const uint32_t first = compiler::utf16_offset(at->text, { start->line, 0 });
+	const uint32_t last = compiler::utf16_offset(at->text, { end->line, UINT32_MAX });
+	std::shared_ptr<const compiler::CompileResult> result;
+	std::vector<compiler::Diagnostic> errors;
+	{
+		const compiler::Analysis::Pass pass(analysis());
+		result = analysis().compile(at->path, at->text);
+		errors = fixable(result->errors, at->path);
+	}
+	std::vector<const compiler::Diagnostic *> on_lines;
+	for (const compiler::Diagnostic &error : errors) {
+		if (first <= error.begin && error.begin <= last) {
+			on_lines.push_back(&error);
+		}
+	}
+	std::stable_partition(on_lines.begin(), on_lines.end(), [&](const compiler::Diagnostic *p_error) { return p_error->begin <= to && from <= p_error->end; });
+	const auto add = [&](const String &p_title, const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, const compiler::Diagnostic *p_error, bool p_preferred) {
+		Dictionary action;
+		action["title"] = p_title;
+		action["kind"] = "quickfix";
+		if (p_error) {
+			action["diagnostics"] = Array::make(diagnostic(*p_error, range_of(at->text, p_error->begin, p_error->end)));
+		}
+		if (p_preferred) {
+			action["isPreferred"] = true;
+		}
+		String refused;
+		const Dictionary edit = edit_of(p_edits, refused);
+		if (refused.is_empty()) {
+			action["edit"] = edit;
+		} else if (shows_disabled) {
+			Dictionary disabled;
+			disabled["reason"] = refused;
+			action["disabled"] = disabled;
+		} else {
+			return;
+		}
+		actions.push_back(action);
+	};
+	std::vector<const compiler::Fix *> listed;
+	std::vector<compiler::FixKind> kinds;
+	for (const compiler::Diagnostic *error : on_lines) {
+		for (const compiler::Fix &fix : error->fixes) {
+			if (std::any_of(listed.begin(), listed.end(), [&](const compiler::Fix *p_listed) { return same_fix(*p_listed, fix); })) {
+				continue;
+			}
+			listed.push_back(&fix);
+			std::map<std::string, std::vector<compiler::CheckedEdit>> edits;
+			for (const compiler::Fix::Edit &edit : fix.edits) {
+				edits[edit.file].push_back(edit.change);
+			}
+			add(to_godot(fix.title), edits, error, fix.automatic());
+			if (fix.automatic() && std::find(kinds.begin(), kinds.end(), fix.kind) == kinds.end()) {
+				kinds.push_back(fix.kind);
+			}
+		}
+	}
+	for (const compiler::FixKind kind : kinds) {
+		if (fixes_all(errors, at->path, kind)) {
+			add(vformat("Fix all '%s' in file", compiler::FIX_KINDS[size_t(kind)].name), { { at->path, compiler::fix_all(*result, kind) } }, nullptr, false);
+		}
+	}
+	return actions;
 }
 
 } // namespace petrichor

@@ -1087,38 +1087,6 @@ FileEdits inverse(const FileEdits &p_changes) {
 	return undoing;
 }
 
-// The same fix, as two errors on a line can offer.
-bool same(const compiler::Fix &p_a, const compiler::Fix &p_b) {
-	return p_a.title == p_b.title && std::equal(p_a.edits.begin(), p_a.edits.end(), p_b.edits.begin(), p_b.edits.end(), [](const compiler::Fix::Edit &p_x, const compiler::Fix::Edit &p_y) {
-		return p_x.file == p_y.file && p_x.change.begin == p_y.change.begin && p_x.change.end == p_y.change.end && p_x.change.new_text == p_y.change.new_text;
-	});
-}
-
-// The errors with fixes of the script at `p_path`, from `p_errors` of its own
-// check, by position, each edit naming its file. Those of the checks of scenes
-// count with fixes in this script only.
-std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_errors, const std::string &p_path) {
-	const std::vector<compiler::Diagnostic> placed = analysis().placed_errors(p_path);
-	p_errors.insert(p_errors.end(), placed.begin(), placed.end());
-	std::vector<compiler::Diagnostic> found;
-	for (compiler::Diagnostic &error : p_errors) {
-		for (compiler::Fix &fix : error.fixes) {
-			for (compiler::Fix::Edit &edit : fix.edits) {
-				edit.file = edit.file.empty() ? p_path : edit.file;
-			}
-		}
-		const auto elsewhere_too = [&](const compiler::Fix &p_fix) {
-			return !error.file.empty() && std::any_of(p_fix.edits.begin(), p_fix.edits.end(), [&](const compiler::Fix::Edit &p_edit) { return p_edit.file != p_path; });
-		};
-		error.fixes.erase(std::remove_if(error.fixes.begin(), error.fixes.end(), elsewhere_too), error.fixes.end());
-		if (!error.fixes.empty()) {
-			found.push_back(std::move(error));
-		}
-	}
-	std::stable_sort(found.begin(), found.end(), [](const compiler::Diagnostic &p_a, const compiler::Diagnostic &p_b) { return p_a.begin < p_b.begin; });
-	return found;
-}
-
 } // namespace
 
 // The plugin sees a key before the CodeEdit (scene/main/viewport.cpp:3537),
@@ -1826,27 +1794,15 @@ void PetEditorPlugin::list_fixes_at(CodeEdit *p_code_edit, const Vector2 &p_posi
 	fix_list->clear();
 	for (const compiler::Diagnostic *error : errors) {
 		for (const compiler::Fix &fix : error->fixes) {
-			if (std::none_of(listed.begin(), listed.end(), [&](const auto &p_listed) { return same(p_listed.second, fix); })) {
+			if (std::none_of(listed.begin(), listed.end(), [&](const auto &p_listed) { return same_fix(p_listed.second, fix); })) {
 				fix_list->add_item(to_godot(fix.title), int32_t(listed.size()));
 				listed.emplace_back(*error, fix);
 			}
 		}
 	}
-	const auto many = [&](compiler::FixKind p_kind) {
-		std::vector<const compiler::Fix *> found;
-		for (const compiler::Diagnostic &error : fixing.errors) {
-			for (const compiler::Fix &fix : error.fixes) {
-				const bool here = error.file.empty() && std::all_of(fix.edits.begin(), fix.edits.end(), [&](const compiler::Fix::Edit &p_edit) { return p_edit.file == fixing.path; });
-				if (fix.kind == p_kind && here && std::none_of(found.begin(), found.end(), [&](const compiler::Fix *p_found) { return same(*p_found, fix); })) {
-					found.push_back(&fix);
-				}
-			}
-		}
-		return found.size() > 1;
-	};
 	std::set<compiler::FixKind> kinds;
 	for (const auto &[error, fix] : listed) {
-		if (fix.automatic() && kinds.insert(fix.kind).second && many(fix.kind)) {
+		if (fix.automatic() && kinds.insert(fix.kind).second && fixes_all(fixing.errors, fixing.path, fix.kind)) {
 			if (fix_list->get_item_count() == int32_t(listed.size())) {
 				fix_list->add_separator();
 			}

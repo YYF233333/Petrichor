@@ -1,5 +1,7 @@
 #pragma once
 
+#include "compiler/diagnostic.h"
+
 #include <godot_cpp/classes/editor_debugger_plugin.hpp>
 #include <godot_cpp/classes/stream_peer_tcp.hpp>
 #include <godot_cpp/classes/tcp_server.hpp>
@@ -46,6 +48,9 @@ class LspServer {
 	std::vector<Connection> refused; // Other clients, each told so on its first request.
 	State state = State::Waiting;
 	bool applies_edits = false;
+	bool snippets = false; // In completion items.
+	bool shows_disabled = false; // Code actions with a reason they are disabled.
+	godot::String failure; // Why the query being answered failed.
 	std::map<std::string, Document> documents;
 	std::map<int64_t, std::pair<std::string, std::string>> offers; // The path and the text of each workspace/applyEdit, by id.
 	int64_t next_id = 1;
@@ -70,6 +75,20 @@ class LspServer {
 	void notify(const char *p_method, const godot::Dictionary &p_params);
 	void show_message(const godot::String &p_message);
 	void disconnect();
+
+	godot::String uri_of(const std::string &p_path) const;
+	godot::Dictionary location(const std::string &p_path, const std::string &p_text, uint32_t p_begin, uint32_t p_end) const;
+	godot::Dictionary edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, godot::String &r_refused) const;
+	godot::Variant on_completion(const godot::Dictionary &p_params);
+	godot::Variant on_signature_help(const godot::Dictionary &p_params);
+	godot::Variant on_hover(const godot::Dictionary &p_params);
+	godot::Variant on_definition(const godot::Dictionary &p_params);
+	godot::Variant on_type_definition(const godot::Dictionary &p_params);
+	godot::Variant on_references(const godot::Dictionary &p_params);
+	godot::Variant on_document_symbol(const godot::Dictionary &p_params);
+	godot::Variant on_highlight(const godot::Dictionary &p_params);
+	godot::Variant on_formatting(const godot::Dictionary &p_params);
+	godot::Variant on_code_action(const godot::Dictionary &p_params);
 
 public:
 	explicit LspServer(godot::Ref<godot::EditorDebuggerPlugin> p_sessions);
