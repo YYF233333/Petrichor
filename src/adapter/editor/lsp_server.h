@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -27,18 +28,26 @@ class LspServer {
 		godot::Ref<godot::StreamPeerTCP> peer;
 		std::string in;
 		size_t read = 0;
+		size_t skip = 0; // Of a message over the limit, yet to arrive.
+		bool seeking = false; // For a header, after one without a usable length.
 		std::string out;
-		bool closing = false; // Once `out` is sent.
+		uint64_t since = 0; // When it connected, in ms.
+		bool closing = false; // Once `out` is sent. A connection refused is told so first.
+
+		// The body of the next message that has all arrived. `r_skipped` gets
+		// the length of one over the limit, passed over.
+		std::optional<std::string> next(size_t &r_skipped);
 	};
 	enum class State {
 		Waiting, // For `initialize`.
 		Running,
 		ShutDown,
 	};
-	// A script the client has open, by path.
+	// A script the client has open, by path: the version of each spelling of
+	// its URI it has it open under, as the client wrote it; edits name the
+	// first.
 	struct Document {
-		godot::String uri; // As the client wrote it.
-		int64_t version = 0;
+		std::map<godot::String, int64_t> versions;
 		uint64_t published = 0; // The workspace's revision that the diagnostics sent were computed at.
 		std::string offered; // The text held for it that was last offered.
 	};
@@ -60,6 +69,7 @@ class LspServer {
 	uint64_t quiet_since = 0;
 	uint64_t delay = 0; // In ms, as the script editor waits before it checks.
 	bool settle = false;
+	uint64_t continuing = 0; // The revision whose diagnostics the frame before did not all send.
 	bool polling = false;
 
 	void step();
@@ -71,6 +81,7 @@ class LspServer {
 	void opened(const godot::Dictionary &p_params);
 	void changed(const godot::Dictionary &p_params);
 	void closed(const godot::Dictionary &p_params);
+	void release(const std::string &p_path);
 	void saved(const std::string &p_path);
 	void files_changed();
 	void offer_held(const std::string &p_path, Document &r_document);

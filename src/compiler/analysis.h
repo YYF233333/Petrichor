@@ -90,6 +90,9 @@ public:
 	ScriptClasses &pass_classes() { return *classes; }
 	// Forgets every result, as when the engine's classes change.
 	void clear();
+	// Forgets the results for `p_path`, as for a script with no file whose
+	// unsaved text is gone.
+	void forget(const std::string &p_path);
 	// How many scripts have been checked, for tests.
 	int checks_run() const { return checks; }
 };

@@ -926,8 +926,18 @@ def run_lsp_group(godot):
         finally:
             (project / "quit").touch()
             code, output = editor.finish()
-        errors = [line for line in output.splitlines() if "ERROR" in line]
+        # The engine's String prints its faults without "ERROR".
+        errors = [line for line in output.splitlines() if "ERROR" in line or "Unicode parsing error" in line]
         expect("lsp: the editor quits without errors, and its lsp.json with it", code == 0 and not errors and not info.exists(), output)
+
+
+FOLDS_CASE = sys.platform in ("win32", "darwin")
+
+
+def outside_uris(project, uri):
+    """URIs the server takes no file of: outside the project, not a script,
+    under .godot/ in any case where names fold case, and not a file."""
+    return [file_uri(project.parent / "outside.pet"), uri("notes.txt"), uri(".godot/x.pet"), *([uri(".GODOT/x.pet")] if FOLDS_CASE else []), "untitled:Untitled-1"]
 
 
 def check_lsp(project, info, editor):
@@ -945,7 +955,10 @@ def check_lsp(project, info, editor):
     def uri(name, encoded=True):
         return file_uri(project / name, encoded)
 
+    # A connection that never initializes gives its place up, to the one waiting.
+    silent = LspClient(server["port"])
     first = LspClient(server["port"])
+    expect("lsp: a client that does not initialize is let go, and one waiting takes its place", silent.closed(15), "")
     early = first.take(lambda m: True, 0.5)
     hover = first.request("textDocument/hover", {})
     first.open(uri("board.pet"), "x")
@@ -963,10 +976,34 @@ def check_lsp(project, info, editor):
     first.send_bytes(b"Content-Type: text\r\n\r\n{}Content-Length: 99999999999999\r\n\r\n")
     first.open(uri("rank.pet"), 5)
     first.notify("textDocument/didChange", {"textDocument": {"uri": 7}, "contentChanges": "none"})
-    for outside in [file_uri(project.parent / "outside.pet"), uri("notes.txt"), uri(".godot/x.pet"), "untitled:Untitled-1"]:
+    for outside in outside_uris(project, uri):
         first.open(outside, "x")
+    # Responses are not answered, also without an id (JSON-RPC 2.0).
+    first.send({"id": None, "error": {"code": -32700, "message": "a response"}})
+    first.send({"result": None})
+    body = json.dumps({"jsonrpc": "2.0", "id": 90, "method": "petrichor/unknown"}).encode()
+    first.send_bytes(b"Content-Length: %d\r\nX-Note: no content-length: 1\r\n\r\n%s" % (len(body), body))
+    noted = first.take(lambda m: m.get("id") == 90)
+    over = (16 << 20) + 1
+    first.send_bytes(b"Content-Length: %d\r\n\r\n%s" % (over, b" " * over))
+    skipped = first.take(lambda m: m.get("method") == "window/showMessage")
     unknown = first.request("petrichor/unknown")
-    expect("lsp: malformed messages are answered or passed over", bad_json and bad_json["error"]["code"] == -32700 and bad_json["id"] is None and bad_utf8 and bad_utf8["error"]["code"] == -32700 and unknown and unknown["error"]["code"] == -32601, f"{bad_json}\n{bad_utf8}\n{unknown}")
+    expect(
+        "lsp: malformed messages are answered or passed over, a header by its lines, one too long told",
+        bad_json and bad_json["error"]["code"] == -32700 and bad_json["id"] is None and bad_utf8 and bad_utf8["error"]["code"] == -32700
+        and noted and noted["error"]["code"] == -32601 and skipped and str(over) in skipped["params"]["message"]
+        and unknown and unknown["error"]["code"] == -32601,
+        f"{bad_json}\n{bad_utf8}\n{noted}\n{skipped}\n{unknown}",
+    )
+
+    # A NUL is one character, which the engine's String does not take.
+    nul = uri("nul.pet")
+    nul_text = 'extends Node\n\nfunc f() -> void:\n\tprint("\x00\x00", u_nul)\n'
+    first.open(nul, nul_text)
+    published = first.diagnostics(nul, lambda p: says(p, "u_nul"))
+    at = [d["range"]["start"] for d in published["diagnostics"] if "u_nul" in d["message"]] if published else []
+    first.notify("textDocument/didClose", {"textDocument": {"uri": nul}})
+    expect("lsp: a NUL in a text takes its place in columns", at == [lsp_position(nul_text, nul_text.index("u_nul"))], str(published))
 
     enemy = uri("enemy.pet")
     first.open(enemy, (project / "enemy.pet").read_text(encoding="utf-8"))
@@ -981,6 +1018,27 @@ def check_lsp(project, info, editor):
     cleared = first.diagnostics(player, lambda p: "version" not in p)
     published = first.diagnostics(enemy, lambda p: says(p, "max_speed"))
     expect("lsp: a script closed goes back to its file, without diagnostics", cleared and cleared["diagnostics"] == [] and says(published, "max_speed"), f"{cleared}\n{published}")
+
+    # One file under two spellings of its URI, the second in another case
+    # where names fold case: one text, diagnostics for each, open until the
+    # last is closed; and the engine never gets the other case.
+    spelled = uri("PLAYER.pet") if FOLDS_CASE else uri("player.pet", encoded=False)
+    faster = (project / "player.pet").read_text(encoding="utf-8") + "pub var max_speed := 7.0\n"
+    first.open(player, faster)
+    first.open(spelled, faster)
+    both = [first.diagnostics(each, lambda p: True) for each in (player, spelled)]
+    published = first.diagnostics(enemy, lambda p: not says(p, "max_speed"))
+    first.notify("textDocument/didSave", {"textDocument": {"uri": spelled}})
+    first.notify("textDocument/didClose", {"textDocument": {"uri": spelled}})
+    first.notify("textDocument/didChange", {"textDocument": {"uri": player, "version": 2}, "contentChanges": [{"text": faster + "\nfunc g() -> int:\n\treturn u_spelled\n"}]})
+    changed = first.diagnostics(player, lambda p: says(p, "u_spelled"))
+    first.notify("textDocument/didClose", {"textDocument": {"uri": player}})
+    cache = project / ".godot" / "uid_cache.bin"
+    expect(
+        "lsp: a file under two spellings of its URI is one script, open until the last is closed",
+        all(both) and published and not says(published, "max_speed") and changed and changed["version"] == 2 and b"PLAYER" not in (cache.read_bytes() if cache.exists() else b""),
+        f"{both}\n{published}\n{changed}",
+    )
 
     # Positions in UTF-16 after CJK and an emoji, in a CRLF text changed in
     # steps: within a line, across lines, and one past the line or the text.
@@ -1078,19 +1136,19 @@ def check_lsp(project, info, editor):
     added = first.diagnostics(board, lambda p: not p["diagnostics"])
     expect("lsp: a save and a file added reach the other scripts at once", says(published, "Rank") and saved and not says(saved, "Rank") and added and not added["diagnostics"], f"{published}\n{saved}\n{added}")
 
-    outside = [file_uri(project.parent / "outside.pet"), uri("notes.txt"), uri(".godot/x.pet"), "untitled:Untitled-1"]
+    outside = outside_uris(project, uri)
     stray = [m for m in first.kept if "error" in m or (m.get("params") or {}).get("uri") in outside]
     expect("lsp: files outside the project, other files and malformed notifications get nothing", not stray, str(stray))
 
-    # A client gone leaves no text behind; one at a time; shutdown and exit.
+    # A client gone leaves no text behind, and its place to one that connects
+    # at once; one at a time; shutdown and exit.
     first.open(player, (project / "player.pet").read_text(encoding="utf-8") + "pub var max_speed := 7.0\n")
     first.socket.close()
-    time.sleep(0.5)
     second = LspClient(server["port"])
-    second.initialize(annotations=False)
+    reply = second.initialize(annotations=False)
     second.open(enemy, (project / "enemy.pet").read_text(encoding="utf-8"))
     published = second.diagnostics(enemy, lambda p: True)
-    expect("lsp: the texts of a client gone are dropped", says(published, "max_speed"), str(published))
+    expect("lsp: the texts of a client gone are dropped, and one that reconnects at once is served", reply and "result" in reply and says(published, "max_speed"), f"{reply}\n{published}")
     hit = texts["hit.pet"]
     renamed = second.request("textDocument/rename", {"textDocument": {"uri": uri("hit.pet")}, "position": lsp_position(hit, hit.index("damage")), "newName": "power"})
     renamed = renamed and renamed.get("result")

@@ -367,6 +367,17 @@ TEST_CASE("a result is not read again until the workspace's revision changes") {
 	CHECK(compile_all(checked.analysis, paths)[0]->ok());
 }
 
+TEST_CASE("the results of a script with no file are forgotten with its text") {
+	FakeProject project;
+	Checked checked(project);
+	checked.workspace.set_script("res://new.pet", "extends Node\n");
+	compile_all(checked.analysis, { "res://new.pet" });
+	CHECK(checked.analysis.computed("res://new.pet") != 0);
+	checked.workspace.drop_script("res://new.pet");
+	checked.analysis.forget("res://new.pet");
+	CHECK(checked.analysis.computed("res://new.pet") == 0);
+}
+
 // A fix of a reused check edits other files at the places they had when it
 // was computed.
 TEST_CASE("a result reused after the declarations it read moved has a stale stamp") {

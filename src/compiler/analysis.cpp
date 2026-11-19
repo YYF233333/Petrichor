@@ -230,4 +230,10 @@ void Analysis::clear() {
 	placed.clear();
 }
 
+void Analysis::forget(const std::string &p_path) {
+	const std::lock_guard<std::recursive_mutex> lock(mutex);
+	compiled.erase(p_path);
+	placed.erase(p_path);
+}
+
 } // namespace petrichor::compiler

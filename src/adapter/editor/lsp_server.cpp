@@ -41,7 +41,20 @@ constexpr size_t MAX_HEADER = size_t(64) << 10;
 constexpr size_t MAX_UNSENT = size_t(128) << 20; // For a client that reads nothing.
 constexpr size_t MAX_REFUSED = 4;
 constexpr int32_t CHUNK = 4 << 20; // Read or sent in a frame.
-constexpr uint64_t FRAME_BUDGET = 50; // In ms, for the messages of a frame.
+constexpr uint64_t FRAME_BUDGET = 50; // In ms, for the messages and diagnostics of a frame.
+// In ms. A client sends `initialize` as it connects; this frees the place
+// that a connection that never does would hold, soon enough for a client's
+// reconnecting.
+constexpr uint64_t INITIALIZE_WAIT = 10000;
+// In ms, before a connection is told that it is refused: the client before it
+// may be leaving, which is seen only once what it sent last has been read.
+constexpr uint64_t REFUSE_AFTER = 1000;
+
+#if defined(_WIN32) || defined(__APPLE__)
+constexpr bool FOLDS_CASE = true; // As their file systems do by default.
+#else
+constexpr bool FOLDS_CASE = false;
+#endif
 
 // JSON-RPC 2.0 and LSP 3.17.
 constexpr int PARSE_ERROR = -32700;
@@ -54,12 +67,12 @@ String info_path() {
 	return ProjectSettings::get_singleton()->globalize_path("res://.godot/petrichor/lsp.json");
 }
 
+char lower_char(char p_char) {
+	return p_char >= 'A' && p_char <= 'Z' ? char(p_char - 'A' + 'a') : p_char;
+}
+
 std::string lower_ascii(std::string p_text) {
-	for (char &c : p_text) {
-		if (c >= 'A' && c <= 'Z') {
-			c = char(c - 'A' + 'a');
-		}
-	}
+	std::transform(p_text.begin(), p_text.end(), p_text.begin(), lower_char);
 	return p_text;
 }
 
@@ -103,51 +116,50 @@ bool is_utf8(const std::string &p_text) {
 	return true;
 }
 
-// The last Content-Length in a header, so that the header after a broken
-// message's body is still found; nullopt without one of up to MAX_MESSAGE.
+std::string trimmed(const std::string &p_text) {
+	const size_t begin = p_text.find_first_not_of(" \t");
+	return begin == std::string::npos ? std::string() : p_text.substr(begin, p_text.find_last_not_of(" \t") - begin + 1);
+}
+
+// The value of a header's Content-Length line, the last one; nullopt without
+// one that is a number.
 std::optional<size_t> content_length(const std::string &p_header) {
-	const std::string header = lower_ascii(p_header);
-	const size_t name = header.rfind("content-length:");
-	if (name == std::string::npos) {
-		return std::nullopt;
-	}
-	size_t at = header.find_first_not_of(" \t", name + 15);
-	const size_t digits = at;
-	size_t length = 0;
-	for (; at < header.size() && header[at] >= '0' && header[at] <= '9' && at - digits < 12; at++) {
-		length = length * 10 + size_t(header[at] - '0');
-	}
-	const size_t after = header.find_first_not_of(" \t", at);
-	if (at == digits || (after != std::string::npos && header[after] != '\r') || length > MAX_MESSAGE) {
-		return std::nullopt;
+	std::optional<size_t> length;
+	for (size_t begin = 0; begin <= p_header.size();) {
+		const size_t end = std::min(p_header.find("\r\n", begin), p_header.size());
+		const std::string line = p_header.substr(begin, end - begin);
+		begin = end + 2;
+		const size_t colon = line.find(':');
+		if (colon == std::string::npos || lower_ascii(trimmed(line.substr(0, colon))) != "content-length") {
+			continue;
+		}
+		const std::string value = trimmed(line.substr(colon + 1));
+		if (value.empty() || value.size() > 12 || value.find_first_not_of("0123456789") != std::string::npos) {
+			return std::nullopt;
+		}
+		length = 0;
+		for (const char digit : value) {
+			*length = *length * 10 + size_t(digit - '0');
+		}
 	}
 	return length;
 }
 
-// The body of the next message that has all arrived after `r_read`. A header
-// without a usable Content-Length is passed over, and what follows is read
-// as the next header.
-std::optional<std::string> next_message(const std::string &p_in, size_t &r_read) {
-	while (true) {
-		const size_t end = p_in.find("\r\n\r\n", r_read);
-		if (end == std::string::npos) {
-			if (p_in.size() - r_read > MAX_HEADER) {
-				r_read = p_in.size() - 3;
-			}
-			return std::nullopt;
-		}
-		const std::optional<size_t> length = content_length(p_in.substr(r_read, end - r_read));
-		const size_t body = end + 4;
-		if (!length) {
-			r_read = body;
-			continue;
-		}
-		if (p_in.size() - body < *length) {
-			return std::nullopt;
-		}
-		r_read = body + *length;
-		return p_in.substr(body, *length);
+// The JSON text of a message's body. A NUL escape becomes U+FFFD, of the same
+// length in UTF-16, as the engine's String prints an error for each NUL
+// (core/io/json.cpp:279-368, core/string/ustring.cpp:202-206, 313-316;
+// ed1daf0). A NUL byte is no JSON, and the String would end at it (:1782).
+std::optional<String> json_text(std::string p_body) {
+	if (!is_utf8(p_body) || p_body.find('\0') != std::string::npos) {
+		return std::nullopt;
 	}
+	// A backslash escapes the character after it, so the search goes on after that.
+	for (size_t at = p_body.find('\\'); at != std::string::npos; at = p_body.find('\\', at + 2)) {
+		if (p_body.compare(at + 1, 5, "u0000") == 0) {
+			p_body.replace(at + 1, 5, "ufffd");
+		}
+	}
+	return to_godot(p_body);
 }
 
 void send(std::string &r_out, Dictionary p_message) {
@@ -247,10 +259,34 @@ int hex_digit(const std::string &p_text, size_t p_at) {
 	return -1;
 }
 
+// The path with each name in it as the file system names it, where it has
+// one in another case. The engine takes a path in another case for another
+// file, and records it so (editor/file_system/editor_file_system.cpp:1964-1975,
+// 2496-2503; ed1daf0).
+std::string as_named(const std::string &p_relative) {
+	String path = "res://";
+	const PackedStringArray names = to_godot(p_relative).split("/");
+	for (int64_t i = 0; i < names.size(); i++) {
+		String name = names[i];
+		PackedStringArray there;
+		if (DirAccess::dir_exists_absolute(path)) {
+			there = DirAccess::get_directories_at(path);
+			there.append_array(DirAccess::get_files_at(path));
+		}
+		for (int64_t j = 0; !there.has(name) && j < there.size(); j++) {
+			if (there[j].nocasecmp_to(name) == 0) {
+				name = there[j];
+			}
+		}
+		path = path.path_join(name);
+	}
+	return to_utf8(path);
+}
+
 // The res:// path of a file: URI under the project's root and outside
 // .godot/; empty for any other. Windows clients write drive letters in either
-// case and percent-encode the colon; there and on macOS, the root's case may
-// differ from the editor's.
+// case and percent-encode the colon; there and on macOS, names may be in
+// another case than the files'.
 std::string project_path(const Variant &p_uri) {
 	const std::string uri = p_uri.get_type() == Variant::STRING ? to_utf8(p_uri) : std::string();
 	if (lower_ascii(uri.substr(0, 5)) != "file:") {
@@ -287,24 +323,20 @@ std::string project_path(const Variant &p_uri) {
 		path.erase(0, 1);
 	}
 	const std::string root = to_utf8(ProjectSettings::get_singleton()->globalize_path("res://"));
-#if defined(_WIN32) || defined(__APPLE__)
-	const bool under = lower_ascii(path.substr(0, root.size())) == lower_ascii(root);
-#else
-	const bool under = path.compare(0, root.size(), root) == 0;
-#endif
-	if (!under || path.size() <= root.size()) {
+	const auto folded = [](const std::string &p_text) { return FOLDS_CASE ? lower_ascii(p_text) : p_text; };
+	if (path.size() <= root.size() || folded(path.substr(0, root.size())) != folded(root)) {
 		return std::string();
 	}
 	const std::string relative = path.substr(root.size());
 	for (size_t begin = 0; begin <= relative.size();) {
 		const size_t end = std::min(relative.find('/', begin), relative.size());
 		const std::string segment = relative.substr(begin, end - begin);
-		if (segment.empty() || segment == "." || segment == ".." || (begin == 0 && segment == ".godot")) {
+		if (segment.empty() || segment == "." || segment == ".." || (begin == 0 && folded(segment) == ".godot")) {
 			return std::string();
 		}
 		begin = end + 1;
 	}
-	return "res://" + relative;
+	return FOLDS_CASE ? as_named(relative) : "res://" + relative;
 }
 
 // Of a script of this language; empty for other files.
@@ -512,9 +544,33 @@ void LspServer::poll() {
 }
 
 void LspServer::step() {
+	Time *time = Time::get_singleton();
+	const uint64_t start = time->get_ticks_msec();
+	// Before reading, so that a text held since the last frame is offered at
+	// the version of the text it was made from; and before connections are
+	// taken, so that one that comes as the client leaves takes its place.
+	if (client.peer.is_valid()) {
+		if (state == State::Running) {
+			for (auto &[path, document] : documents) {
+				offer_held(path, document);
+			}
+		}
+		if (!transfer(client) || (state == State::Waiting && start - client.since > INITIALIZE_WAIT)) {
+			disconnect();
+		}
+	}
+	// The first not told yet that it is refused, which waits for `initialize`
+	// from now on.
+	const auto waiting = std::find_if(refused.begin(), refused.end(), [](const Connection &p_each) { return !p_each.closing; });
+	if (client.peer.is_null() && waiting != refused.end()) {
+		client = std::move(*waiting);
+		client.since = start;
+		refused.erase(waiting);
+	}
 	while (server->is_connection_available()) {
 		Connection connection;
 		connection.peer = server->take_connection();
+		connection.since = start;
 		if (client.peer.is_null()) {
 			client = std::move(connection);
 		} else if (refused.size() < MAX_REFUSED) {
@@ -524,13 +580,14 @@ void LspServer::step() {
 		}
 	}
 	for (auto each = refused.begin(); each != refused.end();) {
-		if (!transfer(*each)) {
+		if (!transfer(*each) || start - each->since > INITIALIZE_WAIT) {
 			each->peer->disconnect_from_host();
 			each = refused.erase(each);
 			continue;
 		}
-		while (!each->closing) {
-			const std::optional<std::string> body = next_message(each->in, each->read);
+		size_t skipped = 0;
+		while (!each->closing && start - each->since >= REFUSE_AFTER) {
+			const std::optional<std::string> body = each->next(skipped);
 			if (!body) {
 				break;
 			}
@@ -543,19 +600,12 @@ void LspServer::step() {
 	if (client.peer.is_null()) {
 		return;
 	}
-	// Before reading, so that a text held since the last frame is offered at
-	// the version of the text it was made from.
-	if (state == State::Running) {
-		for (auto &[path, document] : documents) {
-			offer_held(path, document);
+	while (!client.closing && time->get_ticks_msec() - start < FRAME_BUDGET) {
+		size_t skipped = 0;
+		const std::optional<std::string> body = client.next(skipped);
+		if (skipped > 0 && state == State::Running) {
+			show_message(vformat("Petrichor's language server skipped a message of %d bytes, as it reads messages of up to %d.", int64_t(skipped), int64_t(MAX_MESSAGE)));
 		}
-	}
-	if (!transfer(client)) {
-		disconnect();
-		return;
-	}
-	for (const uint64_t start = Time::get_singleton()->get_ticks_msec(); !client.closing && Time::get_singleton()->get_ticks_msec() - start < FRAME_BUDGET;) {
-		const std::optional<std::string> body = next_message(client.in, client.read);
 		if (!body) {
 			break;
 		}
@@ -568,26 +618,82 @@ void LspServer::step() {
 	}
 	// Once the workspace has stayed for as long as the script editor waits
 	// before it checks a script, or the editor has taken in a change; a script
-	// just opened at once (architecture §2.4).
+	// just opened at once (architecture §2.4). One a frame at least, more
+	// within the frame's budget, the rest the frame after.
 	const uint64_t revision = workspace().revision();
-	const uint64_t now = Time::get_singleton()->get_ticks_msec();
 	if (revision != seen) {
 		seen = revision;
-		quiet_since = now;
+		quiet_since = start;
 	}
-	const bool quiet = settle || now - quiet_since >= delay;
+	const bool quiet = settle || start - quiet_since >= delay || continuing == revision;
 	settle = false;
+	continuing = 0;
+	bool sent = false;
 	for (auto &[path, document] : documents) {
-		if (document.published != revision && (quiet || document.published == 0)) {
-			publish(path, document);
+		if (document.published == revision || !(quiet || document.published == 0)) {
+			continue;
+		}
+		if (sent && time->get_ticks_msec() - start >= FRAME_BUDGET) {
+			continuing = quiet ? revision : 0;
+			break;
+		}
+		publish(path, document);
+		sent = true;
+	}
+}
+
+std::optional<std::string> LspServer::Connection::next(size_t &r_skipped) {
+	while (true) {
+		const size_t dropped = std::min(skip, in.size() - read);
+		read += dropped;
+		skip -= dropped;
+		if (skip > 0) {
+			return std::nullopt;
+		}
+		// The body of a message without a usable length comes first, so the
+		// next header is taken to begin at the next Content-Length, in any case.
+		if (seeking) {
+			const char *name = "content-length:";
+			const auto found = std::search(in.begin() + int64_t(read), in.end(), name, name + 15, [](char p_in, char p_name) { return lower_char(p_in) == p_name; });
+			if (found == in.end()) {
+				read = std::max(read, in.size() - std::min(in.size(), size_t(14)));
+				return std::nullopt;
+			}
+			read = size_t(found - in.begin());
+			seeking = false;
+		}
+		const size_t end = in.find("\r\n\r\n", read);
+		if (end == std::string::npos) {
+			if (in.size() - read > MAX_HEADER) {
+				read = in.size() - 3;
+			}
+			return std::nullopt;
+		}
+		const std::optional<size_t> length = content_length(in.substr(read, end - read));
+		const size_t body = end + 4;
+		if (length && *length <= MAX_MESSAGE && in.size() - body < *length) {
+			return std::nullopt;
+		}
+		read = body;
+		if (!length) {
+			seeking = true;
+		} else if (*length > MAX_MESSAGE) {
+			skip = *length;
+			r_skipped = *length;
+		} else {
+			read += *length;
+			return in.substr(body, *length);
 		}
 	}
 }
 
+// A response is never answered, also one without a usable id (JSON-RPC 2.0,
+// Response object).
 void LspServer::handle(Connection &r_connection, const std::string &p_body) {
 	Ref<JSON> json;
 	json.instantiate();
-	if (!is_utf8(p_body) || json->parse(to_godot(p_body)) != OK) {
+	const std::optional<String> text = json_text(p_body);
+	if (!text || json->parse(*text) != OK) {
 		reply_error(r_connection.out, Variant(), PARSE_ERROR, "The message is not JSON in UTF-8.");
 		return;
 	}
@@ -596,15 +702,17 @@ void LspServer::handle(Connection &r_connection, const std::string &p_body) {
 	const Variant id = request_id(message.get("id", Variant()));
 	const Variant method = message.get("method", Variant());
 	const bool has_id = id.get_type() != Variant::NIL;
-	if (data.get_type() != Variant::DICTIONARY || (message.has("id") && !has_id) || (!message.has("method") && !has_id) || (message.has("method") && method.get_type() != Variant::STRING)) {
+	if (!message.has("method") && (message.has("result") || message.has("error"))) {
+		if (&r_connection == &client && has_id) {
+			answered(id, message);
+		}
+	} else if (data.get_type() != Variant::DICTIONARY || (message.has("id") && !has_id) || !message.has("method") || method.get_type() != Variant::STRING) {
 		reply_error(r_connection.out, id, INVALID_REQUEST, "The message is no JSON-RPC request, notification or response.");
 	} else if (&r_connection != &client) {
 		if (has_id) {
 			reply_error(r_connection.out, id, REQUEST_FAILED, "Another client is connected to the Petrichor language server of this Godot editor.");
 			r_connection.closing = true;
 		}
-	} else if (!message.has("method")) {
-		answered(id, message);
 	} else if (has_id) {
 		request(id, method, message.get("params", Variant()));
 	} else {
@@ -764,19 +872,22 @@ void LspServer::opened(const Dictionary &p_params) {
 		return;
 	}
 	Document &document = documents[path];
-	document = Document{ uri, *version };
+	document.versions[uri] = *version;
+	document.published = 0;
 	set_client_script(path, to_utf8(text));
 	offer_held(path, document);
 }
 
 // Each change applies to the text that the one before it left (LSP 3.17,
-// DidChangeTextDocumentParams).
+// DidChangeTextDocumentParams). One file open under two spellings of its URI
+// has one text, which the changes under either change.
 void LspServer::changed(const Dictionary &p_params) {
 	const Dictionary item = dictionary(p_params.get("textDocument", Variant()));
-	const auto found = documents.find(script_path(item.get("uri", Variant())));
+	const Variant uri = item.get("uri", Variant());
+	const auto found = documents.find(script_path(uri));
 	const std::optional<int64_t> version = integer(item.get("version", Variant()), INT32_MIN, INT32_MAX);
 	const Variant changes = p_params.get("contentChanges", Variant());
-	if (found == documents.end() || !version || changes.get_type() != Variant::ARRAY) {
+	if (found == documents.end() || !found->second.versions.count(uri) || !version || changes.get_type() != Variant::ARRAY) {
 		return;
 	}
 	std::string text = workspace().script_source(found->first).value_or(std::string());
@@ -801,22 +912,34 @@ void LspServer::changed(const Dictionary &p_params) {
 		const uint32_t to = compiler::utf16_offset(text, *end);
 		text.replace(std::min(from, to), std::max(from, to) - std::min(from, to), to_utf8(replacement));
 	}
-	found->second.version = *version;
+	found->second.versions[uri] = *version;
 	set_client_script(found->first, std::move(text));
 }
 
-// Back to the tab or the file, and its diagnostics cleared.
+// Its diagnostics cleared; closed under its last spelling, back to the tab or
+// the file.
 void LspServer::closed(const Dictionary &p_params) {
-	const auto found = documents.find(script_path(dictionary(p_params.get("textDocument", Variant())).get("uri", Variant())));
-	if (found == documents.end()) {
+	const Variant uri = dictionary(p_params.get("textDocument", Variant())).get("uri", Variant());
+	const auto found = documents.find(script_path(uri));
+	if (found == documents.end() || !found->second.versions.erase(uri)) {
 		return;
 	}
 	Dictionary params;
-	params["uri"] = found->second.uri;
+	params["uri"] = uri;
 	params["diagnostics"] = Array();
-	drop_client_script(found->first);
-	documents.erase(found);
 	notify("textDocument/publishDiagnostics", params);
+	if (found->second.versions.empty()) {
+		release(found->first);
+		documents.erase(found);
+	}
+}
+
+// What the analysis kept for a script with no file goes with its text.
+void LspServer::release(const std::string &p_path) {
+	drop_client_script(p_path);
+	if (!FileAccess::file_exists(to_godot(p_path))) {
+		analysis().forget(p_path);
+	}
 }
 
 // As the editor's own save of a script (architecture §2.4): the editor's file
@@ -866,8 +989,8 @@ void LspServer::offer_held(const std::string &p_path, Document &r_document) {
 	edit["range"] = range({}, compiler::utf16_positions(text, { uint32_t(text.size()) })[0]);
 	edit["newText"] = to_godot(held->second);
 	Dictionary document;
-	document["uri"] = r_document.uri;
-	document["version"] = r_document.version;
+	document["uri"] = r_document.versions.begin()->first;
+	document["version"] = r_document.versions.begin()->second;
 	Dictionary change;
 	change["textDocument"] = document;
 	change["edits"] = Array::make(edit);
@@ -908,11 +1031,13 @@ void LspServer::publish(const std::string &p_path, Document &r_document) {
 	for (size_t i = 0; i < found.size(); i++) {
 		diagnostics.push_back(diagnostic(found[i], range(at[2 * i], at[2 * i + 1])));
 	}
-	Dictionary params;
-	params["uri"] = r_document.uri;
-	params["version"] = r_document.version;
-	params["diagnostics"] = diagnostics;
-	notify("textDocument/publishDiagnostics", params);
+	for (const auto &[uri, version] : r_document.versions) {
+		Dictionary params;
+		params["uri"] = uri;
+		params["version"] = version;
+		params["diagnostics"] = diagnostics;
+		notify("textDocument/publishDiagnostics", params);
+	}
 	r_document.published = revision;
 }
 
@@ -934,7 +1059,7 @@ void LspServer::show_message(const String &p_message) {
 void LspServer::disconnect() {
 	client.peer->disconnect_from_host();
 	for (const auto &[path, document] : documents) {
-		drop_client_script(path);
+		release(path);
 	}
 	documents.clear();
 	offers.clear();
@@ -947,7 +1072,7 @@ void LspServer::disconnect() {
 String LspServer::uri_of(const std::string &p_path) const {
 	const auto open = documents.find(p_path);
 	if (open != documents.end()) {
-		return open->second.uri;
+		return open->second.versions.begin()->first;
 	}
 	const std::string path = to_utf8(ProjectSettings::get_singleton()->globalize_path(to_godot(p_path)));
 	std::string uri = path.compare(0, 1, "/") == 0 ? "file://" : "file:///";
@@ -997,7 +1122,7 @@ Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::
 		}
 		Dictionary document;
 		document["uri"] = uri_of(file);
-		document["version"] = open == documents.end() ? Variant() : Variant(open->second.version);
+		document["version"] = open == documents.end() ? Variant() : Variant(open->second.versions.begin()->second);
 		Dictionary change;
 		change["textDocument"] = document;
 		change["edits"] = text_edits;
