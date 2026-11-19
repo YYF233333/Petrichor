@@ -317,6 +317,11 @@ std::shared_ptr<const ClassImage> PetScript::get_image() const {
 	return image;
 }
 
+std::shared_ptr<const ClassImage> PetScript::declared() const {
+	std::lock_guard<std::mutex> lock(mutex);
+	return image ? image : last_good;
+}
+
 void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
 	source = p_source;
 	described = p_source;
@@ -334,6 +339,7 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, cons
 		}
 		if (p_image) {
 			p_image->script = ObjectID(get_instance_id());
+			last_good = p_image;
 		}
 		image = p_image;
 		if (p_base.is_valid()) {
@@ -766,7 +772,7 @@ ScriptLanguage *PetScript::_get_language() const {
 // emits it too, so a non-pub one is found by the name only it uses, and is
 // not listed (spec §10.5).
 bool PetScript::_has_script_signal(const StringName &p_signal) const {
-	const std::shared_ptr<const ClassImage> current = get_image();
+	const std::shared_ptr<const ClassImage> current = declared();
 	if (!current) {
 		return false;
 	}
@@ -780,7 +786,7 @@ bool PetScript::_has_script_signal(const StringName &p_signal) const {
 
 TypedArray<Dictionary> PetScript::_get_script_signal_list() const {
 	TypedArray<Dictionary> list;
-	if (const std::shared_ptr<const ClassImage> current = get_image()) {
+	if (const std::shared_ptr<const ClassImage> current = declared()) {
 		for (const bytecode::SignalInfo &signal : current->module.signals) {
 			if (!signal.is_pub) {
 				continue;
@@ -796,7 +802,7 @@ TypedArray<Dictionary> PetScript::_get_script_signal_list() const {
 }
 
 bool PetScript::_has_property_default_value(const StringName &p_property) const {
-	const std::shared_ptr<const ClassImage> current = get_image();
+	const std::shared_ptr<const ClassImage> current = declared();
 	if (!current) {
 		return false;
 	}
@@ -815,7 +821,7 @@ bool PetScript::_has_property_default_value(const StringName &p_property) const 
 }
 
 Variant PetScript::_get_property_default_value(const StringName &p_property) const {
-	const std::shared_ptr<const ClassImage> current = get_image();
+	const std::shared_ptr<const ClassImage> current = declared();
 	if (!current) {
 		return Variant();
 	}

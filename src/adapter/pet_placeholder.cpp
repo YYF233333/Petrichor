@@ -132,7 +132,8 @@ static GDExtensionBool placeholder_get(GDExtensionScriptInstanceDataPtr p_instan
 		result = *constant;
 		return true;
 	}
-	return !placeholder->script->_is_placeholder_fallback_enabled() && placeholder->default_value(name, result);
+	// While the script has errors, its last declarations give the default.
+	return placeholder->default_value(name, result);
 }
 
 static const GDExtensionPropertyInfo *placeholder_get_property_list(GDExtensionScriptInstanceDataPtr p_instance, uint32_t *r_count) {

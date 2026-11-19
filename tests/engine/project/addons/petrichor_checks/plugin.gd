@@ -174,22 +174,25 @@ func _check_header() -> void:
 
 # While a script has errors, a scene that uses it keeps its exported values,
 # whether the script broke after the scene was opened or before; saving the
-# scene then loses none (as for GDScript).
+# scene then loses none (as for GDScript). Its defaults and signals are those
+# it last compiled with, so saving stores no default and keeps a connection.
 func _check_placeholder_fallback() -> void:
 	var script_path := "res://editor_check_fallback.pet"
 	var scene_path := "res://editor_check_fallback.tscn"
-	var valid := "extends Node\n@export pub var speed: int = 1\n"
+	var valid := "extends Node\n@export pub var speed: int = 1\n@export pub var pace: int = 3\npub signal hit\n"
 	var broken := valid + "@export pub var extra: int = 2\n\nfunc f() -> int:\n\treturn missing\n"
 	_write(script_path, valid)
-	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\nspeed = 7\nextra = 9\n' % script_path)
+	_write(scene_path, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nscript = ExtResource("1")\nspeed = 7\nextra = 9\n\n[node name="Other" type="Node" parent="."]\n\n[connection signal="hit" from="." to="Other" method="queue_free"]\n' % script_path)
 
 	var packed := ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene
 	var root := packed.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	var script: Script = root.get_script()
 	script.source_code = broken
 	script.reload()
-	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a placeholder keeps its values once its script has errors")
-	_check_errors(["editor_check_fallback.pet:6: Identifier \"missing\" is not declared in the current scope."], "the script reports its error")
+	var text := _pack_to_text(root)
+	_check(root.get("speed") == 7 and text.contains("speed = 7"), "a placeholder keeps its values once its script has errors")
+	_check(not text.contains("pace") and text.contains("[connection signal=\"hit\""), "saving it stores no default and keeps a connection to its signal: " + text.c_escape())
+	_check_errors(["editor_check_fallback.pet:8: Identifier \"missing\" is not declared in the current scope."], "the script reports its error")
 	root.free()
 	root = packed.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	_check(root.get("extra") == 9 and _pack_to_text(root).contains("extra = 9"), "a scene instanced after its script broke keeps a value the script it had did not take")

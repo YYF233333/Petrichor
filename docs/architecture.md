@@ -379,6 +379,7 @@
 
 - 分析服务在编辑器进程中持有整个项目的编译结果，诊断显示在脚本编辑器和场景编辑器中。
 - 编辑器中本语言脚本的实例是自己的占位实例（`src/adapter/pet_placeholder.h`）。它像引擎的占位实例一样保存导出的属性，脚本有错时保留场景设的值（`core/object/script_language.cpp:680-923`）。它还回答 `_get_configuration_warnings`，场景面板由此把错误标在节点上；引擎的占位实例不回答任何调用（`scene/main/node.cpp:3522-3532`，`editor/scene/scene_tree_editor.cpp:493-519`，`core/object/script_language.cpp:793-804`）。
+- 脚本有错时，默认值和信号取它上次编译成功时的声明，与 GDScript 相同（`modules/gdscript/gdscript.cpp:546-548, 575-578`）。否则保存场景时，未存的导出写成 null，连到它的信号的连接被丢掉。
 - 场景用错脚本的诊断记下场景和节点，信号连接的错误记在连接的目标上。动画轨道和同步属性的错误记在它们所指的节点上。节点的位置是它所属场景中的路径，实例化的场景根记为 `.`。
 - 节点上的错误取自它的脚本的检查，和它所在各场景的检查。
   - 这些场景沿 owner 链向上找：实例化的场景的根拥有它的节点，外层场景的根又拥有这个根（`scene/resources/packed_scene.cpp:567-573`）。

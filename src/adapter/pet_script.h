@@ -37,6 +37,8 @@ class PetScript : public godot::ScriptExtension {
 	godot::String source;
 	godot::String described; // The source the editor last compiled, which `image` describes then.
 	std::shared_ptr<const ClassImage> image; // Null while the script has errors.
+	// The last image, whose declarations stand in while the script has errors.
+	std::shared_ptr<const ClassImage> last_good;
 	PetHeader header;
 	mutable godot::Ref<PetScript> base_script;
 
@@ -65,6 +67,10 @@ public:
 	// The script of an inner class by its name; null when there is none.
 	godot::Ref<PetScript> get_inner_script(const godot::StringName &p_name) const;
 	std::shared_ptr<const ClassImage> get_image() const;
+	// The image, or while the script has errors the last one, which gives the
+	// defaults and the signals: a scene saved then keeps what the script declared,
+	// as GDScript keeps them (modules/gdscript/gdscript.cpp:546-548, 575-578; ed1daf0).
+	std::shared_ptr<const ClassImage> declared() const;
 
 	// The source as loaded, with its compiled class.
 	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});
