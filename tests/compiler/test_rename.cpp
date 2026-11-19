@@ -634,6 +634,14 @@ TEST_CASE("renaming is refused where a node or a resource with the class stores 
 	derived.replace(derived.find("{\"damage\": 7}"), 13, "{\"amount\": 1, \"damage\": 7}");
 	fields.scenes[1].nodes[0].properties[0].second = value("Dictionary", { text("amount"), number(1), text("damage"), number(7) });
 	CHECK(contains(refusals(renamed(fields, "res://export_check.pet", "damage", "amount")), "res://export_derived.tscn:6: "));
+	// A binary scene, whose names cannot be rewritten.
+	Project binary;
+	binary.add_script("res://unit.pet", "extends Node2D\n\n@export pub var attack_points := 1\n");
+	compiler::Scene unit;
+	unit.path = "res://unit.scn";
+	unit.nodes = { { ".", "Node2D", "res://unit.pet", false, "", false, { { "boost_points", number(99) } } } };
+	binary.scenes = { unit };
+	CHECK(refusals(renamed(binary, "res://unit.pet", "attack_points", "boost_points")) == "res://unit.scn:0: It is a binary file, whose names cannot be rewritten. Save it as .tscn first.\n");
 }
 
 TEST_CASE("renaming is refused where another scene uses a place it rewrites for another declaration") {

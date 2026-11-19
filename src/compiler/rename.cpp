@@ -480,12 +480,9 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 					another(connection.file);
 				}
 			}
-			const std::string type = extension(path.substr(0, path.find("::")));
-			if (type != "tscn" && type != "tres") {
-				continue;
-			}
 			// A key under the new name on a node or a resource with the class, as
 			// a removed export leaves: renaming would make its value take effect.
+			// A binary scene with one refuses it.
 			StoredName stale;
 			stale.kind = StoredName::Kind::Stale;
 			stale.key = p_new;
@@ -496,6 +493,10 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 					stale.section = node.path;
 					stored[path].insert(stale);
 				}
+			}
+			const std::string type = extension(path.substr(0, path.find("::")));
+			if (type != "tscn" && type != "tres") {
+				continue;
 			}
 			// The scene index cannot see one on a resource, which the engine
 			// drops as it loads it (src/adapter/pet_placeholder.cpp:113-116).
