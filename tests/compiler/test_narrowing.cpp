@@ -122,4 +122,8 @@ TEST_CASE("None goes where a T? is expected") {
 	CHECK(fixed(in_function("if e == null:\n\tpass", compared)) == in_function("if not is_instance_valid(e):\n\tpass", compared));
 	CHECK(fixed(in_function("var b := (e != None)", compared)) == in_function("var b := (is_instance_valid(e))", compared));
 	CHECK(fixed(in_function("if e == null:\n\tpass", compared), "Write InputEvent?") == in_function("if e == null:\n\tpass", "func f(e: InputEvent?) -> void:"));
+	// Not where is_instance_valid() calls a function of the class.
+	const std::string own = "func is_instance_valid(_v: Object) -> bool:\n\treturn false\n\n" + compared;
+	CHECK(fixed(in_function("if e == null:\n\tpass", own)) == "no such fix");
+	CHECK(fixed(in_function("if e:\n\tpass", own)) == "no such fix");
 }

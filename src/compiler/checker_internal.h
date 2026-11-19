@@ -918,8 +918,8 @@ class Checker : public ClassRelation {
 	/* checker_expressions.cpp */
 
 	Type check_unary(Expr &r_expr);
-	static std::string truth_test(const Type &p_type, bool p_negated, const std::string &p_value);
-	static std::string truth_hint(const Type &p_type, bool p_negated);
+	std::string truth_test(const Type &p_type, bool p_negated, const std::string &p_value);
+	std::string truth_hint(const Type &p_type, bool p_negated);
 	Type fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated);
 	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at, Type *r_compared = nullptr);
 	Type primitive_binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at);
@@ -1030,6 +1030,7 @@ class Checker : public ClassRelation {
 	bool split_members(Expr &r_call);
 	void check_member_arguments(Expr &r_call, const Type &p_made, bool p_instantiate, const Scene *p_scene = nullptr);
 	Type type_call(Expr &r_expr, const Type &p_expected);
+	bool calls_utility(const std::string &p_name);
 	Type type_method_call(Expr &r_expr, const Type &p_expected);
 	Type check_range(Expr &r_expr);
 	Type check_gdscript_utility(Expr &r_expr);

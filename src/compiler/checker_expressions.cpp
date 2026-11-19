@@ -80,8 +80,9 @@ Type Checker::check_unary(Expr &r_expr) {
 // GDScript's truth test of a value of the type, written out for `p_value`
 // (spec §5.4): `x != 0`, or with `p_negated` `x == 0` for `not x`. Empty for
 // a Variant, whose exact test bool(type_convert(v, TYPE_BOOL)) is no idiom
-// (core/variant/variant_utility.cpp:849-854; ed1daf0), and for the T? of
-// the other value types.
+// (core/variant/variant_utility.cpp:849-854; ed1daf0), for the T? of the
+// other value types, and for an object where is_instance_valid() calls
+// another function.
 std::string Checker::truth_test(const Type &p_type, bool p_negated, const std::string &p_value) {
 	const Type type = as_int(p_type);
 	const std::string compared = p_negated ? " == " : " != ";
@@ -106,7 +107,7 @@ std::string Checker::truth_test(const Type &p_type, bool p_negated, const std::s
 		return p_value + compared + "None";
 	}
 	if (type.kind == TypeKind::Object) {
-		return (p_negated ? "not " : "") + ("is_instance_valid(" + p_value + ")");
+		return calls_utility("is_instance_valid") ? (p_negated ? "not " : "") + ("is_instance_valid(" + p_value + ")") : std::string();
 	}
 	const std::string name = type.builtin_name();
 	if (name == "Callable" || name == "Signal") {
@@ -367,7 +368,9 @@ Type Checker::check_none_comparison(Expr &r_expr) {
 		if (type.kind == TypeKind::Object) {
 			// GDScript's x == null is true of a freed object too
 			// (core/variant/variant_op.h:484-488; ed1daf0).
-			fix({ { unparenthesized(r_expr.range), (r_expr.op == TokenKind::BangEqual ? "" : "not ") + ("is_instance_valid(" + cls.source->text_of(value.range) + ")") } }, FixKind::InstanceValid);
+			if (calls_utility("is_instance_valid")) {
+				fix({ { unparenthesized(r_expr.range), (r_expr.op == TokenKind::BangEqual ? "" : "not ") + ("is_instance_valid(" + cls.source->text_of(value.range) + ")") } }, FixKind::InstanceValid);
+			}
 			if (const TypeRef *written = type_written_for(value)) {
 				fix_optional(*written);
 			}

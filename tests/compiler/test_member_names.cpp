@@ -36,6 +36,9 @@ TEST_CASE("a literal member name is checked on the object's static type, as obje
 	CHECK(rewritten("emit_signal(\"hit\", 1)") == "hit.emit(1)\n");
 	CHECK(rewritten("connect(\"hit\", func(amount: int): pass)") == "hit.connect(func(amount: int): pass)\n");
 	CHECK(rewritten("call_deferred(\"reset\", 1)") == "reset.call_deferred(1)\n");
+	// Through self where a local has the name; inside the parentheses around it.
+	CHECK(rewritten("var reset := 1\n\tcall_deferred(\"reset\", reset)") == "var reset := 1\n\tself.reset.call_deferred(reset)\n");
+	CHECK(rewritten("(call_deferred(\"reset\", 1))") == "(reset.call_deferred(1))\n");
 	CHECK(rewritten("var c := Callable(self, \"reset\")") == "var c := self.reset\n");
 	CHECK(fixed_in(head + "var s := Signal(self, \"hit\")\n", FakeProject()) == "res://test.pet:\nextends Node2D\n\npub signal hit(amount: int)\nvar secret := 2\n\nfunc reset(n: int):\n\tpass\n\nfunc f() -> void:\n\tvar s := Signal(self, \"hit\")\n");
 	CHECK(fixed_in(head + "set_deferred(\"secret\", 3)\n", FakeProject()) == "res://test.pet:\nextends Node2D\n\nsignal hit(amount: int)\npub var secret := 2\n\nfunc reset(n: int):\n\tpass\n\nfunc f() -> void:\n\tset_deferred(\"secret\", 3)\n");

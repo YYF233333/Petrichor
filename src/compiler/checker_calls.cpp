@@ -439,7 +439,9 @@ std::optional<Checker::NamedMember> Checker::literal_member(Expr &r_call, const 
 		const bool on_object = p_named.target < 0 && p_named.index == 0 && r_call.name_token < cls.source->tokens.size() && (((called == "call" || called == "emit_signal") && r_call.discarded) || called == "call_deferred" || called == "connect");
 		if (p_named.kind != Kind::Property && sees(member.id.scope) && on_object) {
 			const std::string rest = r_call.args.size() > 1 ? cls.source->text_of({ r_call.args[1]->range.first, r_call.args.back()->range.last }) : std::string();
-			fix({ { { r_call.name_token, r_call.range.last }, name + "." + (called == "emit_signal" ? "emit" : called) + "(" + rest + ")" } }, FixKind::MemberItself);
+			// A local of the name would take the member's place.
+			const std::string receiver = !r_call.base && visible_local(name) ? "self." : "";
+			fix({ { { r_call.name_token, unparenthesized(r_call.range).last }, receiver + name + "." + (called == "emit_signal" ? "emit" : called) + "(" + rest + ")" } }, FixKind::MemberItself);
 		} else if (p_named.kind == Kind::Method && sees(member.id.scope) && called == "Callable" && !r_call.base) {
 			fix({ { r_call.range, operand(*r_call.args[0]) + "." + name } }, FixKind::MemberItself);
 		} else {
@@ -1801,6 +1803,15 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 	}
 
 	return fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
+}
+
+// Whether `p_name(...)` here calls the engine's utility function, as a fix
+// that writes it means to; a function of the class may take the name.
+bool Checker::calls_utility(const std::string &p_name) {
+	const std::unique_ptr<Expr> probe = synthetic(ExprKind::Call, p_name, TokenRange());
+	const Tentative tried(*this);
+	type_call(*probe, Type::of(TypeKind::Error));
+	return probe->target == Target::Utility;
 }
 
 // A call on a base other than self in a class's function: a method of
