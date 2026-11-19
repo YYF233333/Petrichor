@@ -44,6 +44,10 @@ TEST_CASE("coroutine declarations enforce their public contracts") {
 	// statement runs on its own.
 	CHECK(fixed("extends Node\npub static func f(s: Signal):\n\tawait s\n", "Write async func") == "extends Node\npub static async func f(s: Signal):\n\tawait s\n");
 	CHECK(fixed("extends Node\nfunc _init(s: Signal):\n\tawait s\n", "Write async func") == "no such fix");
+	// A stray block, also as the first token, has no `func` to write it before.
+	CHECK(fixed("\tawait\n", "Write async func") == "no such fix");
+	CHECK(fixed("# c\n\tawait\n", "Write async func") == "no such fix");
+	CHECK(fixed("x\n\tawait\n", "Write async func") == "no such fix");
 	// An override keeps async, as the base it overrides may have just gained it.
 	CHECK(fixed("class A:\n\tasync func f():\n\t\tpass\n\nclass B extends A:\n\tfunc f():\n\t\tpass\n", "Write async func") == "class A:\n\tasync func f():\n\t\tpass\n\nclass B extends A:\n\tasync func f():\n\t\tpass\n");
 	CHECK(fixed("async func f():\n\tpass\nfunc g():\n\tf()\n") == "async func f():\n\tpass\nfunc g():\n\tf().detach()\n");

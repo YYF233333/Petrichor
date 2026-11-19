@@ -1332,9 +1332,10 @@ Type Checker::check_task_join(Expr &r_expr) {
 // Gives the error reported last the fix that makes `r_function` async (spec
 // §9.1), as GDScript's with an await is a coroutine, where its signature
 // checks as async: as a method, or where the lambda goes. An accessor
-// cannot be async.
+// cannot be async, and a stray block has no `func` to write it before.
 void Checker::fix_async(FuncDecl &r_function) {
-	if (completion || !r_function.accessor_of.empty()) {
+	const uint32_t keyword = r_function.is_lambda && r_function.name.empty() ? r_function.name_token : r_function.name_token - 1;
+	if (completion || !r_function.accessor_of.empty() || keyword >= cls.source->tokens.size() || cls.source->tokens[keyword].kind != TokenKind::Func) {
 		return;
 	}
 	bool fits = false;
@@ -1352,7 +1353,6 @@ void Checker::fix_async(FuncDecl &r_function) {
 		});
 	}
 	if (fits) {
-		const uint32_t keyword = r_function.is_lambda && r_function.name.empty() ? r_function.name_token : r_function.name_token - 1;
 		fix({ { { keyword, keyword }, "async func" } }, FixKind::Async);
 	}
 }
