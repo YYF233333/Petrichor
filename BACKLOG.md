@@ -90,6 +90,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - writes to a resource known to be shared.
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
 - A quick fix adding the constructor for the implicit conversions of GDScript that this language drops (spec §3.14).
+- The quick fix of spec §7.2 for a `$X` that no scene has: store the node in a typed member where it is added, as `var tetromino: Tetromino?`. No fix is offered now. The places that add the node are not known to the check.
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
 - With the lints of 0.3, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6, design-notes).
   - Examples are `next_slot().value = compute()`, whose calls run in another order in GDScript, and `arr[i] = next()` with `next()` assigning `i`.
