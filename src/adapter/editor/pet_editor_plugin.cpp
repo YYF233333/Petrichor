@@ -1251,13 +1251,19 @@ void PetEditorPlugin::rename_to(const String &p_name) {
 // scene defers calls that hold items of the scene dock, which the next change
 // of tabs or reload of the scene frees (editor/editor_node.cpp:4651-4675,
 // editor/scene/scene_tree_editor.cpp:995-1004, 1131-1140; ed1daf0). A scene
-// that is still unsaved is not saved again.
-bool PetEditorPlugin::scenes_saved(const std::set<std::string> &p_files) {
+// that is still unsaved once saved, as a read-only file, stops it, as the
+// rename would lose its changes when it reloads the scene; the user is told.
+PetEditorPlugin::Saving PetEditorPlugin::scenes_saved(const std::set<std::string> &p_files) {
 	EditorInterface *editor = EditorInterface::get_singleton();
 	TabBar *tabs = scene_tabs();
+	std::string failed;
 	for (const std::string &scene : open_scenes_showing(p_files)) {
-		if (!is_unsaved_scene(scene) || !saving.insert(scene).second) {
+		if (!is_unsaved_scene(scene)) {
 			continue;
+		}
+		if (!saving.insert(scene).second) {
+			failed = scene;
+			break;
 		}
 		const Node *current = editor->get_edited_scene_root();
 		const bool shown = current && to_utf8(current->get_scene_file_path()) == scene;
@@ -1269,7 +1275,11 @@ bool PetEditorPlugin::scenes_saved(const std::set<std::string> &p_files) {
 		}
 		editor->save_scene_as(to_godot(scene), false);
 		if (!shown) {
-			return false;
+			return Saving::Waiting;
+		}
+		if (is_unsaved_scene(scene)) {
+			failed = scene;
+			break;
 		}
 	}
 	saving.clear();
@@ -1277,9 +1287,15 @@ bool PetEditorPlugin::scenes_saved(const std::set<std::string> &p_files) {
 	shown_before = -1;
 	if (tabs && shown >= 0 && tabs->get_current_tab() != shown) {
 		tabs->set_current_tab(shown);
-		return false;
+		if (failed.empty()) {
+			return Saving::Waiting;
+		}
 	}
-	return true;
+	if (!failed.empty()) {
+		toast(vformat("%s cannot be saved, so nothing was renamed.", to_godot(failed)), EditorToaster::SEVERITY_WARNING);
+		return Saving::Failed;
+	}
+	return Saving::Done;
 }
 
 // The scenes it changes are saved, and the changes found again. The preview
@@ -1292,8 +1308,11 @@ void PetEditorPlugin::apply_previewed() {
 			files.insert(renaming.changes.edits[i].occurrence.file);
 		}
 	}
-	if (!scenes_saved(files)) {
+	const Saving saved = scenes_saved(files);
+	if (saved == Saving::Waiting) {
 		callable_mp(this, &PetEditorPlugin::apply_previewed).call_deferred();
+	}
+	if (saved != Saving::Done) {
 		return;
 	}
 	const compiler::Rename again = rename(renaming.path, renaming.offset, renaming.name);
@@ -1684,9 +1703,11 @@ String PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, co
 		why = "a name it changed by text has moved.";
 	} else if (!p_apply) {
 		return String();
-	} else if (!scenes_saved(files)) {
+	} else if (const Saving saved = scenes_saved(files); saved == Saving::Waiting) {
 		callable_mp(this, &PetEditorPlugin::rename_declaration).call_deferred(p_kind, p_scope, p_name, p_new, p_candidates, p_apply);
 		return String();
+	} else if (saved == Saving::Failed) {
+		return "An open scene cannot be saved."; // As scenes_saved() told.
 	} else {
 		apply(file, *offset, to_utf8(p_new), chosen, false);
 		return String();

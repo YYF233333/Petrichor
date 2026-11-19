@@ -61,6 +61,7 @@ func _run() -> void:
 	await _check_rename_open_scenes()
 	await _check_rename_transaction()
 	await _check_rename_loaded()
+	await _check_rename_unsaveable()
 	await _check_embedded_scene()
 	await _check_quick_fixes()
 	await _check_unsaved_texts()
@@ -763,6 +764,59 @@ func _check_rename_open_scenes() -> void:
 	EditorInterface.open_scene_from_path(holder)
 	EditorInterface.close_scene()
 	code.undo()
+	EditorInterface.get_script_editor().close_file(unit)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+	_scanned()
+
+
+# Architecture §2.3: an open scene showing the renamed one, which cannot be
+# saved first, as a read-only file, stops the rename, which then changes
+# nothing; the scene keeps its unsaved change.
+func _check_rename_unsaveable() -> void:
+	var dir := "res://editor_rename_unsaveable"
+	var unit := dir + "/unit.pet"
+	var scene := dir + "/unit.tscn"
+	var holder := dir + "/holder.tscn"
+	DirAccess.make_dir_absolute(dir)
+	_write(unit, "extends Node\n\n@export pub var stride := 1\n")
+	_write(scene, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Unit" type="Node"]\nscript = ExtResource("1")\nstride = 5\n' % unit)
+	_write(holder, '[gd_scene format=3]\n\n[ext_resource type="PackedScene" path="%s" id="1"]\n\n[node name="Holder" type="Node"]\n\n[node name="Unit" parent="." instance=ExtResource("1")]\n' % scene)
+	for file in [scene, holder]:
+		EditorInterface.get_resource_filesystem().update_file(file)
+	await get_tree().process_frame
+	EditorInterface.open_scene_from_path(holder)
+	var holder_root := EditorInterface.get_edited_scene_root()
+	var undo_redo := get_undo_redo()
+	undo_redo.create_action("Describe holder")
+	undo_redo.add_do_property(holder_root, "editor_description", "Kept")
+	undo_redo.add_undo_property(holder_root, "editor_description", "")
+	undo_redo.commit_action()
+	var mode := FileAccess.get_unix_permissions(holder)
+	FileAccess.set_unix_permissions(holder, FileAccess.UNIX_READ_OWNER)
+	FileAccess.set_read_only_attribute(holder, true)
+	OS.set_use_file_access_save_and_swap(false)
+	var scene_text := FileAccess.get_file_as_string(scene)
+	EditorInterface.edit_script(load(unit))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var text := code.text
+	_rename(code, 2, 17, "pace")
+	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
+	apply.pressed.emit()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	_check(code.text == text and FileAccess.get_file_as_string(scene) == scene_text and EditorInterface.get_unsaved_scenes().has(holder) and EditorInterface.get_edited_scene_root() == holder_root and holder_root.editor_description == "Kept", "a rename that cannot save an open scene first changes nothing, and the scene keeps its change")
+	_check_errors(["Cannot save file '%s'." % holder], "it reports the scene")
+	# The editor's dialog that the scene was not saved, which takes the focus.
+	for dialog: AcceptDialog in get_tree().root.find_children("*", "AcceptDialog", true, false):
+		if dialog.visible:
+			dialog.hide()
+	OS.set_use_file_access_save_and_swap(true)
+	FileAccess.set_read_only_attribute(holder, false)
+	FileAccess.set_unix_permissions(holder, mode)
+	undo_redo.get_history_undo_redo(undo_redo.get_object_history_id(holder_root)).undo()
+	EditorInterface.close_scene()
 	EditorInterface.get_script_editor().close_file(unit)
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))

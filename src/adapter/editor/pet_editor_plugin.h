@@ -235,7 +235,12 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	godot::String change_scripts(const FileEdits &p_changes, bool p_apply);
 	godot::String change_scripts_again(const godot::Array &p_edits, bool p_apply);
 	bool change_files(const FileEdits &p_changes);
-	bool scenes_saved(const std::set<std::string> &p_files);
+	enum class Saving {
+		Done,
+		Waiting, // For the next frame.
+		Failed,
+	};
+	Saving scenes_saved(const std::set<std::string> &p_files);
 	void save_held();
 	void reload_written(const std::set<std::string> &p_files);
 	void record(const godot::String &p_action, const std::set<std::string> &p_files, const godot::Array &p_do, const godot::Array &p_undo);
