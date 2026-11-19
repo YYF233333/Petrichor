@@ -27,6 +27,17 @@ struct Rename {
 	std::vector<Diagnostic> refusals;
 };
 
+// The name that renaming at byte `p_offset` of the script at `p_path` changes
+// to any new name: its bytes in the script. Otherwise the refusal of rename()
+// that holds for every new name, as for a node, an engine's declaration or an
+// override of one.
+struct RenamedName {
+	uint32_t begin = 0;
+	uint32_t end = 0;
+	std::optional<Diagnostic> refusal;
+};
+RenamedName renamed_name(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset, const std::vector<std::string> &p_other_scripts);
+
 // What renaming the name at byte `p_offset` of the script at `p_path` to
 // `p_new` changes, in every place that finding references
 // lists (spec §13.3). `p_text` gives the text of a scene or a resource file,

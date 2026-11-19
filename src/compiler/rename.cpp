@@ -270,6 +270,38 @@ std::string relative_path(const std::string &p_from, const std::string &p_to) {
 	return path.empty() ? std::string(".") : path;
 }
 
+// Of `p_found`, the references of the name at `p_offset` in `p_path`.
+RenamedName named(const std::optional<std::vector<Occurrence>> &p_found, const std::string &p_path, uint32_t p_offset) {
+	RenamedName result;
+	const auto refuse = [&](const std::string &p_file, int p_line, const std::string &p_why) {
+		result.refusal = refusal(p_file, p_line, p_why);
+		return result;
+	};
+	if (!p_found) {
+		return refuse(p_path, 0, "There is no name here to rename.");
+	}
+	for (const Occurrence &each : *p_found) {
+		const Reference &reference = each.reference;
+		if (each.candidate) {
+			continue;
+		}
+		if (reference.target.kind == Kind::Node) {
+			return refuse(p_path, 0, "A node is renamed in the scene editor.");
+		}
+		if (reference.target.kind != Kind::Script && reference.target.kind != Kind::Local) {
+			return refuse(p_path, 0, "It is not declared in this language.");
+		}
+		if (reference.overrides && reference.overrides->kind != Kind::Script) {
+			return refuse(each.file, each.line, "It overrides a method that the engine or another language calls by this name.");
+		}
+		if (each.file == p_path && each.line > 0 && reference.begin <= p_offset && p_offset <= reference.end) {
+			result.begin = reference.begin;
+			result.end = reference.end;
+		}
+	}
+	return result.end > result.begin ? result : refuse(p_path, 0, "There is no name here to rename.");
+}
+
 // `p_path` written as `p_written` writes a node path: after its "$" or "%",
 // in quotes only when needed; or in the String of get_node(), with its quotes
 // and prefix, and with escapes when needed.
@@ -291,6 +323,10 @@ std::string written_path(const std::string &p_written, const std::string &p_path
 }
 
 } // namespace
+
+RenamedName renamed_name(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset, const std::vector<std::string> &p_other_scripts) {
+	return named(find_references(r_analysis, p_path, p_offset, p_other_scripts), p_path, p_offset);
+}
 
 Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset, const std::string &p_new, const std::vector<std::string> &p_other_scripts,
 		const std::function<std::optional<std::string>(const std::string &)> &p_text) {
@@ -329,8 +365,14 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 	{
 		const Analysis::Pass pass(r_analysis);
 		const std::optional<std::vector<Occurrence>> found = find_references(r_analysis, p_path, p_offset, p_other_scripts);
-		if (!found) {
-			return refused(p_path, 0, "There is no name here to rename.");
+		const RenamedName name = named(found, p_path, p_offset);
+		if (name.refusal) {
+			result.refusals.push_back(*name.refusal);
+			return result;
+		}
+		old_name = source.substr(name.begin, name.end - name.begin);
+		if (old_name == p_new) {
+			return refused(p_path, 0, "It is named \"" + p_new + "\" already.");
 		}
 		bool signal = false;
 		std::set<std::string> owners; // The classes whose variable it renames.
@@ -339,26 +381,11 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 			if (each.candidate) {
 				continue;
 			}
-			if (reference.target.kind == Kind::Node) {
-				return refused(p_path, 0, "A node is renamed in the scene editor.");
-			}
-			if (reference.target.kind != Kind::Script && reference.target.kind != Kind::Local) {
-				return refused(p_path, 0, "It is not declared in this language.");
-			}
-			if (reference.overrides && reference.overrides->kind != Kind::Script) {
-				return refused(each.file, each.line, "It overrides a method that the engine or another language calls by this name.");
-			}
 			family.insert(reference.target);
 			signal = signal || reference.declares == SymbolKind::Signal;
 			if (reference.declares == SymbolKind::Property && reference.target.kind == Kind::Script && reference.target.name.find('.') == std::string::npos) {
 				owners.insert(reference.target.scope);
 			}
-			if (each.file == p_path && each.line > 0 && reference.begin <= p_offset && p_offset <= reference.end) {
-				old_name = source.substr(reference.begin, reference.end - reference.begin);
-			}
-		}
-		if (old_name.empty() || old_name == p_new) {
-			return refused(p_path, 0, old_name.empty() ? "There is no name here to rename." : "It is named \"" + p_new + "\" already.");
 		}
 		for (const DeclId &id : family) {
 			// A file's class by its global name, which the project lists.
