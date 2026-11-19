@@ -1,0 +1,4 @@
+class_name Weapon extends Resource
+
+@export pub var spread := 0.0
+@export pub var shots := 1

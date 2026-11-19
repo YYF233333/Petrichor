@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://gunner.pet" id="1"]
+[ext_resource type="Resource" path="res://blaster.tres" id="2"]
+[ext_resource type="Script" path="res://hud.pet" id="3"]
+
+[node name="Arena" type="Node"]
+
+[node name="Gunner" type="Node" parent="."]
+script = ExtResource("1")
+weapon = ExtResource("2")
+
+[node name="Hud" type="Node" parent="."]
+script = ExtResource("3")
+
+[connection signal="health_updated" from="Gunner" to="Hud" method="show_health"]

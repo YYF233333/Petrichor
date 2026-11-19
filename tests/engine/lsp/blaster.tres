@@ -1,0 +1,7 @@
+[gd_resource type="Resource" script_class="Weapon" format=3]
+
+[ext_resource type="Script" path="res://weapon.pet" id="1"]
+
+[resource]
+script = ExtResource("1")
+spread = 1.0

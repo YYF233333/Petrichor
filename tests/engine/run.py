@@ -1122,6 +1122,7 @@ def check_lsp(project, info, editor):
     first.notify("textDocument/didSave", {"textDocument": {"uri": uri("level.tscn")}})
     published = first.diagnostics(enemy, lambda p: not says(p, "Head/Camera"))
     expect("lsp: a scene saved reaches the scripts it places at once", published and not says(published, "Head/Camera") and says(published, "max_speed"), str(published))
+    check_rename_written(first, project, uri, editor)
 
     # A save reaches the editor's class list, and so does a file added outside
     # the client (godotengine/godot#42786).
@@ -1347,6 +1348,56 @@ def check_rename(client, project, uri):
         and answers[2] == '"2x" is not a name.'
         and answers[3] == "Godot has unsaved changes to res://user.pet. Save them in Godot first.",
         str(answers),
+    )
+
+
+def check_rename_written(client, project, uri, editor):
+    """A rename the client writes, as VS Code saves it: Godot's loaded
+    blaster.tres holds the value under the new name, and saving arena.tscn,
+    open in Godot with gunner.pet in a tab, keeps its defaults, its
+    connection and the resource's value."""
+    weapon = uri("weapon.pet")
+    texts = {name: (project / name).read_text(encoding="utf-8") for name in ["weapon.pet", "gunner.pet", "blaster.tres"]}
+    client.open(weapon, texts["weapon.pet"])
+
+    # A member that a resource or a node leaves at its default is stored
+    # nowhere, so neither refers to it.
+    shots = client.request("textDocument/rename", {"textDocument": {"uri": weapon}, "position": lsp_position(texts["weapon.pet"], texts["weapon.pet"].index("shots")), "newName": "rounds"})
+    speed = client.request("textDocument/references", {"textDocument": {"uri": uri("gunner.pet")}, "position": lsp_position(texts["gunner.pet"], texts["gunner.pet"].index("movement_speed")), "context": {"includeDeclaration": False}})
+    expect(
+        "lsp: a member a resource or a node leaves at its default is no reference there",
+        shots and "result" in shots and [name for name, _, _ in edits(shots["result"])] == ["weapon.pet"] and speed and speed.get("result") == [],
+        f"{shots}\n{speed}",
+    )
+
+    renamed = client.request("textDocument/rename", {"textDocument": {"uri": weapon}, "position": lsp_position(texts["weapon.pet"], texts["weapon.pet"].index("spread")), "newName": "shot_spread"})
+    changes = [change for change in edits(renamed["result"]) if change[0] in texts] if renamed and "result" in renamed else []
+    for name, _, file_edits in changes:
+        text = texts[name]
+        for edit in reversed(file_edits):
+            text = text[: lsp_index(text, edit["range"]["start"])] + edit["newText"] + text[lsp_index(text, edit["range"]["end"]) :]
+        (project / name).write_text(text, encoding="utf-8", newline="")
+        if name == "weapon.pet":
+            client.notify("textDocument/didChange", {"textDocument": {"uri": weapon, "version": 2}, "contentChanges": [{"text": text}]})
+    for name in ["weapon.pet", "gunner.pet"]:
+        client.notify("textDocument/didSave", {"textDocument": {"uri": uri(name)}})
+    client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri(name), "type": 2} for name in texts]})
+    client.notify("textDocument/didClose", {"textDocument": {"uri": weapon}})
+    time.sleep(2)
+    (project / "check").touch()
+    saved = editor.wait_for(b"lsp check: saved")
+    held = re.findall(r"lsp check: (\S+) (\S+)", editor.output.decode("utf-8", "replace"))
+    arena = (project / "arena.tscn").read_text(encoding="utf-8")
+    blaster = (project / "blaster.tres").read_text(encoding="utf-8")
+    expect(
+        "lsp: a rename the client writes reaches what Godot has loaded, so that saving there keeps it",
+        [name for name, _, _ in changes] == ["blaster.tres", "gunner.pet", "weapon.pet"]
+        and saved
+        and held == [("1.0", "<null>")]
+        and "shot_spread = 1.0" in blaster
+        and "null" not in arena
+        and 'signal="health_updated"' in arena,
+        f"{renamed}\n{held}\n{arena}\n{blaster}",
     )
 
 

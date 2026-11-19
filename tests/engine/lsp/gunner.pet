@@ -1,0 +1,10 @@
+extends Node
+
+pub signal health_updated(value: int)
+
+@export pub var weapon: Weapon
+@export pub var movement_speed := 5
+
+
+func aim() -> float:
+	return weapon.spread

@@ -237,6 +237,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	bool change_files(const FileEdits &p_changes);
 	bool scenes_saved(const std::set<std::string> &p_files);
 	void save_held();
+	void reload_written(const std::set<std::string> &p_files);
 	void record(const godot::String &p_action, const std::set<std::string> &p_files, const godot::Array &p_do, const godot::Array &p_undo);
 	void show_references(godot::Object *p_code_edit);
 	void ask_name(godot::Object *p_code_edit);

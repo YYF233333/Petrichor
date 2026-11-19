@@ -1,0 +1,5 @@
+extends Node
+
+
+pub func show_health(value: int) -> void:
+	pass
