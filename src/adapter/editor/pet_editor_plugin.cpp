@@ -769,7 +769,7 @@ void PetEditorPlugin::_enter_tree() {
 	} else if (args.has("--petrichor-lsp") || DisplayServer::get_singleton()->get_name() != "headless") {
 		sessions.instantiate();
 		add_debugger_plugin(sessions);
-		lsp = std::make_unique<LspServer>(sessions);
+		lsp = std::make_unique<LspServer>(sessions, [this] { changed(); });
 		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::poll_lsp));
 	}
 }

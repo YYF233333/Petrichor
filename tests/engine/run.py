@@ -1262,15 +1262,22 @@ def check_queries(client, project, uri):
     pub = actions("User.new().f")
     test = {"range": span("shots:\n", 5), "newText": "not shots.is_empty()"}
     expect(
-        "lsp: quick fixes come as the editor lists them, the automatic one preferred, one refused for a script Godot has unsaved, each edit resolved when chosen",
+        "lsp: quick fixes come as the editor lists them, the automatic one preferred, each edit resolved when chosen",
         [(each["title"], each.get("isPreferred"), "edit" in each) for each in truth] == [("Write not shots.is_empty()", True, False), ("Fix all 'Write the truth test' in file", None, False)]
         and truth[0]["diagnostics"][0]["range"] == test["range"]
         and edits(resolved(truth[0])) == [("tour.pet", 1, [test])]
         and edits(resolved(truth[1])) == [("tour.pet", 1, [test, {"range": span("speed:\n", 5), "newText": "speed != 0"}])]
-        and [each["title"] for each in pub] == ['Make "f" pub', 'Make "armor" pub']
-        and "res://user.pet" in pub[0]["disabled"]["reason"]
         and edits(resolved(pub[1])) == [("player.pet", None, [{"range": span("var armor", name="player.pet"), "newText": "pub var armor"}])],
         f"{truth}\n{pub}",
+    )
+
+    # VS Code shows no disabled action among the quick fixes, nor its reason.
+    refused = resolved(pub[0])
+    told = client.take(lambda m: m.get("method") == "window/showMessage")
+    expect(
+        "lsp: a fix refused for a script Godot has unsaved says so in its title, and choosing it edits nothing and tells why",
+        [(each["title"], "disabled" in each) for each in pub] == [('Make "f" pub (save user.pet in Godot first)', False), ('Make "armor" pub', False)] and refused is None and told and "res://user.pet" in told["params"]["message"],
+        f"{pub}\n{refused}\n{told}",
     )
 
     # VS Code applies a resolved edit without checking the version it names.

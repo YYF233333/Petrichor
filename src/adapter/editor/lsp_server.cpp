@@ -435,6 +435,11 @@ uint32_t completion_start(const std::string &p_text, uint32_t p_offset, std::str
 	return uint32_t(start);
 }
 
+// Why an edit of files that Godot has unsaved is refused.
+String unsaved_reason(const PackedStringArray &p_unsaved) {
+	return vformat("Godot has unsaved changes to %s. Save them in Godot first.", String(", ").join(p_unsaved));
+}
+
 // Why renaming in the script at `p_path` is refused, a line each, with the
 // file and the line where there are any, as the editor lists them
 // (PetReferences::set_refusals()).
@@ -460,8 +465,8 @@ constexpr const char *CURSOR = "\xEF\xBF\xBF"; // U+FFFF, as the script editor m
 
 } // namespace
 
-LspServer::LspServer(Ref<EditorDebuggerPlugin> p_sessions) :
-		sessions(std::move(p_sessions)) {
+LspServer::LspServer(Ref<EditorDebuggerPlugin> p_sessions, std::function<void()> p_changed) :
+		sessions(std::move(p_sessions)), editor_changed(std::move(p_changed)) {
 	delay = uint64_t(double(EditorInterface::get_singleton()->get_editor_settings()->get_setting("text_editor/completion/idle_parse_delay")) * 1000);
 	server.instantiate();
 	if (server->listen(0, "127.0.0.1") != OK) {
@@ -640,6 +645,13 @@ void LspServer::step() {
 	const bool quiet = settle || start - quiet_since >= delay || continuing == revision;
 	settle = false;
 	continuing = 0;
+	// The client's changes count as the editor's own, which the editor checks
+	// once a revision. The settle it then asks for is this one.
+	if (quiet && told != revision) {
+		told = revision;
+		editor_changed();
+		settle = false;
+	}
 	bool sent = false;
 	for (auto &[path, document] : documents) {
 		if (document.published == revision || !(quiet || document.published == 0)) {
@@ -757,9 +769,7 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		applies_edits = files.get("applyEdit", false) == Variant(true);
 		annotates = dictionary(files.get("workspaceEdit", Variant())).get("changeAnnotationSupport", Variant()).get_type() == Variant::DICTIONARY;
 		snippets = dictionary(dictionary(document.get("completion", Variant())).get("completionItem", Variant())).get("snippetSupport", false) == Variant(true);
-		const Dictionary code_actions = dictionary(document.get("codeAction", Variant()));
-		shows_disabled = code_actions.get("disabledSupport", false) == Variant(true);
-		const Variant resolved = dictionary(code_actions.get("resolveSupport", Variant())).get("properties", Variant());
+		const Variant resolved = dictionary(dictionary(document.get("codeAction", Variant())).get("resolveSupport", Variant())).get("properties", Variant());
 		resolves_edits = resolved.get_type() == Variant::ARRAY && Array(resolved).has("edit");
 		Dictionary sync;
 		sync["openClose"] = true;
@@ -1072,17 +1082,22 @@ void LspServer::show_message(const String &p_message) {
 	notify("window/showMessage", params);
 }
 
-// The scripts the client had open go back to their tabs or files.
+// The scripts the client had open go back to their tabs or files, which the
+// editor checks again at once, as after a change on disk.
 void LspServer::disconnect() {
 	client.peer->disconnect_from_host();
 	for (const auto &[path, document] : documents) {
 		release(path);
 	}
+	const bool had = !documents.empty();
 	documents.clear();
 	offers.clear();
 	client = Connection();
 	state = State::Waiting;
 	applies_edits = false;
+	if (had) {
+		editor_changed();
+	}
 }
 
 // The client's own for a script it has open.
@@ -1113,18 +1128,18 @@ Dictionary LspServer::location(const std::string &p_path, const std::string &p_t
 }
 
 // Against the texts the workspace has, the edits in `p_confirm`, by file and
-// start, annotated to need confirmation. None, with the reason, where a file
-// that the client does not have open has content in Godot that is not saved,
-// a script's or an open scene's: the client edits the file (architecture §2.4).
-Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, String &r_refused, const std::set<std::pair<std::string, uint32_t>> &p_confirm) const {
+// start, annotated to need confirmation. None where a file that the client
+// does not have open has content in Godot that is not saved, a script's or an
+// open scene's, which `r_unsaved` lists: the client edits the file
+// (architecture §2.4).
+Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, PackedStringArray &r_unsaved, const std::set<std::pair<std::string, uint32_t>> &p_confirm) const {
 	const PackedStringArray scenes = EditorInterface::get_singleton()->get_unsaved_scenes();
-	PackedStringArray unsaved;
 	Array changes;
 	for (const auto &[file, edits] : p_edits) {
 		const std::string text = workspace().script_source(file).value_or(std::string());
 		const auto open = documents.find(file);
 		if (open == documents.end() && (text != SceneIndex::get().script_source(file).value_or(std::string()) || scenes.has(to_godot(file)))) {
-			unsaved.push_back(to_godot(file));
+			r_unsaved.push_back(to_godot(file));
 			continue;
 		}
 		std::vector<compiler::CheckedEdit> ordered = edits;
@@ -1145,8 +1160,7 @@ Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::
 		change["edits"] = text_edits;
 		changes.push_back(change);
 	}
-	if (!unsaved.is_empty()) {
-		r_refused = vformat("Godot has unsaved changes to %s. Save them in Godot first.", String(", ").join(unsaved));
+	if (!r_unsaved.is_empty()) {
 		return Dictionary();
 	}
 	Dictionary result;
@@ -1535,10 +1549,18 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 	}
 	std::stable_partition(on_lines.begin(), on_lines.end(), [&](const compiler::Diagnostic *p_error) { return p_error->begin <= to && from <= p_error->end; });
 	// `p_data` names the fix, which the stamp of the check and the files it
-	// edits complete for codeAction/resolve.
+	// edits complete for codeAction/resolve. One refused for unsaved files
+	// says so in its title and has no edit: VS Code does not show a disabled
+	// action among the quick fixes, nor its reason.
 	const auto add = [&](const String &p_title, const FileEdits &p_edits, const compiler::Diagnostic *p_error, bool p_preferred, Dictionary p_data) {
+		PackedStringArray unsaved;
+		const Dictionary edit = edit_of(p_edits, unsaved);
+		PackedStringArray names;
+		for (const String &file : unsaved) {
+			names.push_back(file.get_file());
+		}
 		Dictionary action;
-		action["title"] = p_title;
+		action["title"] = unsaved.is_empty() ? p_title : vformat("%s (save %s in Godot first)", p_title, String(", ").join(names));
 		action["kind"] = "quickfix";
 		if (p_error) {
 			action["diagnostics"] = Array::make(diagnostic(*p_error, range_of(at->text, p_error->begin, p_error->end)));
@@ -1554,16 +1576,7 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 		p_data["revision"] = int64_t(revision);
 		p_data["files"] = files;
 		action["data"] = p_data;
-		String refused;
-		const Dictionary edit = edit_of(p_edits, refused);
-		if (!refused.is_empty() && !shows_disabled) {
-			return;
-		}
-		if (!refused.is_empty()) {
-			Dictionary disabled;
-			disabled["reason"] = refused;
-			action["disabled"] = disabled;
-		} else if (!resolves_edits) {
+		if (unsaved.is_empty() && !resolves_edits) {
 			action["edit"] = edit;
 		}
 		actions.push_back(action);
@@ -1634,10 +1647,10 @@ Variant LspServer::on_resolve_action(const Dictionary &p_params) {
 		show_message("The project changed. Ask for the quick fixes again.");
 		return action;
 	}
-	String refused;
-	const Dictionary edit = edit_of(changes, refused);
-	if (!refused.is_empty()) {
-		show_message(refused);
+	PackedStringArray unsaved;
+	const Dictionary edit = edit_of(changes, unsaved);
+	if (!unsaved.is_empty()) {
+		show_message(unsaved_reason(unsaved));
 		return action;
 	}
 	action["edit"] = edit;
@@ -1688,7 +1701,10 @@ Variant LspServer::on_rename(const Dictionary &p_params) {
 		}
 		edits[each.occurrence.file].push_back(each.edit);
 	}
-	return edit_of(edits, failure, candidates);
+	PackedStringArray unsaved;
+	const Dictionary edit = edit_of(edits, unsaved, candidates);
+	failure = unsaved.is_empty() ? String() : unsaved_reason(unsaved);
+	return edit;
 }
 
 } // namespace petrichor

@@ -75,7 +75,7 @@ On macOS the libraries are signed ad hoc and not notarized. A package downloaded
 xattr -dr com.apple.quarantine addons/petrichor
 ```
 
-To edit scripts in VS Code, also install `petrichor-<version>.vsix` from the same page, with Extensions: Install from VSIX…. Open the project's folder in VS Code while the Godot editor has the project open. VS Code connects to that editor and gets its diagnostics and tools, except breakpoints. Saving a script in VS Code hot reloads it in a running game, as saving in Godot does. The checks read scenes and classes through the engine, so without a running Godot editor only highlighting works. While a script is in front, the status bar shows whether VS Code is connected.
+To edit scripts in VS Code, also install `petrichor-<version>.vsix` from the same page, with Extensions: Install from VSIX…. Open the project's folder in VS Code while the Godot editor has the project open. VS Code connects to that editor and gets its diagnostics and tools, except breakpoints. Saving a script in VS Code hot reloads it in a running game, as saving in Godot does. After undoing a rename in VS Code, save the files it changed: VS Code saves them after a rename, but not after undoing it. The checks read scenes and classes through the engine, so without a running Godot editor only highlighting works. While a script is in front, the status bar shows whether VS Code is connected.
 
 CI tests each release with the official editor and the official export templates. It edits, runs and exports a project, as a debug and a release build.
 

@@ -75,7 +75,7 @@ macOS 上的库只有临时签名，没有公证。浏览器下载的包带有�
 xattr -dr com.apple.quarantine addons/petrichor
 ```
 
-要在 VS Code 中编辑脚本，再从同一页面下载 `petrichor-<版本>.vsix`，经 Extensions: Install from VSIX… 安装。Godot 编辑器打开项目后，在 VS Code 中打开项目的文件夹。VS Code 连上这个编辑器，得到它的诊断和各项工具，断点除外。在 VS Code 中保存脚本，运行中的游戏随之热重载，与在 Godot 中保存相同。检查要经引擎读取场景和类，所以 Godot 编辑器没有运行时只有语法高亮。显示脚本时，状态栏标出 VS Code 是否已连上。
+要在 VS Code 中编辑脚本，再从同一页面下载 `petrichor-<版本>.vsix`，经 Extensions: Install from VSIX… 安装。Godot 编辑器打开项目后，在 VS Code 中打开项目的文件夹。VS Code 连上这个编辑器，得到它的诊断和各项工具，断点除外。在 VS Code 中保存脚本，运行中的游戏随之热重载，与在 Godot 中保存相同。在 VS Code 中撤销重命名后，要保存它改过的文件：VS Code 重命名后自动保存，撤销后却不保存。检查要经引擎读取场景和类，所以 Godot 编辑器没有运行时只有语法高亮。显示脚本时，状态栏标出 VS Code 是否已连上。
 
 每个版本都在 CI 中用官方编辑器和官方导出模板测试：编辑、运行、导出 debug 包和 release 包。
 

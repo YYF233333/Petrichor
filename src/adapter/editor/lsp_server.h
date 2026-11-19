@@ -8,6 +8,7 @@
 #include <godot_cpp/variant/dictionary.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
@@ -54,12 +55,13 @@ class LspServer {
 
 	godot::Ref<godot::TCPServer> server;
 	godot::Ref<godot::EditorDebuggerPlugin> sessions;
+	std::function<void()> editor_changed;
+	uint64_t told = 0; // The workspace's revision that editor_changed() was last called at.
 	Connection client;
 	std::vector<Connection> refused; // Other clients, each told so on its first request.
 	State state = State::Waiting;
 	bool applies_edits = false;
 	bool snippets = false; // In completion items.
-	bool shows_disabled = false; // Code actions with a reason they are disabled.
 	bool resolves_edits = false; // Of code actions, when one is chosen.
 	bool annotates = false; // Edits that need confirmation.
 	godot::String failure; // Why the query being answered failed.
@@ -94,7 +96,7 @@ class LspServer {
 
 	godot::String uri_of(const std::string &p_path) const;
 	godot::Dictionary location(const std::string &p_path, const std::string &p_text, uint32_t p_begin, uint32_t p_end) const;
-	godot::Dictionary edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, godot::String &r_refused, const std::set<std::pair<std::string, uint32_t>> &p_confirm = {}) const;
+	godot::Dictionary edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, godot::PackedStringArray &r_unsaved, const std::set<std::pair<std::string, uint32_t>> &p_confirm = {}) const;
 	godot::Variant on_completion(const godot::Dictionary &p_params);
 	godot::Variant on_signature_help(const godot::Dictionary &p_params);
 	godot::Variant on_hover(const godot::Dictionary &p_params);
@@ -110,7 +112,9 @@ class LspServer {
 	godot::Variant on_rename(const godot::Dictionary &p_params);
 
 public:
-	explicit LspServer(godot::Ref<godot::EditorDebuggerPlugin> p_sessions);
+	// `p_changed` is what the editor does once a change has settled: it checks
+	// what it shows again (architecture §2.4).
+	LspServer(godot::Ref<godot::EditorDebuggerPlugin> p_sessions, std::function<void()> p_changed);
 	~LspServer();
 	void poll();
 	// The editor has taken in a change: what the client has open is checked
