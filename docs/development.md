@@ -107,6 +107,19 @@
   - 模板取自官方的 `Godot_v4.7.2-stable_export_templates.tpz`。它是 zip，只需解压本机的模板。
   - 脚本把模板写进预设的 `custom_template`，不装进编辑器的数据目录。
 
+## VS Code 扩展
+
+- 打包：在 `editors/vscode/` 中运行 `npm ci`，再运行 `npm run package -- <版本>`，得到 `petrichor-<版本>.vsix`。
+  - 不给版本时为 0.0.0。
+  - `vsce` 要求扩展目录中有许可证，`vscode:prepublish` 把仓库根的 `LICENSE` 复制过来。
+  - npm 把输出中像 UUID 的路径段换成 `***`，`vsce` 于是找不到文件。所以不在这样的目录中打包，如 scratchpad。
+- 依赖固定版本，只取发布满两周的版本，传递依赖也是：`npm install --save-exact --before=<两周前的日期>`。
+- 试用时装进隔离的配置，不碰自己的 VS Code：
+  - `code --user-data-dir <目录> --extensions-dir <目录> --install-extension <vsix>`，再用同样的两个参数打开项目；
+  - 或者不装，用 `code --extensionDevelopmentPath=<仓库>/editors/vscode <项目>`。
+- 无界面编辑器开的服务器（见上文“语言服务器”），VS Code 照样连上。
+- 看收发的消息：在输出面板中选 Petrichor，把它的日志级别设为 Trace。`petrichor.trace.server` 为 `verbose` 时带上消息的内容。
+
 ## Godot 二进制
 
 - 按用途选二进制：

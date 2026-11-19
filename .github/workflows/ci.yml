@@ -288,3 +288,28 @@ jobs:
 
       - name: Acceptance test
         run: python tests/acceptance/run.py "${{ matrix.godot }}" templates dist/petrichor-0.1.1-addon.zip dist/petrichor-0.1.1-demo.zip
+
+  # The release attaches it (architecture §2.4).
+  vscode:
+    name: VS Code extension
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - run: npm ci --ignore-scripts
+
+      - run: npm run package -- 0.1.1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode
+          path: editors/vscode/petrichor-0.1.1.vsix
+          if-no-files-found: error

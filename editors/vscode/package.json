@@ -1,0 +1,68 @@
+{
+  "name": "petrichor",
+  "displayName": "Petrichor",
+  "description": "Petrichor for Godot: highlighting, and the language server of the open Godot editor",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YYF233333/Petrichor"
+  },
+  "engines": {
+    "vscode": "^1.91.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "workspaceContains:**/project.godot",
+    "onLanguage:petrichor"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "petrichor",
+        "aliases": [
+          "Petrichor"
+        ],
+        "extensions": [
+          ".pet"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "petrichor",
+        "scopeName": "source.petrichor",
+        "path": "./syntaxes/petrichor.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "title": "Petrichor",
+      "properties": {
+        "petrichor.trace.server": {
+          "type": "string",
+          "enum": [
+            "messages",
+            "verbose"
+          ],
+          "default": "messages",
+          "description": "What the Petrichor output channel shows of each message to and from the Godot editor, at log level Trace."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node -e \"require('fs').copyFileSync('../../LICENSE', 'LICENSE')\"",
+    "package": "vsce package --no-update-package-json"
+  },
+  "dependencies": {
+    "vscode-languageclient": "11.0.0"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "4.1.0"
+  }
+}

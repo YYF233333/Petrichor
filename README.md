@@ -75,6 +75,8 @@ On macOS the libraries are signed ad hoc and not notarized. A package downloaded
 xattr -dr com.apple.quarantine addons/petrichor
 ```
 
+To edit scripts in VS Code, also install `petrichor-<version>.vsix` from the same page, with Extensions: Install from VSIX…. Open the project's folder in VS Code while the Godot editor has the project open. VS Code connects to that editor and gets its diagnostics and tools, except breakpoints. Saving a script in VS Code hot reloads it in a running game, as saving in Godot does. The checks read scenes and classes through the engine, so without a running Godot editor only highlighting works. While a script is in front, the status bar shows whether VS Code is connected.
+
 CI tests each release with the official editor and the official export templates. It edits, runs and exports a project, as a debug and a release build.
 
 | Platform | Library | Tested on |
@@ -104,7 +106,7 @@ To build from source, you need a C++17 toolchain and SCons. Run `git submodule u
 - Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
 - A few constructs behave differently from GDScript without a compile error, where the design needs it. The [spec](docs/language-spec.md#12-relation-to-gdscript) names each one, and they stay open for comment until 0.9.
 - Bytecode is not compatible across builds, so an upgrade compiles every script again.
-- The editor lacks lints and LSP. They are planned for 0.2–0.3.
+- The editor lacks lints. They are planned for 0.3.
 - There is no GDScript migration tool yet. Manual migration takes over twenty changes per hundred lines, so a real project is best tried with the tool, planned for 0.3. It works both ways. A file that uses no feature GDScript lacks converts back to GDScript, even after this project stops. A file that uses one, such as a struct or `Result`, is not converted; the tool lists where.
 - Godot 4.7 and later are supported.
 

@@ -1,0 +1,241 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Petrichor",
+	"scopeName": "source.petrichor",
+	"patterns": [{ "include": "#code" }],
+	"repository": {
+		"code": {
+			"patterns": [
+				{ "include": "#comment" },
+				{ "include": "#string" },
+				{ "include": "#node-path" },
+				{ "include": "#annotation" },
+				{ "include": "#declaration" },
+				{ "include": "#keyword" },
+				{ "include": "#number" },
+				{ "include": "#call" },
+				{ "include": "#parens" },
+				{ "include": "#operator" }
+			]
+		},
+		"comment": {
+			"patterns": [
+				{
+					"name": "comment.block.documentation.petrichor",
+					"match": "(##)(?!#).*",
+					"captures": { "1": { "name": "punctuation.definition.comment.petrichor" } }
+				},
+				{
+					"name": "comment.line.number-sign.petrichor",
+					"match": "(#).*",
+					"captures": { "1": { "name": "punctuation.definition.comment.petrichor" } }
+				}
+			]
+		},
+		"string": {
+			"patterns": [
+				{
+					"name": "string.quoted.triple.petrichor",
+					"begin": "\\b(r)(\"\"\"|''')",
+					"end": "\\2",
+					"beginCaptures": {
+						"1": { "name": "storage.type.string.petrichor" },
+						"2": { "name": "punctuation.definition.string.begin.petrichor" }
+					},
+					"endCaptures": { "0": { "name": "punctuation.definition.string.end.petrichor" } },
+					"patterns": [{ "include": "#raw-escape" }]
+				},
+				{
+					"name": "string.quoted.petrichor",
+					"begin": "\\b(r)([\"'])",
+					"end": "(\\2)|(\\n)",
+					"beginCaptures": {
+						"1": { "name": "storage.type.string.petrichor" },
+						"2": { "name": "punctuation.definition.string.begin.petrichor" }
+					},
+					"endCaptures": {
+						"1": { "name": "punctuation.definition.string.end.petrichor" },
+						"2": { "name": "invalid.illegal.newline.petrichor" }
+					},
+					"patterns": [{ "include": "#raw-escape" }]
+				},
+				{
+					"name": "string.quoted.triple.petrichor",
+					"begin": "((?<!&)&|\\^)?(\"\"\"|''')",
+					"end": "\\2",
+					"beginCaptures": {
+						"1": { "name": "storage.type.string.petrichor" },
+						"2": { "name": "punctuation.definition.string.begin.petrichor" }
+					},
+					"endCaptures": { "0": { "name": "punctuation.definition.string.end.petrichor" } },
+					"patterns": [{ "include": "#escape" }]
+				},
+				{
+					"name": "string.quoted.petrichor",
+					"begin": "((?<!&)&|\\^)?([\"'])",
+					"end": "(\\2)|((?<!\\\\)\\n)",
+					"beginCaptures": {
+						"1": { "name": "storage.type.string.petrichor" },
+						"2": { "name": "punctuation.definition.string.begin.petrichor" }
+					},
+					"endCaptures": {
+						"1": { "name": "punctuation.definition.string.end.petrichor" },
+						"2": { "name": "invalid.illegal.newline.petrichor" }
+					},
+					"patterns": [{ "include": "#escape" }]
+				}
+			]
+		},
+		"escape": {
+			"patterns": [
+				{
+					"name": "constant.character.escape.petrichor",
+					"match": "\\\\(?:[abfnrtv\\\\\"'\\n]|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{6})"
+				},
+				{ "name": "invalid.illegal.unknown-escape.petrichor", "match": "\\\\." }
+			]
+		},
+		"raw-escape": { "match": "\\\\[\\\\\"']" },
+		"node-path": {
+			"patterns": [
+				{
+					"name": "string.unquoted.node-path.petrichor",
+					"match": "(\\$)/?(?:%?(?:[^\\W\\d]\\w*|\"[^\"\\n]*\"|'[^'\\n]*')(?:/%?(?:[^\\W\\d]\\w*|\"[^\"\\n]*\"|'[^'\\n]*'))*)?",
+					"captures": { "1": { "name": "punctuation.definition.node-path.petrichor" } }
+				},
+				{
+					"name": "string.unquoted.node-path.petrichor",
+					"match": "(?<![\\w)\\]}\"'])(%)(?:[^\\W\\d]\\w*|\"[^\"\\n]*\"|'[^'\\n]*')(?:/%?(?:[^\\W\\d]\\w*|\"[^\"\\n]*\"|'[^'\\n]*'))*",
+					"captures": { "1": { "name": "punctuation.definition.node-path.petrichor" } }
+				}
+			]
+		},
+		"annotation": {
+			"match": "(@)([^\\W\\d]\\w*)",
+			"captures": {
+				"1": { "name": "punctuation.definition.decorator.petrichor" },
+				"2": { "name": "entity.name.function.decorator.petrichor" }
+			}
+		},
+		"declaration": {
+			"patterns": [
+				{
+					"match": "(?<!\\.)\\b(func)\\s+([^\\W\\d]\\w*)",
+					"captures": {
+						"1": { "name": "storage.type.function.petrichor" },
+						"2": { "name": "entity.name.function.petrichor" }
+					}
+				},
+				{
+					"match": "(?<!\\.)\\b(signal)\\s+([^\\W\\d]\\w*)",
+					"captures": {
+						"1": { "name": "storage.type.signal.petrichor" },
+						"2": { "name": "entity.name.function.petrichor" }
+					}
+				},
+				{
+					"match": "(?<!\\.)\\b(class_name|class)\\s+([^\\W\\d]\\w*)",
+					"captures": {
+						"1": { "name": "storage.type.class.petrichor" },
+						"2": { "name": "entity.name.type.class.petrichor" }
+					}
+				},
+				{
+					"match": "^\\s*(?:(pub)\\s+)?(struct|interface)\\s+([^\\W\\d]\\w*)",
+					"captures": {
+						"1": { "name": "storage.modifier.petrichor" },
+						"2": { "name": "storage.type.petrichor" },
+						"3": { "name": "entity.name.type.petrichor" }
+					}
+				},
+				{
+					"match": "(?<!\\.)\\b(enum)\\b(?:\\s+([^\\W\\d]\\w*))?",
+					"captures": {
+						"1": { "name": "storage.type.enum.petrichor" },
+						"2": { "name": "entity.name.type.enum.petrichor" }
+					}
+				},
+				{
+					"match": "(?<!\\.)\\b(extends|implements)\\s+((?:[^\\W\\d][\\w.]*\\s*,\\s*)*[^\\W\\d][\\w.]*)",
+					"captures": {
+						"1": { "name": "storage.modifier.petrichor" },
+						"2": { "patterns": [{ "include": "#type-name" }] }
+					}
+				},
+				{
+					"match": "(?<!\\.)\\b(var|const)\\s+[^\\W\\d]\\w*\\s*(?::\\s*((?!(?:func|async)\\b)[^\\W\\d][\\w.]*(?:\\[[^\\n]*?\\]+)?))?",
+					"captures": {
+						"1": { "name": "storage.type.petrichor" },
+						"2": { "patterns": [{ "include": "#type-name" }] }
+					}
+				},
+				{
+					"match": "(->)\\s*((?!(?:func|async)\\b)[^\\W\\d][\\w.]*(?:\\[[^\\n]*?\\]+)?)",
+					"captures": {
+						"1": { "name": "keyword.operator.petrichor" },
+						"2": { "patterns": [{ "include": "#type-name" }] }
+					}
+				},
+				{
+					"match": "(?<!\\.)\\b(is|as)\\s+(?:(not)\\s+)?((?!(?:func|async)\\b)[^\\W\\d][\\w.]*(?:\\[[^\\n]*?\\]+)?)",
+					"captures": {
+						"1": { "name": "keyword.operator.wordlike.petrichor" },
+						"2": { "name": "keyword.operator.wordlike.petrichor" },
+						"3": { "patterns": [{ "include": "#type-name" }] }
+					}
+				}
+			]
+		},
+		"typed-name": {
+			"match": "[^\\W\\d]\\w*\\s*:\\s*((?!(?:func|async)\\b)[^\\W\\d][\\w.]*(?:\\[[^\\n]*?\\]+)?)",
+			"captures": { "1": { "patterns": [{ "include": "#type-name" }] } }
+		},
+		"type-name": { "name": "entity.name.type.petrichor", "match": "[^\\W\\d][\\w.]*" },
+		"keyword": {
+			"patterns": [
+				{
+					"name": "keyword.control.petrichor",
+					"match": "(?<!\\.)\\b(?:if|elif|else|for|while|match|when|break|continue|pass|return|await|assert|breakpoint)\\b"
+				},
+				{
+					"name": "storage.type.petrichor",
+					"match": "(?<!\\.)\\b(?:var|const|func|class|class_name|signal|enum)\\b"
+				},
+				{
+					"name": "storage.modifier.petrichor",
+					"match": "(?<!\\.)\\b(?:extends|static)\\b|(?<!\\.)\\bpub\\b(?=\\s+(?:static|var|const|func|class|struct|enum|interface|signal|async)\\b)|(?<!\\.)\\basync\\b(?=\\s+func\\b)"
+				},
+				{ "name": "keyword.operator.wordlike.petrichor", "match": "(?<!\\.)\\b(?:and|or|not|is|as|in)\\b" },
+				{ "name": "variable.language.self.petrichor", "match": "(?<!\\.)\\bself\\b" },
+				{ "name": "variable.language.super.petrichor", "match": "(?<!\\.)\\bsuper\\b" },
+				{ "name": "constant.language.petrichor", "match": "(?<!\\.)\\b(?:true|false|null|None|PI|TAU|INF|NAN)\\b" }
+			]
+		},
+		"number": {
+			"patterns": [
+				{ "name": "constant.numeric.integer.hexadecimal.petrichor", "match": "\\b0[xX][0-9A-Fa-f_]+\\b" },
+				{ "name": "constant.numeric.integer.binary.petrichor", "match": "\\b0[bB][01_]+\\b" },
+				{
+					"name": "constant.numeric.float.petrichor",
+					"match": "\\b\\d[\\d_]*(?:\\.\\d[\\d_]*(?:[eE][+-]?\\d[\\d_]*)?|[eE][+-]?\\d[\\d_]*)\\b"
+				},
+				{ "name": "constant.numeric.integer.decimal.petrichor", "match": "\\b\\d[\\d_]*\\b" }
+			]
+		},
+		"call": {
+			"match": "\\b([^\\W\\d]\\w*)\\s*(?=\\()",
+			"captures": { "1": { "name": "entity.name.function.call.petrichor" } }
+		},
+		"parens": {
+			"begin": "\\(",
+			"end": "\\)",
+			"beginCaptures": { "0": { "name": "punctuation.parenthesis.begin.petrichor" } },
+			"endCaptures": { "0": { "name": "punctuation.parenthesis.end.petrichor" } },
+			"patterns": [{ "include": "#typed-name" }, { "include": "#code" }]
+		},
+		"operator": {
+			"name": "keyword.operator.petrichor",
+			"match": "->|:=|\\*\\*=?|<<=?|>>=?|&&|\\|\\||[-+*/%=!<>&|^~]=?|\\?"
+		}
+	}
+}

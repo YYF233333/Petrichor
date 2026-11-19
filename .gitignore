@@ -24,6 +24,11 @@ __pycache__/
 # Compiler tests
 tests/compiler/bin/
 
+# VS Code extension: packaging copies the license in
+editors/vscode/node_modules/
+editors/vscode/*.vsix
+editors/vscode/LICENSE
+
 # Generated sources
 gen/
 

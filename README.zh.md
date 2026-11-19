@@ -75,6 +75,8 @@ macOS 上的库只有临时签名，没有公证。浏览器下载的包带有�
 xattr -dr com.apple.quarantine addons/petrichor
 ```
 
+要在 VS Code 中编辑脚本，再从同一页面下载 `petrichor-<版本>.vsix`，经 Extensions: Install from VSIX… 安装。Godot 编辑器打开项目后，在 VS Code 中打开项目的文件夹。VS Code 连上这个编辑器，得到它的诊断和各项工具，断点除外。在 VS Code 中保存脚本，运行中的游戏随之热重载，与在 Godot 中保存相同。检查要经引擎读取场景和类，所以 Godot 编辑器没有运行时只有语法高亮。显示脚本时，状态栏标出 VS Code 是否已连上。
+
 每个版本都在 CI 中用官方编辑器和官方导出模板测试：编辑、运行、导出 debug 包和 release 包。
 
 | 平台 | 库 | 测试环境 |
@@ -104,7 +106,7 @@ godot --headless -e --path <project> -- --petrichor-format --check
 - 0.9 之前，语言语义可能调整，不兼容的改动都在发布说明中列出。0.9 起，改变代码含义的改动都以编译错误出现。只改运行时行为的修正，在发布说明中单独列出。
 - 少数写法在设计需要之处与 GDScript 行为不同，却不报编译错误。[规范](docs/language-spec.zh.md#12-与-gdscript-的关系)逐一点名，0.9 之前仍征求意见。
 - 字节码不跨构建兼容，所以升级后脚本要全部重新编译。
-- 编辑器还没有 lint 和 LSP。它们排在 0.2–0.3。
+- 编辑器还没有 lint。它排在 0.3。
 - 还没有 GDScript 迁移工具。手工迁移每百行要改二十多处，所以真实项目最好等 0.3 的迁移工具再试。工具是双向的。不用 GDScript 所缺特性的文件，在本项目停止维护后也能转回 GDScript。用到这些特性（如 struct、`Result`）的文件不转换，工具只列出位置。
 - 支持 Godot 4.7 及之后的版本。
 
