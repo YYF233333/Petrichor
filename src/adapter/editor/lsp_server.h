@@ -73,6 +73,7 @@ class LspServer {
 	bool polling = false;
 
 	void step();
+	bool flush(Connection &r_connection);
 	bool transfer(Connection &r_connection);
 	void handle(Connection &r_connection, const std::string &p_body);
 	void request(const godot::Variant &p_id, const godot::String &p_method, const godot::Variant &p_params);

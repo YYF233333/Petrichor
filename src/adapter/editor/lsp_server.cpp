@@ -498,23 +498,29 @@ LspServer::~LspServer() {
 	}
 }
 
+// Sends what is due, as much as the socket takes; false once sending fails.
+bool LspServer::flush(Connection &r_connection) {
+	if (r_connection.out.empty()) {
+		return true;
+	}
+	const size_t size = std::min(r_connection.out.size(), size_t(CHUNK));
+	PackedByteArray bytes;
+	bytes.resize(int64_t(size));
+	std::memcpy(bytes.ptrw(), r_connection.out.data(), size);
+	const Array sent = r_connection.peer->put_partial_data(bytes);
+	if (int64_t(sent[0]) != OK) {
+		return false;
+	}
+	r_connection.out.erase(0, size_t(int64_t(sent[1])));
+	return true;
+}
+
 // Sends what is due and reads what arrived; false once the connection is gone,
 // or is closing and has sent everything.
 bool LspServer::transfer(Connection &r_connection) {
 	r_connection.peer->poll();
-	if (r_connection.peer->get_status() != StreamPeerSocket::STATUS_CONNECTED) {
+	if (r_connection.peer->get_status() != StreamPeerSocket::STATUS_CONNECTED || !flush(r_connection)) {
 		return false;
-	}
-	if (!r_connection.out.empty()) {
-		const size_t size = std::min(r_connection.out.size(), size_t(CHUNK));
-		PackedByteArray bytes;
-		bytes.resize(int64_t(size));
-		std::memcpy(bytes.ptrw(), r_connection.out.data(), size);
-		const Array sent = r_connection.peer->put_partial_data(bytes);
-		if (int64_t(sent[0]) != OK) {
-			return false;
-		}
-		r_connection.out.erase(0, size_t(int64_t(sent[1])));
 	}
 	if (r_connection.out.size() > MAX_UNSENT || (r_connection.closing && r_connection.out.empty())) {
 		return false;
@@ -540,6 +546,14 @@ void LspServer::poll() {
 	}
 	polling = true;
 	step();
+	// What the frame computed goes out in it, not a frame later; a failure is
+	// seen as the next frame reads.
+	if (client.peer.is_valid()) {
+		flush(client);
+	}
+	for (Connection &each : refused) {
+		flush(each);
+	}
 	polling = false;
 }
 
