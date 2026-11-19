@@ -4,7 +4,7 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const vscode = require('vscode');
-const { CloseAction, ErrorAction, LanguageClient, LSPErrorCodes, ResponseError, State } = require('vscode-languageclient/node');
+const { CloseAction, ErrorAction, LanguageClient, LSPErrorCodes, State } = require('vscode-languageclient/node');
 
 // In ms, between attempts to connect: while no Godot editor serves the
 // project, and while another client holds its server.
@@ -43,6 +43,16 @@ function alive(pid) {
 		return true;
 	} catch (error) {
 		return error.code === 'EPERM';
+	}
+}
+
+// Why the server refused, from its first message.
+function refusalIn(received) {
+	try {
+		const { error } = JSON.parse(received.slice(received.indexOf('\r\n\r\n') + 4));
+		return error?.code === LSPErrorCodes.RequestFailed ? error.message : undefined;
+	} catch {
+		return undefined;
 	}
 }
 
@@ -124,18 +134,24 @@ class Project {
 				this.lost(client, RETRY, 'waiting');
 			}
 		});
+		// The server refuses a second client in its reply to `initialize` and
+		// closes the connection. The library handles the close before it reads
+		// the reply, and drops it; so the reply is read here too.
+		let received = '';
+		const peek = (chunk) => (received += chunk);
+		socket.on('data', peek);
 		try {
 			await client.start();
-		} catch (error) {
-			// The server refuses a second client in its reply to `initialize`.
-			const refused = error instanceof ResponseError && error.code === LSPErrorCodes.RequestFailed;
-			if (refused && !this.told && this.client === client) {
+		} catch {
+			const refusal = refusalIn(received);
+			if (refusal && !this.told && this.client === client) {
 				this.told = true;
-				vscode.window.showWarningMessage(`${this.name}: ${error.message}`);
+				vscode.window.showWarningMessage(`${this.name}: ${refusal}`);
 			}
-			this.lost(client, refused ? RETRY_REFUSED : RETRY, refused ? 'refused' : 'waiting');
+			this.lost(client, refusal ? RETRY_REFUSED : RETRY, refusal ? 'refused' : 'waiting');
 			return;
 		}
+		socket.off('data', peek);
 		if (this.client === client) {
 			this.told = false;
 			output.info(`Connected to the Godot editor of ${this.root} (process ${pid}).`);
