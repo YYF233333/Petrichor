@@ -191,6 +191,8 @@
   - GDScript 中作为语句调用的协程独自运行，所以 `.detach()` 排在第一并自动应用。`await` 排在第二，因为它改为等待。
 - **引擎边界（§10.2–§10.6）**：引擎用 `RequiredResult` 标注的 API 仅约 50 处（29 处在 `Tween`）。引擎传入虚函数和信号的对象几乎总是非空。默认非空加入口检查，避免每个 `_input` 和信号处理函数重复判空。引擎 API 中窄于 `int64` 或无符号的方法参数有 3,700 多个、属性约 460 个。例如 `uint32` 的 `collision_layer` 写入 `-1` 会回绕为 `4294967295`。
 - **`float` 实参的快速修复（§10.3）**：只在期望类型为 `float` 处自动应用。GDScript 的 `min`、`max` 和 `clamp` 返回选中的实参本身，类型也随它，如 `str(min(1.5, 1))` 得 `"1"`。
+  - `snapped` 的步长为 int 时，GDScript 返回 int。步长为 0 时，结果是截断后的原值，如 `snapped(1.6, 0)` 得 `1`。
+  - 所以步长须是非零的整数字面量，这个修复才自动应用。
 - **引擎 API 的 `Result` 版本（§10.3）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `FileAccess.open` 有 125 处调用，只有 21 处随后读取错误。改变原 API 的返回类型，迁移来的每处调用都要改写。所以 `try_` 版本另加，原 API 不变。独立的模块多一个全局名字，用户在 `FileAccess` 下也找不到。
   - 引擎类上只加按固定前缀从引擎成员派生的名字，如 `try_from` 和 `try_open`。4.7 的引擎 API 中只有 `Mutex.try_lock` 和 `Semaphore.try_wait` 用这个前缀。
   - 引擎几乎每个 4.x 版本都给 `FileAccess` 和 `DirAccess` 加方法，但没有一个以 `try_` 开头。生成的名字与新版引擎的成员重名时，构建失败。

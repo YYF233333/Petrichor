@@ -139,6 +139,10 @@ TEST_CASE("utility functions bound with Variant are typed by their arguments (sp
 	CHECK(fixed(head + "var r: float = clamp(i, -1, ratio)\n") == head + "var r: float = clamp(float(i), -1.0, ratio)\n");
 	CHECK(fixed(head + "print(min(ratio, 1))\n") == "no such fix");
 	CHECK(fixed(head + "print(min(ratio, 1))\n", "Write 1.0") == head + "print(min(ratio, 1.0))\n");
+	// snapped() with an int step gives an int, the value truncated where the step is 0.
+	CHECK(fixed(head + "var s: float = snapped(ratio, 2)\n") == head + "var s: float = snapped(ratio, 2.0)\n");
+	CHECK(fixed(head + "var s: float = snapped(ratio, 0)\n") == "no such fix");
+	CHECK(fixed(head + "var s: float = snapped(ratio, i)\n") == "no such fix");
 	CHECK(contains(type_of("lerp(Vector3(), 1.0, 0.5)"), "same type"));
 	CHECK(contains(type_of("clamp(\"a\", \"b\", \"c\")"), "numbers or vectors"));
 }

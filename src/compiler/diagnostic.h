@@ -34,7 +34,7 @@ enum class FixKind {
 	Pub,
 	MemberItself, // The method or signal itself for its literal name.
 	// The ones offered for the user to choose.
-	FloatResult, // float arguments where the result's type then changes.
+	FloatResult, // float arguments where the result's type or value then changes.
 	Unwrap,
 	Optional,
 	Async,

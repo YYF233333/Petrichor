@@ -647,9 +647,11 @@ Type Checker::check_utility(Expr &r_expr, const builtin::Utility &p_utility, con
 				message += " Write the int argument as a float, for example 1.0.";
 			}
 			const Type failed = fail(*r_expr.args[i], message);
-			const bool floats = p_expected.kind == TypeKind::Float;
 			if (std::all_of(types.begin(), types.begin() + same_count, [](const Type &p_type) { return p_type.is_numeric(); })) {
 				std::vector<Write> writes;
+				// GDScript's min(), max() and clamp() give the argument they
+				// choose, of its own type, which only a float result keeps.
+				bool keeps = p_expected.kind == TypeKind::Float;
 				for (size_t j = 0; j < same_count; j++) {
 					const Expr &arg = *r_expr.args[j];
 					if (types[j].kind != TypeKind::Int) {
@@ -659,11 +661,14 @@ Type Checker::check_utility(Expr &r_expr, const builtin::Utility &p_utility, con
 					const std::string text = cls.source->text_of(arg.range);
 					const bool decimal = literal.kind == ExprKind::IntLiteral && text.find_first_not_of("-_0123456789 ") == std::string::npos;
 					writes.push_back({ arg.range, decimal ? text + ".0" : "float(" + text + ")" });
+					// snapped() with an int step gives an int: with a step of 0,
+					// the value truncated (core/variant/variant_utility.cpp:408,
+					// 441-442, core/math/math_funcs.cpp:121-125; ed1daf0).
+					const bool step = r_expr.text == "snapped" && j == 1;
+					keeps = keeps && (!step || (literal.kind == ExprKind::IntLiteral && literal.int_value != 0));
 				}
-				// GDScript's min(), max() and clamp() give the argument they
-				// choose, of its own type, which only a float result keeps.
-				fix(writes, floats ? FixKind::FloatArguments : FixKind::FloatResult);
-				if (floats) {
+				fix(writes, keeps ? FixKind::FloatArguments : FixKind::FloatResult);
+				if (keeps) {
 					return set(r_expr, Type::of(TypeKind::Float));
 				}
 			}
