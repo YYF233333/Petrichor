@@ -1586,7 +1586,8 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 // The held scripts are written as a script's tab is saved, and those loaded
 // read again against their new texts, as the script editor reloads a script
 // (editor/script/script_editor_plugin.cpp:2564-2565; ed1daf0). One that cannot
-// be written stays held; one whose file is gone is dropped.
+// be written stays held; one whose file is gone is dropped, and so is one whose
+// file changed since, which is told (keep_held()).
 void PetEditorPlugin::save_held() {
 	std::set<std::string> written;
 	const std::map<std::string, std::string> files = held_scripts();
@@ -1594,6 +1595,11 @@ void PetEditorPlugin::save_held() {
 		const String path = to_godot(file);
 		if (!FileAccess::file_exists(path)) {
 			drop_held(file);
+			continue;
+		}
+		String why;
+		if (!keep_held(file, SceneIndex::get().script_source(file).value_or(std::string()), why)) {
+			toast(why, EditorToaster::SEVERITY_WARNING);
 			continue;
 		}
 		if (write_file(path, byte_order_mark(file_bytes(path)) + text)) {

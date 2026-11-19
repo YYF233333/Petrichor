@@ -1078,6 +1078,15 @@ def check_lsp(project, info, editor):
     check_queries(first, project, uri)
     check_rename(first, project, uri)
 
+    # A text held for a script that the client opens with another text, as VS
+    # Code restores unsaved changes, is dropped with a message, not pushed.
+    draft = uri("draft.pet")
+    first.open(draft, (project / "draft.pet").read_text(encoding="utf-8") + "# From the client.\n")
+    dropped = first.take(lambda m: m.get("method") == "window/showMessage" and "res://draft.pet" in m["params"]["message"])
+    pushed = first.take(lambda m: m.get("method") == "workspace/applyEdit" and "draft.pet" in str(m), 1)
+    first.notify("textDocument/didClose", {"textDocument": {"uri": draft}})
+    expect("lsp: a text held for a script the client has otherwise is dropped, with a message", dropped is not None and pushed is None, f"{dropped}\n{pushed}")
+
     user = uri("user.pet")
     user_text = (project / "user.pet").read_text(encoding="utf-8")
     first.open(user, user_text)

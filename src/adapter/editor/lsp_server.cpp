@@ -1072,6 +1072,11 @@ void LspServer::offer_held(const std::string &p_path, Document &r_document) {
 	if (held == held_scripts().end() || held->second == r_document.offered) {
 		return;
 	}
+	// Made from another text than the client has, it would undo what differs.
+	if (String why; !keep_held(p_path, workspace().script_source(p_path).value_or(std::string()), why)) {
+		show_message(why);
+		return;
+	}
 	r_document.offered = held->second;
 	if (!applies_edits) {
 		show_message(vformat("Godot holds unsaved changes to %s from a refactoring, which this client cannot take. Save them in Godot first.", to_godot(p_path)));

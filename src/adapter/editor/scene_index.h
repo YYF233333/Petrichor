@@ -103,6 +103,10 @@ godot::CodeEdit *open_code_edit(const std::string &p_path);
 // §2.3).
 void hold_script(const std::string &p_path, std::string p_text);
 void drop_held(const std::string &p_path);
+// Whether the text held for the script was made from p_text, the file's
+// or the client's, as it is now. Otherwise the text is dropped, which
+// `r_why` tells, as a refactoring's edit would undo a change made since.
+bool keep_held(const std::string &p_path, const std::string &p_text, godot::String &r_why);
 // The texts held, by path.
 const std::map<std::string, std::string> &held_scripts();
 // The text of a script open in the LSP client, which the workspace takes over

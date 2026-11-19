@@ -62,6 +62,7 @@ func _run() -> void:
 	await _check_rename_transaction()
 	await _check_rename_loaded()
 	await _check_rename_unsaveable()
+	await _check_held_changed()
 	await _check_embedded_scene()
 	await _check_quick_fixes()
 	await _check_unsaved_texts()
@@ -776,6 +777,31 @@ func _check_rename_open_scenes() -> void:
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))
 	DirAccess.remove_absolute(dir)
+	_scanned()
+
+
+# Architecture §2.3: a text held for a closed script whose file changed since
+# is dropped as the editor saves, so that the change on disk stays.
+func _check_held_changed() -> void:
+	var path := "res://editor_held_changed.pet"
+	var scene := "res://editor_held_changed.tscn"
+	var changed := "# Changed elsewhere.\nextends Node\n\nvar apples := 1\n"
+	_write(path, "extends Node\n\nvar apples := 1\n")
+	_write(scene, '[gd_scene format=3]\n\n[node name="Root" type="Node"]\n')
+	for file in [path, scene]:
+		EditorInterface.get_resource_filesystem().update_file(file)
+	await get_tree().process_frame
+	EditorInterface.open_scene_from_path(scene)
+	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
+	var at := FileAccess.get_file_as_string(path).find("apples")
+	plugin.call("_change_scripts", [[path, at, at + 6, "apples", "oranges"]], true)
+	_write(path, changed)
+	_scanned()
+	EditorInterface.save_scene()
+	_check(FileAccess.get_file_as_string(path) == changed, "a text held for a script whose file changed since is dropped as the editor saves, and the change stays")
+	EditorInterface.close_scene()
+	for file in [path, path + ".uid", scene]:
+		DirAccess.remove_absolute(file)
 	_scanned()
 
 

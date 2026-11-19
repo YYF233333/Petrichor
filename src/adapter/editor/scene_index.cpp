@@ -14,6 +14,7 @@
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_file_system_directory.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
+#include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -901,7 +902,19 @@ namespace {
 std::map<std::string, std::pair<uint64_t, uint32_t>> open_scripts;
 std::set<std::string> packed_scenes;
 std::map<std::string, std::string> held;
+// What each text held was made from: the file's text, or the client's for a
+// script it has open (architecture §2.3).
+std::map<std::string, std::string> held_bases;
 std::set<std::string> client_scripts;
+
+std::string without_cr(std::string p_text) {
+	p_text.erase(std::remove(p_text.begin(), p_text.end(), '\r'), p_text.end());
+	return p_text;
+}
+
+String dropped_message(const std::string &p_path) {
+	return vformat("%s changed after a refactoring left a change to it unsaved, so that change is dropped.", to_godot(p_path));
+}
 
 // The scenes open with unsaved changes, by path.
 std::map<std::string, Ref<PackedScene>> unsaved_scenes() {
@@ -955,10 +968,18 @@ compiler::Workspace &workspace() {
 		// undo in its tab (architecture §2.3). The tab clears its history as it
 		// opens (editor/script/script_text_editor.cpp:248-251; ed1daf0), and its
 		// version is then never 0.
+		// One whose file changed since shows the file, and the text is dropped.
 		if (const auto kept = held.find(file); kept != held.end()) {
-			code_edit->set_text(to_godot(kept->second));
+			const std::string disk = SceneIndex::get().script_source(file).value_or(std::string());
+			const bool from_disk = without_cr(held_bases[file]) == without_cr(disk);
+			code_edit->set_text(to_godot(from_disk ? kept->second : without_cr(disk)));
 			code_edit->clear_undo_history();
+			if (!from_disk) {
+				code_edit->tag_saved_version();
+				editor->get_editor_toaster()->push_toast(dropped_message(file), EditorToaster::SEVERITY_WARNING);
+			}
 			held.erase(kept);
+			held_bases.erase(file);
 		}
 		const std::pair<uint64_t, uint32_t> now{ code_edit->get_instance_id(), code_edit->get_version() };
 		shown.insert(file);
@@ -1016,6 +1037,9 @@ void hold_script(const std::string &p_path, std::string p_text) {
 		drop_held(p_path);
 		return;
 	}
+	if (!held.count(p_path) || in_client) {
+		held_bases[p_path] = open.script_source(p_path).value_or(std::string());
+	}
 	if (!in_client) {
 		open.set_script(p_path, p_text);
 	}
@@ -1023,9 +1047,20 @@ void hold_script(const std::string &p_path, std::string p_text) {
 }
 
 void drop_held(const std::string &p_path) {
+	held_bases.erase(p_path);
 	if (held.erase(p_path) && !client_scripts.count(p_path)) {
 		workspace().drop_script(p_path);
 	}
+}
+
+bool keep_held(const std::string &p_path, const std::string &p_text, String &r_why) {
+	const auto base = held_bases.find(p_path);
+	if (base == held_bases.end() || without_cr(base->second) == without_cr(p_text)) {
+		return true;
+	}
+	r_why = dropped_message(p_path);
+	drop_held(p_path);
+	return false;
 }
 
 const std::map<std::string, std::string> &held_scripts() {

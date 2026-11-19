@@ -1,10 +1,10 @@
 @tool
 extends EditorPlugin
 
-# Renames hit.damage in user.pet, which no tab has, as the redo of a rename
-# does, so that the editor holds its text unsaved (architecture §2.3), and
-# saves tour.tscn as a binary scene too. Opens arena.tscn, and gunner.pet in a
-# tab. Once the file res://check is there, prints what the loaded blaster.tres
+# Renames hit.damage in user.pet and apples in draft.pet, which no tab has, as
+# the redo of a rename does, so that the editor holds their texts unsaved
+# (architecture §2.3), and saves tour.tscn as a binary scene too. Opens
+# arena.tscn, and gunner.pet in a tab. Once the file res://check is there, prints what the loaded blaster.tres
 # holds and saves the scene shown, as Ctrl+S does. Once res://refactor is
 # there, makes the refactoring's edit it holds and prints the tab's text.
 # Quits once the file res://quit is there.
@@ -21,6 +21,8 @@ func _hold() -> void:
 	var at := FileAccess.get_file_as_string("res://user.pet").find("damage")
 	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
 	plugin.call("_change_scripts", [["res://user.pet", at, at + 6, "damage", "amount"]], true)
+	at = FileAccess.get_file_as_string("res://draft.pet").find("apples")
+	plugin.call("_change_scripts", [["res://draft.pet", at, at + 6, "apples", "oranges"]], true)
 	ResourceSaver.save(load("res://tour.tscn"), "res://tour.scn")
 	EditorInterface.open_scene_from_path("res://arena.tscn")
 	EditorInterface.edit_script(load("res://gunner.pet"))
