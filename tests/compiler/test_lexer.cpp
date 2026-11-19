@@ -194,3 +194,21 @@ TEST_CASE("columns count code points") {
 	const std::vector<Token> &tokens = file->tokens;
 	CHECK(file->position(tokens[1].offset).column == 6);
 }
+
+// LSP 3.17, Position: lines end at \n, \r\n or \r; columns count UTF-16 code
+// units, so an emoji takes two; a column past the line's end is its end.
+TEST_CASE("LSP positions count UTF-16 code units") {
+	const std::string text = "a😀b\r\n雨x\rz";
+	const std::vector<Utf16Position> at = utf16_positions(text, { 13, 5, 7, 11, 99 });
+	CHECK((at[0].line == 2 && at[0].character == 0));
+	CHECK((at[1].line == 0 && at[1].character == 3));
+	CHECK((at[2].line == 0 && at[2].character == 4));
+	CHECK((at[3].line == 1 && at[3].character == 1));
+	CHECK((at[4].line == 2 && at[4].character == 1));
+	CHECK(utf16_offset(text, { 0, 3 }) == 5);
+	CHECK(utf16_offset(text, { 0, 2 }) == 1);
+	CHECK(utf16_offset(text, { 0, 99 }) == 6);
+	CHECK(utf16_offset(text, { 1, 1 }) == 11);
+	CHECK(utf16_offset(text, { 2, 0 }) == 13);
+	CHECK(utf16_offset(text, { 9, 0 }) == 14);
+}

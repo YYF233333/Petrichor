@@ -224,6 +224,63 @@ SourcePosition position_in(const std::string &p_text, const std::vector<uint32_t
 	return { int(next - p_line_starts.begin()), column };
 }
 
+namespace {
+
+// Of the code point whose UTF-8 begins with `p_byte`; none for a byte inside one.
+uint32_t utf16_units(char p_byte) {
+	const unsigned char byte = static_cast<unsigned char>(p_byte);
+	if ((byte & 0xC0) == 0x80) {
+		return 0;
+	}
+	return byte >= 0xF0 ? 2 : 1;
+}
+
+} // namespace
+
+std::vector<Utf16Position> utf16_positions(const std::string &p_text, const std::vector<uint32_t> &p_offsets) {
+	std::vector<size_t> order(p_offsets.size());
+	for (size_t i = 0; i < order.size(); i++) {
+		order[i] = i;
+	}
+	std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return p_offsets[a] < p_offsets[b]; });
+	std::vector<Utf16Position> result(p_offsets.size());
+	Utf16Position at;
+	size_t byte = 0;
+	for (const size_t index : order) {
+		for (const size_t target = std::min<size_t>(p_offsets[index], p_text.size()); byte < target; byte++) {
+			const char c = p_text[byte];
+			if (c == '\n' || (c == '\r' && p_text.compare(byte, 2, "\r\n") != 0)) {
+				at = { at.line + 1, 0 };
+			} else if (c != '\r') {
+				at.character += utf16_units(c);
+			}
+		}
+		result[index] = at;
+	}
+	return result;
+}
+
+uint32_t utf16_offset(const std::string &p_text, Utf16Position p_position) {
+	size_t byte = 0;
+	for (uint32_t line = 0; line < p_position.line; line++) {
+		const size_t end = p_text.find_first_of("\r\n", byte);
+		if (end == std::string::npos) {
+			return uint32_t(p_text.size());
+		}
+		byte = end + (p_text.compare(end, 2, "\r\n") == 0 ? 2 : 1);
+	}
+	for (uint32_t units = 0; byte < p_text.size() && p_text[byte] != '\n' && p_text[byte] != '\r';) {
+		units += utf16_units(p_text[byte]);
+		if (units > p_position.character) {
+			break;
+		}
+		do {
+			byte++;
+		} while (byte < p_text.size() && utf16_units(p_text[byte]) == 0);
+	}
+	return uint32_t(byte);
+}
+
 TokenKind compound_operator(TokenKind p_assign) {
 	switch (p_assign) {
 		case TokenKind::PlusEqual:

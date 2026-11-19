@@ -164,6 +164,20 @@ std::vector<uint32_t> line_starts_of(const std::string &p_text);
 // Where byte `p_offset` of `p_text` is, whose lines begin at `p_line_starts`.
 SourcePosition position_in(const std::string &p_text, const std::vector<uint32_t> &p_line_starts, uint32_t p_offset);
 
+// A place as the Language Server Protocol counts it: lines from 0, which
+// "\n", "\r\n" and "\r" end, and columns in UTF-16 code units (LSP 3.17,
+// Position).
+struct Utf16Position {
+	uint32_t line = 0;
+	uint32_t character = 0;
+};
+
+// Where each byte offset of `p_offsets` is in `p_text`, in one pass.
+std::vector<Utf16Position> utf16_positions(const std::string &p_text, const std::vector<uint32_t> &p_offsets);
+// The byte offset of `p_position` in `p_text`. Past the end of its line, it
+// is the line's end; past the last line, the text's end (LSP 3.17, Position).
+uint32_t utf16_offset(const std::string &p_text, Utf16Position p_position);
+
 // A change to a source: its bytes from `begin` to `end` replaced by `text`.
 struct Edit {
 	uint32_t begin = 0;
