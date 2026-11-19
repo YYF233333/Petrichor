@@ -86,6 +86,13 @@
   - GDScript 协程中的错误只结束那个协程，所以检查出错时 “fps original run” 仍可能通过。fps_check.gd 因此用 “finish” 哨兵。
   - fps_check.gd 的同一函数里若有与前面同名的变量，它就加载失败，所有 fps 检查随之失败。
 - 读真实的字节码：在临时 doctest 中反序列化 `.godot/petrichor/<path>.petc`，再用 `bytecode::disassemble` 反汇编。FakeEngine 缺大多数引擎类。
+- 语言服务器：
+  - 在项目副本上启动：`godot --headless -e --path <副本> -- --petrichor-lsp`。副本先 `--import`，理由同上。
+  - 端口在副本的 `.godot/petrichor/lsp.json` 中。编辑器正常退出时删掉它，被杀掉时留下。
+  - 手动收发用 `tests/engine/run.py` 的 `LspClient`：`LspClient(port).initialize()`，再 `open()`、`notify()` 和 `take()`。
+  - 不要在 `tests/engine/project` 上开有界面的编辑器调试它。测试同时运行时，后开的进程加载不了扩展。
+  - 无界面编辑器不会重获焦点，所以不扫描磁盘。改了磁盘上的文件，要发 `didSave` 或 `didChangeWatchedFiles`。
+  - 诊断在工作区停止变化 `idle_parse_delay` 秒后才发，默认 1.5 秒。刚打开的文件立即发。
 
 ## 发布包
 

@@ -103,8 +103,13 @@ godot::CodeEdit *open_code_edit(const std::string &p_path);
 // §2.3).
 void hold_script(const std::string &p_path, std::string p_text);
 void drop_held(const std::string &p_path);
-// The scripts with texts held, by path.
-const std::set<std::string> &held_scripts();
+// The texts held, by path.
+const std::map<std::string, std::string> &held_scripts();
+// The text of a script open in the LSP client, which the workspace takes over
+// its tab's and the one held, until the client closes it (architecture §2.4).
+// A script held while the client has it open is held all the same.
+void set_client_script(const std::string &p_path, std::string p_text);
+void drop_client_script(const std::string &p_path);
 // The bytes of a file, an unsaved scene's as the text saver writes it;
 // nullopt if it cannot be read.
 std::optional<std::string> file_text(const std::string &p_path);

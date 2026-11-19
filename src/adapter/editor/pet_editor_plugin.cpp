@@ -18,6 +18,7 @@
 #include <godot_cpp/classes/code_edit.hpp>
 #include <godot_cpp/classes/config_file.hpp>
 #include <godot_cpp/classes/dir_access.hpp>
+#include <godot_cpp/classes/display_server.hpp>
 #include <godot_cpp/classes/editor_export_platform.hpp>
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
@@ -765,6 +766,17 @@ void PetEditorPlugin::_enter_tree() {
 		callable_mp(this, &PetEditorPlugin::run_build_command).call_deferred();
 	} else if (args.has("--petrichor-format")) {
 		callable_mp(this, &PetEditorPlugin::run_format_command).call_deferred();
+	} else if (args.has("--petrichor-lsp") || DisplayServer::get_singleton()->get_name() != "headless") {
+		sessions.instantiate();
+		add_debugger_plugin(sessions);
+		lsp = std::make_unique<LspServer>(sessions);
+		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::poll_lsp));
+	}
+}
+
+void PetEditorPlugin::poll_lsp() {
+	if (lsp) {
+		lsp->poll();
 	}
 }
 
@@ -789,6 +801,9 @@ void PetEditorPlugin::changed() {
 	checked = revision;
 	check_shown();
 	PetScript::update_warnings();
+	if (lsp) {
+		lsp->settled();
+	}
 }
 
 // The tab of a script of this language, while it shows, if the workspace
@@ -1512,14 +1527,14 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 void PetEditorPlugin::save_held() {
 	EditorInterface *editor = EditorInterface::get_singleton();
 	std::vector<Ref<Script>> scripts;
-	const std::set<std::string> files = held_scripts();
-	for (const std::string &file : files) {
+	const std::map<std::string, std::string> files = held_scripts();
+	for (const auto &[file, text] : files) {
 		const String path = to_godot(file);
 		if (!FileAccess::file_exists(path)) {
 			drop_held(file);
 			continue;
 		}
-		if (!write_file(path, byte_order_mark(file_bytes(path)) + workspace().script_source(file).value_or(std::string()))) {
+		if (!write_file(path, byte_order_mark(file_bytes(path)) + text)) {
 			continue;
 		}
 		disk_changed();
@@ -1552,8 +1567,8 @@ String PetEditorPlugin::_get_unsaved_status(const String &p_for_scene) const {
 		return String();
 	}
 	PackedStringArray message({ "Save changes to the following script(s) before quitting?" });
-	for (const std::string &file : held_scripts()) {
-		message.push_back(to_godot(file));
+	for (const auto &held : held_scripts()) {
+		message.push_back(to_godot(held.first));
 	}
 	return String("\n").join(message);
 }
@@ -1947,6 +1962,11 @@ String PetEditorPlugin::change_scripts_again(const Array &p_edits, bool p_apply)
 
 void PetEditorPlugin::_exit_tree() {
 	exiting = true;
+	if (lsp) {
+		lsp.reset();
+		remove_debugger_plugin(sessions);
+		sessions.unref();
+	}
 	memdelete(fix_list);
 	fix_list = nullptr;
 	memdelete(name_popup);

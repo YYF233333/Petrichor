@@ -459,16 +459,35 @@
   - 不用 6005 和 6008。godot-tools 连这两个端口，会把它当作 GDScript 的服务器。
   - 主线程每帧轮询，分析也在主线程，与编辑器的检查相同。
   - 编辑器失焦时每帧睡 100 毫秒，请求因此最多多等这么久（`editor/editor_node.cpp:1064-1073`）。GDScript 的服务器亦然。
+  - 服务器在 `src/adapter/editor/lsp_server.cpp`，由编辑器插件在 `process_frame` 中轮询。有界面的编辑器总是开服务器。
+  - 分析进行中不轮询，轮询也不重入。进度框会在调用中途跑一帧（`editor/gui/progress_dialog.cpp:148-154`）。
+  - 一次只服务一个客户端。另一个连接发来请求时，回复一个说明原因的错误，随后断开。
+  - 消息头没有可用的 `Content-Length` 时，跳过这个头，其后的内容当作下一个头读。所以一条坏消息之后，下一条照常读到。
+  - 消息体不是 UTF-8 的 JSON 时，回复 ParseError。通知的字段不合要求时，整条忽略。
+  - 不读取的客户端，待发的内容超过 128 MB 时断开。单条消息限 16 MB。
 - 文本：
   - 同步是增量的，编辑应用到全文。
   - 客户端打开一个文件后，工作区取它的文本，不再取 Godot 标签页的。这是 LSP 对 `didOpen` 的要求。Godot 的标签页仍检查自己的文本。
-  - 客户端关闭文件后，工作区回到 Godot 的标签页或磁盘。
+  - 客户端关闭文件后，工作区回到 Godot 的标签页或磁盘。客户端断开时，它打开的文件都这样交还。
+  - 所以工作区中脚本的文本依次取客户端的、标签页的和重构留下的，都没有时读磁盘（`src/adapter/editor/scene_index.cpp`）。
   - 客户端打开重构留下文本的脚本时（§2.3），服务器经 `workspace/applyEdit` 把这段文本推给它。它在客户端也是未保存的改动，改名的两半保持一致。
+  - 客户端已打开的脚本有了这样的文本时，也这样推送。推送带上文本所依据的文档版本，客户端此后改过就拒绝。
+  - 客户端应用后，编辑器不再保留这段文本。客户端拒绝时，服务器经 `window/showMessage` 告知，文本仍留在编辑器中。
   - 客户端保存后，服务器通知工作区和编辑器的文件系统，再走编辑器保存脚本后的热重载。
+  - 热重载即写入字节码，再经调试会话发出 `reload_scripts`。
+  - 条件与编辑器相同：脚本没有错误，且调试菜单中开着 Synchronize Script Changes（`editor/script/script_editor_plugin.cpp:776-801`，`editor/debugger/debugger_editor_plugin.cpp:238`）。
+  - `didChangeWatchedFiles` 让编辑器的文件系统重新扫描，与编辑器重获焦点时相同。
   - 这时不动 Godot 的标签页。编辑器重获焦点时自己检查：没改过的重载，改过的询问（`editor/script/script_editor_plugin.cpp:803-850`）。
   - GDScript 的服务器在保存时直接换掉标签页的文本，其中未保存的改动丢失（`modules/gdscript/language_server/gdscript_text_document.cpp:95-124`，`editor/script/script_editor_plugin.cpp:2535-2588`）。
 - LSP 按 UTF-16 码元计列，编译器按码点（§2.1）。服务器只接受项目根之下的文件。
+  - 字节偏移与 LSP 位置只在 `utf16_positions()` 和 `utf16_offset()` 中换算（`src/compiler/lexer.h`）。行按 `\n`、`\r\n` 和 `\r` 断开，与 LSP 相同。
+  - 只接受 `file:` URI。盘符的大小写和百分号编码按 Windows 上客户端的写法都认得。
+  - `.godot/` 之下的文件、项目外的文件和非 `.pet` 文件都不同步，也不回复错误。
 - 诊断只发给客户端打开的文件，与编辑器只检查显示的标签页相同。
+  - 刚打开的文件立即发送。其余在工作区停止变化 `idle_parse_delay` 秒后发送，与脚本编辑器检查前所等的相同。
+  - 编辑器处理完一次变化时，如保存或场景的编辑停下，立即重发，不再等待。
+  - 每次发送带上所依据的文档版本。关闭文件时清空它的诊断。
+  - 位置越界时夹到行尾或文末，与 LSP 的规定相同。
 - 服务器提供诊断、补全、参数提示、悬停、定义、类型定义、引用、重命名、快速修复、格式化、大纲和同名高亮。
   - GDScript 的服务器没有类型定义、快速修复和格式化（`modules/gdscript/language_server/godot_lsp.h:1744-1798`）。
   - 场景中的位置给 `.tscn` 中的行，客户端以文本打开。二进制的 `.scn` 没有行，给文件开头。

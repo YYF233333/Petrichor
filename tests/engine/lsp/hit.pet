@@ -1,0 +1,3 @@
+extends RefCounted
+
+pub var damage := 1

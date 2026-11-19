@@ -8,11 +8,11 @@ Usage:
 
 Checks the game run, the editor side (placeholders, saving), the language, the
 debugger, hot reload, an exported pack run in a directory without sources with
-each library of export templates, and the FPS starter kit and Ring's breakout
-with their migrated scripts. Naming groups runs only those, after the build;
-the groups are those of GROUPS, hot reload being part of debugger. The dotnet
-group, classes written in C#, runs on a .NET editor or when named; it needs
-the .NET SDK 8 or later on PATH.
+each library of export templates, the language server, and the FPS starter
+kit and Ring's breakout with their migrated scripts. Naming groups runs only
+those, after the build; the groups are those of GROUPS, hot reload being part
+of debugger. The dotnet group, classes written in C#, runs on a .NET editor or
+when named; it needs the .NET SDK 8 or later on PATH.
 
 Environment:
     PETRICHOR_PREBUILT=1          the libraries in tests/engine/project/bin were
@@ -22,6 +22,7 @@ Environment:
 
 import configparser
 import hashlib
+import json
 import os
 import platform
 import re
@@ -33,6 +34,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 from collections import Counter
 from pathlib import Path
 
@@ -58,7 +60,8 @@ GAME_OUTPUT = [
     "greeter: _ready, message = set from GDScript",
 ]
 
-GROUPS = ["game", "editor", "language", "debugger", "export", "fps", "ring", "dotnet"]
+GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "fps", "ring", "dotnet"]
+LSP = HERE / "lsp"
 DOTNET = HERE / "dotnet"
 DOTNET_ASSEMBLY = Path(".godot", "mono", "temp", "bin", "Debug", "DotnetCheck.dll")
 
@@ -549,9 +552,11 @@ def main():
     if not editor_library.is_file():
         sys.exit(f"{editor_library} is missing. Build it with: scons")
 
-    # The fps and ring groups prepare projects of their own, so they run beside
-    # the groups of the test project.
+    # The lsp, fps and ring groups prepare projects of their own, so they run
+    # beside the groups of the test project.
     finishes = []
+    if wanted("lsp"):
+        finishes.append(beside("lsp", run_lsp_group, godot))
     if wanted("fps"):
         finishes.append(beside("fps", run_migration_group, godot, "fps", prepare_fps, FPS_MIGRATED, True))
     if wanted("ring"):
@@ -562,7 +567,7 @@ def main():
     elif not only:
         print(f"dotnet: skipped, as {godot} is not a .NET build")
 
-    if not only or (only - {"fps", "ring", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
+    if not only or (only - {"lsp", "fps", "ring", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
         # The game reads the bytecode the editor writes (architecture §2.4).
         # The checked build runs on an imported project, as import_project()
         # explains.
@@ -753,6 +758,297 @@ def run_dotnet_group(godot, dotnet):
         ] == refused, output)
         code, output = run(godot, "--path", str(project))
         expect_run("dotnet run", code, output, ["dotnet: 0 failure(s)"], expected_errors(output, "dotnet"))
+
+
+def file_uri(path, encoded=True):
+    """A file: URI as VS Code writes it on Windows, with the drive letter in
+    lower case and the colon, spaces and non-ASCII bytes percent-encoded; or
+    the path as it is."""
+    posix = path.as_posix()
+    if not posix.startswith("/"):
+        posix = "/" + (posix[0].lower() + posix[1:] if encoded else posix)
+    return "file://" + (urllib.parse.quote(posix) if encoded else posix)
+
+
+def lsp_position(text, index):
+    """Where text[index] is as LSP counts: lines that \\r\\n, \\r or \\n end,
+    columns in UTF-16 code units."""
+    before = text[:index]
+    start = max(before.rfind("\n"), before.rfind("\r")) + 1
+    return {"line": len(re.findall(r"\r\n|\r|\n", before)), "character": len(before[start:].encode("utf-16-le")) // 2}
+
+
+def lsp_index(text, position):
+    """The index of an LSP position; past a line's end its end, past the last
+    line the text's end (LSP 3.17, Position)."""
+    breaks = list(re.finditer(r"\r\n|\r|\n", text))
+    line, character = position["line"], position["character"]
+    if line > len(breaks):
+        return len(text)
+    index = breaks[line - 1].end() if line > 0 else 0
+    end = breaks[line].start() if line < len(breaks) else len(text)
+    units = 0
+    while index < end and units + len(text[index].encode("utf-16-le")) // 2 <= character:
+        units += len(text[index].encode("utf-16-le")) // 2
+        index += 1
+    return index
+
+
+CLOSED = object()
+
+
+class LspClient:
+    """A client of the language server, connected as VS Code's is."""
+
+    def __init__(self, port):
+        self.socket = socket.create_connection(("127.0.0.1", port), timeout=10)
+        self.data = b""
+        self.kept = []
+        self.ids = 0
+
+    def send_bytes(self, data):
+        self.socket.sendall(data)
+
+    def send(self, message):
+        body = json.dumps({"jsonrpc": "2.0", **message}, ensure_ascii=False).encode()
+        self.send_bytes(b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+
+    def notify(self, method, params):
+        self.send({"method": method, "params": params})
+
+    def request(self, method, params=None):
+        self.ids += 1
+        sent = self.ids
+        self.send({"id": sent, "method": method, "params": params})
+        return self.take(lambda m: m.get("id") == sent and "method" not in m)
+
+    def _next(self, deadline):
+        """The next message; None at the deadline, CLOSED once the server closes."""
+        while True:
+            header, found, rest = self.data.partition(b"\r\n\r\n")
+            length = int(re.search(rb"Content-Length: (\d+)", header).group(1)) if found else -1
+            if 0 <= length <= len(rest):
+                self.data = rest[length:]
+                return json.loads(rest[:length])
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            self.socket.settimeout(remaining)
+            try:
+                chunk = self.socket.recv(65536)
+            except socket.timeout:
+                return None
+            except OSError:
+                chunk = b""
+            if not chunk:
+                return CLOSED
+            self.data += chunk
+
+    def take(self, wanted, seconds=10):
+        """The first message, kept or arriving within `seconds`, that is
+        `wanted`; the others are kept."""
+        for message in self.kept:
+            if wanted(message):
+                self.kept.remove(message)
+                return message
+        deadline = time.monotonic() + seconds
+        while (message := self._next(deadline)) not in (None, CLOSED):
+            if wanted(message):
+                return message
+            self.kept.append(message)
+        return None
+
+    def closed(self, seconds=10):
+        deadline = time.monotonic() + seconds
+        while (message := self._next(deadline)) is not None:
+            if message is CLOSED:
+                return True
+            self.kept.append(message)
+        return False
+
+    def diagnostics(self, uri, until, seconds=10):
+        """The diagnostics published for `uri` once `until` holds for them, or
+        else the last ones published."""
+        last = None
+        deadline = time.monotonic() + seconds
+        while message := self.take(lambda m: m.get("method") == "textDocument/publishDiagnostics" and m["params"]["uri"] == uri, deadline - time.monotonic()):
+            last = message["params"]
+            if until(last):
+                break
+        return last
+
+    def open(self, uri, text, version=1):
+        self.notify("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": "petrichor", "version": version, "text": text}})
+
+    def initialize(self):
+        return self.request("initialize", {"capabilities": {"workspace": {"applyEdit": True}}})
+
+
+def says(published, text):
+    """Whether one of the diagnostics published mentions `text`."""
+    return published is not None and any(text in each["message"] for each in published["diagnostics"])
+
+
+def run_lsp_group(godot):
+    """The language server (architecture §2.4) in a headless editor on a copy
+    of tests/engine/lsp, at a path with a space and CJK."""
+    with tempfile.TemporaryDirectory() as tmp:
+        project = Path(tmp).resolve() / "lsp 项目"
+        shutil.copytree(LSP, project)
+        (project / "bin").mkdir()
+        shutil.copy(PROJECT / host_library("editor"), project / host_library("editor"))
+        shutil.copy(PROJECT / "petrichor.gdextension", project)
+        info = project / ".godot" / "petrichor" / "lsp.json"
+        import_project(godot, project)
+        code, output = run(godot, "-e", "--path", str(project), "--", "--petrichor-build")
+        expect("lsp: a headless editor serves only with --petrichor-lsp", "petrichor build:" in output and not info.exists(), output)
+        editor = Running(godot, "-e", "--path", str(project), "--", "--petrichor-lsp", "--lsp-hold")
+        try:
+            check_lsp(project, info, editor)
+        finally:
+            (project / "quit").touch()
+            code, output = editor.finish()
+        errors = [line for line in output.splitlines() if "ERROR" in line]
+        expect("lsp: the editor quits without errors, and its lsp.json with it", code == 0 and not errors and not info.exists(), output)
+
+
+def check_lsp(project, info, editor):
+    deadline = time.monotonic() + TIMEOUT
+    while not info.exists() and not editor.ended and time.monotonic() < deadline:
+        time.sleep(0.1)
+    server = json.loads(info.read_text(encoding="utf-8")) if info.exists() else {}
+    expect("lsp: the editor writes its process and port", server.get("pid", 0) > 0 and server.get("port") not in (None, 6005, 6008), str(server))
+    # Once the first scan is done and the text held, which the server takes in
+    # at once (PetEditorPlugin::changed()).
+    held = editor.wait_for(b"lsp hold: done")
+    if not server:
+        return
+
+    def uri(name, encoded=True):
+        return file_uri(project / name, encoded)
+
+    first = LspClient(server["port"])
+    early = first.take(lambda m: True, 0.5)
+    hover = first.request("textDocument/hover", {})
+    first.open(uri("board.pet"), "x")
+    expect("lsp: before initialize, nothing is sent and requests are refused", early is None and hover and hover["error"]["code"] == -32002, str(hover))
+    reply = first.initialize()
+    capabilities = reply and reply["result"]["capabilities"]
+    expect("lsp: initialize offers incremental sync in UTF-16", capabilities and capabilities["positionEncoding"] == "utf-16" and capabilities["textDocumentSync"]["change"] == 2, str(reply))
+    first.notify("initialized", {})
+
+    # Answered or passed over, and the messages after them read (clangd's protocol.test).
+    first.send_bytes(b"Content-Length: 5\r\n\r\n{bad}")
+    bad_json = first.take(lambda m: "error" in m)
+    first.send_bytes(b"Content-Length: 2\r\n\r\n\xff\xfe")
+    bad_utf8 = first.take(lambda m: "error" in m)
+    first.send_bytes(b"Content-Type: text\r\n\r\n{}Content-Length: 99999999999999\r\n\r\n")
+    first.open(uri("rank.pet"), 5)
+    first.notify("textDocument/didChange", {"textDocument": {"uri": 7}, "contentChanges": "none"})
+    for outside in [file_uri(project.parent / "outside.pet"), uri("notes.txt"), uri(".godot/x.pet"), "untitled:Untitled-1"]:
+        first.open(outside, "x")
+    unknown = first.request("petrichor/unknown")
+    expect("lsp: malformed messages are answered or passed over", bad_json and bad_json["error"]["code"] == -32700 and bad_json["id"] is None and bad_utf8 and bad_utf8["error"]["code"] == -32700 and unknown and unknown["error"]["code"] == -32601, f"{bad_json}\n{bad_utf8}\n{unknown}")
+
+    enemy = uri("enemy.pet")
+    first.open(enemy, (project / "enemy.pet").read_text(encoding="utf-8"))
+    published = first.diagnostics(enemy, lambda p: says(p, "max_speed"))
+    expect("lsp: a script opened gets its errors and its scenes'", says(published, "max_speed") and says(published, "Head/Camera") and published["version"] == 1, str(published))
+
+    player = uri("player.pet")
+    first.open(player, (project / "player.pet").read_text(encoding="utf-8") + "pub var max_speed := 7.0\n")
+    published = first.diagnostics(enemy, lambda p: not says(p, "max_speed"))
+    expect("lsp: other scripts read the client's unsaved text", published and not says(published, "max_speed") and says(published, "Head/Camera"), str(published))
+    first.notify("textDocument/didClose", {"textDocument": {"uri": player}})
+    cleared = first.diagnostics(player, lambda p: "version" not in p)
+    published = first.diagnostics(enemy, lambda p: says(p, "max_speed"))
+    expect("lsp: a script closed goes back to its file, without diagnostics", cleared and cleared["diagnostics"] == [] and says(published, "max_speed"), f"{cleared}\n{published}")
+
+    # Positions in UTF-16 after CJK and an emoji, in a CRLF text changed in
+    # steps: within a line, across lines, and one past the line or the text.
+    wide = uri("wide.pet", encoded=False)
+    text = 'extends Node\r\n\r\nfunc f() -> void:\r\n\tprint("雨😀", missing)\r\n'
+    first.open(wide, text)
+    published = first.diagnostics(wide, lambda p: says(p, "missing"))
+    at = [d["range"]["start"] for d in published["diagnostics"] if "missing" in d["message"]] if published else []
+    expect("lsp: columns count UTF-16 code units", at == [{"line": 3, "character": 14}], str(published))
+
+    def changed(version, *changes):
+        nonlocal text
+        sent = []
+        for start, end, new in changes:
+            sent.append({"range": {"start": start, "end": end}, "text": new})
+            begin, finish = sorted((lsp_index(text, start), lsp_index(text, end)))
+            text = text[:begin] + new + text[finish:]
+        first.notify("textDocument/didChange", {"textDocument": {"uri": wide, "version": version}, "contentChanges": sent})
+
+    def place(name):
+        return lsp_position(text, text.index(name))
+
+    # Each change after the first is before it in the text, so that its
+    # place is the same before and after the first.
+    changed(2, (place("missing"), place("missing"), '"雪🌧" + '), ({"line": 0, "character": 12}, {"line": 1, "character": 0}, ""))
+    changed(3, (place("missing"), place(")\r\n"), "missing2"), ({"line": 1, "character": 17}, {"line": 1, "character": 17}, "\r\n\tvar 雪 := 1"))
+    changed(4, ({"line": 99, "character": 0}, {"line": 99, "character": 5}, "\r\n# end"), ({"line": 0, "character": 999}, {"line": 0, "character": -4}, ""))
+    versions = []
+    published = first.diagnostics(wide, lambda p: versions.append(p["version"]) or says(p, "missing2"))
+    at = [d["range"]["start"] for d in published["diagnostics"] if "missing2" in d["message"]] if published else []
+    expect("lsp: changes apply in order, and diagnostics carry the version they are for", at == [place("missing2")] and versions[-1:] == [4] and 2 not in versions and 3 not in versions, f"{versions}\n{published}\n{text!r}")
+
+    user = uri("user.pet")
+    user_text = (project / "user.pet").read_text(encoding="utf-8")
+    first.open(user, user_text)
+    offer = first.take(lambda m: m.get("method") == "workspace/applyEdit")
+    change = offer and offer["params"]["edit"]["documentChanges"][0]
+    expect("lsp: a script the editor holds a text for gets it as an edit", held and change and change["textDocument"] == {"uri": user, "version": 1} and "hit.amount" in change["edits"][0]["newText"], str(offer))
+    if offer:
+        first.send({"id": offer["id"], "result": {"applied": False, "failureReason": "a test"}})
+    shown = first.take(lambda m: m.get("method") == "window/showMessage")
+    first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
+    first.open(user, user_text)
+    offer = first.take(lambda m: m.get("method") == "workspace/applyEdit")
+    if offer:
+        first.send({"id": offer["id"], "result": {"applied": True}})
+    first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
+    first.open(user, user_text)
+    expect("lsp: an edit refused is told, offered again, and once applied no longer held", shown and "res://user.pet" in shown["params"]["message"] and offer and first.take(lambda m: m.get("method") == "workspace/applyEdit", 2) is None, f"{shown}\n{offer}")
+
+    # A save reaches the editor's class list, and so does a file added outside
+    # the client (godotengine/godot#42786).
+    board = uri("board.pet")
+    first.open(board, (project / "board.pet").read_text(encoding="utf-8"))
+    published = first.diagnostics(board, lambda p: says(p, "Rank") and says(p, "Bonus"))
+    rank = uri("rank.pet")
+    rank_text = "class_name Rank extends RefCounted\n\npub const TOP := 3\n"
+    first.open(rank, rank_text)
+    (project / "rank.pet").write_text(rank_text, encoding="utf-8")
+    first.notify("textDocument/didSave", {"textDocument": {"uri": rank}})
+    saved = first.diagnostics(board, lambda p: not says(p, "Rank"))
+    (project / "bonus.pet").write_text("class_name Bonus extends RefCounted\n\npub const VALUE := 2\n", encoding="utf-8")
+    first.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri("bonus.pet"), "type": 1}]})
+    added = first.diagnostics(board, lambda p: not p["diagnostics"])
+    expect("lsp: a save and a file added reach the other scripts at once", says(published, "Rank") and saved and not says(saved, "Rank") and added and not added["diagnostics"], f"{published}\n{saved}\n{added}")
+
+    outside = [file_uri(project.parent / "outside.pet"), uri("notes.txt"), uri(".godot/x.pet"), "untitled:Untitled-1"]
+    stray = [m for m in first.kept if "error" in m or (m.get("params") or {}).get("uri") in outside]
+    expect("lsp: files outside the project, other files and malformed notifications get nothing", not stray, str(stray))
+
+    # A client gone leaves no text behind; one at a time; shutdown and exit.
+    first.open(player, (project / "player.pet").read_text(encoding="utf-8") + "pub var max_speed := 7.0\n")
+    first.socket.close()
+    time.sleep(0.5)
+    second = LspClient(server["port"])
+    second.initialize()
+    second.open(enemy, (project / "enemy.pet").read_text(encoding="utf-8"))
+    published = second.diagnostics(enemy, lambda p: True)
+    expect("lsp: the texts of a client gone are dropped", says(published, "max_speed"), str(published))
+    third = LspClient(server["port"])
+    refused = third.initialize()
+    expect("lsp: a second client is refused while one is connected", refused and "Another client" in refused["error"]["message"] and third.closed(), str(refused))
+    down = second.request("shutdown")
+    after = second.request("petrichor/unknown")
+    second.notify("exit", None)
+    expect("lsp: shutdown, then exit closes the connection", down and down["result"] is None and after and after["error"]["code"] == -32600 and second.closed(), f"{down}\n{after}")
 
 
 def run_debugger_groups(godot):

@@ -1,0 +1,23 @@
+@tool
+extends EditorPlugin
+
+# Renames hit.damage in user.pet, which no tab has, as the redo of a rename
+# does, so that the editor holds its text unsaved (architecture §2.3). Quits
+# once the file res://quit is there.
+
+
+func _enter_tree() -> void:
+	if "--lsp-hold" in OS.get_cmdline_user_args():
+		_hold.call_deferred()
+
+
+func _hold() -> void:
+	while EditorInterface.get_resource_filesystem().is_scanning():
+		await get_tree().process_frame
+	var at := FileAccess.get_file_as_string("res://user.pet").find("damage")
+	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
+	plugin.call("_change_scripts", [["res://user.pet", at, at + 6, "damage", "amount"]], true)
+	print("lsp hold: done")
+	while not FileAccess.file_exists("res://quit"):
+		await get_tree().create_timer(0.1).timeout
+	get_tree().quit()

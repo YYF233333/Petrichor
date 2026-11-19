@@ -1,0 +1,7 @@
+extends Node
+
+func chase(player: Player) -> float:
+	return player.max_speed
+
+func aim() -> void:
+	$Head/Camera.rotate_y(1.0)

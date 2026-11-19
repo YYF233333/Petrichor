@@ -1,0 +1,6 @@
+extends Node
+
+const Hit = preload("hit.pet")
+
+func f(hit: Hit) -> int:
+	return hit.damage

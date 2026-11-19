@@ -1,5 +1,6 @@
 #pragma once
 
+#include "adapter/editor/lsp_server.h"
 #include "adapter/editor/scene_index.h"
 #include "compiler/diagnostic.h"
 #include "compiler/rename.h"
@@ -20,6 +21,7 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -144,10 +146,13 @@ using FileEdits = std::map<std::string, std::vector<compiler::CheckedEdit>>;
 //   godot --headless -e --path <project> -- --petrichor-format [--check]
 // has the nodes ask again for their errors when a file or an open scene
 // changes, shows the references found in its panel, offers quick fixes and
-// renames (spec §13.2, §13.3).
+// renames (spec §13.2, §13.3). It runs the language server, headless only
+// with `-- --petrichor-lsp`.
 class PetEditorPlugin : public godot::EditorPlugin {
 	GDCLASS(PetEditorPlugin, godot::EditorPlugin);
 
+	std::unique_ptr<LspServer> lsp;
+	godot::Ref<godot::EditorDebuggerPlugin> sessions; // Of the running games, told to reload a script the client saved.
 	godot::Ref<PetExportPlugin> export_plugin;
 	godot::Ref<PetCodeMenu> code_menu;
 	godot::Ref<PetHighlighter> highlighter;
@@ -248,6 +253,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void scenes_paused();
 	void changed();
 	void check_shown();
+	void poll_lsp();
 
 protected:
 	static void _bind_methods();

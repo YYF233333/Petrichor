@@ -1,0 +1,12 @@
+; The project of the language server's checks (tests/engine/run.py, group lsp).
+
+config_version=5
+
+[application]
+
+config/name="Petrichor language server checks"
+config/features=PackedStringArray("4.7")
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/lsp_hold/plugin.cfg")
