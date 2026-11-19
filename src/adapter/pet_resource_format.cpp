@@ -120,10 +120,7 @@ Error PetResourceSaver::_save(const Ref<Resource> &p_resource, const String &p_p
 		const std::shared_ptr<const ClassImage> image = compile_script(p_path, script->_get_source_code(), nullptr, false);
 		// Keeps the bytecode cache current, so that a running game can reload
 		// the script right after the editor saves it (spec §12.4).
-		const String compiled_path = cache_path(p_path); // Empty outside res://.
-		if (image && !compiled_path.is_empty()) {
-			write_compiled(compiled_path, *image);
-		}
+		write_bytecode(p_path);
 		// The script takes the new class when the editor reloads scripts on
 		// save, as GDScript's saver does (modules/gdscript/gdscript_resource_format.cpp:167-169).
 		if (EditorInterface::get_singleton()->get_editor_settings()->get_setting("text_editor/behavior/files/auto_reload_and_parse_scripts_on_save")) {

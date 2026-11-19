@@ -904,7 +904,7 @@ void LspServer::finish_rename() {
 	editor_written(files);
 	for (const std::string &file : files) {
 		if (compiler::is_script_path(file)) {
-			compiled(file);
+			script_written(to_godot(file), sessions);
 		}
 	}
 	if (scan_waits) {
@@ -1033,35 +1033,13 @@ void LspServer::release(const std::string &p_path) {
 
 // As the editor's own save of a script (architecture §2.4): the editor's file
 // system takes the file in, and a loaded script that no tab has reads it again
-// (editor/file_system/editor_file_system.cpp:2259-2271, 2292-2309; ed1daf0).
-// Its bytecode is written, and a running game reloads it, as the script
-// editor has a saved script without errors reloaded while Debug > Synchronize
-// Script Changes is on (editor/script/script_editor_plugin.cpp:776-801,
-// editor/debugger/debugger_editor_plugin.cpp:238; ed1daf0). Tabs are left to
-// the editor, which reloads or asks once it has focus again (architecture §2.4).
+// (editor/file_system/editor_file_system.cpp:2259-2271, 2292-2309; ed1daf0),
+// and its bytecode is written (script_written()). Tabs are left to the editor,
+// which reloads or asks once it has focus again (architecture §2.4).
 void LspServer::saved(const std::string &p_path) {
 	disk_changed();
 	EditorInterface::get_singleton()->get_resource_filesystem()->update_file(to_godot(p_path));
-	compiled(p_path);
-}
-
-void LspServer::compiled(const std::string &p_path) {
-	EditorInterface *editor = EditorInterface::get_singleton();
-	const String path = to_godot(p_path);
-	if (!FileAccess::file_exists(path)) {
-		return;
-	}
-	const std::shared_ptr<const ClassImage> image = compile_script(path, FileAccess::get_file_as_string(path), nullptr, false);
-	if (!image || !write_compiled(cache_path(path), *image) || editor->get_editor_settings()->get_project_metadata("debug_options", "run_reload_scripts", true) != Variant(true)) {
-		return;
-	}
-	const Array each = sessions->get_sessions();
-	for (int64_t i = 0; i < each.size(); i++) {
-		const Ref<EditorDebuggerSession> session = each[i];
-		if (session->is_active()) {
-			session->send_message("reload_scripts", Array::make(path));
-		}
-	}
+	script_written(to_godot(p_path), sessions);
 }
 
 // A text that a refactoring in the editor holds for a script the client has

@@ -6,6 +6,7 @@
 #include "compiler/rename.h"
 #include "runtime/class_image.h"
 
+#include <godot_cpp/classes/editor_debugger_plugin.hpp>
 #include <godot_cpp/variant/string.hpp>
 #include <godot_cpp/variant/typed_array.hpp>
 
@@ -34,6 +35,18 @@ std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, co
 // For the headless command (spec §13.1, §7.5), `p_command` counts every error
 // and prints the warnings and hints too.
 int build_project(int *r_script_count = nullptr, int *r_scene_count = nullptr, int *r_resource_count = nullptr, bool p_command = false);
+
+// Writes the bytecode of the script at the path as its file compiles against
+// the project's files, as the build compiles it (architecture §2.4), so that
+// a game reads what the files on disk give. Called outside any pass; whether
+// it compiled.
+bool write_bytecode(const godot::String &p_path);
+// After the script's file was written: its bytecode, and a running game
+// reloads it, as the script editor has a saved script without errors reloaded
+// while Debug > Synchronize Script Changes is on
+// (editor/script/script_editor_plugin.cpp:776-801,
+// editor/debugger/debugger_editor_plugin.cpp:238; ed1daf0).
+void script_written(const godot::String &p_path, const godot::Ref<godot::EditorDebuggerPlugin> &p_sessions);
 
 // The check of the scene or resource file at the path (architecture §6.4);
 // with `p_report`, each error is printed as a script error at its line.

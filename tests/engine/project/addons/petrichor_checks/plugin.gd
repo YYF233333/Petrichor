@@ -646,6 +646,8 @@ func _check_rename() -> void:
 	_check(code.text == kept.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "Ctrl+Shift+Z there renames them again")
 	EditorInterface.save_scene()
 	_check(FileAccess.get_file_as_bytes(user) == user_text.replace("stride", "pace").to_utf8_buffer() and loaded_user.source_code.contains("pace"), "saving the scene writes the closed script with its byte order mark and line breaks, and the loaded one reloads")
+	var bytecode := "res://.godot/petrichor/" + user.trim_prefix("res://") + "c"
+	_check(FileAccess.file_exists(bytecode) and FileAccess.get_modified_time(bytecode) >= FileAccess.get_modified_time(user), "and writes its bytecode, which a game reads")
 
 	await _press(code, "ui_undo")
 	EditorInterface.edit_script(load(user))

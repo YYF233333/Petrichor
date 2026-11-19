@@ -94,7 +94,6 @@ class LspServer {
 	void closed(const godot::Dictionary &p_params);
 	void release(const std::string &p_path);
 	void saved(const std::string &p_path);
-	void compiled(const std::string &p_path);
 	void files_changed();
 	bool rename_written(const std::string &p_path);
 	void finish_rename();

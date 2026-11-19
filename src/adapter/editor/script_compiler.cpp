@@ -12,7 +12,9 @@
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/dir_access.hpp>
+#include <godot_cpp/classes/editor_debugger_session.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
+#include <godot_cpp/classes/editor_settings.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -107,6 +109,29 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 		godot::gdextension_interface::print_script_error(message.get_data(), "", file.get_data(), 0, true);
 	}
 	return image;
+}
+
+bool write_bytecode(const String &p_path) {
+	const String compiled_path = cache_path(p_path); // Empty outside res://.
+	if (compiled_path.is_empty() || !FileAccess::file_exists(p_path)) {
+		return false;
+	}
+	const compiler::Analysis::Pass analysis_pass(analysis(), &SceneIndex::get());
+	const std::shared_ptr<const ClassImage> image = compile_script(p_path, FileAccess::get_file_as_string(p_path), nullptr, false);
+	return image && write_compiled(compiled_path, *image);
+}
+
+void script_written(const String &p_path, const Ref<EditorDebuggerPlugin> &p_sessions) {
+	if (!write_bytecode(p_path) || p_sessions.is_null() || EditorInterface::get_singleton()->get_editor_settings()->get_project_metadata("debug_options", "run_reload_scripts", true) != Variant(true)) {
+		return;
+	}
+	const Array each = p_sessions->get_sessions();
+	for (int64_t i = 0; i < each.size(); i++) {
+		const Ref<EditorDebuggerSession> session = each[i];
+		if (session->is_active()) {
+			session->send_message("reload_scripts", Array::make(p_path));
+		}
+	}
 }
 
 std::shared_ptr<const compiler::CompileResult> check_scene(const String &p_path, bool p_report) {

@@ -773,14 +773,15 @@ void PetEditorPlugin::_enter_tree() {
 	connect("scene_changed", callable_mp(this, &PetEditorPlugin::take_scene_nodes).unbind(1));
 	get_tree()->connect("node_renamed", callable_mp(this, &PetEditorPlugin::node_touched));
 	get_tree()->connect("node_added", callable_mp(this, &PetEditorPlugin::node_touched));
+	// To tell a running game to reload a script written (script_written()).
+	sessions.instantiate();
+	add_debugger_plugin(sessions);
 	const PackedStringArray args = OS::get_singleton()->get_cmdline_user_args();
 	if (args.has("--petrichor-build")) {
 		callable_mp(this, &PetEditorPlugin::run_build_command).call_deferred();
 	} else if (args.has("--petrichor-format")) {
 		callable_mp(this, &PetEditorPlugin::run_format_command).call_deferred();
 	} else if (args.has("--petrichor-lsp") || DisplayServer::get_singleton()->get_name() != "headless") {
-		sessions.instantiate();
-		add_debugger_plugin(sessions);
 		lsp = std::make_unique<LspServer>(sessions, [this] { changed(); }, [this](const std::set<std::string> &p_files) { reload_written(p_files); });
 		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::poll_lsp));
 	}
@@ -1608,6 +1609,9 @@ void PetEditorPlugin::save_held() {
 		}
 	}
 	reload_written(written);
+	for (const std::string &file : written) {
+		script_written(to_godot(file), sessions);
+	}
 	changed();
 }
 
@@ -1979,11 +1983,9 @@ String PetEditorPlugin::change_scripts_again(const Array &p_edits, bool p_apply)
 
 void PetEditorPlugin::_exit_tree() {
 	exiting = true;
-	if (lsp) {
-		lsp.reset();
-		remove_debugger_plugin(sessions);
-		sessions.unref();
-	}
+	lsp.reset();
+	remove_debugger_plugin(sessions);
+	sessions.unref();
 	memdelete(fix_list);
 	fix_list = nullptr;
 	memdelete(name_popup);

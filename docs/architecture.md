@@ -491,7 +491,8 @@
   - 客户端已打开的脚本有了这样的文本时，也这样推送。推送带上文本所依据的文档版本，客户端此后改过就拒绝。
   - 客户端应用后，编辑器不再保留这段文本。客户端拒绝时，服务器经 `window/showMessage` 告知，文本仍留在编辑器中。
   - 客户端保存后，服务器通知工作区和编辑器的文件系统，再走编辑器保存脚本后的热重载。
-  - 热重载即写入字节码，再经调试会话发出 `reload_scripts`。
+  - 热重载即写入字节码，再经调试会话发出 `reload_scripts`。重构留下的文本保存时也这样。
+  - 字节码按磁盘上的文件编译，与构建相同，不读客户端或标签页中未保存的依赖。游戏读的是磁盘，字节码应能由磁盘上的源码重现。
   - 条件与编辑器相同：脚本没有错误，且调试菜单中开着 Synchronize Script Changes（`editor/script/script_editor_plugin.cpp:776-801`，`editor/debugger/debugger_editor_plugin.cpp:238`）。
   - 客户端保存其他文件后，如场景和资源文件，服务器通知工作区，再让编辑器的文件系统扫描变化。`didChangeWatchedFiles` 也这样。
   - 这与编辑器重获焦点时的扫描相同：已加载的文件变了，就重新读取（`editor/editor_node.cpp:1049-1058, 1291-1323`，`editor/file_system/editor_file_system.cpp:1597-1607, 1018-1025`）。

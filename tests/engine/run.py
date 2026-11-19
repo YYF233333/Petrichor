@@ -1133,6 +1133,17 @@ def check_lsp(project, info, editor):
     expect("lsp: a scene saved reaches the scripts it places at once", published and not says(published, "Head/Camera") and says(published, "max_speed"), str(published))
     check_rename_written(first, project, uri, editor)
 
+    # A save writes the bytecode of the file as the files compile, not as an
+    # unsaved dependency in the client would make it.
+    stat = uri("stat.pet")
+    first.open(stat, "class_name Stat extends RefCounted\n\npub const L := 99\n")
+    bytecode = project / ".godot" / "petrichor" / "score.petc"
+    bytecode.unlink(missing_ok=True)
+    first.notify("textDocument/didSave", {"textDocument": {"uri": uri("score.pet")}})
+    first.request("textDocument/documentSymbol", {"textDocument": {"uri": stat}})
+    first.notify("textDocument/didClose", {"textDocument": {"uri": stat}})
+    expect("lsp: a save writes the bytecode of the file as the files on disk compile it", bytecode.exists(), str(bytecode))
+
     # A save reaches the editor's class list, and so does a file added outside
     # the client (godotengine/godot#42786).
     board = uri("board.pet")
