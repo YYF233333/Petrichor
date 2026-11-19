@@ -262,6 +262,38 @@ int hex_digit(const std::string &p_text, size_t p_at) {
 	return -1;
 }
 
+#ifdef _WIN32
+extern "C" __declspec(dllimport) unsigned long __stdcall GetLongPathNameW(const wchar_t *p_short, wchar_t *r_long, unsigned long p_size);
+#endif
+
+// The absolute path with each of Windows' 8.3 names in it as its long name,
+// as far as the path exists; the rest, such as a file not saved yet, is kept.
+// Clients and the engine may each have either name.
+std::string long_path(const std::string &p_path) {
+#ifdef _WIN32
+	// An 8.3 name has a "~"; "C:/" ends the search.
+	for (size_t end = p_path.size(); end != std::string::npos && end > 3 && p_path.find('~') < end; end = p_path.rfind('/', end - 1)) {
+		const Char16String head = to_godot(p_path.substr(0, end)).replace("/", "\\").utf16();
+		const wchar_t *from = reinterpret_cast<const wchar_t *>(head.get_data());
+		std::u16string named(GetLongPathNameW(from, nullptr, 0), u'\0');
+		const unsigned long size = named.empty() ? 0 : GetLongPathNameW(from, reinterpret_cast<wchar_t *>(named.data()), (unsigned long)named.size());
+		if (size > 0 && size < named.size()) {
+			return to_utf8(String::utf16(named.data(), int64_t(size)).replace("\\", "/")) + p_path.substr(end);
+		}
+	}
+#endif
+	return p_path;
+}
+
+// The project's root with long names, and a "/" at its end.
+const std::string &project_root() {
+	static const std::string root = [] {
+		const std::string path = to_utf8(ProjectSettings::get_singleton()->globalize_path("res://"));
+		return long_path(path.substr(0, path.size() - 1)) + "/";
+	}();
+	return root;
+}
+
 // The path with each name in it as the file system names it, where it has
 // one in another case. The engine takes a path in another case for another
 // file, and records it so (editor/file_system/editor_file_system.cpp:1964-1975,
@@ -325,7 +357,8 @@ std::string project_path(const Variant &p_uri) {
 	if (path.size() > 2 && path[0] == '/' && path[2] == ':' && ((path[1] | 0x20) >= 'a' && (path[1] | 0x20) <= 'z')) {
 		path.erase(0, 1);
 	}
-	const std::string root = to_utf8(ProjectSettings::get_singleton()->globalize_path("res://"));
+	path = long_path(path);
+	const std::string &root = project_root();
 	const auto folded = [](const std::string &p_text) { return FOLDS_CASE ? lower_ascii(p_text) : p_text; };
 	if (path.size() <= root.size() || folded(path.substr(0, root.size())) != folded(root)) {
 		return std::string();
@@ -1153,13 +1186,13 @@ void LspServer::disconnect() {
 	}
 }
 
-// The client's own for a script it has open.
+// The client's own for a script it has open; otherwise with long names.
 String LspServer::uri_of(const std::string &p_path) const {
 	const auto open = documents.find(p_path);
 	if (open != documents.end()) {
 		return open->second.versions.begin()->first;
 	}
-	const std::string path = to_utf8(ProjectSettings::get_singleton()->globalize_path(to_godot(p_path)));
+	const std::string path = project_root() + p_path.substr(6);
 	std::string uri = path.compare(0, 1, "/") == 0 ? "file://" : "file:///";
 	for (const unsigned char c : path) {
 		if (std::isalnum(c) || std::strchr("-._~/", c)) {

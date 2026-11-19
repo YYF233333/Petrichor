@@ -14,11 +14,22 @@ const RETRY_REFUSED = 10000;
 // As the server compares paths (architecture §2.4).
 const FOLDS_CASE = process.platform === 'win32' || process.platform === 'darwin';
 
-const projects = new Map(); // By key(root).
+const projects = new Map(); // By key(real(root)).
 let output;
 
 function key(root) {
 	return FOLDS_CASE ? root.toLowerCase() : root;
+}
+
+// A folder as the file system names it: Windows' 8.3 names long, the case of
+// its files, links followed. A dialog may give a script under another spelling
+// of the project's folder than the workspace has.
+function real(folder) {
+	try {
+		return fs.realpathSync.native(folder);
+	} catch {
+		return folder;
+	}
 }
 
 // The project a script belongs to, as Godot finds it: the nearest folder above
@@ -71,8 +82,13 @@ class Client extends LanguageClient {
 }
 
 class Project {
-	constructor(root) {
+	// `root` as real() gives it, and the spelling `folder` it was found under,
+	// which its file events keep as the Godot editor may have it.
+	constructor(root, folder) {
 		this.root = root;
+		// Documents are matched by their URIs as opened, so the client's
+		// selector has each spelling of the folder that one was found under.
+		this.spellings = new Map([[key(root), root], [key(folder), folder]]);
 		this.name = path.basename(root);
 		this.info = path.join(root, '.godot', 'petrichor', 'lsp.json');
 		this.status = vscode.window.createStatusBarItem(`petrichor.${key(root)}`, vscode.StatusBarAlignment.Left);
@@ -80,7 +96,7 @@ class Project {
 		this.status.command = { title: 'Petrichor', command: 'petrichor.status', arguments: [key(root)] };
 		// The server hears of scene and resource files the client saved, and of
 		// files changed outside, only from these events (architecture §2.4).
-		this.files = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '**/*.{pet,gd,tscn,scn,tres,res,godot}'));
+		this.files = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, '**/*.{pet,gd,tscn,scn,tres,res,godot}'));
 		// A Godot editor that starts writes it.
 		this.started = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '.godot/petrichor/lsp.json'), false, false, true);
 		this.started.onDidCreate(() => this.connect());
@@ -116,7 +132,7 @@ class Project {
 			return;
 		}
 		const client = new Client('petrichor', 'Petrichor', () => Promise.resolve({ reader: socket, writer: socket }), {
-			documentSelector: [{ scheme: 'file', language: 'petrichor', pattern: { baseUri: vscode.Uri.file(this.root).toString(), pattern: '**/*.pet' } }],
+			documentSelector: [...this.spellings.values()].map((folder) => ({ scheme: 'file', language: 'petrichor', pattern: { baseUri: vscode.Uri.file(folder).toString(), pattern: '**/*.pet' } })),
 			synchronize: { fileEvents: this.files },
 			outputChannel: output,
 			// A lost connection goes back to connecting, with a new client: the
@@ -159,6 +175,20 @@ class Project {
 		}
 	}
 
+	// A client's selector is fixed as it starts, so one with a new spelling
+	// starts again.
+	spell(folder) {
+		if (this.spellings.has(key(folder))) {
+			return;
+		}
+		this.spellings.set(key(folder), folder);
+		const { client } = this;
+		if (client) {
+			this.lost(client, 0, 'waiting');
+			client.dispose().catch(() => {});
+		}
+	}
+
 	lost(client, delay, state) {
 		if (this.client !== client) {
 			return;
@@ -186,7 +216,7 @@ class Project {
 	reveal() {
 		const document = vscode.window.activeTextEditor?.document;
 		const root = document && rootOf(document);
-		if (root && key(root) === key(this.root)) {
+		if (root && key(real(root)) === key(this.root)) {
 			this.status.show();
 		} else {
 			this.status.hide();
@@ -206,10 +236,10 @@ class Project {
 }
 
 // One project for each project.godot in the workspace, and for each above a
-// script opened outside them.
+// script opened outside them, whatever the spelling of its folder.
 async function refresh() {
-	const roots = new Map();
-	const add = (root) => root && roots.set(key(root), root);
+	const roots = new Map(); // The spellings found, by key(real(root)).
+	const add = (root) => root && roots.set(key(real(root)), [...(roots.get(key(real(root))) || []), root]);
 	for (const file of await vscode.workspace.findFiles('**/project.godot')) {
 		add(path.dirname(file.fsPath));
 	}
@@ -220,10 +250,11 @@ async function refresh() {
 			project.dispose();
 		}
 	}
-	for (const [each, root] of roots) {
+	for (const [each, spellings] of roots) {
 		if (!projects.has(each)) {
-			projects.set(each, new Project(root));
+			projects.set(each, new Project(real(spellings[0]), spellings[0]));
 		}
+		spellings.forEach((root) => projects.get(each).spell(root));
 	}
 }
 
@@ -238,7 +269,7 @@ function activate(context) {
 		vscode.workspace.onDidChangeWorkspaceFolders(refresh),
 		vscode.workspace.onDidOpenTextDocument((document) => {
 			const root = rootOf(document);
-			if (root && !projects.has(key(root))) {
+			if (root && !projects.get(key(real(root)))?.spellings.has(key(root))) {
 				refresh();
 			}
 		}),

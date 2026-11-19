@@ -941,6 +941,17 @@ def run_lsp_group(godot):
 FOLDS_CASE = sys.platform in ("win32", "darwin")
 
 
+def short_path(path):
+    """An existing path in Windows' 8.3 names, where the volume makes them."""
+    if sys.platform != "win32":
+        return path
+    import ctypes
+
+    buffer = ctypes.create_unicode_buffer(32768)
+    size = ctypes.windll.kernel32.GetShortPathNameW(str(path), buffer, len(buffer))
+    return Path(buffer.value) if 0 < size < len(buffer) else path
+
+
 def outside_uris(project, uri):
     """URIs the server takes no file of: outside the project, not a script,
     under .godot/ in any case where names fold case, and not a file."""
@@ -1046,6 +1057,20 @@ def check_lsp(project, info, editor):
         all(both) and published and not says(published, "max_speed") and changed and changed["version"] == 2 and b"PLAYER" not in (cache.read_bytes() if cache.exists() else b""),
         f"{both}\n{published}\n{changed}",
     )
+
+    # The project's path in Windows' 8.3 names, which a client may have as
+    # well as the long ones that the editor has.
+    short = short_path(project)
+    if "~" not in str(short):
+        say("lsp: skipped the 8.3 names of the project's path, as the volume makes none")
+    else:
+        short_enemy = file_uri(short / "enemy.pet")
+        enemy_text = (project / "enemy.pet").read_text(encoding="utf-8")
+        first.open(short_enemy, enemy_text)
+        published = first.diagnostics(short_enemy, lambda p: True)
+        ready = first.request("textDocument/prepareRename", {"textDocument": {"uri": short_enemy}, "position": lsp_position(enemy_text, enemy_text.index("chase"))})
+        first.notify("textDocument/didClose", {"textDocument": {"uri": short_enemy}})
+        expect("lsp: a script through the 8.3 names of the project's path is the project's", says(published, "max_speed") and ready and (ready.get("result") or {}).get("placeholder") == "chase", f"{short_enemy}\n{published}\n{ready}")
 
     # Positions in UTF-16 after CJK and an emoji, in a CRLF text changed in
     # steps: within a line, across lines, and one past the line or the text.
