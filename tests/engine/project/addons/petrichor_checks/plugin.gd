@@ -781,6 +781,12 @@ func _check_rename_transaction() -> void:
 		EditorInterface.get_resource_filesystem().update_file(scene)
 	await get_tree().process_frame
 	var scene_text := FileAccess.get_file_as_string(scenes[0])
+	# Linux has no read-only attribute, and Windows no permissions, so the file
+	# loses both (drivers/unix/file_access_unix.cpp:488-506,
+	# drivers/windows/file_access_windows.cpp:529-535; ed1daf0). The mode of
+	# a file with the attribute cannot change on macOS.
+	var mode := FileAccess.get_unix_permissions(scenes[1])
+	FileAccess.set_unix_permissions(scenes[1], FileAccess.UNIX_READ_OWNER)
 	FileAccess.set_read_only_attribute(scenes[1], true)
 	OS.set_use_file_access_save_and_swap(false)
 	EditorInterface.edit_script(load(unit))
@@ -793,6 +799,7 @@ func _check_rename_transaction() -> void:
 	_check_errors(["Cannot write %s." % scenes[1]], "it reports the file")
 	OS.set_use_file_access_save_and_swap(true)
 	FileAccess.set_read_only_attribute(scenes[1], false)
+	FileAccess.set_unix_permissions(scenes[1], mode)
 	EditorInterface.get_script_editor().close_file(unit)
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))
@@ -1041,11 +1048,16 @@ func _check_node_moves() -> void:
 	await _scene_step(history.redo)
 	_check(root.has_node("Body") and code.text == renamed, "one redo renames both again")
 
-	# As dropping the node on another in the dock does.
+	# As dropping the node on another in the dock does. The drop gives the
+	# path to the parent in Godot 4.7, and the parent itself since 4.8
+	# (editor/scene/scene_tree_editor.cpp:2146, ed1daf0; 2293, c51ff06e8).
 	steps = history.get_history_count()
 	EditorInterface.get_selection().clear()
 	EditorInterface.get_selection().add_node(root.get_node("Gun"))
-	scene_tree_editor.nodes_rearranged.emit([root.get_node("Gun").get_path()], root.get_node("Hand").get_path(), 0)
+	var to_parent: Variant = root.get_node("Hand")
+	if scene_tree_editor.get_signal_list().any(func(s): return s.name == "nodes_rearranged" and s.args[1].type == TYPE_NODE_PATH):
+		to_parent = to_parent.get_path()
+	scene_tree_editor.nodes_rearranged.emit([root.get_node("Gun").get_path()], to_parent, 0)
 	await get_tree().process_frame
 	_check(code.text == renamed.replace("$Gun", "$Hand/Gun") and history.get_history_count() == steps + 1, "moving a node writes the path to it anew, in the move's step")
 	EditorInterface.edit_script(load(gun_script))

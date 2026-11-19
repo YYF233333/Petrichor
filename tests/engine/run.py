@@ -538,6 +538,9 @@ def expected_errors(output, prefix):
 
 
 def main():
+    # The engine prints characters that a console of a Windows code page lacks.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")
     godot = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("GODOT")
     if not godot:
         sys.exit(__doc__)
