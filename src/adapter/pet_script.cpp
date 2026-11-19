@@ -651,6 +651,15 @@ Error PetScript::_reload(bool p_keep_state) {
 		return apply_image(compile_script(path, source, nullptr, true)) ? OK : ERR_PARSE_ERROR;
 	}
 #endif
+	// Only function bodies change in a running game. After any other change
+	// it keeps the code it has, for this script and every later reload, so
+	// that a class has one version in a run (spec §12.4). The refusal said
+	// so; a later reload reads nothing, as its bytecode may be one the editor
+	// could not compile against the files then.
+	PetLanguage *language = PetLanguage::get_singleton();
+	if (language->reloads_refused) {
+		return OK;
+	}
 	// In the game, the editor has already compiled the new source into the cache.
 	if (!FileAccess::file_exists(path)) {
 		return OK; // An exported game has no sources to reload from.
@@ -663,15 +672,7 @@ Error PetScript::_reload(bool p_keep_state) {
 		ERR_PRINT(vformat("%s %s", path, error));
 		return ERR_FILE_CORRUPT;
 	}
-	// Only function bodies change in a running game. After any other change
-	// it keeps the code it has, for this script and every later reload, so
-	// that a class has one version in a run (spec §12.4).
-	PetLanguage *language = PetLanguage::get_singleton();
 	const std::shared_ptr<const ClassImage> current = get_image();
-	if (language->reloads_refused) {
-		WARN_PRINT(vformat("%s: not reloaded, since an earlier change needs the game to run again.", path));
-		return OK;
-	}
 	if (current && !loaded->same_declarations(*current)) {
 		language->reloads_refused = true;
 		WARN_PRINT(vformat("%s: more than function bodies changed, so the running game keeps its code, and reloads no script until it runs again.", path));

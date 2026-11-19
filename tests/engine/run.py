@@ -302,7 +302,10 @@ def run_hot_reload(godot):
                     if not running.wait_for(f"hot reload: waiting for version {version}".encode()):
                         break
                     shutil.copy(HOT_RELOAD / f"v{version}.pet", live[0])
-                    shutil.copy(HOT_RELOAD_BYTECODE / f"v{version}.petc", live[1])
+                    # Version 4 keeps the bytecode of version 3, as when the editor could
+                    # not compile it against the files: after a refusal the game reads none.
+                    if version < 4:
+                        shutil.copy(HOT_RELOAD_BYTECODE / f"v{version}.petc", live[1])
                     send_editor_message(connection, "reload_scripts", [LIVE_SCRIPT])
                     send_editor_message(connection, "hot_reload_test:reloaded", [])
                 return running.finish()
@@ -1531,7 +1534,6 @@ def run_debugger_groups(godot):
             "hot reload: waiting for version 3",
             f"{LIVE_SCRIPT}: more than function bodies changed, so the running game keeps its code, and reloads no script until it runs again.",
             "hot reload: waiting for version 4",
-            f"{LIVE_SCRIPT}: not reloaded, since an earlier change needs the game to run again.",
             "hot reload: 0 failure(s)",
         ],
     )
