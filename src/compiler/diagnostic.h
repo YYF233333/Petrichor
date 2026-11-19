@@ -40,6 +40,7 @@ enum class FixKind {
 	Async,
 	Await,
 	NullPattern,
+	GetNodeOrNull, // For $X that a scene lacks and another has.
 };
 
 // What fixing all of a kind in a file is called: "Fix all '…' in file".
@@ -61,8 +62,9 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ false, "Write async func" },
 	{ false, "Write await" },
 	{ false, "Match both levels of null" },
+	{ false, "Write get_node_or_null()" },
 };
-static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::NullPattern) + 1);
+static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::GetNodeOrNull) + 1);
 
 // A quick fix of a diagnostic, named by `title`.
 struct Fix {

@@ -854,8 +854,8 @@ func _check_quick_fixes() -> void:
 
 # Architecture §2.1: every check in the editor reads the unsaved texts of the
 # open scripts. The script editor shows a scene's error in a script at its
-# line there. A call to a function added to another open script has no error
-# and no fix.
+# line there, with its fix (architecture §2.4). A call to a function added
+# to another open script has no error and no fix.
 func _check_unsaved_texts() -> void:
 	var dir := "res://editor_unsaved"
 	var hud := dir + "/hud.pet"
@@ -877,6 +877,9 @@ func _check_unsaved_texts() -> void:
 	var listed := _listed_errors(code)
 	_check(RegEx.create_from_string("Line 5:\\s*res://editor_unsaved/main.tscn: HUD has no node").search(listed) != null, "a scene's error in a script is at its line in the unsaved text: " + listed)
 	code.undo()
+	var fixes := _quick_fixes(code, 3)
+	_check(fixes.item_count == 1 and fixes.get_item_text(0) == 'Write get_node_or_null("Score")', "a scene's error in a script lists its fix there")
+	fixes.hide()
 	EditorInterface.edit_script(load(target))
 	var other: CodeEdit = script_editor.get_current_editor().get_base_editor()
 	other.insert_text("\npub func heal() -> void:\n\tpass\n", 1, 0)

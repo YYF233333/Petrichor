@@ -270,15 +270,6 @@ std::string relative_path(const std::string &p_from, const std::string &p_to) {
 	return path.empty() ? std::string(".") : path;
 }
 
-// A node path in a String, quoted with `p_quote`.
-std::string quoted(const std::string &p_path, char p_quote) {
-	std::string made(1, p_quote);
-	for (const char c : p_path) {
-		made += c == '\\' || c == p_quote ? std::string("\\") + c : std::string(1, c);
-	}
-	return made + p_quote;
-}
-
 // `p_path` written as `p_written` writes a node path: after its "$" or "%",
 // in quotes only when needed; or in the String of get_node(), with its quotes
 // and prefix, and with escapes when needed.

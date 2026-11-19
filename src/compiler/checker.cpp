@@ -23,15 +23,20 @@ void Checker::warn(const TokenRange &p_range, const char *p_warning, const std::
 	warnings->push_back(std::move(warning));
 }
 
-// Gives the error reported last a quick fix (spec §13.2) that writes each
-// text over its tokens, named after what it writes.
-void Checker::fix(const std::vector<Write> &p_writes, FixKind p_kind) {
+// A quick fix (spec §13.2) that writes each text over its tokens, named
+// after what it writes.
+Fix Checker::writing(const std::vector<Write> &p_writes, FixKind p_kind) const {
 	Fix fix{ std::string(), p_kind, {} };
 	for (const auto &[range, text] : p_writes) {
 		fix.title += (fix.title.empty() ? "Write " : ", ") + text;
 		fix.edits.push_back({ std::string(), { cls.source->begin(range), cls.source->end(range), cls.source->text_of(range), text } });
 	}
-	this->fix(std::move(fix));
+	return fix;
+}
+
+// Gives the error reported last such a fix.
+void Checker::fix(const std::vector<Write> &p_writes, FixKind p_kind) {
+	fix(writing(p_writes, p_kind));
 }
 
 // The automatic fix first (architecture §2.1).

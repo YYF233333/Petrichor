@@ -12,6 +12,14 @@ bool plain_path(const std::string &p_path) {
 	return true;
 }
 
+std::string quoted(const std::string &p_path, char p_quote) {
+	std::string made(1, p_quote);
+	for (const char c : p_path) {
+		made += c == '\\' || c == p_quote ? std::string("\\") + c : std::string(1, c);
+	}
+	return made + p_quote;
+}
+
 std::vector<std::string> path_parts(const std::string &p_path) {
 	std::vector<std::string> parts;
 	for (size_t start = 0;;) {
@@ -243,6 +251,8 @@ bool Checker::walk_placements(const std::vector<Scene> &p_scenes, const Expr &p_
 // Each literal node path of the class leads to a node from the nodes of
 // this scene with the class (spec §7.1). Where no scene that places it has
 // the node, the script's check reports them instead, as `$X` has no type.
+// Where one has it, it is optional here, and the fix gets it with
+// get_node_or_null() (§7.2).
 void Checker::check_node_paths() {
 	for_each_node_path(cls, [&](const Expr &p_expr) {
 		const bool call = p_expr.kind == ExprKind::Call;
@@ -253,6 +263,7 @@ void Checker::check_node_paths() {
 		const std::string shown = call ? p_expr.text + "(\"" + path.text + "\")" : shown_path(path.text);
 		const bool optional = p_expr.text == "get_node_or_null";
 		std::vector<NodeWalk> found;
+		const size_t first = errors.size();
 		Tentative lacking(*this);
 		walk_placements(scenes, path, shown, optional, found);
 		if (found.empty() && !lacking.clean()) {
@@ -260,6 +271,10 @@ void Checker::check_node_paths() {
 			walk_placements(classes.scenes_with_script(options.path), path, shown, optional, found);
 		}
 		lacking.end(!found.empty());
+		const TokenRange at = unparenthesized(p_expr.range);
+		for (size_t i = first; i < errors.size(); i++) {
+			errors[i].fixes.push_back(writing({ { { call ? p_expr.name_token : at.first, at.last }, "get_node_or_null(" + quoted(path.text, '"') + ")" } }, FixKind::GetNodeOrNull));
+		}
 	});
 }
 

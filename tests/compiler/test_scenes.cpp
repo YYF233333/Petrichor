@@ -474,6 +474,37 @@ TEST_CASE("a path that a scene using the script lacks is an error marked with th
 	CHECK(contains(hud_errors("$Health.text = \"\"", FakeProject()), "no scene does"));
 }
 
+TEST_CASE("the fix of a path that a scene lacks and another has gets the node with get_node_or_null() (spec §7.2)") {
+	FakeProject two = hud_scene();
+	compiler::Scene menu;
+	menu.path = "res://menu.tscn";
+	menu.nodes = { { ".", "CanvasLayer", "res://test.pet" }, { "Score", "Label", "" }, { "Hit Points", "Label", "" }, { "Ammo", "Label", "", false, "", true } };
+	two.scenes.push_back(menu);
+	const std::string head = "extends CanvasLayer\n\nfunc f():\n\tvar n = ";
+	// Its title, and the value after it, which main.tscn's check then accepts.
+	const auto fixed = [&](const std::string &p_value) {
+		std::string text = head + p_value + "\n";
+		const compiler::CompileResult checked = check_scenes_in(text, two);
+		REQUIRE(checked.errors.size() == 1);
+		REQUIRE(checked.errors[0].fixes.size() == 1);
+		const compiler::Fix &fix = checked.errors[0].fixes[0];
+		CHECK((!fix.automatic() && fix.edits.size() == 1 && fix.edits[0].file.empty()));
+		const compiler::CheckedEdit &edit = fix.edits[0].change;
+		CHECK(text.substr(edit.begin, edit.end - edit.begin) == edit.old_text);
+		text.replace(edit.begin, edit.end - edit.begin, edit.new_text);
+		CHECK(check_scenes_in(text, two).errors.empty());
+		return fix.title + ": " + text.substr(head.size());
+	};
+	CHECK(fixed("$Score") == "Write get_node_or_null(\"Score\"): get_node_or_null(\"Score\")\n");
+	CHECK(fixed("$\"Hit Points\"") == "Write get_node_or_null(\"Hit Points\"): get_node_or_null(\"Hit Points\")\n");
+	CHECK(fixed("%Ammo") == "Write get_node_or_null(\"%Ammo\"): get_node_or_null(\"%Ammo\")\n");
+	CHECK(fixed("self.get_node(\"Score\")") == "Write get_node_or_null(\"Score\"): self.get_node_or_null(\"Score\")\n");
+	// Not where no scene has it: a node added at run time, which the script's check reports.
+	const compiler::CompileResult nowhere = compile_in(head + "$Gun\n", two);
+	REQUIRE_FALSE(nowhere.errors.empty());
+	CHECK(nowhere.errors[0].fixes.empty());
+}
+
 TEST_CASE("@owner(T): owner has type T, and scenes give the script such an owner (spec §7.3)") {
 	FakeProject project;
 	project.add_script("res://combat.pet", "class_name Combat\n\npub interface Combatant:\n\tvar health: int\n", "Combat");

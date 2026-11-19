@@ -729,6 +729,7 @@ class Checker : public ClassRelation {
 	void error_in_scene(const TokenRange &p_range, const Scene &p_scene, const std::string &p_node, const std::string &p_message);
 	void warn(const TokenRange &p_range, const char *p_warning, const std::string &p_message);
 	using Write = std::pair<TokenRange, std::string>; // Text that a fix writes over tokens.
+	Fix writing(const std::vector<Write> &p_writes, FixKind p_kind) const;
 	void fix(const std::vector<Write> &p_writes, FixKind p_kind);
 	void fix(std::optional<Fix> p_fix);
 	std::optional<Fix> pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range = TokenRange()) const;

@@ -35,6 +35,8 @@ std::string parent_path(const std::string &p_path);
 // Whether `$` takes a path without quotes: names joined by "/", each
 // possibly after "%".
 bool plain_path(const std::string &p_path);
+// A node path in a String, quoted with `p_quote`.
+std::string quoted(const std::string &p_path, char p_quote);
 
 // The annotations of the @export family that a member may take (spec §2.3),
 // each with whether it takes arguments.
