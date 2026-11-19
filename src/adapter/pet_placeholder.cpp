@@ -90,6 +90,11 @@ static bool holds(Variant::Operator p_operator, const Variant &p_a, const Varian
 	return valid && bool(result);
 }
 
+// The evaluation takes nil as equal to, for example, an empty resource.
+bool PetPlaceholder::at_default(const PetScript &p_script, const StringName &p_name, const Variant &p_value) {
+	return p_script._has_property_default_value(p_name) && holds(Variant::OP_EQUAL, p_script._get_property_default_value(p_name), p_value);
+}
+
 static GDExtensionBool placeholder_set(GDExtensionScriptInstanceDataPtr p_instance, GDExtensionConstStringNamePtr p_name, GDExtensionConstVariantPtr p_value) {
 	PetPlaceholder *placeholder = self(p_instance);
 	if (placeholder->script->_is_placeholder_fallback_enabled()) {
@@ -97,11 +102,10 @@ static GDExtensionBool placeholder_set(GDExtensionScriptInstanceDataPtr p_instan
 	}
 	const StringName &name = as_name(p_name);
 	const Variant &value = *reinterpret_cast<const Variant *>(p_value);
-	Variant default_;
-	const bool has_default = placeholder->default_value(name, default_);
+	const bool has_default = placeholder->script->_has_property_default_value(name);
+	const bool at_default = PetPlaceholder::at_default(*placeholder->script.ptr(), name, value);
 	if (placeholder->values.has(name)) {
-		// The evaluation takes nil as equal to, for example, an empty resource.
-		if (has_default && holds(Variant::OP_EQUAL, default_, value)) {
+		if (at_default) {
 			placeholder->values.erase(name);
 		} else {
 			placeholder->values[name] = value;
@@ -110,7 +114,7 @@ static GDExtensionBool placeholder_set(GDExtensionScriptInstanceDataPtr p_instan
 	}
 	// Also one of another type, as an int stored for what is now a struct,
 	// which the resource check reports (architecture §6.4).
-	if (has_default && !holds(Variant::OP_EQUAL, default_, value)) {
+	if (has_default && !at_default) {
 		placeholder->values[name] = value;
 	}
 	return has_default;

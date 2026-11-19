@@ -3,6 +3,7 @@
 #include "adapter/editor/class_db_api.h"
 #include "adapter/editor/project_files.h"
 #include "adapter/pet_compiled.h"
+#include "adapter/pet_placeholder.h"
 #include "adapter/pet_script.h"
 #include "runtime/text.h"
 
@@ -205,6 +206,10 @@ void read_resources(const String &p_file, const Variant &p_value, compiler::Scen
 			continue;
 		}
 		const Variant value = resource->get(name);
+		// A placeholder gives a property's default, which the file does not store.
+		if (pet && PetPlaceholder::at_default(*pet, name, value)) {
+			continue;
+		}
 		read_resources(p_file, value, r_scene, r_files, r_seen, r_embedded);
 		compiler::SceneValue stored = scene_value(value);
 		std::vector<std::string> scenes;

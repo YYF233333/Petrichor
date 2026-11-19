@@ -27,6 +27,9 @@ struct PetPlaceholder {
 	// no longer has, or equal to their defaults, are dropped.
 	void update(bool p_notify);
 	bool default_value(const godot::StringName &p_name, godot::Variant &r_value) const;
+	// Whether the property has a default equal to the value, which a
+	// placeholder keeps no value for, nor the engine stores.
+	static bool at_default(const PetScript &p_script, const godot::StringName &p_name, const godot::Variant &p_value);
 
 	static const GDExtensionScriptInstanceInfo3 info;
 };
