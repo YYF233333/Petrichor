@@ -880,14 +880,31 @@ class LspClient:
     def open(self, uri, text, version=1):
         self.notify("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": "petrichor", "version": version, "text": text}})
 
-    def initialize(self):
+    def initialize(self, annotations=True):
         document = {"completion": {"completionItem": {"snippetSupport": True}}, "codeAction": {"disabledSupport": True}}
-        return self.request("initialize", {"capabilities": {"workspace": {"applyEdit": True}, "textDocument": document}})
+        workspace = {"applyEdit": True, **({"workspaceEdit": {"changeAnnotationSupport": {}}} if annotations else {})}
+        return self.request("initialize", {"capabilities": {"workspace": workspace, "textDocument": document}})
 
 
 def says(published, text):
     """Whether one of the diagnostics published mentions `text`."""
     return published is not None and any(text in each["message"] for each in published["diagnostics"])
+
+
+def file_name(uri):
+    return urllib.parse.unquote(uri).rsplit("/", 1)[1]
+
+
+def edits(edit):
+    """The changes of a WorkspaceEdit, each as its file's name, its version
+    and its edits."""
+    return [(file_name(change["textDocument"]["uri"]), change["textDocument"]["version"], change["edits"]) for change in edit["documentChanges"]]
+
+
+def text_edit(text, needle, new, length=None):
+    """The edit of the first `length` characters of `needle` in `text`."""
+    start = text.index(needle)
+    return {"range": {"start": lsp_position(text, start), "end": lsp_position(text, start + (len(needle) if length is None else length))}, "newText": new}
 
 
 def run_lsp_group(godot):
@@ -996,8 +1013,9 @@ def check_lsp(project, info, editor):
     at = [d["range"]["start"] for d in published["diagnostics"] if "missing2" in d["message"]] if published else []
     expect("lsp: changes apply in order, and diagnostics carry the version they are for", at == [place("missing2")] and versions[-1:] == [4] and 2 not in versions and 3 not in versions, f"{versions}\n{published}\n{text!r}")
 
-    # Before user.pet's held text is applied, which a quick fix is refused for.
+    # Before user.pet's held text is applied, which a quick fix and a rename are refused for.
     check_queries(first, project, uri)
+    check_rename(first, project, uri)
 
     user = uri("user.pet")
     user_text = (project / "user.pet").read_text(encoding="utf-8")
@@ -1016,6 +1034,33 @@ def check_lsp(project, info, editor):
     first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
     first.open(user, user_text)
     expect("lsp: an edit refused is told, offered again, and once applied no longer held", shown and "res://user.pet" in shown["params"]["message"] and offer and first.take(lambda m: m.get("method") == "workspace/applyEdit", 2) is None, f"{shown}\n{offer}")
+
+    # A member renamed from user.pet, open in the client, in the scripts and a
+    # text scene; the words in the helper plugin's GDScript are candidates.
+    texts = {name: (project / name).read_text(encoding="utf-8") for name in ["hit.pet", "level.tscn", "addons/lsp_hold/plugin.gd"]}
+    words = [lsp_position(texts["addons/lsp_hold/plugin.gd"], m.start()) for m in re.finditer(r"\bdamage\b", texts["addons/lsp_hold/plugin.gd"])]
+    renamed = first.request("textDocument/rename", {"textDocument": {"uri": user}, "position": lsp_position(user_text, user_text.index("damage")), "newName": "power"})
+    renamed = renamed and renamed.get("result")
+    expect(
+        "lsp: a rename is one edit of scripts and text scenes, its candidates to confirm",
+        renamed
+        and edits(renamed)
+        == [
+            ("plugin.gd", None, [{"range": {"start": at, "end": {"line": at["line"], "character": at["character"] + 6}}, "newText": "power", "annotationId": "candidate"} for at in words]),
+            ("hit.pet", None, [text_edit(texts["hit.pet"], "damage", "power")]),
+            ("level.tscn", None, [text_edit(texts["level.tscn"], "damage", "power")]),
+            ("user.pet", 1, [text_edit(user_text, "damage", "power")]),
+        ]
+        and renamed["changeAnnotations"]["candidate"]["needsConfirmation"] is True,
+        str(renamed),
+    )
+
+    # A scene saved reaches the scripts it places at once.
+    level = project / "level.tscn"
+    level.write_text(texts["level.tscn"] + '\n[node name="Head" type="Node3D" parent="."]\n\n[node name="Camera" type="Camera3D" parent="Head"]\n', encoding="utf-8")
+    first.notify("textDocument/didSave", {"textDocument": {"uri": uri("level.tscn")}})
+    published = first.diagnostics(enemy, lambda p: not says(p, "Head/Camera"))
+    expect("lsp: a scene saved reaches the scripts it places at once", published and not says(published, "Head/Camera") and says(published, "max_speed"), str(published))
 
     # A save reaches the editor's class list, and so does a file added outside
     # the client (godotengine/godot#42786).
@@ -1042,10 +1087,14 @@ def check_lsp(project, info, editor):
     first.socket.close()
     time.sleep(0.5)
     second = LspClient(server["port"])
-    second.initialize()
+    second.initialize(annotations=False)
     second.open(enemy, (project / "enemy.pet").read_text(encoding="utf-8"))
     published = second.diagnostics(enemy, lambda p: True)
     expect("lsp: the texts of a client gone are dropped", says(published, "max_speed"), str(published))
+    hit = texts["hit.pet"]
+    renamed = second.request("textDocument/rename", {"textDocument": {"uri": uri("hit.pet")}, "position": lsp_position(hit, hit.index("damage")), "newName": "power"})
+    renamed = renamed and renamed.get("result")
+    expect("lsp: a client that cannot mark candidates does not get them", renamed and [name for name, _, _ in edits(renamed)] == ["hit.pet", "level.tscn", "user.pet"] and "changeAnnotations" not in renamed, str(renamed))
     third = LspClient(server["port"])
     refused = third.initialize()
     expect("lsp: a second client is refused while one is connected", refused and "Another client" in refused["error"]["message"] and third.closed(), str(refused))
@@ -1072,14 +1121,8 @@ def check_queries(client, project, uri):
         reply = client.request(method, {"textDocument": {"uri": tour}, "position": span(needle, 0, plus)["start"], **params})
         return reply and reply.get("result")
 
-    def file_name(uri):
-        return urllib.parse.unquote(uri).rsplit("/", 1)[1]
-
     def located(location):
         return file_name(location["uri"]), location["range"]
-
-    def edits(edit):
-        return [(file_name(change["textDocument"]["uri"]), change["textDocument"]["version"], change["edits"]) for change in edit["documentChanges"]]
 
     listed = ask("textDocument/completion", "speed, player.armor", 2, context={"triggerKind": 1})
     items = {item["label"]: item for item in listed["items"]} if listed else {}
@@ -1170,6 +1213,53 @@ def check_queries(client, project, uri):
     broken = client.request("textDocument/formatting", {"textDocument": {"uri": tour}, "options": {}})
     client.notify("textDocument/didClose", {"textDocument": {"uri": tour}})
     expect("lsp: formatting edits make the editor's layout, and a syntax error fails it", formatted == text and broken and broken["error"]["code"] == -32803, f"{formatted!r}\n{broken}")
+
+
+def check_rename(client, project, uri):
+    """Renaming from tour.pet while the editor holds user.pet's text: where
+    prepareRename gives the name or the editor's reason to refuse it, a local
+    in one edit, and the reasons a rename is refused, each readable."""
+    tour = uri("tour.pet")
+    text = (project / "tour.pet").read_text(encoding="utf-8")
+    client.open(tour, text)
+    ready = uri("ready.pet")
+    client.open(ready, "extends Node\n\n\nfunc _ready() -> void:\n\tpass\n")
+
+    def ask(method, needle, plus=0, **params):
+        return client.request(method, {"textDocument": {"uri": tour}, "position": lsp_position(text, text.index(needle) + plus), **params})
+
+    def reason(reply):
+        return reply and reply.get("error", {}).get("message")
+
+    local = ask("textDocument/prepareRename", "speed := 2", 2)
+    refused = [reason(ask("textDocument/prepareRename", needle)) for needle in ["rotate_y", "Camera.rotate"]]
+    override = reason(client.request("textDocument/prepareRename", {"textDocument": {"uri": ready}, "position": {"line": 3, "character": 6}}))
+    client.notify("textDocument/didClose", {"textDocument": {"uri": ready}})
+    expect(
+        "lsp: prepareRename gives the name, or the editor's reason not to rename it",
+        local
+        and local.get("result") == {"range": text_edit(text, "speed := 2", "", 5)["range"], "placeholder": "speed"}
+        and refused == ["It is not declared in this language.", "A node is renamed in the scene editor."]
+        and override == "res://ready.pet:4: It overrides a method that the engine or another language calls by this name.",
+        f"{local}\n{refused}\n{override}",
+    )
+
+    renamed = ask("textDocument/rename", "speed := 2", newName="pace")
+    changes = [text_edit(text, "speed := 2", "pace", 5), text_edit(text, "speed\n", "pace", 5)]
+    expect("lsp: a local is renamed in one versioned edit of its script", renamed and renamed.get("result") == {"documentChanges": [{"textDocument": {"uri": tour, "version": 1}, "edits": changes}]}, str(renamed))
+
+    # Refused: by the compiler, each reason with its place unless it is the
+    # script's own; and for user.pet, whose text the editor holds.
+    answers = [reason(ask("textDocument/rename", needle, newName=new)) for needle, new in [("speed := 5.0", "pace"), ("move(amount", "count"), ("move(amount", "2x"), ("f)\n", "g")]]
+    client.notify("textDocument/didClose", {"textDocument": {"uri": tour}})
+    expect(
+        "lsp: a rename refused tells each reason where it is, and to save what Godot has unsaved",
+        answers[0] == "res://tour.scn: It is a binary file, whose names cannot be rewritten. Save it as .tscn first."
+        and answers[1] and answers[1].startswith("res://tour.pet:") and "After renaming" in answers[1]
+        and answers[2] == '"2x" is not a name.'
+        and answers[3] == "Godot has unsaved changes to res://user.pet. Save them in Godot first.",
+        str(answers),
+    )
 
 
 def run_debugger_groups(godot):

@@ -259,6 +259,11 @@ compiler::Rename rename(const std::string &p_path, uint32_t p_offset, const std:
 	return compiler::rename(analysis(), p_path, p_offset, p_new, other_scripts(), file_text);
 }
 
+compiler::RenamedName renamed_name(const std::string &p_path, uint32_t p_offset) {
+	pack_open_scenes();
+	return compiler::renamed_name(analysis(), p_path, p_offset, other_scripts());
+}
+
 std::optional<uint32_t> declaration_offset(const std::string &p_path, const compiler::DeclId &p_id) {
 	const std::optional<std::string> source = workspace().script_source(p_path);
 	for (const compiler::Reference &reference : source ? analysis().compile(p_path, *source)->references : std::vector<compiler::Reference>()) {

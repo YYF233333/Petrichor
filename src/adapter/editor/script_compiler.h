@@ -62,6 +62,9 @@ std::optional<std::vector<compiler::Occurrence>> find_references(const std::stri
 // What renaming the name at byte `p_offset` of the script's text to `p_new`
 // changes (spec §13.3).
 compiler::Rename rename(const std::string &p_path, uint32_t p_offset, const std::string &p_new);
+// The name it renames there to any new name, or why none
+// (compiler::renamed_name()).
+compiler::RenamedName renamed_name(const std::string &p_path, uint32_t p_offset);
 
 // Where the script declares `p_id`; nullopt if it does not.
 std::optional<uint32_t> declaration_offset(const std::string &p_path, const compiler::DeclId &p_id);

@@ -403,6 +403,23 @@ uint32_t completion_start(const std::string &p_text, uint32_t p_offset, std::str
 	return uint32_t(start);
 }
 
+// Why renaming in the script at `p_path` is refused, a line each, with the
+// file and the line where there are any, as the editor lists them
+// (PetReferences::set_refusals()).
+String refused_rename(const std::vector<compiler::Diagnostic> &p_refusals, const std::string &p_path) {
+	std::string text;
+	for (const compiler::Diagnostic &each : p_refusals) {
+		std::string place;
+		if (each.line > 0) {
+			place = each.file + ":" + std::to_string(each.line) + ": ";
+		} else if (each.file != p_path) {
+			place = each.file + ": ";
+		}
+		text += (text.empty() ? "" : "\n") + place + each.message;
+	}
+	return to_godot(text);
+}
+
 // LSP 3.17, CompletionItemKind, by compiler::CompletionKind.
 constexpr int COMPLETION_KINDS[] = { 7, 2, 23, 6, 10, 13, 21, 18, 17, 1, 14 };
 // LSP 3.17, SymbolKind, by compiler::Symbol::Kind.
@@ -609,11 +626,15 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		{ "textDocument/documentHighlight", &LspServer::on_highlight },
 		{ "textDocument/formatting", &LspServer::on_formatting },
 		{ "textDocument/codeAction", &LspServer::on_code_action },
+		{ "textDocument/prepareRename", &LspServer::on_prepare_rename },
+		{ "textDocument/rename", &LspServer::on_rename },
 	};
 	if (p_method == "initialize" && state == State::Waiting) {
 		const Dictionary capabilities = dictionary(dictionary(p_params).get("capabilities", Variant()));
 		const Dictionary document = dictionary(capabilities.get("textDocument", Variant()));
-		applies_edits = dictionary(capabilities.get("workspace", Variant())).get("applyEdit", false) == Variant(true);
+		const Dictionary files = dictionary(capabilities.get("workspace", Variant()));
+		applies_edits = files.get("applyEdit", false) == Variant(true);
+		annotates = dictionary(files.get("workspaceEdit", Variant())).get("changeAnnotationSupport", Variant()).get_type() == Variant::DICTIONARY;
 		snippets = dictionary(dictionary(document.get("completion", Variant())).get("completionItem", Variant())).get("snippetSupport", false) == Variant(true);
 		shows_disabled = dictionary(document.get("codeAction", Variant())).get("disabledSupport", false) == Variant(true);
 		Dictionary sync;
@@ -627,12 +648,15 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		signature_help["triggerCharacters"] = Array::make("(", ",");
 		Dictionary code_action;
 		code_action["codeActionKinds"] = Array::make("quickfix");
+		Dictionary renaming;
+		renaming["prepareProvider"] = true;
 		Dictionary offered;
 		offered["positionEncoding"] = "utf-16";
 		offered["textDocumentSync"] = sync;
 		offered["completionProvider"] = completion;
 		offered["signatureHelpProvider"] = signature_help;
 		offered["codeActionProvider"] = code_action;
+		offered["renameProvider"] = renaming;
 		for (const char *each : { "hoverProvider", "definitionProvider", "typeDefinitionProvider", "referencesProvider", "documentSymbolProvider", "documentHighlightProvider", "documentFormattingProvider" }) {
 			offered[each] = true;
 		}
@@ -679,22 +703,34 @@ void LspServer::notification(const String &p_method, const Dictionary &p_params)
 	} else if (p_method == "textDocument/didClose") {
 		closed(p_params);
 	} else if (p_method == "textDocument/didSave") {
-		const std::string path = script_path(dictionary(p_params.get("textDocument", Variant())).get("uri", Variant()));
-		if (!path.empty()) {
+		// A scene or a resource file too, as renaming changes them.
+		const Variant uri = dictionary(p_params.get("textDocument", Variant())).get("uri", Variant());
+		if (const std::string path = script_path(uri); !path.empty()) {
 			saved(path);
+		} else if (!project_path(uri).empty()) {
+			files_changed();
 		}
 	} else if (p_method == "workspace/didChangeWatchedFiles") {
-		// As the editor scans when it has focus again (editor/editor_node.cpp:1049-1058; ed1daf0).
 		const Variant changes = p_params.get("changes", Variant());
 		const Array list = changes.get_type() == Variant::ARRAY ? Array(changes) : Array();
 		for (int64_t i = 0; i < list.size(); i++) {
 			if (!project_path(dictionary(list[i]).get("uri", Variant())).empty()) {
-				disk_changed();
-				EditorInterface::get_singleton()->get_resource_filesystem()->scan();
+				files_changed();
 				return;
 			}
 		}
 	}
+}
+
+// As the editor scans when it has focus again: a file loaded that changed is
+// read again (editor/editor_node.cpp:1049-1058, 1291-1323,
+// editor/file_system/editor_file_system.cpp:1597-1607, 1018-1025, 1076-1078;
+// ed1daf0). Updating the file system otherwise would take the change as seen,
+// and the scan would not read it again. An open scene that changed is left to
+// the editor, which asks once it has focus (architecture §2.4).
+void LspServer::files_changed() {
+	disk_changed();
+	EditorInterface::get_singleton()->get_resource_filesystem()->scan_sources();
 }
 
 // The reply to workspace/applyEdit. Applied, the text is no longer held: it
@@ -934,23 +970,30 @@ Dictionary LspServer::location(const std::string &p_path, const std::string &p_t
 	return result;
 }
 
-// Against the texts the workspace has. None, with the reason, where a file
-// that the client does not have open has content in Godot that is not saved:
-// the client edits the file (architecture §2.4).
-Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, String &r_refused) const {
+// Against the texts the workspace has, the edits in `p_confirm`, by file and
+// start, annotated to need confirmation. None, with the reason, where a file
+// that the client does not have open has content in Godot that is not saved,
+// a script's or an open scene's: the client edits the file (architecture §2.4).
+Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, String &r_refused, const std::set<std::pair<std::string, uint32_t>> &p_confirm) const {
+	const PackedStringArray scenes = EditorInterface::get_singleton()->get_unsaved_scenes();
+	PackedStringArray unsaved;
 	Array changes;
 	for (const auto &[file, edits] : p_edits) {
 		const std::string text = workspace().script_source(file).value_or(std::string());
 		const auto open = documents.find(file);
-		if (open == documents.end() && text != SceneIndex::get().script_source(file).value_or(std::string())) {
-			r_refused = vformat("%s has changes in Godot that are not saved. Save them there first.", to_godot(file));
-			return Dictionary();
+		if (open == documents.end() && (text != SceneIndex::get().script_source(file).value_or(std::string()) || scenes.has(to_godot(file)))) {
+			unsaved.push_back(to_godot(file));
+			continue;
 		}
 		std::vector<compiler::CheckedEdit> ordered = edits;
 		std::stable_sort(ordered.begin(), ordered.end(), [](const compiler::CheckedEdit &p_a, const compiler::CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
 		Array text_edits;
 		for (const compiler::CheckedEdit &edit : ordered) {
-			text_edits.push_back(text_edit(text, edit.begin, edit.end, edit.new_text));
+			Dictionary each = text_edit(text, edit.begin, edit.end, edit.new_text);
+			if (p_confirm.count({ file, edit.begin })) {
+				each["annotationId"] = "candidate";
+			}
+			text_edits.push_back(each);
 		}
 		Dictionary document;
 		document["uri"] = uri_of(file);
@@ -960,8 +1003,21 @@ Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::
 		change["edits"] = text_edits;
 		changes.push_back(change);
 	}
+	if (!unsaved.is_empty()) {
+		r_refused = vformat("Godot has unsaved changes to %s. Save them in Godot first.", String(", ").join(unsaved));
+		return Dictionary();
+	}
 	Dictionary result;
 	result["documentChanges"] = changes;
+	if (!p_confirm.empty()) {
+		Dictionary candidate;
+		candidate["label"] = "Candidates";
+		candidate["description"] = "Names that may refer to it, but do not resolve to it.";
+		candidate["needsConfirmation"] = true;
+		Dictionary annotations;
+		annotations["candidate"] = candidate;
+		result["changeAnnotations"] = annotations;
+	}
 	return result;
 }
 
@@ -1389,6 +1445,53 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 		}
 	}
 	return actions;
+}
+
+// The name, where the editor asks for a new one (PetEditorPlugin::ask_name());
+// otherwise why it renames nothing there.
+Variant LspServer::on_prepare_rename(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	if (!at) {
+		return Variant();
+	}
+	const compiler::RenamedName name = renamed_name(at->path, at->offset);
+	if (name.refusal) {
+		failure = refused_rename({ *name.refusal }, at->path);
+		return Variant();
+	}
+	Dictionary result;
+	result["range"] = range_of(at->text, name.begin, name.end);
+	result["placeholder"] = to_godot(at->text.substr(name.begin, name.end - name.begin));
+	return result;
+}
+
+// What the editor's rename changes (PetEditorPlugin::rename_to()), as one edit
+// that the client previews, applies and undoes (architecture §2.4). The
+// candidates need confirmation, so they start unchecked. A client that cannot
+// mark them does not get them.
+Variant LspServer::on_rename(const Dictionary &p_params) {
+	const std::optional<Place> at = place_of(p_params, true);
+	const Variant name = p_params.get("newName", Variant());
+	if (!at || name.get_type() != Variant::STRING) {
+		return Variant();
+	}
+	const compiler::Rename found = rename(at->path, at->offset, to_utf8(name));
+	if (!found.refusals.empty()) {
+		failure = refused_rename(found.refusals, at->path);
+		return Variant();
+	}
+	std::map<std::string, std::vector<compiler::CheckedEdit>> edits;
+	std::set<std::pair<std::string, uint32_t>> candidates;
+	for (const compiler::RenameEdit &each : found.edits) {
+		if (each.occurrence.candidate && !annotates) {
+			continue;
+		}
+		if (each.occurrence.candidate) {
+			candidates.emplace(each.occurrence.file, each.edit.begin);
+		}
+		edits[each.occurrence.file].push_back(each.edit);
+	}
+	return edit_of(edits, failure, candidates);
 }
 
 } // namespace petrichor

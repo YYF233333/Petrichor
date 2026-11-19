@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -50,6 +51,7 @@ class LspServer {
 	bool applies_edits = false;
 	bool snippets = false; // In completion items.
 	bool shows_disabled = false; // Code actions with a reason they are disabled.
+	bool annotates = false; // Edits that need confirmation.
 	godot::String failure; // Why the query being answered failed.
 	std::map<std::string, Document> documents;
 	std::map<int64_t, std::pair<std::string, std::string>> offers; // The path and the text of each workspace/applyEdit, by id.
@@ -70,6 +72,7 @@ class LspServer {
 	void changed(const godot::Dictionary &p_params);
 	void closed(const godot::Dictionary &p_params);
 	void saved(const std::string &p_path);
+	void files_changed();
 	void offer_held(const std::string &p_path, Document &r_document);
 	void publish(const std::string &p_path, Document &r_document);
 	void notify(const char *p_method, const godot::Dictionary &p_params);
@@ -78,7 +81,7 @@ class LspServer {
 
 	godot::String uri_of(const std::string &p_path) const;
 	godot::Dictionary location(const std::string &p_path, const std::string &p_text, uint32_t p_begin, uint32_t p_end) const;
-	godot::Dictionary edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, godot::String &r_refused) const;
+	godot::Dictionary edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, godot::String &r_refused, const std::set<std::pair<std::string, uint32_t>> &p_confirm = {}) const;
 	godot::Variant on_completion(const godot::Dictionary &p_params);
 	godot::Variant on_signature_help(const godot::Dictionary &p_params);
 	godot::Variant on_hover(const godot::Dictionary &p_params);
@@ -89,6 +92,8 @@ class LspServer {
 	godot::Variant on_highlight(const godot::Dictionary &p_params);
 	godot::Variant on_formatting(const godot::Dictionary &p_params);
 	godot::Variant on_code_action(const godot::Dictionary &p_params);
+	godot::Variant on_prepare_rename(const godot::Dictionary &p_params);
+	godot::Variant on_rename(const godot::Dictionary &p_params);
 
 public:
 	explicit LspServer(godot::Ref<godot::EditorDebuggerPlugin> p_sessions);

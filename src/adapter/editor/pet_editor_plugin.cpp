@@ -1183,19 +1183,23 @@ void PetEditorPlugin::show_references(Object *p_code_edit) {
 	make_bottom_panel_item_visible(references);
 }
 
+// Not where renaming is refused whatever the new name, as the language
+// server's prepareRename refuses it (architecture §2.4).
 void PetEditorPlugin::ask_name(Object *p_code_edit) {
 	const std::optional<std::pair<String, uint32_t>> at = at_caret(p_code_edit);
-	const CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
-	const String word = at ? code_edit->get_word_under_caret(0) : String();
-	if (word.is_empty()) {
-		if (at) {
-			toast("No declaration at the caret.");
-		}
+	if (!at) {
 		return;
 	}
-	renaming.path = to_utf8(at->first);
+	const std::string path = to_utf8(at->first);
+	const compiler::RenamedName name = renamed_name(path, at->second);
+	if (name.refusal) {
+		toast(to_godot(name.refusal->message));
+		return;
+	}
+	renaming.path = path;
 	renaming.offset = at->second;
-	name_edit->set_text(word);
+	const CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
+	name_edit->set_text(to_godot(workspace().script_source(path).value_or(std::string()).substr(name.begin, name.end - name.begin)));
 	name_popup->set_position(Vector2i(code_edit->get_screen_position() + code_edit->get_caret_draw_pos(0)));
 	name_popup->reset_size();
 	name_popup->popup();
