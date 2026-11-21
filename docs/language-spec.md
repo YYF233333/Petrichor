@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 88ad7bfb022d42757322a7fdc0e7079619178a97. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 1c9f3162aa332d06a78f70e4cbf49685b9c7b15e. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -429,9 +429,10 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - numbers, `bool`, strings, core value types, containers, `Callable` and `Signal` take their own default values. So does an enum without payloads that has the value 0. `T?` takes `None`, and `Variant` takes NIL;
   - a struct takes its default value when all its fields have default values. Otherwise it is a member that must be assigned. Non-null object references, enums with payloads, enums without 0 and function types are members that must be assigned too.
 - `@export` follows GDScript, with three differences. An exported variable must have `pub`. An exported scene is written `PackedScene[T]`. A non-null object export must be assigned.
-- Structs and enums with payloads can be exported, and are stored encoded by the rules of the engine boundary. The values stored in scenes and `.tres` files are checked against the type at compile time.
+- Structs and enums with payloads can be exported, and are stored encoded by the rules of the engine boundary.
   - When a field contains `Node` at any level, the export is a compile error.
   - **[Known limitation]** For now the Inspector edits them with the generic Dictionary editor.
+- The values that scenes and `.tres` files store for exports are checked against the export's type at compile time. A value of another type is a compile error, such as an old scene's `"fast"` after the export changed from `String` to `float`.
 
 ### 4.4 Property accessors
 

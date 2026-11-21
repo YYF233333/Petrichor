@@ -427,9 +427,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 数值、`bool`、字符串、core 值类型、容器、`Callable`、`Signal` 和含值 0 的无载荷 enum 取各自默认值。`T?` 取 `None`，`Variant` 取 NIL；
   - struct 在所有字段均有默认值时取默认值，否则属于必须赋值的成员。非空对象引用、带载荷 enum、不含 0 的 enum 和函数类型也是必须赋值的成员。
 - `@export` 沿用 GDScript，但有三点不同。导出的变量须带 `pub`。导出场景写 `PackedScene[T]`。非空对象导出必须赋值。
-- struct 和带载荷 enum 可以导出，存储时按引擎边界的规则编码。场景和 `.tres` 中存的值在编译时按类型检查。
+- struct 和带载荷 enum 可以导出，存储时按引擎边界的规则编码。
   - 字段中任何一层含 `Node` 时，导出报编译错误。
   - 【已知限制】检查器暂以通用的 Dictionary 编辑器编辑它们。
+- 场景和 `.tres` 中为导出存的值，在编译时按导出的类型检查。类型不符时报编译错误，如导出由 `String` 改为 `float` 后旧场景中存的 `"fast"`。
 
 ### 4.4 属性访问器
 
