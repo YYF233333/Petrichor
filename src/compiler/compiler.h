@@ -90,6 +90,11 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 // they may refer to until the compile ends (ScriptClasses::end_compile()).
 CompileResult compile(const std::string &p_source, const EngineApi &p_engine, const CompileOptions &p_options, ScriptClasses &r_classes, ClassDecl &r_class);
 
+// The build of this compiler, which the bytecode it writes records, so that
+// a game run with its sources runs no bytecode of another (architecture
+// §2.4).
+uint64_t compiler_id();
+
 // The edits that fix all of an automatic kind in the file compiled
 // (architecture §2.1), in order: of each fix of the kind that edits only
 // that file, unless it overlaps one before it, which fixing again finds.

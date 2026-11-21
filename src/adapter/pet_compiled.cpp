@@ -3,6 +3,10 @@
 #include "adapter/pet_script.h"
 #include "runtime/text.h"
 
+#ifdef TOOLS_ENABLED
+#include "compiler/compiler.h"
+#endif
+
 #include <godot_cpp/classes/dir_access.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
@@ -48,6 +52,13 @@ std::shared_ptr<const ClassImage> load_compiled(const String &p_compiled_path, c
 		r_error = "has changed since it was compiled. Run the project from the editor, or rebuild it.";
 		return nullptr;
 	}
+#ifdef TOOLS_ENABLED
+	// The libraries of exported games have no compiler, and the games no sources.
+	if (p_source && module.compiler_id != compiler::compiler_id()) {
+		r_error = "was compiled by another build of Petrichor. Run the project from the editor, or rebuild it.";
+		return nullptr;
+	}
+#endif
 	if (module.declarations_only) {
 		r_error = "was compiled without its function bodies. Rebuild the project.";
 		return nullptr;

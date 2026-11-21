@@ -6,6 +6,7 @@
 #include "compiler/parser.h"
 #include "compiler/script_classes.h"
 #include "compiler/warnings.h"
+#include "compiler_id.gen.h"
 
 #include <algorithm>
 
@@ -48,6 +49,7 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 			}
 		};
 		hash(result.module, hash);
+		result.module.compiler_id = COMPILER_ID;
 	}
 	for (std::vector<Diagnostic> *diagnostics : { &result.errors, &result.warnings }) {
 		for (Diagnostic &diagnostic : *diagnostics) {
@@ -57,6 +59,10 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 		}
 	}
 	return result;
+}
+
+uint64_t compiler_id() {
+	return COMPILER_ID;
 }
 
 std::vector<CheckedEdit> fix_all(const CompileResult &p_result, FixKind p_kind) {

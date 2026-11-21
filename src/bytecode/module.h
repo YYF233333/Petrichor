@@ -528,6 +528,7 @@ struct TablePrefix {
 
 struct Module {
 	uint64_t source_hash = 0;
+	uint64_t compiler_id = 0; // Of the build that compiled it (architecture §2.4).
 	// Compiled without function bodies, to describe the class while it is
 	// being loaded in the editor; it cannot run.
 	bool declarations_only = false;
