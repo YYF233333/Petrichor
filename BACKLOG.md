@@ -18,8 +18,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 0.2, due 2026-11-29. Its list and date are set with the owner (architecture §5, step 11).
 
-- With the owner: the invitations to review 0.1.
-
 ## Language
 
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
