@@ -773,6 +773,7 @@ class Checker : public ClassRelation {
 	bool is_a(const Type &p_from, const Type &p_to) const override;
 	std::vector<Type> fields(const Type &p_struct) const override;
 	std::optional<Type> script_type(const TypeRef &p_ref);
+	bool declares_type(const std::string &p_name) const;
 	std::optional<Type> own_type(const std::string &p_name, uint32_t p_token);
 	const StructDecl *struct_decl(const Type &p_struct) const;
 	bool has_default(const Type &p_type) const;
@@ -810,7 +811,7 @@ class Checker : public ClassRelation {
 	void declare_enums();
 	std::string taken_global_name(const std::string &p_name) const;
 	void refuse_global_name(const std::string &p_name, uint32_t p_token);
-	std::string taken_type_name(const std::string &p_name, bool p_class_name) const;
+	std::string taken_type_name(const std::string &p_name, bool p_class_name, bool p_class) const;
 	void check_type_names();
 	void check_enum(EnumDecl &r_decl);
 	void check_variant_fields(EnumDecl &r_decl, EnumValueDecl &r_value);

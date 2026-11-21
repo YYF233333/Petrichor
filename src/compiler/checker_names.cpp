@@ -192,17 +192,18 @@ void Checker::refuse_global_name(const std::string &p_name, uint32_t p_token) {
 // What a type of this name would hide, as the end of a message; empty if
 // nothing (spec §4.1). The file's class_name is in the engine's global class
 // table, which lists one script for each name, as GDScript reads it
-// (modules/gdscript/gdscript_analyzer.cpp:396-406; ed1daf0). A type the class
-// declares may take the name of a standard type or of an autoload, being the
-// nearer name (spec §11.1).
-std::string Checker::taken_type_name(const std::string &p_name, bool p_class_name) const {
+// (modules/gdscript/gdscript_analyzer.cpp:396-406; ed1daf0); an inner class
+// may not take another file's either. A type the class declares may take the
+// name of a standard type or of an autoload, being the nearer name (spec
+// §11.1), and an enum, a struct or an interface another file's class name.
+std::string Checker::taken_type_name(const std::string &p_name, bool p_class_name, bool p_class) const {
 	if (const std::string taken = taken_global_name(p_name); !taken.empty()) {
 		return taken;
 	}
 	if (p_class_name && (p_name == "Result" || p_name == "Task" || p_name == "Settled" || p_name == "CancelReason" || p_name == "ConversionError")) {
 		return "is the name of a standard type.";
 	}
-	const std::string path = options.project ? options.project->global_class_path(p_name) : std::string();
+	const std::string path = p_class && options.project ? options.project->global_class_path(p_name) : std::string();
 	if (!path.empty() && !(p_class_name && path == options.path)) {
 		return "is already the class_name of " + path + ".";
 	}
@@ -217,14 +218,14 @@ std::string Checker::taken_type_name(const std::string &p_name, bool p_class_nam
 // the class's declarations and those it inherits.
 void Checker::check_type_names() {
 	if (!cls.class_name.empty()) {
-		const std::string taken = taken_type_name(cls.class_name, true);
+		const std::string taken = taken_type_name(cls.class_name, true, true);
 		if (!taken.empty()) {
 			error(cls.class_name_token, "\"" + cls.class_name + "\" " + taken);
 		}
 	}
 	std::unordered_set<std::string> names;
-	const auto declare = [&](const std::string &p_name, uint32_t p_at, bool p_type) {
-		const std::string taken = p_type ? taken_type_name(p_name, false) : std::string();
+	const auto declare = [&](const std::string &p_name, uint32_t p_at, bool p_type, bool p_class = false) {
+		const std::string taken = p_type ? taken_type_name(p_name, false, p_class) : std::string();
 		if (!taken.empty()) {
 			error(p_at, "\"" + p_name + "\" " + taken);
 		} else if (!names.insert(p_name).second || name_taken(p_name)) {
@@ -247,7 +248,7 @@ void Checker::check_type_names() {
 		}
 	}
 	for (const std::unique_ptr<ClassDecl> &inner : cls.classes) {
-		declare(inner->name, inner->name_token, true);
+		declare(inner->name, inner->name_token, true, true);
 	}
 }
 

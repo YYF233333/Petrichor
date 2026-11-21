@@ -727,7 +727,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		}
 	} else if (path.empty() && !cls.class_name.empty() && head == cls.class_name) {
 		path = options.path;
-	} else if (path.empty() && options.project) {
+	} else if (path.empty() && options.project && !declares_type(head)) {
 		path = options.project->global_class_path(head);
 	}
 	if (path.empty()) {
@@ -859,6 +859,17 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 
 // A type this class declares, by its bare name: an interface, a struct or
 // an enum, or an enum that a constant names.
+// Whether this class or one around it declares an enum, a struct or an
+// interface of the name, as own_type() finds them, which come before other
+// files' class names (spec §4.1).
+bool Checker::declares_type(const std::string &p_name) const {
+	const auto declared = [&](const ClassDecl &p_class) {
+		return p_class.find_struct(p_name) || p_class.find_enum(p_name) || std::any_of(p_class.interfaces.begin(), p_class.interfaces.end(), [&](const InterfaceDecl &p_interface) { return p_interface.name == p_name; });
+	};
+	const Checker *around = class_around(p_name);
+	return declared(cls) || (around && declared(around->cls));
+}
+
 std::optional<Type> Checker::own_type(const std::string &p_name, uint32_t p_token) {
 	if (const std::optional<Type> aliased = constant_index.count(p_name) ? aliased_enum_type(p_name) : std::nullopt) {
 		const EnumDecl *decl = aliased_enum(p_name);

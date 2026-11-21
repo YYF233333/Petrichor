@@ -102,6 +102,12 @@ TEST_CASE("a member is found where other scripts use it, by name in a literal to
 	CHECK(found(project(), "res://user.pet", "speed") == expected);
 }
 
+TEST_CASE("an enum named like another file's class is found where its class uses it (spec §4.1)") {
+	FakeProject named = project();
+	named.add_script("res://states.pet", "extends Node\nenum Base { A }\n\n\nfunc f() -> Base:\n\treturn Base.A\n");
+	CHECK(found(named, "res://states.pet", "Base", 1) == joined({ "res://states.pet:2:6 declaration", "res://states.pet:5:13", "res://states.pet:6:9" }));
+}
+
 TEST_CASE("a method and a signal a scene connects are found in the scene, and a signal in a literal") {
 	const std::string method = joined({
 			"res://user.pet:4:10 declaration",

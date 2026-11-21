@@ -157,6 +157,15 @@ TEST_CASE("a class_name is no name of the engine, the language, an autoload or a
 	CHECK(messages(compile_in("extends Node\nclass Weapon:\n\tpass\n", listed)) == "2:7: \"Weapon\" is already the class_name of res://weapon.pet.\n");
 }
 
+// Spec §4.1: an enum, a struct or an interface of the class or of one around
+// it comes before another file's class name, as in aarpg-tutorial (corpus v2,
+// Player/scripts/states/state.gd:1 and abilities/boomerang.gd:3).
+TEST_CASE("a class's enum or interface may share another file's class name") {
+	const auto check = [](const std::string &p_source) { return messages(compile_in(p_source, project())); };
+	CHECK(check("extends Node\nenum Weapon { A }\n\nfunc f() -> void:\n\tvar w: Weapon = Weapon.A\n\tprint(w)\n\nclass Holder:\n\tfunc g() -> Weapon:\n\t\treturn Weapon.A\n").empty());
+	CHECK(check("extends Node\ninterface Weapon:\n\tfunc fire()\n\nfunc f(w: Weapon) -> void:\n\tw.fire()\n").empty());
+}
+
 TEST_CASE("members without pub are visible in their own file and subclasses (spec §4.2)") {
 	FakeProject classes = project();
 	const std::string door = "class_name Door\nextends Node\n\nsignal opened\npub signal closed\nvar code := 1\nenum { SHUT, OPEN }\n\nfunc knock() -> void:\n\tpass\n\nstatic func make() -> void:\n\tpass\n\ninterface Lock:\n\tfunc open()\n";
