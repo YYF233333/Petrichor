@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 0acf748c81d8e959428e2af1be83a16f56dfd0e9. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 70f6b97434ab9e1372f86572ea1ba6bf79d2985e. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -508,6 +508,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   var hue := Color.RED.from_hsv(0.5, 1.0, 1.0)
   ```
 
+- A static function has no `self`, and writing it is a compile error, as in GDScript. The class's static members and constants are reached by their bare names or through the class name.
 - Static initialization cannot `await`. Reading a static member of another class first completes the initialization of that class. Directly reading a static variable declared later in the same class is a compile error. Through a call, reading or writing a not yet initialized static variable of the same class is a program error. A cycle of static initialization across classes is a program error too, and the diagnostic lists the dependency chain.
 - In hot reload, adding, removing or changing a static member declaration requires running again. Changing only function bodies, initializers or `_static_init` keeps the current values of static variables, and static initialization is not rerun.
 
