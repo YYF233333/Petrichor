@@ -105,6 +105,12 @@ bool is_text(const Type &p_type) {
 	return p_type.kind == TypeKind::String || p_type.builtin_name() == "StringName" || p_type.builtin_name() == "NodePath";
 }
 
+bool is_string_like(const Type &p_type) {
+	return p_type.kind == TypeKind::String || p_type.builtin_name() == "StringName";
+}
+
+// As the engine's Dictionary compares keys, with a String and a StringName of
+// the same text one key (core/variant/variant.cpp:3400-3411; ed1daf0).
 bool same_key(const ConstValue &p_a, const ConstValue &p_b) {
 	if (p_a.kind != p_b.kind) {
 		return false;
@@ -117,7 +123,7 @@ bool same_key(const ConstValue &p_a, const ConstValue &p_b) {
 		case Kind::Bool:
 			return p_a.b == p_b.b;
 		case Kind::String:
-			return p_a.text == p_b.text && p_a.type == p_b.type;
+			return p_a.text == p_b.text && (p_a.type == p_b.type || (is_string_like(p_a.type) && is_string_like(p_b.type)));
 		case Kind::None:
 			return true;
 		default:

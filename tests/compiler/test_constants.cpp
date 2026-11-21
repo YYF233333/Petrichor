@@ -127,6 +127,8 @@ TEST_CASE("what loading could fail on is a compile error, where it is") {
 	CHECK(errors_of("const N = int(1e300)\n") == Errors{ "1:11: Cannot convert 1.0000000000000001e+300 to int: out of range." });
 	CHECK(errors_of("const L = [1, 2]\nconst E = L[5]\n") == Errors{ "2:11: Index 5 is out of bounds (size 2)." });
 	CHECK(errors_of("const D = {\"a\": 1, \"a\": 2}\n") == Errors{ "1:20: The key \"a\" is already in this dictionary." });
+	// A String and a StringName of one text are one key, as in the engine.
+	CHECK(errors_of("const D: Dictionary = {jump = 1}\nconst V = D[\"jump\"]\nconst E: Dictionary = {\"run\": 2}\nconst W = E[&\"run\"]\n").empty());
 	CHECK(errors_of("const V = Vector2i(4, 4) / Vector2i(1, 0)\n") == Errors{ "1:26: The divisor of an integer vector must be known at compile time and not zero." });
 	CHECK(errors_of("const C = Color(\"dark green\")\n") == Errors{ "1:11: A color name is looked up when the class loads, so constants write the constant instead: Color.DARK_GREEN." });
 	CHECK(errors_of("const Q = Quaternion(Vector3.UP, 1.0)\n") == Errors{ "1:11: This constructor of Quaternion checks its arguments in debug builds, so constant expressions cannot use it." });
