@@ -877,8 +877,17 @@ TypedArray<Dictionary> PetScript::_get_script_property_list() const {
 	return current ? visible_properties(*current) : TypedArray<Dictionary>();
 }
 
+// Where Go to Method of the Node dock and of a method track goes
+// (editor/script/script_editor_plugin.cpp:3590-3598; ed1daf0): the line of a
+// function the class declares, from 1, as GDScript gives it
+// (modules/gdscript/editor/gdscript_docgen.cpp:411).
 int32_t PetScript::_get_member_line(const StringName &p_member) const {
-	return -1;
+	const std::shared_ptr<const ClassImage> current = declared();
+	const int index = current ? current->find_function(p_member) : -1;
+	if (index < 0 || current->module.functions[index].is_inherited) {
+		return -1;
+	}
+	return int32_t(current->module.functions[index].line);
 }
 
 // The pub constants (spec §4.5, §10.5), which the debugger and GDScript's
