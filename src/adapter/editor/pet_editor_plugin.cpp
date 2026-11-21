@@ -964,19 +964,25 @@ void PetEditorPlugin::_shortcut_input(const Ref<InputEvent> &p_event) {
 namespace {
 
 // The script open in the script editor at `p_code_edit`, if of this language,
-// and the offset of the caret in its text.
+// and the offset of the caret in the workspace's text, which references and
+// renaming read. That text may have the carriage returns that the tab drops
+// (without_cr()); they only end lines, so lines and columns agree.
 std::optional<std::pair<String, uint32_t>> at_caret(const Object *p_code_edit) {
 	const CodeEdit *code_edit = Object::cast_to<CodeEdit>(p_code_edit);
 	const Ref<Script> script = EditorInterface::get_singleton()->get_script_editor()->get_current_script();
 	if (!code_edit || !Object::cast_to<PetScript>(script.ptr())) {
 		return std::nullopt;
 	}
-	const String text = code_edit->get_text();
-	int64_t caret = 0;
-	for (int line = 0; line < code_edit->get_caret_line(); line++) {
-		caret = text.find("\n", caret) + 1;
+	const std::string text = workspace().script_source(to_utf8(script->get_path())).value_or(std::string());
+	const std::vector<uint32_t> starts = compiler::line_starts_of(text);
+	uint32_t offset = starts[std::min(size_t(code_edit->get_caret_line()), starts.size() - 1)];
+	for (int column = code_edit->get_caret_column(); column > 0 && offset < text.size() && text[offset] != '\r' && text[offset] != '\n'; column--) {
+		offset++;
+		while (offset < text.size() && (static_cast<unsigned char>(text[offset]) & 0xC0) == 0x80) {
+			offset++;
+		}
 	}
-	return std::make_pair(script->get_path(), uint32_t(to_utf8(text.substr(0, caret + code_edit->get_caret_column())).size()));
+	return std::make_pair(script->get_path(), offset);
 }
 
 void toast(const String &p_message, EditorToaster::Severity p_severity = EditorToaster::SEVERITY_INFO) {
@@ -1384,7 +1390,8 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 			changes[file].push_back(edit);
 		}
 	}
-	if (one_buffer && !tab_has(one_buffer, by_file.begin()->first, workspace().script_source(by_file.begin()->first).value_or(std::string()))) {
+	const std::string source = one_buffer ? workspace().script_source(by_file.begin()->first).value_or(std::string()) : std::string();
+	if (one_buffer && !tab_has(one_buffer, by_file.begin()->first, source)) {
 		return;
 	}
 	if (one_buffer) {
@@ -1392,7 +1399,7 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 		for (const compiler::CheckedEdit &edit : changes.begin()->second) {
 			plain.push_back({ edit.begin, edit.end, edit.new_text });
 		}
-		apply_edits(one_buffer, to_utf8(one_buffer->get_text()), plain);
+		apply_edits(one_buffer, source, plain);
 	} else if (!change_files(changes)) {
 		return;
 	}

@@ -1168,6 +1168,7 @@ def check_lsp(project, info, editor):
     check_rename_written(first, project, uri, editor)
     check_closed_unsaved(first, project, uri, editor)
     check_scene_saved_in_godot(first, project, uri, editor)
+    check_rename_crlf(first, project, uri, editor)
 
     # A save writes the bytecode of the file as the files compile, not as an
     # unsaved dependency in the client would make it.
@@ -1513,6 +1514,24 @@ def check_scene_saved_in_godot(client, project, uri, editor):
     editor.wait_for(b"lsp undo: kept")
     undo = re.findall(r"lsp undo: (\w+ \w+)", editor.output.decode("utf-8", "replace"))
     expect("lsp: a scene saved in Godot keeps its history when the client's file watcher reports it", saved and undo == ["saved true", "kept true"], str(undo))
+
+
+def check_rename_crlf(client, project, uri, editor):
+    """A rename in Godot's tab of gunner.pet, which the client has open with
+    the carriage returns that the tab drops: the name at the caret, lines
+    below the first, is renamed in place."""
+    gunner = uri("gunner.pet")
+    text = (project / "gunner.pet").read_text(encoding="utf-8")
+    client.open(gunner, text.replace("\n", "\r\n"))
+    client.request("petrichor/unknown")
+    before = text[: text.index("movement_speed") + 3]
+    (project / "rename.part").write_text(json.dumps(["res://gunner.pet", before.count("\n"), len(before.rsplit("\n", 1)[1]), "movement_pace"]), encoding="utf-8")
+    (project / "rename.part").replace(project / "rename")
+    editor.wait_for(b"lsp rename:")
+    client.notify("textDocument/didClose", {"textDocument": {"uri": gunner}})
+    tab = re.findall(r"lsp rename: (.*)", editor.output.decode("utf-8", "replace"))
+    renamed = text.replace("movement_speed", "movement_pace").replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
+    expect("lsp: a rename in Godot's tab of a script the client has with carriage returns renames the name at the caret in place", [line.rstrip("\r") for line in tab] == [renamed], f"{tab}\n{renamed}")
 
 
 def run_debugger_groups(godot):

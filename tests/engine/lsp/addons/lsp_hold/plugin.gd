@@ -10,7 +10,9 @@ extends EditorPlugin
 # Once res://probe is there, prints whether the loaded script it names has its
 # file's text, and its properties. Once res://undo is there, makes a step in
 # the scene shown and saves it; once res://history is there, prints whether the
-# scene still has a step to undo.
+# scene still has a step to undo. Once res://rename is there, renames at the
+# place in the script it names, as F2 does, prints the tab's text and undoes
+# the rename.
 # Quits once the file res://quit is there.
 
 
@@ -61,6 +63,27 @@ func _hold() -> void:
 		if FileAccess.file_exists("res://history"):
 			DirAccess.remove_absolute("res://history")
 			print("lsp undo: kept ", _scene_has_undo())
+		if FileAccess.file_exists("res://rename"):
+			var asked: Array = JSON.parse_string(FileAccess.get_file_as_string("res://rename"))
+			DirAccess.remove_absolute("res://rename")
+			EditorInterface.edit_script(load(asked[0]))
+			EditorInterface.set_main_screen_editor("Script")
+			await get_tree().process_frame
+			var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+			var before := code.text
+			code.set_caret_line(int(asked[1]))
+			code.set_caret_column(int(asked[2]))
+			code.grab_focus()
+			var key := InputEventKey.new()
+			key.keycode = KEY_F2
+			key.pressed = true
+			get_viewport().push_input(key)
+			var name_edit: LineEdit = plugin.find_children("*", "PopupPanel", false, false)[0].find_children("*", "LineEdit", true, false)[0]
+			name_edit.text = asked[3]
+			name_edit.text_submitted.emit(asked[3])
+			print("lsp rename: ", code.text.c_escape())
+			if code.text != before:
+				code.undo()
 		await get_tree().create_timer(0.1).timeout
 	get_tree().quit()
 
