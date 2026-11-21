@@ -40,6 +40,7 @@ enum class FixKind {
 	Async,
 	Await,
 	NullPattern,
+	Receiver, // self.f() for a method that a direct call f() of a utility function's name misses.
 	GetNodeOrNull, // For $X that a scene lacks and another has.
 };
 
@@ -62,6 +63,7 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ false, "Write async func" },
 	{ false, "Write await" },
 	{ false, "Match both levels of null" },
+	{ false, "Write the receiver" },
 	{ false, "Write get_node_or_null()" },
 };
 static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::GetNodeOrNull) + 1);

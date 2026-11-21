@@ -59,6 +59,21 @@ TEST_CASE("a call refers to the method of the class it is made on") {
 	CHECK(has(at(result, source, "Derived"), { Kind::Script, "res://derived.pet", "" }));
 }
 
+// Spec §2.6: as in GDScript, a method of the class or of its base needs a
+// receiver.
+TEST_CASE("a direct call of a utility function's name calls the utility function") {
+	const std::string source = "extends RandomNumberGenerator\n\nfunc lerp(a: float, b: float, t: float) -> float:\n\treturn a\n\nfunc range(n: int) -> int:\n\treturn n\n\n"
+							   "func f() -> void:\n\tprint(lerp(1.0, 2.0, 0.5), self.lerp(1.0, 2.0, 0.5), range(3), self.range(3), randi(), self.randi())\n";
+	const auto result = compile_in(source, FakeProject());
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK(has(at(result, source, "lerp", 1), { Kind::Engine, "@GlobalScope", "lerp" }));
+	CHECK(has(at(result, source, "lerp", 2), { Kind::Script, "res://test.pet", "lerp" }));
+	CHECK(has(at(result, source, "range", 1), { Kind::Engine, "@GDScript", "range" }));
+	CHECK(has(at(result, source, "range", 2), { Kind::Script, "res://test.pet", "range" }));
+	CHECK(has(at(result, source, "randi", 0), { Kind::Engine, "@GlobalScope", "randi" }));
+	CHECK(has(at(result, source, "randi", 1), { Kind::Engine, "RandomNumberGenerator", "randi" }));
+}
+
 TEST_CASE("an override records what it overrides, and an implementation what it implements") {
 	const std::string overriding = "extends Base\n\npub func hit() -> int:\n\treturn 2\n\nfunc _ready():\n\tpass\n";
 	const auto result = compile_in(overriding, classes());

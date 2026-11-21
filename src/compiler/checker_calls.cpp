@@ -1707,6 +1707,13 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 	}
 
 	if (!r_expr.base) {
+		const size_t reported = errors.size();
+		if (const std::optional<Type> result = type_utility_call(r_expr, p_expected)) {
+			if (errors.size() > reported) {
+				point_to_method(r_expr, reported);
+			}
+			return *result;
+		}
 		// As in GDScript (modules/gdscript/gdscript_analyzer.cpp:3741-3745).
 		const LocalInfo *local = visible_local(name);
 		const auto member = member_index.find(name);
@@ -1721,7 +1728,9 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 	const auto script = function_index.find(name);
 	if (script != function_index.end()) {
 		const FuncDecl &callee = *cls.all_functions[script->second];
-		if (!callee.is_static && refuse_in_static(r_expr, name + "()")) {
+		// A static function needs no instance, but `self` does
+		// (modules/gdscript/gdscript_parser.cpp:2901; ed1daf0).
+		if ((!callee.is_static || r_expr.base) && refuse_in_static(r_expr, callee.is_static ? std::string("self") : name + "()")) {
 			return fail_call(r_expr);
 		}
 		const ClassDecl &owner = declaring(cls, callee, &ClassDecl::functions);
@@ -1736,7 +1745,6 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 		if (method->is_virtual) {
 			return fail_call(r_expr, "\"" + name + "()\" is a virtual engine method that this class does not define.");
 		}
-		// A static method needs no instance, but `self` does.
 		if ((!method->is_static || r_expr.base) && refuse_in_static(r_expr, method->is_static ? std::string("self") : name + "()")) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
@@ -1755,68 +1763,105 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 		}
 	}
 
-	if (!r_expr.base) {
-		if (name == "print_debug" && outermost()) {
-			// GDScript's own: print() of the arguments and where it is called
-			// (modules/gdscript/gdscript_utility_functions.cpp:349-362), which is
-			// known here.
-			const std::string where = "\n   At: " + options.path + ":" + std::to_string(cls.source->line(r_expr.range.first)) + ":" + outermost()->name + "()";
-			r_expr.args.push_back(synthetic(ExprKind::StringLiteral, where, r_expr.range));
-			refer(r_expr.name_token, engine_id("@GlobalScope", "print_debug"));
-			// Calls print(), as written nowhere.
-			r_expr.text = "print";
-			r_expr.name_token = NO_TOKEN;
-		}
-		if (const builtin::Utility *utility = builtin::find_utility(r_expr.text)) {
-			return check_utility(r_expr, *utility, p_expected);
-		}
-		if (const builtin::Class *type = builtin::find_class(name)) {
-			return check_constructor(r_expr, *type);
-		}
-		if (name == "preload") {
-			return check_preload(r_expr);
-		}
-		if (name == "range") {
-			return check_range(r_expr);
-		}
-		r_expr.language = language_function(LanguageFunction::Of::GDScript, name);
-		if (r_expr.language) {
-			return r_expr.language->id == LanguageFunction::Id::IsInstanceOf ? check_is_instance_of(r_expr) : check_gdscript_utility(r_expr);
-		}
-		// What Godot's documentation says to use instead
-		// (modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269; ed1daf0).
-		static const std::pair<const char *, const char *> deprecated[] = {
-			{ "Color8", "Color.from_rgba8()" },
-			{ "convert", "type_convert()" },
-			{ "dict_to_inst", "JSON.to_native() or Object.get_property_list()" },
-			{ "inst_to_dict", "JSON.from_native() or Object.get_property_list()" },
-			{ "type_exists", "ClassDB.class_exists()" },
-		};
-		for (const auto &[old, instead] : deprecated) {
-			if (name == old) {
-				return fail_call(r_expr, name + "() is deprecated in GDScript and left out of this language; use " + instead + " instead.");
-			}
-		}
-		if (name == "load" && engine.is_singleton("ResourceLoader")) {
-			// GDScript's load() is ResourceLoader.load(), whose result may be
-			// None (spec §7.4, §10.2), but of a literal path as preload().
-			on_resource_loader(r_expr);
-			const Type result = check_call(r_expr);
-			const std::optional<Type> loaded = result.is_error() ? std::nullopt : literal_load(r_expr);
-			return loaded ? set(r_expr, *loaded) : result;
-		}
-	}
-
 	return fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
 }
 
-// Whether `p_name(...)` here calls the engine's utility function, as a fix
-// that writes it means to; a function of the class may take the name.
-bool Checker::calls_utility(const std::string &p_name) {
-	const std::unique_ptr<Expr> probe = synthetic(ExprKind::Call, p_name, TokenRange());
-	const Tentative tried(*this);
-	type_call(*probe, Type::of(TypeKind::Error));
-	return probe->target == Target::Utility;
+// A direct call of a built-in type's constructor, of preload(), a keyword in
+// GDScript, or of a utility function of GDScript or the engine. A method of
+// the name does not take its place (spec §2.6), as in GDScript
+// (modules/gdscript/gdscript_analyzer.cpp:3279-3280, 3451, 3502, 3568; ed1daf0).
+// Nullopt for any other name.
+std::optional<Type> Checker::type_utility_call(Expr &r_expr, const Type &p_expected) {
+	const std::string &name = r_expr.text;
+	if (name == "print_debug" && outermost()) {
+		// GDScript's own: print() of the arguments and where it is called
+		// (modules/gdscript/gdscript_utility_functions.cpp:349-362), which is
+		// known here.
+		const std::string where = "\n   At: " + options.path + ":" + std::to_string(cls.source->line(r_expr.range.first)) + ":" + outermost()->name + "()";
+		r_expr.args.push_back(synthetic(ExprKind::StringLiteral, where, r_expr.range));
+		refer(r_expr.name_token, engine_id("@GlobalScope", "print_debug"));
+		// Calls print(), as written nowhere.
+		r_expr.text = "print";
+		r_expr.name_token = NO_TOKEN;
+	}
+	if (const builtin::Utility *utility = builtin::find_utility(name)) {
+		return check_utility(r_expr, *utility, p_expected);
+	}
+	if (const builtin::Class *type = builtin::find_class(name)) {
+		return check_constructor(r_expr, *type);
+	}
+	if (name == "preload") {
+		return check_preload(r_expr);
+	}
+	if (name == "range") {
+		return check_range(r_expr);
+	}
+	r_expr.language = language_function(LanguageFunction::Of::GDScript, name);
+	if (r_expr.language) {
+		return r_expr.language->id == LanguageFunction::Id::IsInstanceOf ? check_is_instance_of(r_expr) : check_gdscript_utility(r_expr);
+	}
+	// What Godot's documentation says to use instead
+	// (modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269; ed1daf0).
+	static const std::pair<const char *, const char *> deprecated[] = {
+		{ "Color8", "Color.from_rgba8()" },
+		{ "convert", "type_convert()" },
+		{ "dict_to_inst", "JSON.to_native() or Object.get_property_list()" },
+		{ "inst_to_dict", "JSON.from_native() or Object.get_property_list()" },
+		{ "type_exists", "ClassDB.class_exists()" },
+	};
+	for (const auto &[old, instead] : deprecated) {
+		if (name == old) {
+			return fail_call(r_expr, name + "() is deprecated in GDScript and left out of this language; use " + instead + " instead.");
+		}
+	}
+	if (name == "load" && engine.is_singleton("ResourceLoader")) {
+		// GDScript's load() is ResourceLoader.load(), whose result may be
+		// None (spec §7.4, §10.2), but of a literal path as preload().
+		on_resource_loader(r_expr);
+		const Type result = check_call(r_expr);
+		const std::optional<Type> loaded = result.is_error() ? std::nullopt : literal_load(r_expr);
+		return loaded ? set(r_expr, *loaded) : result;
+	}
+	return std::nullopt;
+}
+
+// After a direct call of a utility function failed with the errors from
+// `p_first` on: the method of the name, where a receiver reaches one that
+// the call checks with. The first error says so, with the fix that writes
+// the receiver (spec §2.6).
+void Checker::point_to_method(Expr &r_call, size_t p_first) {
+	// Completion shows no errors, and checking again would complete again. A
+	// call that its check rewrote, as is_instance_of() and char(), is left as
+	// reported.
+	if (completion || r_call.kind != ExprKind::Call || r_call.name_token == NO_TOKEN) {
+		return;
+	}
+	const std::string &name = r_call.text;
+	const auto named = [](const ClassDecl &p_decl) { return p_decl.name.empty() ? p_decl.class_name : p_decl.name; };
+	const Checker *around = class_around(name);
+	Expr probe;
+	probe.kind = ExprKind::Call;
+	probe.text = name;
+	probe.range = r_call.range;
+	probe.name_token = r_call.name_token;
+	probe.args = std::move(r_call.args);
+	// The class, the struct or the class around it where there is no instance.
+	for (const std::string &receiver : { std::string("self"), structure ? structure->name : std::string(), named(cls), around ? named(around->cls) : std::string() }) {
+		if (receiver.empty()) {
+			continue;
+		}
+		probe.base = receiver == "self" ? synthetic(ExprKind::Self, std::string(), r_call.range) : synthetic(ExprKind::Name, receiver, r_call.range);
+		Tentative tried(*this);
+		const bool checks = !type_call(probe, Type::of(TypeKind::Error)).is_error() && tried.clean();
+		tried.end(false);
+		if (checks) {
+			const std::string method = receiver + "." + name;
+			errors[p_first].message += " A direct call of " + name + "() calls the utility function; call the method as " + method + "().";
+			errors[p_first].fixes.push_back(writing({ { { r_call.name_token, r_call.name_token }, method } }, FixKind::Receiver));
+			break;
+		}
+	}
+	r_call.args = std::move(probe.args);
 }
 
 // A call on a base other than self in a class's function: a method of

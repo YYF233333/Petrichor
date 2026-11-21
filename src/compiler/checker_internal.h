@@ -1029,7 +1029,8 @@ class Checker : public ClassRelation {
 	bool split_members(Expr &r_call);
 	void check_member_arguments(Expr &r_call, const Type &p_made, bool p_instantiate, const Scene *p_scene = nullptr);
 	Type type_call(Expr &r_expr, const Type &p_expected);
-	bool calls_utility(const std::string &p_name);
+	std::optional<Type> type_utility_call(Expr &r_expr, const Type &p_expected);
+	void point_to_method(Expr &r_call, size_t p_first);
 	Type type_method_call(Expr &r_expr, const Type &p_expected);
 	Type check_range(Expr &r_expr);
 	Type check_gdscript_utility(Expr &r_expr);

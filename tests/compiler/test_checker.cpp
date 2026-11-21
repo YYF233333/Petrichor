@@ -254,6 +254,12 @@ TEST_CASE("GDScript's own functions") {
 	CHECK(type_of("get_stack()") == "Array[Dictionary]");
 	CHECK(has_error(in_function("var n := len(3)"), "len() takes a String, a StringName, an Array, a Dictionary or a packed array, not int."));
 	CHECK(has_error(in_function("var c := Color8(1, 2, 3)"), "use Color.from_rgba8() instead"));
+	// A direct call of the name is not the method of the class; its fix writes the receiver.
+	const std::string own = "func lerp(from: float, weight: float) -> float:\n\treturn from * weight\n\nfunc f() -> void:";
+	CHECK(fixed(in_function("var x := lerp(1.0, 0.5)", own), "Write self.lerp") == in_function("var x := self.lerp(1.0, 0.5)", own));
+	CHECK(has_error(in_function("var x := lerp(1.0, 0.5)", own), "Function \"lerp()\" takes 3 argument(s). A direct call of lerp() calls the utility function; call the method as self.lerp()."));
+	const std::string mover = "class_name Mover\nextends Node\n\nstatic func convert(n: int) -> int:\n\treturn n\n\nstatic func f() -> void:\n\tprint(convert(1))\n";
+	CHECK(contains(messages(compile_in(mover, FakeProject())), "use type_convert() instead. A direct call of convert() calls the utility function; call the method as Mover.convert()."));
 	// As `v is T`, which narrows.
 	CHECK(errors_of(in_function("var n: Node = Node.new()\nif is_instance_of(n, Node3D):\n\tvar m: Node3D = n")).empty());
 	CHECK(type_of("is_instance_of(v, TYPE_INT)", "var v: Variant = 1") == "bool");
@@ -391,6 +397,7 @@ TEST_CASE("static functions have no instance") {
 	CHECK(has_error(head + "static func g() -> int:\n\treturn hp\n", "\"hp\" belongs to an instance, which the static function \"g()\" does not have."));
 	CHECK(has_error(head + "static func g():\n\tinstance_only()\n", "\"instance_only()\" belongs to an instance"));
 	CHECK(has_error(head + "static func g():\n\tqueue_free()\n", "\"queue_free()\" belongs to an instance"));
+	CHECK(has_error(head + "static func g() -> int:\n\treturn self.twice(2)\n", "\"self\" belongs to an instance"));
 	CHECK(has_error("extends Node\n\nstatic func _ready():\n\tpass\n", "cannot be static"));
 }
 
