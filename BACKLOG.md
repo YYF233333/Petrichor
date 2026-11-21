@@ -39,6 +39,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - a method's parameters and results have their native class, as the engine's generator drops the script class.
 - An assignment inside a branch forgets the `None` narrowing of every level, the outer ones and sibling branches included (`Checker::forget()`). An `if` keeps one branch's narrowing only when the other must leave. So legal code that relies on narrowing after branches meet can be refused. The fix keeps the outer state per branch and intersects it where they meet.
 - Whether GDScript should see a `pub` function's containers whose elements exist only in this language (spec §3.14). Overrides of engine virtuals returning `Variant` and `pub` static variables do not apply that rule now. A foreign element is a program error when read, with no memory problem.
+- In an inner class, a bare value naming an outer class's instance function is refused for want of an outer object. That holds even when the inner class's engine base has a method of the name. Bare-name resolution looks up engine members first (spec §4.1), and GDScript takes the engine method.
 - A script without a path cannot take a method of its own struct as a value. The value names its class by the script's path. The verifier then rejects the module as an internal compiler error (`src/compiler/lower.cpp`, `struct_method_call`). A script made at run time in the editor, as by `PetScript.new()`, has no path.
 
 ## Runtime
