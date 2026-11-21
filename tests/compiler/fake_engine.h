@@ -40,6 +40,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "AudioStream", "Resource" },
 		{ "AudioStreamPlayer", "Node" },
 		{ "Texture2D", "Resource" },
+		{ "CompressedTexture2D", "Texture2D" },
 		{ "PackedScene", "Resource" },
 		{ "SceneTree", "Object" },
 		{ "Viewport", "Node" },

@@ -380,6 +380,8 @@ TEST_CASE("instantiate() of a scene known statically takes the exports it does n
 	enemy.nodes = { { ".", "Node3D", "res://enemy.pet" } };
 	compiler::SceneValue path;
 	path.type = "NodePath";
+	path.text = ".";
+	path.to_nodes = true;
 	enemy.nodes[0].properties = { { "camera", path } };
 	project.scenes = { enemy };
 	const auto errors = [&](const std::string &p_body) {

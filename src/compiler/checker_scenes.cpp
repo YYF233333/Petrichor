@@ -972,13 +972,12 @@ void Checker::check_parent_scenes() {
 }
 
 // The keys and values that the scene stores for this class's exports: each
-// key as a reference (architecture §2.1), the values of exported structs
-// and enums with payloads as the entry check decodes them (spec §4.3), and
-// exported scenes, which may leave to instantiate(...) only what
-// PackedScene[T] asks for (§7.4), on the nodes with the class, on the
-// instances of scenes whose root has it, on the nodes with it inside
-// instanced scenes that the scene changes, and on the resources with it
-// that the scene or resource file holds.
+// key as a reference (architecture §2.1), each value as the engine writes it
+// into the member (spec §4.3), and exported scenes, which may leave to
+// instantiate(...) only what PackedScene[T] asks for (§7.4). On the nodes
+// with the class, on the instances of scenes whose root has it, on the nodes
+// with it inside instanced scenes that the scene changes, and on the
+// resources with it that the scene or resource file holds.
 void Checker::check_stored_exports() {
 	std::vector<const VarDecl *> exports;
 	for (const VarDecl &member : cls.members) {
@@ -1006,27 +1005,33 @@ void Checker::check_stored_exports() {
 			}
 		};
 		for (const VarDecl *member : exports) {
-			const TypeKind kind = member->type.unwrapped().kind;
-			for (const auto &[name, value] : p_properties) {
-				if (name != member->name) {
+			for (const auto &[name, stored] : p_properties) {
+				if (name != member->name || member->type.is_error()) {
 					continue;
 				}
 				refer_property(name, script_id(options.path, member->name), {});
 				const TokenRange at{ member->name_token, member->name_token };
-				if (is_typed_scene(member->type)) {
-					const std::optional<Scene> scene = is_scene_file(value.path) ? options.project->scene(value.path) : std::nullopt;
+				if (is_typed_scene(member->type) && stored.class_name == "PackedScene") {
+					const std::optional<Scene> scene = is_scene_file(stored.path) ? options.project->scene(stored.path) : std::nullopt;
 					const std::string unfit = scene ? unfit_scene(*scene, member->type) : std::string();
 					if (!unfit.empty()) {
 						error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + scene->path + ", which " + unfit);
 					}
 					continue;
 				}
-				if (kind != TypeKind::Struct && kind != TypeKind::PayloadEnum) {
+				// The check of a missing value reports it (spec §7.5).
+				if (stored.type == "Nil" && member->must_assign) {
 					continue;
 				}
-				const std::string why = undecodable(member->type, value, std::string(), {}, [&](const DeclId &p_target, const std::vector<int> &p_path) { refer_property(name, p_target, p_path); });
+				const std::optional<SceneValue> value = stored.to_nodes ? with_nodes(stored, member->type, p_scene, p_node) : stored;
+				// The engine converts a container to the type of the one the
+				// member holds, which a T? does only while it is not None.
+				const bool converted = member->type.kind != TypeKind::Option || (member->initializer && member->initializer->kind != ExprKind::NoneLiteral);
+				const std::string why = value ? unwritable(member->type, *value, converted, std::string(), [&](const DeclId &p_target, const std::vector<int> &p_path) { refer_property(name, p_target, p_path); }) : std::string();
 				if (!why.empty()) {
-					error_in_scene(at, p_scene, p_node, p_scene.path + ": the value stored for \"" + name + "\" of " + p_shown + " does not decode: " + why + ".");
+					error_in_scene(at, p_scene, p_node, p_scene.path + ": the value stored for \"" + name + "\" of " + p_shown + " does not fit its type: " + why + ".");
+					// A missing object, after which the game runs (spec §7.5).
+					errors.back().runs = value->type == "Nil" && member->type.kind == TypeKind::Object;
 				}
 			}
 		}
@@ -1128,6 +1133,106 @@ std::optional<bool> Checker::stored_value(const Scene &p_scene, const std::strin
 	}
 	const std::optional<Scene> inner = !instance || p_depth > 32 ? std::nullopt : options.project->scene(instance->instance);
 	return inner ? stored_value(*inner, instance->path == p_path ? std::string(".") : p_path.substr(instance->path.size() + 1), p_name, p_depth + 1) : std::nullopt;
+}
+
+// Why a value that a scene stores is not written into a member of the type,
+// as the entry check refuses it (spec §4.3, §10.1), after `p_at`, the path
+// to where it lies; "" when it is. A struct and an enum with payloads decode
+// as undecodable() says. With `p_converted`, the engine has converted a
+// container to the type first, as where the member holds one
+// (scene/resources/packed_scene.cpp:450-482; core/variant/array.cpp:217-280;
+// ed1daf0). An element then fits as the container's engine type takes it
+// (spec §3.8): an object may be null, and an int may be a whole float, which
+// converts without loss. An inner container is not converted.
+std::string Checker::unwritable(const Type &p_type, const SceneValue &p_value, bool p_converted, const std::string &p_at, const ReferStored &p_refer) {
+	if (p_type.kind == TypeKind::Option && p_value.type != "Nil") {
+		return unwritable(p_type.args[0], p_value, p_converted, p_at, p_refer);
+	}
+	if (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) {
+		return undecodable(p_type, p_value, p_at, {}, p_refer);
+	}
+	if (p_type.kind == TypeKind::Variant) {
+		return std::string();
+	}
+	const std::string at = p_at.empty() ? std::string() : p_at + ": ";
+	const std::string mismatch = at + "expected " + p_type.to_string() + ", found " + (p_value.type == "Nil" ? std::string("null") : stored_type(p_value).to_string());
+	if (is_typed_container(p_type)) {
+		const bool array = p_type.args.size() == 1;
+		if (p_value.type != (array ? "Array" : "Dictionary") || (!p_converted && !typed_as(p_value, p_type))) {
+			return mismatch;
+		}
+		const std::string where = p_at.empty() ? p_type.to_string() : p_at;
+		for (size_t i = 0; i < p_value.items.size(); i++) {
+			const bool key = !array && i % 2 == 0;
+			const Type &type = p_type.args[key || array ? 0 : 1];
+			const SceneValue &item = p_value.items[i];
+			const bool integer = item.type == "int" || (item.type == "float" && item.whole);
+			if ((type.kind == TypeKind::Object && item.type == "Nil") || ((type.kind == TypeKind::Int || type.kind == TypeKind::Enum) && integer)) {
+				continue;
+			}
+			const std::string why = unwritable(type, item, false, where + (key ? " (a key)" : "[" + std::to_string(array ? i : i / 2) + "]"), p_refer);
+			if (!why.empty()) {
+				return why;
+			}
+		}
+		return std::string();
+	}
+	if (p_type.kind == TypeKind::Enum && p_value.type == "int") {
+		const bool closed = p_type.values && !p_type.values->is_engine;
+		return closed && !p_type.values->has(p_value.integer) ? at + "expected " + p_type.to_string() + ", found " + std::to_string(p_value.integer) + ", which is none of its values" : std::string();
+	}
+	return assignable(stored_type(p_value), p_type) ? std::string() : mismatch;
+}
+
+// Whether a stored container is typed as the engine types the container
+// type: by the engine's type of the elements, or of the keys and the
+// values, and an object's class and script (spec §3.8, §10.1).
+bool Checker::typed_as(const SceneValue &p_value, const Type &p_type) const {
+	for (size_t i = 0; i < p_type.args.size(); i++) {
+		const Type &arg = p_type.args[i];
+		const SceneValue typing = i < p_value.typed.size() ? p_value.typed[i] : SceneValue{ "Nil" };
+		const bool object = arg.kind == TypeKind::Object;
+		const std::string name = object ? "Object" : arg.kind == TypeKind::Enum ? "int"
+				: arg.kind == TypeKind::Variant									? "Nil"
+																				: arg.builtin_name();
+		if (typing.type != name || (object && (typing.class_name != arg.engine_class() || (!arg.is_interface && !arg.script.empty() && !extends_script(typing.script, arg.script))))) {
+			return false;
+		}
+	}
+	return true;
+}
+
+// A value stored for nodes, a NodePath for each, as the engine sets it once
+// the scene is built: each the node it leads to from `p_from`, as a value
+// of the node's class, or null where there is none. Those of an Array, and
+// of a Dictionary the keys or the values where the member's type has nodes
+// (scene/resources/packed_scene.cpp:597-640; ed1daf0). Nullopt for one path
+// that leads out of the scene, which an element then fits as a null.
+std::optional<SceneValue> Checker::with_nodes(const SceneValue &p_value, const Type &p_type, const Scene &p_scene, const std::string &p_from) {
+	const auto node_at = [&](const std::string &p_path) -> std::optional<SceneValue> {
+		const NodeWalk walk = p_path.empty() ? NodeWalk() : walk_node_path(p_scene, p_from, p_path);
+		if (walk.leaves || (!p_path.empty() && p_path[0] == '/')) {
+			return std::nullopt;
+		}
+		if (!walk.node) {
+			return SceneValue{ "Nil" };
+		}
+		const SceneNode &node = walk.node->node;
+		return SceneValue{ "Object", node.type, node.script.empty() ? node.instance_script : node.script };
+	};
+	if (p_value.type == "NodePath") {
+		return node_at(p_value.text);
+	}
+	const Type type = p_type.unwrapped();
+	SceneValue made = p_value;
+	for (size_t i = 0; i < made.items.size(); i++) {
+		const Type *held = is_typed_container(type) && type.args.size() == 2 ? &type.args[i % 2] : nullptr;
+		const bool nodes = p_value.type == "Array" || (held && held->kind == TypeKind::Object && engine.inherits(held->engine_class(), "Node"));
+		if (nodes && made.items[i].type == "NodePath") {
+			made.items[i] = node_at(made.items[i].text).value_or(SceneValue{ "Nil" });
+		}
+	}
+	return made;
 }
 
 // Why a value that a scene stores does not decode as the type, as the
@@ -1242,10 +1347,18 @@ std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_
 }
 
 // The type of a value that a scene stores: an object of the class of its
-// script, as a node's (spec §7.1, §11.1).
+// script, as a node's (spec §7.1, §11.1), and a typed container of the
+// types of its elements.
 Type Checker::stored_type(const SceneValue &p_value) {
 	if (p_value.type == "Nil") {
 		return Type::of(TypeKind::None);
+	}
+	if (!p_value.typed.empty()) {
+		std::vector<Type> args;
+		for (const SceneValue &typing : p_value.typed) {
+			args.push_back(typing.type == "Nil" ? Type::of(TypeKind::Variant) : stored_type(typing));
+		}
+		return args.size() == 1 ? Type::array(args[0]) : Type::dictionary(args[0], args[1]);
 	}
 	if (p_value.type != "Object") {
 		return api_type(p_value.type, false);

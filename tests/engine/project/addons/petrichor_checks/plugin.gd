@@ -1433,7 +1433,7 @@ func _check_stored_exports() -> void:
 	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
 	_check(_compiles(script, script_path), "a script compiles whatever its scenes store")
 	var warnings := _scene_marks(derived)
-	_check(warnings.contains("the value stored for \"hit\" of . does not decode: editor_check_stored.pet.Hit.damage is missing."), "a scene that inherits another replaces the whole value, here without a field that has no default; the error is marked on the node of the scene that stores it: " + warnings)
+	_check(warnings.contains("the value stored for \"hit\" of . does not fit its type: editor_check_stored.pet.Hit.damage is missing."), "a scene that inherits another replaces the whole value, here without a field that has no default; the error is marked on the node of the scene that stores it: " + warnings)
 
 	await _write_after(derived, inherit % [base, '{"damage": 7}'], FileAccess.get_modified_time(derived))
 	# Saving tells the editor of a change once the frame ends

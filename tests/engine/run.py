@@ -1600,7 +1600,7 @@ def run_export_groups(godot):
         code_export, output = run(godot, "--path", str(unassigned), "--export-pack", HOST_PLATFORM, str(tmp / "unassigned.pck"))
         lacking = 'res://unassigned_export_check.tscn: Child has no value for "target", an export that must be assigned.'
         abstract = "res://unassigned_export_check.tscn: Unit has abstract_export_check.pet, which is abstract and cannot be set on a node."
-        loot = 'res://loot_export_check.tres: the value stored for "hit" of the resource does not decode: '
+        loot = 'res://loot_export_check.tres: the value stored for "hit" of the resource does not fit its type: '
         expect("export: the headless build fails on a value that a scene lacks", code != 0 and "3 script(s), 1 scene(s), 1 resource file(s), 2 with errors" in built and lacking in built, built)
         expect("export: a value that a scene lacks is an export error", code_export == 0 and lacking in output and "has errors and is left out" not in output, output)
         expect("export: the headless build and the export fail on the checks of a scene and a resource file", all(error in built and error in output for error in (abstract, loot)), built + output)

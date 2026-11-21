@@ -910,6 +910,9 @@ class Checker : public ClassRelation {
 	// Takes a field or a variant that a stored value names, and where its name
 	// lies in the value (Reference::value_path).
 	using ReferStored = std::function<void(const DeclId &, const std::vector<int> &)>;
+	std::string unwritable(const Type &p_type, const SceneValue &p_value, bool p_converted, const std::string &p_at, const ReferStored &p_refer);
+	bool typed_as(const SceneValue &p_value, const Type &p_type) const;
+	std::optional<SceneValue> with_nodes(const SceneValue &p_value, const Type &p_type, const Scene &p_scene, const std::string &p_from);
 	std::string undecodable(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::vector<int> &p_path, const ReferStored &p_refer);
 	std::string undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::vector<int> &p_path, const ReferStored &p_refer);
 	Type stored_type(const SceneValue &p_value);

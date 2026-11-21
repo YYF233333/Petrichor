@@ -19,9 +19,16 @@ struct SceneValue {
 	std::string script;
 	int64_t integer = 0; // An int, or a float that is exactly one (`whole`).
 	bool whole = false;
-	std::string text; // A String or a StringName.
+	std::string text; // A String, a StringName or a NodePath.
 	std::vector<SceneValue> items; // An Array's elements, or a Dictionary's keys and values one after another.
 	std::string path; // A resource's res:// path, such as a scene's, if it has one.
+	// The types of a typed Array's elements, or of a typed Dictionary's keys
+	// and values, each by `type`, `class_name` and `script`.
+	std::vector<SceneValue> typed;
+	// Its NodePaths stand for the nodes they lead to, which the engine sets
+	// once the scene is built (scene/resources/packed_scene.cpp:376-395,
+	// 597-640; ed1daf0).
+	bool to_nodes = false;
 
 	// The paths of the scenes it holds, itself or in its items.
 	void add_scenes(std::vector<std::string> &r_paths) const {
@@ -35,7 +42,7 @@ struct SceneValue {
 
 	bool operator==(const SceneValue &p_other) const {
 		return type == p_other.type && class_name == p_other.class_name && script == p_other.script && path == p_other.path && integer == p_other.integer && whole == p_other.whole && text == p_other.text &&
-				items == p_other.items;
+				items == p_other.items && typed == p_other.typed && to_nodes == p_other.to_nodes;
 	}
 };
 

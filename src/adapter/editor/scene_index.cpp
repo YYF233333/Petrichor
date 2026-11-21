@@ -96,6 +96,16 @@ std::string instanced_script(const Ref<SceneState> &p_state, int32_t p_index) {
 	return script ? *script : instanced_script(instance->get_state(), 0);
 }
 
+// The type of a typed container's elements or keys, as a value's.
+compiler::SceneValue typing(int64_t p_builtin, const StringName &p_class, const Variant &p_script) {
+	compiler::SceneValue typed;
+	typed.type = to_utf8(Variant::get_type_name(Variant::Type(p_builtin)));
+	typed.class_name = to_utf8(p_class);
+	const Ref<Script> script = p_script;
+	typed.script = script.is_valid() ? to_utf8(script->get_path()) : std::string();
+	return typed;
+}
+
 // A value as the checks of exports read it (spec §4.3, §7.4); a float is
 // whole as spec §10.8 says.
 compiler::SceneValue scene_value(const Variant &p_value) {
@@ -114,6 +124,7 @@ compiler::SceneValue scene_value(const Variant &p_value) {
 		}
 		case Variant::STRING:
 		case Variant::STRING_NAME:
+		case Variant::NODE_PATH:
 			value.text = to_utf8(String(p_value));
 			break;
 		case Variant::OBJECT:
@@ -127,6 +138,9 @@ compiler::SceneValue scene_value(const Variant &p_value) {
 			break;
 		case Variant::ARRAY: {
 			const Array array = p_value;
+			if (array.is_typed()) {
+				value.typed.push_back(typing(array.get_typed_builtin(), array.get_typed_class_name(), array.get_typed_script()));
+			}
 			for (int64_t i = 0; i < array.size(); i++) {
 				value.items.push_back(scene_value(array[i]));
 			}
@@ -134,6 +148,10 @@ compiler::SceneValue scene_value(const Variant &p_value) {
 		}
 		case Variant::DICTIONARY: {
 			const Dictionary dictionary = p_value;
+			if (dictionary.is_typed()) {
+				value.typed.push_back(typing(dictionary.get_typed_key_builtin(), dictionary.get_typed_key_class_name(), dictionary.get_typed_key_script()));
+				value.typed.push_back(typing(dictionary.get_typed_value_builtin(), dictionary.get_typed_value_class_name(), dictionary.get_typed_value_script()));
+			}
 			const Array keys = dictionary.keys();
 			for (int64_t i = 0; i < keys.size(); i++) {
 				value.items.push_back(scene_value(keys[i]));
@@ -147,7 +165,7 @@ compiler::SceneValue scene_value(const Variant &p_value) {
 	return value;
 }
 
-compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state, std::set<std::string> &r_files, std::vector<compiler::Scene> &r_embedded);
+compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene, std::set<std::string> &r_files, std::vector<compiler::Scene> &r_embedded);
 
 // The resources of the file at `p_file` that `p_value` holds at any depth: its
 // own and its sub-resources, but not those of other files, which are checked
@@ -181,9 +199,9 @@ void read_resources(const String &p_file, const Variant &p_value, compiler::Scen
 	if (!resource || (path != file && !path.begins_with(file + String("::"))) || !r_seen.insert(resource->get_instance_id()).second) {
 		return;
 	}
-	if (const PackedScene *scene = Object::cast_to<PackedScene>(resource)) {
+	if (const Ref<PackedScene> scene = Ref<PackedScene>(Object::cast_to<PackedScene>(resource)); scene.is_valid()) {
 		if (scene->get_state().is_valid()) {
-			r_embedded.push_back(read_scene(path, scene->get_state(), r_files, r_embedded));
+			r_embedded.push_back(read_scene(path, scene, r_files, r_embedded));
 		}
 		return;
 	}
@@ -224,13 +242,33 @@ void read_resources(const String &p_file, const Variant &p_value, compiler::Scen
 	}
 }
 
+// Whether each property of each node holds nodes as NodePaths, by the
+// indices of the node and the property, which the scene marks in the bundle
+// it is saved as (scene/resources/packed_scene.cpp:1002, 1811-1831;
+// packed_scene.h:126; ed1daf0).
+std::vector<std::vector<bool>> node_references(const Ref<PackedScene> &p_scene) {
+	const Dictionary bundle = p_scene->get("_bundled");
+	const PackedInt32Array nodes = bundle.get("nodes", PackedInt32Array());
+	std::vector<std::vector<bool>> references(size_t(int64_t(bundle.get("node_count", 0))));
+	int64_t at = 0;
+	for (std::vector<bool> &properties : references) {
+		at += 5; // Its parent, owner, type, name and instance.
+		for (int32_t count = nodes[at++]; count > 0; count--, at += 2) {
+			properties.push_back((nodes[at] & (1 << 30)) != 0);
+		}
+		at += 1 + nodes[at]; // Its groups.
+	}
+	return references;
+}
+
 // What the scene itself stores for the properties of the node.
-std::vector<std::pair<std::string, compiler::SceneValue>> stored_properties(const Ref<SceneState> &p_state, int32_t p_index) {
+std::vector<std::pair<std::string, compiler::SceneValue>> stored_properties(const Ref<SceneState> &p_state, int32_t p_index, const std::vector<bool> &p_references) {
 	std::vector<std::pair<std::string, compiler::SceneValue>> properties;
 	for (int32_t p = 0; p < p_state->get_node_property_count(p_index); p++) {
 		const StringName name = p_state->get_node_property_name(p_index, p);
 		if (name != StringName("script")) {
 			properties.emplace_back(to_utf8(name), scene_value(p_state->get_node_property_value(p_index, p)));
+			properties.back().second.to_nodes = p_references[p];
 		}
 	}
 	return properties;
@@ -360,10 +398,11 @@ void instanced_scenes(const Ref<SceneState> &p_state, std::set<std::string> &r_p
 // An inherited scene stores only the nodes it adds or changes and the
 // connections it adds; the rest are in its base (scene/resources/packed_scene.cpp:1483-1490,
 // 1888-1894, 1912-1928; ed1daf0). The scenes it embeds go to `r_embedded`.
-compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state, std::set<std::string> &r_files, std::vector<compiler::Scene> &r_embedded) {
-	const Ref<SceneState> base = p_state->get_base_scene_state();
+compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene, std::set<std::string> &r_files, std::vector<compiler::Scene> &r_embedded) {
+	const Ref<SceneState> state = p_scene->get_state();
+	const Ref<PackedScene> base = state->get_base_scene_state().is_valid() ? state->get_node_instance(0) : Ref<PackedScene>();
 	std::vector<compiler::Scene> based; // The base's own.
-	compiler::Scene scene = base.is_valid() ? read_scene(p_state->get_node_instance(0)->get_path(), base, r_files, based) : compiler::Scene();
+	compiler::Scene scene = base.is_valid() ? read_scene(base->get_path(), base, r_files, based) : compiler::Scene();
 	scene.base = base.is_valid() ? scene.path : std::string();
 	scene.path = to_utf8(p_path);
 	// The base stores them, and the check reads them there.
@@ -372,13 +411,14 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state,
 	}
 	scene.resources.clear();
 	std::set<uint64_t> seen;
-	for (int32_t i = 0; i < p_state->get_node_count(); i++) {
-		for (int32_t p = 0; p < p_state->get_node_property_count(i); p++) {
-			read_resources(p_path, p_state->get_node_property_value(i, p), scene, r_files, seen, r_embedded);
+	const std::vector<std::vector<bool>> references = node_references(p_scene);
+	for (int32_t i = 0; i < state->get_node_count(); i++) {
+		for (int32_t p = 0; p < state->get_node_property_count(i); p++) {
+			read_resources(p_path, state->get_node_property_value(i, p), scene, r_files, seen, r_embedded);
 		}
-		read_named_members(p_state, i, scene, r_files);
-		const std::string path = node_path(p_state->get_node_path(i));
-		const std::optional<std::string> script = attached_script(p_state, i);
+		read_named_members(state, i, scene, r_files);
+		const std::string path = node_path(state->get_node_path(i));
+		const std::optional<std::string> script = attached_script(state, i);
 		const auto inherited = std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const compiler::SceneNode &p_node) { return p_node.path == path; });
 		// For a script of this language, whose exports the check reads, and for
 		// a change of an instanced scene's node, whose script that scene gives.
@@ -386,7 +426,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state,
 		const auto store = [&](compiler::SceneNode &r_node) {
 			const std::string &attached = r_node.script.empty() ? r_node.instance_script : r_node.script;
 			const bool change = r_node.type.empty() && !r_node.is_instance;
-			r_node.properties = stored_properties(p_state, i);
+			r_node.properties = stored_properties(state, i, references[i]);
 			if (!change && to_godot(attached).get_extension() != "pet") {
 				r_node.properties.erase(std::remove_if(r_node.properties.begin(), r_node.properties.end(), [](const auto &p_property) {
 					std::vector<std::string> scenes;
@@ -401,7 +441,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state,
 				inherited->script = *script;
 				inherited->instance_script.clear();
 			}
-			const Variant unique = node_property(p_state, i, "unique_name_in_owner");
+			const Variant unique = node_property(state, i, "unique_name_in_owner");
 			if (unique.get_type() == Variant::BOOL) {
 				inherited->unique = unique;
 			}
@@ -410,28 +450,28 @@ compiler::Scene read_scene(const String &p_path, const Ref<SceneState> &p_state,
 		}
 		compiler::SceneNode node;
 		node.path = path;
-		node.type = to_utf8(node_type(p_state, i));
-		node.is_instance = p_state->get_node_instance(i).is_valid();
-		node.instance = node.is_instance ? to_utf8(p_state->get_node_instance(i)->get_path()) : std::string();
+		node.type = to_utf8(node_type(state, i));
+		node.is_instance = state->get_node_instance(i).is_valid();
+		node.instance = node.is_instance ? to_utf8(state->get_node_instance(i)->get_path()) : std::string();
 		node.script = script.value_or(std::string());
 		// A node of an instanced scene that this scene only changes has the
 		// instance's root as its owner, and its unique name is that root's
 		// (scene/resources/packed_scene.cpp:567-573, 1888-1894; ed1daf0).
-		node.unique = (node.is_instance || !p_state->get_node_type(i).is_empty()) && bool(node_property(p_state, i, "unique_name_in_owner"));
+		node.unique = (node.is_instance || !state->get_node_type(i).is_empty()) && bool(node_property(state, i, "unique_name_in_owner"));
 		if (node.is_instance && !script) {
-			node.instance_script = instanced_script(p_state, i);
+			node.instance_script = instanced_script(state, i);
 		}
 		store(node);
 		scene.nodes.push_back(node);
 	}
-	for (int32_t i = 0; i < p_state->get_connection_count(); i++) {
+	for (int32_t i = 0; i < state->get_connection_count(); i++) {
 		compiler::SceneConnection connection;
-		connection.signal = to_utf8(p_state->get_connection_signal(i));
-		connection.source = node_path(p_state->get_connection_source(i));
-		connection.target = node_path(p_state->get_connection_target(i));
-		connection.method = to_utf8(p_state->get_connection_method(i));
-		connection.binds = int(p_state->get_connection_binds(i).size());
-		connection.unbinds = int(p_state->get_connection_unbinds(i));
+		connection.signal = to_utf8(state->get_connection_signal(i));
+		connection.source = node_path(state->get_connection_source(i));
+		connection.target = node_path(state->get_connection_target(i));
+		connection.method = to_utf8(state->get_connection_method(i));
+		connection.binds = int(state->get_connection_binds(i).size());
+		connection.unbinds = int(state->get_connection_unbinds(i));
 		connection.file = scene.path;
 		scene.connections.push_back(connection);
 	}
@@ -544,7 +584,7 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	if (extension == "tscn" || extension == "scn") {
 		const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
 		if (packed.is_valid() && packed->get_state().is_valid()) {
-			entry->scene = read_scene(path, packed->get_state(), files, entry->embedded);
+			entry->scene = read_scene(path, packed, files, entry->embedded);
 			instanced_scenes(packed->get_state(), files);
 		}
 	} else {
@@ -1019,7 +1059,7 @@ void pack_open_scenes() {
 	for (const auto &[path, scene] : unsaved_scenes()) {
 		std::set<std::string> files;
 		std::vector<compiler::Scene> embedded;
-		open.set_scene(path, read_scene(to_godot(path), scene->get_state(), files, embedded));
+		open.set_scene(path, read_scene(to_godot(path), scene, files, embedded));
 		packed.insert(path);
 		for (const compiler::Scene &each : embedded) {
 			packed.insert(each.path);

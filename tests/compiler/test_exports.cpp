@@ -149,6 +149,8 @@ TEST_CASE("an export that must be assigned gets a value from a scene the node is
 	const char *source = "extends Node3D\n@export pub var player: Node3D\n";
 	compiler::SceneValue path;
 	path.type = "NodePath";
+	path.text = ".";
+	path.to_nodes = true;
 	compiler::SceneValue null;
 	null.type = "Nil";
 	FakeProject project;
@@ -408,15 +410,15 @@ TEST_CASE("the values that scenes store for an exported struct or enum with payl
 	CHECK(errors("order", entries({ { "$variant", text("MOVE") }, { "target", of("Vector3i") } })).empty());
 	// One without a default may not, as when it was added after the scene.
 	const compiler::CompileResult missing = stored("hit", entries({ { "crit", of("bool") } }));
-	CHECK(contains(messages(missing), "res://enemy.tscn: the value stored for \"hit\" of . does not decode: Loadout.Hit.damage is missing."));
+	CHECK(contains(messages(missing), "res://enemy.tscn: the value stored for \"hit\" of . does not fit its type: Loadout.Hit.damage is missing."));
 	REQUIRE(!missing.errors.empty());
 	CHECK((missing.errors[0].scene == "res://enemy.tscn" && missing.errors[0].node == "."));
 	CHECK(contains(errors("hit", entries({ { "damage", text("5") } })), "Loadout.Hit.damage: expected int, found String."));
 	CHECK(contains(errors("hit", entries({ { "damage", of("int", 1) }, { "tags", Value{ "Array", "", "", 0, false, "", { of("int", 2) } } } })), "Loadout.Hit.tags[0]: expected String, found int."));
 	CHECK(contains(errors("order", entries({ { "$variant", text("RUN") } })), "Loadout.Order: expected Loadout.Order, found a Dictionary whose \"$variant\" names none of its variants."));
 	CHECK(contains(errors("order", entries({ { "$variant", text("MOVE") } })), "Loadout.Order.MOVE.target is missing."));
-	CHECK(contains(errors("order", of("int", 1)), "does not decode: expected Loadout.Order, found int."));
-	CHECK(contains(messages(stored("hit", entries({ { "crit", of("bool") } }), true)), "the value stored for \"hit\" of Enemy does not decode: Loadout.Hit.damage is missing."));
+	CHECK(contains(errors("order", of("int", 1)), "does not fit its type: expected Loadout.Order, found int."));
+	CHECK(contains(messages(stored("hit", entries({ { "crit", of("bool") } }), true)), "the value stored for \"hit\" of Enemy does not fit its type: Loadout.Hit.damage is missing."));
 	// Or on a node with it inside an instanced scene, which the scene changes.
 	FakeProject project;
 	compiler::Scene enemy;
@@ -430,8 +432,71 @@ TEST_CASE("the values that scenes store for an exported struct or enum with payl
 	project.scenes = { enemy, level };
 	const compiler::CompileResult changed = check_scenes_in(source, project);
 	REQUIRE(changed.errors.size() == 1);
-	CHECK(changed.errors[0].message == "res://level.tscn: the value stored for \"hit\" of Enemy/Brain does not decode: Loadout.Hit.damage is missing.");
+	CHECK(changed.errors[0].message == "res://level.tscn: the value stored for \"hit\" of Enemy/Brain does not fit its type: Loadout.Hit.damage is missing.");
 	CHECK((changed.errors[0].scene == "res://level.tscn" && changed.errors[0].node == "Enemy/Brain"));
+}
+
+// As instance_set() writes them: what the entry check takes, after the
+// engine converts a container to the type of the one the member holds
+// (scene/resources/packed_scene.cpp:450-482, 597-640; ed1daf0).
+TEST_CASE("the value stored for any export is checked as the engine writes it into the member (spec §4.3, §3.8)") {
+	const std::string source = "extends Node\n\n@export pub var cooldown := 1.0\n@export pub var label: String\n@export pub var shots: int\n@export pub var ids: Array[int]\n"
+							   "@export pub var rows: Array[Array[int]]\n@export pub var later: Array[int]?\n@export pub var target: Node2D\n";
+	using Value = compiler::SceneValue;
+	const auto of = [](const std::string &p_type, const std::vector<Value> &p_items = {}, const std::string &p_typed = std::string()) {
+		Value value{ p_type };
+		value.items = p_items;
+		value.whole = p_type == "float";
+		if (!p_typed.empty()) {
+			value.typed = { Value{ p_typed } };
+		}
+		return value;
+	};
+	const auto path = [](const std::string &p_path, bool p_to_nodes) {
+		Value value{ "NodePath" };
+		value.text = p_path;
+		value.to_nodes = p_to_nodes;
+		return value;
+	};
+	const auto checked = [&](const std::string &p_name, const Value &p_value) {
+		FakeProject project;
+		compiler::Scene scene;
+		scene.path = "res://turret.tscn";
+		scene.nodes = { { ".", "Node", "res://test.pet" }, { "Gun", "Node2D" }, { "Label", "Label" } };
+		scene.nodes[0].properties = { { p_name, p_value } };
+		project.scenes = { scene };
+		return check_scenes_in(source, project);
+	};
+	const auto errors = [&](const std::string &p_name, const Value &p_value) { return messages(checked(p_name, p_value)); };
+	CHECK(contains(errors("cooldown", of("String")), "res://turret.tscn: the value stored for \"cooldown\" of . does not fit its type: expected float, found String."));
+	// As the entry check converts (spec §3.14); an int not from a float.
+	CHECK(errors("cooldown", of("int")).empty());
+	CHECK(errors("label", of("StringName")).empty());
+	CHECK(contains(errors("shots", of("float")), "expected int, found float"));
+	// The engine converts the elements of a container, which fit as in it.
+	CHECK(errors("ids", of("Array", { of("int"), of("float") })).empty());
+	CHECK(errors("ids", of("Array", { of("float") }, "float")).empty());
+	CHECK(contains(errors("ids", of("Array", { of("String") })), "Array[int][0]: expected int, found String"));
+	// Not an inner one, nor one for a T? that is None.
+	CHECK(contains(errors("rows", of("Array", { of("Array", { of("int") }) }, "Array")), "Array[Array[int]][0]: expected Array[int], found Array"));
+	CHECK(errors("rows", of("Array", { of("Array", { of("int") }, "int") }, "Array")).empty());
+	CHECK(contains(errors("later", of("Array", { of("int") })), "expected Array[int], found Array"));
+	CHECK(errors("later", of("Nil")).empty());
+	// A node by the path the scene stores for it.
+	CHECK(errors("target", path("Gun", true)).empty());
+	CHECK(contains(errors("target", path("Label", true)), "expected Node2D, found Label"));
+	CHECK(contains(errors("target", path("Gun", false)), "expected Node2D, found NodePath"));
+	// One that is missing, after which the game runs (spec §7.5).
+	const compiler::CompileResult missing = checked("target", path("Nowhere", true));
+	CHECK(contains(messages(missing), "expected Node2D, found null"));
+	CHECK(missing.ok());
+	// A resource file's.
+	FakeProject held;
+	compiler::Scene file;
+	file.path = "res://turret.tres";
+	file.resources = { { file.path, "res://test.pet", { { "cooldown", of("String") } } } };
+	held.scenes = { file };
+	CHECK(contains(messages(check_scenes_in("extends Resource\n\n@export pub var cooldown := 1.0\n", held)), "res://turret.tres: the value stored for \"cooldown\" of the resource does not fit its type"));
 }
 
 TEST_CASE("a resource file and a scene check what their resources with the class store, as on nodes (spec §4.3, §7.4)") {
@@ -462,10 +527,10 @@ TEST_CASE("a resource file and a scene check what their resources with the class
 	project.scenes = { enemy, loadout, level };
 	const compiler::CompileResult checked = check_scenes_in(source, project);
 	const std::string errors = messages(checked);
-	CHECK(contains(errors, "res://loadout.tres: the value stored for \"hit\" of the resource does not decode: Loadout.Hit.damage: expected int, found String."));
-	CHECK(contains(errors, "res://loadout.tres: the value stored for \"order\" of the resource does not decode: Loadout.Order: expected Loadout.Order, found a Dictionary whose \"$variant\" names none of its variants."));
+	CHECK(contains(errors, "res://loadout.tres: the value stored for \"hit\" of the resource does not fit its type: Loadout.Hit.damage: expected int, found String."));
+	CHECK(contains(errors, "res://loadout.tres: the value stored for \"order\" of the resource does not fit its type: Loadout.Order: expected Loadout.Order, found a Dictionary whose \"$variant\" names none of its variants."));
 	CHECK(contains(errors, "res://loadout.tres: \"model\" of the resource holds res://enemy.tscn, which leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it."));
-	CHECK(contains(errors, "res://level.tscn: the value stored for \"hit\" of the resource Resource_a1 does not decode"));
+	CHECK(contains(errors, "res://level.tscn: the value stored for \"hit\" of the resource Resource_a1 does not fit its type"));
 	REQUIRE(!checked.errors.empty());
 	// Marked on the file, which has no node to mark.
 	CHECK((checked.errors[0].scene == "res://loadout.tres" && checked.errors[0].node.empty()));
