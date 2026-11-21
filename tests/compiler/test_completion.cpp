@@ -159,6 +159,16 @@ static func make() -> void:
 	CHECK(offers(complete(in_static), { "LIMIT", "make", "-speed", "-position", "-f", "-self" }));
 }
 
+TEST_CASE("a method named as a utility function goes in with a receiver, as a direct call of the name calls the utility function (spec §2.6)") {
+	const std::string source = "class_name Mover\nextends RandomNumberGenerator\n\nfunc lerp(to: float) -> float:\n\treturn to\n\nstatic func clamp(n: int) -> int:\n\treturn n\n\n";
+	const std::vector<CompletionItem> items = complete(source + "func f() -> void:\n\t‸\n");
+	CHECK(find(items, "lerp")->insert == "self.lerp(");
+	CHECK(find(items, "clamp")->insert == "self.clamp(");
+	CHECK(find(items, "randi")->insert == "self.randi()");
+	CHECK(find(items, "f")->insert == "f()");
+	CHECK(find(complete(source + "static func f() -> void:\n\t‸\n"), "clamp")->insert == "Mover.clamp(");
+}
+
 TEST_CASE("keywords are offered where they can be written") {
 	const std::vector<CompletionItem> statement = complete(in_function("for i in 3:\n\tif i > 1:\n\t\tpass\n\t‸"));
 	CHECK(offers(statement, { "var", "if", "return", "break", "continue", "elif", "else", "self", "true", "-await" }));

@@ -323,6 +323,24 @@ std::optional<CompletionItem> Checker::probe(Expr &r_site, const std::string &p_
 			const int params = call ? probed_params : int(type.args.size()) - 1;
 			item.insert += params == 0 ? "()" : "(";
 		}
+		// A method whose direct call calls the utility function of its name
+		// goes in with a receiver (spec §2.6).
+		if (item.kind == CompletionKind::Function && !call && !r_site.base) {
+			const std::unique_ptr<Expr> direct = synthetic(ExprKind::Call, p_name, r_site.range);
+			const Tentative claimed(*this);
+			if (type_utility_call(*direct, Type::of(TypeKind::Error))) {
+				const std::string receiver = method_receiver(p_name, r_site.range, [&](std::unique_ptr<Expr> p_base) {
+					const std::unique_ptr<Expr> method = synthetic(ExprKind::Call, p_name, r_site.range);
+					method->base = std::move(p_base);
+					const Tentative reached(*this);
+					probing = true;
+					const bool checks = !type_call(*method, Type::of(TypeKind::Error)).is_error() && reached.clean();
+					probing = false;
+					return checks;
+				});
+				item.insert = receiver.empty() ? item.insert : receiver + "." + item.insert;
+			}
+		}
 		const bool declared = target && (target->kind == DeclId::Kind::Script || target->kind == DeclId::Kind::Engine);
 		const auto in_chain = declared ? std::find(p_chain.begin(), p_chain.end(), target->scope) : p_chain.end();
 		if (probe.target == Target::Local) {

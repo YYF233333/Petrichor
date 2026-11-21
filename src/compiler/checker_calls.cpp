@@ -1837,31 +1837,40 @@ void Checker::point_to_method(Expr &r_call, size_t p_first) {
 		return;
 	}
 	const std::string &name = r_call.text;
-	const auto named = [](const ClassDecl &p_decl) { return p_decl.name.empty() ? p_decl.class_name : p_decl.name; };
-	const Checker *around = class_around(name);
 	Expr probe;
 	probe.kind = ExprKind::Call;
 	probe.text = name;
 	probe.range = r_call.range;
 	probe.name_token = r_call.name_token;
 	probe.args = std::move(r_call.args);
-	// The class, the struct or the class around it where there is no instance.
-	for (const std::string &receiver : { std::string("self"), structure ? structure->name : std::string(), named(cls), around ? named(around->cls) : std::string() }) {
-		if (receiver.empty()) {
-			continue;
-		}
-		probe.base = receiver == "self" ? synthetic(ExprKind::Self, std::string(), r_call.range) : synthetic(ExprKind::Name, receiver, r_call.range);
+	const std::string receiver = method_receiver(name, r_call.range, [&](std::unique_ptr<Expr> p_base) {
+		probe.base = std::move(p_base);
 		Tentative tried(*this);
 		const bool checks = !type_call(probe, Type::of(TypeKind::Error)).is_error() && tried.clean();
 		tried.end(false);
-		if (checks) {
-			const std::string method = receiver + "." + name;
-			errors[p_first].message += " A direct call of " + name + "() calls the utility function; call the method as " + method + "().";
-			errors[p_first].fixes.push_back(writing({ { { r_call.name_token, r_call.name_token }, method } }, FixKind::Receiver));
-			break;
-		}
+		return checks;
+	});
+	if (!receiver.empty()) {
+		const std::string method = receiver + "." + name;
+		errors[p_first].message += " A direct call of " + name + "() calls the utility function; call the method as " + method + "().";
+		errors[p_first].fixes.push_back(writing({ { { r_call.name_token, r_call.name_token }, method } }, FixKind::Receiver));
 	}
 	r_call.args = std::move(probe.args);
+}
+
+// What reaches the method `p_name` where a direct call of the name calls
+// the utility function (spec §2.6): self, or where there is no instance the
+// struct, the class or the class around it; the first with which
+// `p_reaches` checks, "" for none.
+std::string Checker::method_receiver(const std::string &p_name, const TokenRange &p_at, const std::function<bool(std::unique_ptr<Expr>)> &p_reaches) {
+	const auto named = [](const ClassDecl &p_decl) { return p_decl.name.empty() ? p_decl.class_name : p_decl.name; };
+	const Checker *around = class_around(p_name);
+	for (const std::string &receiver : { std::string("self"), structure ? structure->name : std::string(), named(cls), around ? named(around->cls) : std::string() }) {
+		if (!receiver.empty() && p_reaches(receiver == "self" ? synthetic(ExprKind::Self, std::string(), p_at) : synthetic(ExprKind::Name, receiver, p_at))) {
+			return receiver;
+		}
+	}
+	return std::string();
 }
 
 // A call on a base other than self in a class's function: a method of

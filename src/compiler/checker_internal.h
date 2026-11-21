@@ -1031,6 +1031,7 @@ class Checker : public ClassRelation {
 	Type type_call(Expr &r_expr, const Type &p_expected);
 	std::optional<Type> type_utility_call(Expr &r_expr, const Type &p_expected);
 	void point_to_method(Expr &r_call, size_t p_first);
+	std::string method_receiver(const std::string &p_name, const TokenRange &p_at, const std::function<bool(std::unique_ptr<Expr>)> &p_reaches);
 	Type type_method_call(Expr &r_expr, const Type &p_expected);
 	Type check_range(Expr &r_expr);
 	Type check_gdscript_utility(Expr &r_expr);
