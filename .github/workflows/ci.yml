@@ -13,6 +13,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # The version the packages carry: the release being prepared.
+  VERSION: "0.2.0"
+
 defaults:
   run:
     shell: bash
@@ -218,7 +222,7 @@ jobs:
           curl -fsSL -o godot.zip "https://github.com/godotengine/godot-builds/releases/download/4.7.2-stable/Godot_v4.7.2-stable_linux.x86_64.zip"
           unzip -q godot.zip -d godot
 
-      - run: python tools/package.py libraries 0.1.1 dist --godot godot/Godot_v4.7.2-stable_linux.x86_64
+      - run: python tools/package.py libraries "$VERSION" dist --godot godot/Godot_v4.7.2-stable_linux.x86_64
         env:
           PETRICHOR_TEST_TIMEOUT: "300"
 
@@ -287,7 +291,7 @@ jobs:
           rm templates.tpz
 
       - name: Acceptance test
-        run: python tests/acceptance/run.py "${{ matrix.godot }}" templates dist/petrichor-0.1.1-addon.zip dist/petrichor-0.1.1-demo.zip
+        run: python tests/acceptance/run.py "${{ matrix.godot }}" templates "dist/petrichor-$VERSION-addon.zip" "dist/petrichor-$VERSION-demo.zip"
 
   # The release attaches it (architecture §2.4).
   vscode:
@@ -306,10 +310,10 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - run: npm run package -- 0.1.1
+      - run: npm run package -- "$VERSION"
 
       - uses: actions/upload-artifact@v4
         with:
           name: vscode
-          path: editors/vscode/petrichor-0.1.1.vsix
+          path: editors/vscode/petrichor-${{ env.VERSION }}.vsix
           if-no-files-found: error
