@@ -889,8 +889,8 @@ class LspClient:
         self.notify("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": "petrichor", "version": version, "text": text}})
 
     def initialize(self, annotations=True):
-        document = {"completion": {"completionItem": {"snippetSupport": True}}, "codeAction": {"disabledSupport": True, "resolveSupport": {"properties": ["edit"]}}}
-        workspace = {"applyEdit": True, **({"workspaceEdit": {"changeAnnotationSupport": {}}} if annotations else {})}
+        document = {"completion": {"completionItem": {"snippetSupport": True}}, "codeAction": {"disabledSupport": True, "resolveSupport": {"properties": ["edit"]}}, "rename": {"honorsChangeAnnotations": annotations}}
+        workspace = {"applyEdit": True, "workspaceEdit": {"changeAnnotationSupport": {}}}
         return self.request("initialize", {"capabilities": {"workspace": workspace, "textDocument": document}})
 
 

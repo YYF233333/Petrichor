@@ -803,7 +803,8 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		const Dictionary document = dictionary(capabilities.get("textDocument", Variant()));
 		const Dictionary files = dictionary(capabilities.get("workspace", Variant()));
 		applies_edits = files.get("applyEdit", false) == Variant(true);
-		annotates = dictionary(files.get("workspaceEdit", Variant())).get("changeAnnotationSupport", Variant()).get_type() == Variant::DICTIONARY;
+		// Of a rename's edits, which alone are annotated (LSP 3.17, RenameClientCapabilities).
+		annotates = dictionary(files.get("workspaceEdit", Variant())).get("changeAnnotationSupport", Variant()).get_type() == Variant::DICTIONARY && dictionary(document.get("rename", Variant())).get("honorsChangeAnnotations", false) == Variant(true);
 		snippets = dictionary(dictionary(document.get("completion", Variant())).get("completionItem", Variant())).get("snippetSupport", false) == Variant(true);
 		const Variant resolved = dictionary(dictionary(document.get("codeAction", Variant())).get("resolveSupport", Variant())).get("properties", Variant());
 		resolves_edits = resolved.get_type() == Variant::ARRAY && Array(resolved).has("edit");
