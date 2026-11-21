@@ -172,7 +172,7 @@ TEST_CASE("a method of an interface is found with its implementations") {
 
 TEST_CASE("a node path finds the node in its scene and every script that names it") {
 	FakeProject nodes;
-	nodes.add_script("res://player.pet", "extends Node3D\n\n\nfunc _ready():\n\tprint($Head)\n");
+	nodes.add_script("res://player.pet", "extends Node3D\n\n\nfunc _ready():\n\tprint($Head)\n\tprint(($Head))\n");
 	nodes.add_script("res://gun.pet", "extends Node3D\n\n\nfunc _ready():\n\tprint($\"../Head\")\n");
 	compiler::Scene player;
 	player.path = "res://player.tscn";
@@ -182,6 +182,7 @@ TEST_CASE("a node path finds the node in its scene and every script that names i
 			"res://player.tscn Head declaration",
 			"res://gun.pet:5:13",
 			"res://player.pet:5:9",
+			"res://player.pet:6:10",
 	});
 	CHECK(found(nodes, "res://player.pet", "Head") == expected);
 }
