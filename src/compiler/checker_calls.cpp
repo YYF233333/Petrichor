@@ -1730,7 +1730,7 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 		const FuncDecl &callee = *cls.all_functions[script->second];
 		// A static function needs no instance, but `self` does
 		// (modules/gdscript/gdscript_parser.cpp:2901; ed1daf0).
-		if ((!callee.is_static || r_expr.base) && refuse_in_static(r_expr, callee.is_static ? std::string("self") : name + "()")) {
+		if ((!callee.is_static || r_expr.base) && refuse_in_static(r_expr, callee.is_static ? std::string("self") : name + "()", callee.is_static ? name + "()" : std::string())) {
 			return fail_call(r_expr);
 		}
 		const ClassDecl &owner = declaring(cls, callee, &ClassDecl::functions);

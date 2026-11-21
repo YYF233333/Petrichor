@@ -399,6 +399,20 @@ TEST_CASE("static functions have no instance") {
 	CHECK(has_error(head + "static func g():\n\tqueue_free()\n", "\"queue_free()\" belongs to an instance"));
 	CHECK(has_error(head + "static func g() -> int:\n\treturn self.twice(2)\n", "\"self\" belongs to an instance"));
 	CHECK(has_error("extends Node\n\nstatic func _ready():\n\tpass\n", "cannot be static"));
+	// Nor any self, also where what it names needs none (spec §4.8), as in
+	// GDScript: one error, which says what to write.
+	const std::string named = "class_name Mover\n" + head + "const LIMIT := 3\n\nstatic func g() -> int:\n\t";
+	const std::pair<const char *, const char *> uses[] = {
+		{ "return self.LIMIT", "write LIMIT or Mover.LIMIT." },
+		{ "var f := self.twice\n\treturn f.call(1)", "write twice or Mover.twice." },
+		{ "return self.twice(2)", "write twice() or Mover.twice()." },
+		{ "var f := func() -> int:\n\t\treturn self.LIMIT\n\treturn f.call()", "write LIMIT or Mover.LIMIT." },
+	};
+	for (const auto &[use, written] : uses) {
+		const std::vector<std::string> found = errors_of(named + use + "\n");
+		CHECK_MESSAGE((found.size() == 1 && contains(found[0], written)), joined(found));
+	}
+	CHECK(has_error("extends Node\n\nstruct Pace:\n\tvar v: int\n\n\tstatic func make() -> int:\n\t\treturn self.v\n", "has no self"));
 }
 
 TEST_CASE("engine calls") {

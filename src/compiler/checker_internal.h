@@ -1099,7 +1099,7 @@ class Checker : public ClassRelation {
 	static std::optional<Type> argument_type(const FuncDecl &p_function, size_t p_index);
 	void untyped(ParamDecl &r_param, const std::string &p_why = std::string());
 	void check_rest(const FuncDecl &p_function);
-	bool refuse_in_static(const Expr &p_expr, const std::string &p_name);
+	bool refuse_in_static(const Expr &p_expr, const std::string &p_name, const std::string &p_member = std::string());
 	std::string function_label() const;
 	const FuncDecl *base_function(const std::string &p_name) const;
 	bool override_assignable(const Type &p_from, const Type &p_to) const;

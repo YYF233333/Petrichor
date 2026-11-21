@@ -793,8 +793,9 @@ void Checker::check_rest(const FuncDecl &p_function) {
 	}
 }
 
-// A static function has no instance (spec §4.8).
-bool Checker::refuse_in_static(const Expr &p_expr, const std::string &p_name) {
+// A static function has no instance (spec §4.8). `p_member`, written after
+// self, is written bare there or after the class's name.
+bool Checker::refuse_in_static(const Expr &p_expr, const std::string &p_name, const std::string &p_member) {
 	if (structure) {
 		error(p_expr.range, "\"" + p_name + "\" belongs to an object of " + display_name(cls, options.path) + ", which " + structure->name + " does not have: a struct's methods have no object of the class around it.");
 		return true;
@@ -810,7 +811,11 @@ bool Checker::refuse_in_static(const Expr &p_expr, const std::string &p_name) {
 		return false;
 	}
 	const FuncDecl *outer = outermost();
-	error(p_expr.range, "\"" + p_name + "\" belongs to an instance, which " + (outer ? "the static function \"" + outer->name + "()\"" : std::string("a static variable's initializer")) + " does not have.");
+	std::string message = "\"" + p_name + "\" belongs to an instance, which " + (outer ? "the static function \"" + outer->name + "()\"" : std::string("a static variable's initializer")) + " does not have";
+	if (!p_member.empty()) {
+		message += "; write " + p_member + (cls.class_name.empty() ? std::string() : " or " + cls.class_name + "." + p_member);
+	}
+	error(p_expr.range, message + ".");
 	return true;
 }
 

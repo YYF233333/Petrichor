@@ -1456,7 +1456,14 @@ Type Checker::check_engine_constant(Expr &r_expr, const std::string &p_class) {
 Type Checker::check_member_access(Expr &r_expr) {
 	Expr &base = *r_expr.base;
 	if (base.kind == ExprKind::Self && !structure) {
+		const size_t reported = errors.size();
 		if (const std::optional<Type> found = check_self_name(r_expr)) {
+			// A static function has no self, though what self.x names may need
+			// no instance (modules/gdscript/gdscript_parser.cpp:2901; ed1daf0).
+			const bool selfless = function ? function->is_static : static_initializing >= 0;
+			if (selfless && errors.size() == reported && refuse_in_static(r_expr, "self", r_expr.text)) {
+				return set(r_expr, Type::of(TypeKind::Error));
+			}
 			return *found;
 		}
 		return refuse_in_static(base, "self") ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, display_name(cls, options.path) + " has no member \"" + r_expr.text + "\".");
