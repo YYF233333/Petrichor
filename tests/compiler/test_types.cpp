@@ -285,6 +285,7 @@ TEST_CASE("T?? and Variant? do not cross the engine, at any depth of encoding (s
 	CHECK(has_error("extends Node\npub var v: Variant?\n", "The pub \"v\" has type Variant?, but the engine cannot tell its None from null."));
 	CHECK(has_error("extends Node\nsignal hit(r: Node??)\n", "The parameter \"r\" of the signal \"hit\" has type Node??"));
 	CHECK(has_error("extends Node\n\nasync func f() -> int??:\n\treturn None\n", "\"f()\" returns int??"));
+	CHECK(has_error("extends Node\n\nfunc _get(property: StringName) -> Variant?:\n\treturn None\n", "\"_get()\" returns Variant?"));
 	CHECK(has_error(head + "pub func f() -> Hit?:\n\treturn None\n", "\"f()\" returns Shots.Hit?, but the engine cannot tell the None of the int?? inside from Some(None)."));
 	CHECK(has_error(head + "signal grew(t: Tree)\n", "has type Shots.Tree, but the engine cannot tell the None of the Variant? inside from null."));
 	CHECK(has_error(head + "func f(h: Hit) -> void:\n\tvar v: Variant = h\n", "Cannot assign a value of type Shots.Hit as Variant. A Variant cannot tell the None of the int?? inside from Some(None)."));

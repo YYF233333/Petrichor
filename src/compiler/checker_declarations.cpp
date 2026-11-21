@@ -1712,7 +1712,8 @@ void Checker::check_pub_signatures() {
 
 // Types whose None the engine would lose where it sees the value (spec
 // §10.1): of pub members, constants and functions, of signals, which
-// always pass through the engine, and what coroutines return (§9.8).
+// always pass through the engine, and what overrides of engine methods and
+// coroutines return (§9.8).
 void Checker::check_engine_options() {
 	const auto check = [&](uint32_t p_token, const std::string &p_what, const Type &p_type) {
 		const std::string loss = encoding_loss(p_type, "the engine", false);
@@ -1733,7 +1734,7 @@ void Checker::check_engine_options() {
 		}
 	}
 	for (const FuncDecl &function : cls.functions) {
-		if (function.is_pub || function.is_async) {
+		if (function.is_pub || function.is_override || function.is_async) {
 			check(function.name_token, "\"" + function.name + "()\" returns", function.return_type);
 		}
 		for (size_t i = 0; function.is_pub && i < function.params.size(); i++) {
