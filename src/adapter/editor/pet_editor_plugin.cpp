@@ -692,6 +692,14 @@ void PetEditorPlugin::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_move_nodes", "scene", "moves"), &PetEditorPlugin::move_nodes);
 }
 
+static void resource_saved(const Ref<Resource> &p_resource) {
+	file_seen(to_utf8(p_resource->get_path()));
+}
+
+static void scene_saved(const String &p_path) {
+	file_seen(to_utf8(p_path));
+}
+
 void PetEditorPlugin::_enter_tree() {
 	export_plugin.instantiate();
 	add_export_plugin(export_plugin);
@@ -746,6 +754,8 @@ void PetEditorPlugin::_enter_tree() {
 	highlighter.instantiate();
 	script_editor->register_syntax_highlighter(highlighter);
 	// editor/plugins/editor_plugin.cpp:284-289 (ed1daf0).
+	connect("resource_saved", callable_mp_static(&resource_saved));
+	connect("scene_saved", callable_mp_static(&scene_saved));
 	connect("resource_saved", callable_mp(this, &PetEditorPlugin::files_changed).unbind(1));
 	connect("scene_saved", callable_mp(this, &PetEditorPlugin::files_changed).unbind(1));
 	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::files_changed));
@@ -1529,6 +1539,7 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 	// A changed script_class takes effect (editor/file_system/editor_file_system.cpp:2400-2492; ed1daf0).
 	const auto written = [&](const String &p_path) { editor->get_resource_filesystem()->update_file(p_path); };
 	for (const std::string &file : p_files) {
+		file_seen(file);
 		const String path = to_godot(file);
 		if (!is_script(file)) {
 			written(path);

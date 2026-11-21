@@ -127,5 +127,9 @@ void drop_client_script(const std::string &p_path);
 // The bytes of a file, an unsaved scene's as the text saver writes it;
 // nullopt if it cannot be read.
 std::optional<std::string> file_text(const std::string &p_path);
+// The editor wrote the file, or read it again after another program wrote it.
+void file_seen(const std::string &p_path);
+// Whether the file is as the editor last wrote or read it.
+bool file_unchanged(const std::string &p_path);
 
 } // namespace petrichor

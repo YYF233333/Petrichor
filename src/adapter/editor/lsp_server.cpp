@@ -907,10 +907,15 @@ void LspServer::notification(const String &p_method, const Dictionary &p_params)
 // others is read again, so that whatever the order the client saves a
 // rename's files in, nothing is read against a script's old members. Each
 // script's bytecode is written (script_written()). Other files, and files
-// added or removed, as the editor scans when it has focus again.
+// added or removed, as the editor scans when it has focus again. A file as the
+// editor last wrote or read it is not one: the client's file watcher reports
+// the editor's own saves too, and reading a scene again clears its history.
 void LspServer::files_written(const std::set<std::string> &p_files, bool p_scan) {
 	std::set<std::string> taken;
 	for (const std::string &file : p_files) {
+		if (file_unchanged(file)) {
+			continue;
+		}
 		const std::string extension = lower_ascii(file.substr(file.find_last_of("./") + 1));
 		if (extension == "pet" || extension == "tscn" || extension == "tres") {
 			taken.insert(file);

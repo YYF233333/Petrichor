@@ -8,7 +8,9 @@ extends EditorPlugin
 # holds and saves the scene shown, as Ctrl+S does. Once res://refactor is
 # there, makes the refactoring's edit it holds and prints the tab's text.
 # Once res://probe is there, prints whether the loaded script it names has its
-# file's text, and its properties.
+# file's text, and its properties. Once res://undo is there, makes a step in
+# the scene shown and saves it; once res://history is there, prints whether the
+# scene still has a step to undo.
 # Quits once the file res://quit is there.
 
 
@@ -47,5 +49,22 @@ func _hold() -> void:
 			var script: Script = load(path)
 			var names := script.get_script_property_list().map(func(p): return p.name)
 			print("lsp probe: %s %s" % [script.source_code == FileAccess.get_file_as_string(path), ",".join(PackedStringArray(names))])
+		if FileAccess.file_exists("res://undo"):
+			DirAccess.remove_absolute("res://undo")
+			var root := EditorInterface.get_edited_scene_root()
+			get_undo_redo().create_action("Describe the arena")
+			get_undo_redo().add_do_property(root, "editor_description", "checked")
+			get_undo_redo().add_undo_property(root, "editor_description", root.editor_description)
+			get_undo_redo().commit_action()
+			EditorInterface.save_scene()
+			print("lsp undo: saved ", _scene_has_undo())
+		if FileAccess.file_exists("res://history"):
+			DirAccess.remove_absolute("res://history")
+			print("lsp undo: kept ", _scene_has_undo())
 		await get_tree().create_timer(0.1).timeout
 	get_tree().quit()
+
+
+func _scene_has_undo() -> bool:
+	var root := EditorInterface.get_edited_scene_root()
+	return get_undo_redo().get_history_undo_redo(get_undo_redo().get_object_history_id(root)).has_undo()

@@ -956,6 +956,8 @@ std::map<std::string, std::string> held;
 // script it has open (architecture §2.3).
 std::map<std::string, std::string> held_bases;
 std::set<std::string> client_scripts;
+// The MD5 of each file as the editor last wrote or read it.
+std::map<std::string, std::string> seen;
 
 String dropped_message(const std::string &p_path) {
 	return vformat("%s changed after a refactoring left a change to it unsaved, so that change is dropped.", to_godot(p_path));
@@ -1170,6 +1172,15 @@ std::optional<std::string> file_text(const std::string &p_path) {
 		return std::nullopt;
 	}
 	return bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
+}
+
+void file_seen(const std::string &p_path) {
+	seen[p_path] = to_utf8(FileAccess::get_md5(to_godot(p_path)));
+}
+
+bool file_unchanged(const std::string &p_path) {
+	const auto found = seen.find(p_path);
+	return found != seen.end() && found->second == to_utf8(FileAccess::get_md5(to_godot(p_path)));
 }
 
 } // namespace petrichor

@@ -1167,6 +1167,7 @@ def check_lsp(project, info, editor):
     expect("lsp: a scene saved reaches the scripts it places at once", published and not says(published, "Head/Camera") and says(published, "max_speed"), str(published))
     check_rename_written(first, project, uri, editor)
     check_closed_unsaved(first, project, uri, editor)
+    check_scene_saved_in_godot(first, project, uri, editor)
 
     # A save writes the bytecode of the file as the files compile, not as an
     # unsaved dependency in the client would make it.
@@ -1499,6 +1500,19 @@ def check_closed_unsaved(client, project, uri, editor):
     editor.wait_for(b"lsp probe:")
     probed = re.findall(r"lsp probe: (\S+) (\S*)", editor.output.decode("utf-8", "replace"))
     expect("lsp: a script whose unsaved text Godot took goes back to its file once the client closes it", len(probed) == 1 and probed[0][0] == "true" and "shots" in probed[0][1].split(","), str(probed))
+
+
+def check_scene_saved_in_godot(client, project, uri, editor):
+    """A scene saved in Godot keeps its history to undo when the client's
+    file watcher reports the save."""
+    (project / "undo").touch()
+    saved = editor.wait_for(b"lsp undo: saved")
+    client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri("arena.tscn"), "type": 2}]})
+    client.request("petrichor/unknown")
+    (project / "history").touch()
+    editor.wait_for(b"lsp undo: kept")
+    undo = re.findall(r"lsp undo: (\w+ \w+)", editor.output.decode("utf-8", "replace"))
+    expect("lsp: a scene saved in Godot keeps its history when the client's file watcher reports it", saved and undo == ["saved true", "kept true"], str(undo))
 
 
 def run_debugger_groups(godot):
