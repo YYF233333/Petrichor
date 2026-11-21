@@ -102,7 +102,7 @@ To build from source, you need a C++17 toolchain and SCons. Run `git submodule u
 0.1 is the first public release. It gathers feedback on the semantics before 1.0.
 
 - Suited to: projects that already use typed GDScript heavily and accept code changes during 0.x.
-- Not yet suited to: projects that export to Android, iOS or Web. Their libraries come with 0.9.
+- Not yet suited to: projects that export to Android, iOS or Web. Their libraries come from 0.4, first for the platforms where they are shown to work.
 - Before 0.9, the language semantics may change, and release notes list every incompatible change. From 0.9, a change in what code means shows as a compile error. Fixes that change only runtime behavior are listed apart in release notes.
 - A few constructs behave differently from GDScript without a compile error, where the design needs it. The [spec](docs/language-spec.md#12-relation-to-gdscript) names each one, and they stay open for comment until 0.9.
 - Bytecode is not compatible across builds, so an upgrade compiles every script again.
