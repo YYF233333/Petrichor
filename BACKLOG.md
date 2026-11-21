@@ -37,10 +37,14 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Types of a C# class's members that are narrower than what is seen (spec §11.1):
   - an exported object property is `Object?`, as its class is only in the hint string;
   - a method's parameters and results have their native class, as the engine's generator drops the script class.
+- An assignment inside a branch forgets the `None` narrowing of every level, the outer ones and sibling branches included (`Checker::forget()`). An `if` keeps one branch's narrowing only when the other must leave. So legal code that relies on narrowing after branches meet can be refused. The fix keeps the outer state per branch and intersects it where they meet.
+- Whether GDScript should see a `pub` function's containers whose elements exist only in this language (spec §3.14). Overrides of engine virtuals returning `Variant` and `pub` static variables do not apply that rule now. A foreign element is a program error when read, with no memory problem.
 - A script without a path cannot take a method of its own struct as a value. The value names its class by the script's path. The verifier then rejects the module as an internal compiler error (`src/compiler/lower.cpp`, `struct_method_call`). A script made at run time in the editor, as by `PetScript.new()`, has no path.
 
 ## Runtime
 
+- A struct method taken as a value binds the class image of its creation (`src/runtime/method_callable.h`, `StructMethodCallable`). After a hot reload it still runs the old body, unlike spec §12.4.
+- Comparing and hashing a struct, a payload enum or `T??` uses the raw object id of a nested `T?` field. A freed object there does not compare equal to `None`, though it does at the top level (`src/runtime/values.cpp`).
 - A Task of another result type is described by its class alone, as in "expected CoroutineTask, found CoroutineTask".
 - Messages name an inner class by its path, as `res://a.pet::Plain`, where the script writes `A.Plain`.
 - GDScript can pass an `async func() -> String` where `func() -> Task[int]` is expected. `.call()` then reports the mismatch only at the `await`, while `callv()` refuses at once. Read from the code, not run.
