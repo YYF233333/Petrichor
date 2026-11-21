@@ -591,4 +591,6 @@ TEST_CASE("self is a value of this class, except in the PREDELETE branch (spec Â
 	CHECK(contains(check("func f() -> void:\n\tvar x = self.nope\n"), "Turret has no member \"nope\"."));
 	const std::string predelete = check("func _notification(what: int) -> void:\n\tif what == Object.NOTIFICATION_PREDELETE:\n\t\tprint(self.hp)\n\t\tprint(self)\n\tmatch what:\n\t\tObject.NOTIFICATION_PREDELETE:\n\t\t\tvar me: Turret = self\n\t\t_:\n\t\t\tprint(self)\n");
 	CHECK(predelete == "12:9: self cannot be used as a value in the PREDELETE branch: the object is being freed, so nothing may keep it.\n15:21: self cannot be used as a value in the PREDELETE branch: the object is being freed, so nothing may keep it.\n");
+	CHECK(contains(check("func _notification(what: int) -> void:\n\tif what == Object.NOTIFICATION_PREDELETE:\n\t\tprint(self == get_parent())\n"), "self cannot be used as a value in the PREDELETE branch"));
+	CHECK(contains(check("func _notification(what: int) -> void:\n\tif what == Object.NOTIFICATION_PREDELETE:\n\t\tawait ready\n"), "await is not allowed in the PREDELETE branch."));
 }

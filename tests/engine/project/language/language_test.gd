@@ -505,6 +505,8 @@ func _ready() -> void:
 	_check(releases.block() == "in,b,out", "a local is released when its block is left, not after its last use")
 	_check(releases.iterations() == "end0,l0,end1,l1,k,after", "a loop's locals are released at the end of each iteration and at break")
 	_check(releases.headers() == "c,if,w,m,arm,bound,n,it,it,i0,i1,after", "a header's temporaries are released before its block, and a for loop keeps what it iterates over")
+	_check(releases.deleted() == "true,slot", "a RefCounted being deleted calls its own engine methods and properties (spec §6.6)")
+	_check_errors(["release_check.pet:46: self cannot be used as a value while the object is being deleted: nothing may keep it."], "self as a value in a helper of PREDELETE is a program error")
 
 	# Spec §3.8: Dictionary[K, V], elements assigned in place, keys that cannot change.
 	var containers := ContainerCheck.new()

@@ -23,6 +23,30 @@ class Probe extends RefCounted:
 		return 1
 
 
+# Spec §6.6: in PREDELETE a RefCounted's count is 0, and it still calls its
+# own engine methods and properties; self as a value in a helper is a program
+# error.
+class Slot extends Resource:
+	var notes: Array[String]
+	var id := 0
+
+	func _init(p_notes: Array[String]):
+		notes = p_notes
+		id = get_instance_id()
+		resource_name = "slot"
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_PREDELETE:
+			notes.append(str(get_instance_id() == id))
+			notes.append(resource_name)
+			note()
+			notes.append("after note")
+
+	func note() -> void:
+		var me: Slot = self
+		notes.append(me.resource_name)
+
+
 func probe(name: String) -> Probe:
 	return Probe.new(name, notes)
 
@@ -31,6 +55,11 @@ func noted() -> String:
 	var text := ",".join(PackedStringArray(notes))
 	notes.clear()
 	return text
+
+
+pub func deleted() -> String:
+	Slot.new(notes)
+	return noted()
 
 
 pub func statement() -> String:

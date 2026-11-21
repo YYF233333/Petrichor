@@ -1477,9 +1477,19 @@ class Execution {
 		return true;
 	}
 
-	PETRICHOR_NOINLINE bool op_get_self(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+	// Whether self can be a value. A RefCounted has a count of 0 in
+	// NOTIFICATION_PREDELETE, so that a Variant of it is null
+	// (core/object/ref_counted.cpp:36-45, core/variant/variant.cpp:1102-1108; ed1daf0).
+	bool self_as_value(const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
 		if (p_freed.load(std::memory_order_relaxed)) {
 			return fail_self_freed(p_fn, p_line);
+		}
+		return object_pointer(self()) || fail_cstr(p_fn, p_line, "self cannot be used as a value while the object is being deleted: nothing may keep it.");
+	}
+
+	PETRICHOR_NOINLINE bool op_get_self(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
+		if (!self_as_value(p_freed, p_fn, p_line)) {
+			return false;
 		}
 		set_object(p_frame + p_op[1], self());
 		return true;
@@ -1541,8 +1551,8 @@ class Execution {
 	PETRICHOR_NOINLINE bool op_make_lambda(const uint32_t *p_op, uint8_t *p_frame, const std::atomic<bool> &p_freed, const bytecode::Function &p_fn, int p_line) {
 		const uint32_t lambda = p_op[1];
 		const bool on_self = !image.module.functions[lambda].is_static;
-		if (on_self && p_freed.load(std::memory_order_relaxed)) {
-			return fail_self_freed(p_fn, p_line);
+		if (on_self && !self_as_value(p_freed, p_fn, p_line)) {
+			return false;
 		}
 		*reinterpret_cast<Callable *>(p_frame + p_op[2]) = Callable(memnew(LambdaCallable(image.shared_from_this(), lambda, on_self ? context : InstanceContext(), p_frame, p_op + 5)));
 		return true;
@@ -2036,11 +2046,13 @@ class Execution {
 				ObjectView view(nullptr);
 				return resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line); // Reports why.
 			}
-			const uint8_t *slot = p_op[3] == NO_SLOT ? data_of(self()) : p_frame + p_op[3];
-			object = *reinterpret_cast<const GDExtensionObjectPtr *>(slot + 8);
+			// Self's own pointer, not self(): that is null while a RefCounted is
+			// being deleted, and so would be the receiver.
+			const bool on_self = p_op[3] == NO_SLOT;
+			object = on_self ? context.owner->_owner : *reinterpret_cast<const GDExtensionObjectPtr *>(p_frame + p_op[3] + 8);
 #ifdef DEBUG_ENABLED
 			if (native.queues_free) {
-				vm::record_free(*reinterpret_cast<const uint64_t *>(slot), true);
+				vm::record_free(on_self ? context.storage->owner_id : *reinterpret_cast<const uint64_t *>(p_frame + p_op[3]), true);
 			}
 #endif
 		}

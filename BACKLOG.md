@@ -157,7 +157,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
     - connecting an `async` method to a signal;
   - awaiting a `Signal` variable with two parameters yielding `Array` in `Variant` (§9.6);
   - a scene-saved value triggering a pre-ready setter error, and `if is_node_ready():` guarding it (§6.5);
-  - a `RefCounted` calling its own methods in `PREDELETE`, and the errors on `self == x` and `await` there (§6.6);
   - GDScript assigning a cancelled `Transform3D` coroutine result (§9.8);
   - a lambda created before a body-only hot reload running its old body (§12.4).
 
