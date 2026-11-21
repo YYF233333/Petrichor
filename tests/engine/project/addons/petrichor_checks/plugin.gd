@@ -38,6 +38,7 @@ func _run() -> void:
 
 	_check_scene()
 	_check_new_script()
+	_check_reread_file()
 	_check_header()
 	await _check_global_bases()
 	_check_placeholder_fallback()
@@ -132,6 +133,21 @@ func _check_new_script() -> void:
 	ResourceSaver.save(script, saved)
 	_check(script.get_script_property_list().any(func(p): return p.name == "count"), "a saved script takes the class compiled from what was saved")
 	for file in [saved, saved + ".uid", bytecode]:
+		DirAccess.remove_absolute(file)
+
+
+# A loaded script without a tab reads its file again as the editor reloads it
+# after the file changed, as after a pull (editor/editor_node.cpp:1291-1323,
+# 9568; ed1daf0), so that a scene read again keeps a new export's value.
+func _check_reread_file() -> void:
+	var path := "res://editor_check_reread.pet"
+	_write(path, "extends Node\n")
+	var script: Script = load(path)
+	var text := "extends Node\n@export pub var armor: int = 0\n"
+	_write(path, text)
+	EditorInterface.get_resource_filesystem().resources_reload.emit(PackedStringArray([path]))
+	_check(script.source_code == text and script.get_script_property_list().any(func(p): return p.name == "armor"), "a loaded script without a tab takes its changed file as it reloads")
+	for file in [path, path + ".uid"]:
 		DirAccess.remove_absolute(file)
 
 

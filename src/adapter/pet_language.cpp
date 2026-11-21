@@ -9,6 +9,7 @@
 #ifdef TOOLS_ENABLED
 #include "adapter/editor/script_compiler.h"
 
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/resource_loader.hpp>
 
 #include <map>
@@ -534,12 +535,28 @@ TypedArray<Dictionary> PetLanguage::_debug_get_current_stack_info() {
 void PetLanguage::_reload_all_scripts() {
 }
 
+// In a game, live reload from the editor (spec §12.4). In the editor, a loaded
+// script whose file changed, as after a pull, without a tab or with one
+// (editor/editor_node.cpp:1291-1323, core/object/script_language.cpp:200-207;
+// ed1daf0). It first takes the workspace's text: the file's, unless a tab or
+// the LSP client holds unsaved text. GDScript reads its file
+// (modules/gdscript/gdscript.cpp:2556-2559).
+static void reload_script(const Ref<PetScript> &p_script) {
+#ifdef TOOLS_ENABLED
+	if (Engine::get_singleton()->is_editor_hint() && p_script->get_path().begins_with("res://")) {
+		if (const std::optional<std::string> text = workspace().script_source(to_utf8(p_script->get_path()))) {
+			p_script->set_source_code(to_godot(*text));
+		}
+	}
+#endif
+	p_script->reload(true);
+}
+
 void PetLanguage::_reload_scripts(const Array &p_scripts, bool p_soft_reload) {
-	// Live reload from the editor (spec §12.4).
 	for (int64_t i = 0; i < p_scripts.size(); i++) {
 		const Ref<PetScript> script = p_scripts[i];
 		if (script.is_valid()) {
-			script->reload(true);
+			reload_script(script);
 		}
 	}
 }
@@ -547,7 +564,7 @@ void PetLanguage::_reload_scripts(const Array &p_scripts, bool p_soft_reload) {
 void PetLanguage::_reload_tool_script(const Ref<Script> &p_script, bool p_soft_reload) {
 	const Ref<PetScript> script = p_script;
 	if (script.is_valid()) {
-		script->reload(true);
+		reload_script(script);
 	}
 }
 
