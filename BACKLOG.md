@@ -97,6 +97,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - It needs a rule in the spec and a count of its noise in the corpus first.
 - When lints are added, consider a hint on assignments to must-assign members right after `new()`. Named arguments of `new(...)` would let the compiler check them (spec §6.2).
 - When lints are added, consider a warning on names spelled as this language's keywords, such as `None` (spec §2.2). They are legal but not recommended.
+- When lints are added, a warning on a method named like a utility function, as GDScript's `SHADOWED_GLOBAL_IDENTIFIER` gives. A direct call of the name calls the utility function (spec §2.6). Of 13 first-party files in the corpus that call such a method directly, 12 mean the utility function.
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
 - The typed inspector panel for exported structs and enums with payloads (architecture §6.2). Until then the engine's generic Dictionary editor edits them.
 - Completion of the names in strings that wait on their checks (spec §10.4, §13.2). They are property names, as in `set_deferred("speed", v)`, members of other objects, as in `other.connect("hit", f)`, and the paths of `get_node("...")`.

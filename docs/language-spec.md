@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 1fa815e8ac10e4a9776b682df47c544bc3ba3d4c. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 88ad7bfb022d42757322a7fdc0e7079619178a97. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -153,7 +153,8 @@ Besides the no-silent-differences rule, this language's own operations guarantee
 
 ### 2.6 GDScript's own constants and functions
 
-- GDScript's own constants and utility functions follow GDScript, such as `PI`, `range()` and `len()`. A declaration with the same name shadows them.
+- GDScript's own constants and utility functions follow GDScript, such as `PI`, `range()` and `len()`. A declaration with the same name shadows these constants.
+- A direct call of an engine or GDScript utility function name, such as `lerp(a, b, t)`, calls the utility function, as in GDScript. This holds even when the class or a base class has a method of that name. Such a method is called with a receiver, such as `self.lerp()`.
 - `Color8`, `convert`, `type_exists`, `inst_to_dict` and `dict_to_inst`, which GDScript has deprecated, are compile errors. The diagnostic gives the replacement that the Godot documentation suggests.
 - The `T` of `is_instance_of(v, T)` is one of three kinds:
   - a written class name, which means the same as `v is T`;

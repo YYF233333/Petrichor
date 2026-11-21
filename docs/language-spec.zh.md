@@ -151,7 +151,8 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 2.6 GDScript 自有的常量和函数
 
-- GDScript 自有的常量和工具函数沿用 GDScript，如 `PI`、`range()`、`len()`。同名的声明遮蔽它们。
+- GDScript 自有的常量和工具函数沿用 GDScript，如 `PI`、`range()`、`len()`。同名的声明遮蔽这些常量。
+- 直接调用引擎或 GDScript 的工具函数名，如 `lerp(a, b, t)`，调用的是工具函数，与 GDScript 相同。类或其基类有同名方法时也是如此。调用这个方法要写出接收者，如 `self.lerp()`。
 - GDScript 已弃用的 `Color8`、`convert`、`type_exists`、`inst_to_dict` 和 `dict_to_inst` 报编译错误。诊断给出 Godot 文档建议的替代写法。
 - `is_instance_of(v, T)` 的 `T` 有三种：
   - 写出的类名，含义与 `v is T` 相同；
