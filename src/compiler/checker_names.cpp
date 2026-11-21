@@ -944,7 +944,7 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		return set(r_expr, signal_type(*signal));
 	}
 	if (const auto method = engine.find_method(cls.native_base, r_expr.text)) {
-		if (!method->is_static && refuse_in_static(r_expr, r_expr.text)) {
+		if ((!r_expr.base && refuse_ambiguous_engine_name(r_expr.text, r_expr.range, true, true)) || (!method->is_static && refuse_in_static(r_expr, r_expr.text))) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		return engine_method_value(r_expr, *method);

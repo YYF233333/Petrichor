@@ -752,7 +752,8 @@ class Checker : public ClassRelation {
 	std::string inner_class_path(const std::string &p_path, const std::string &p_name) const;
 	bool declares(const std::string &p_name) const;
 	bool declares_in_script(const std::string &p_name) const;
-	bool refuse_ambiguous_engine_name(const std::string &p_name, const TokenRange &p_at, bool p_of_self = false);
+	bool declares_constant(const std::string &p_name) const;
+	bool refuse_ambiguous_engine_name(const std::string &p_name, const TokenRange &p_at, bool p_of_self = false, bool p_constant = false);
 	Checker *class_around(const std::string &p_name) const;
 	std::string scope_class(const std::string &p_name) const;
 	std::string class_path_of(const Expr &p_expr, bool p_object = false);

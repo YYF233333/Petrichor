@@ -339,14 +339,24 @@ bool Checker::declares(const std::string &p_name) const {
 
 // Whether this class, a base of this language or a local has the name.
 bool Checker::declares_in_script(const std::string &p_name) const {
-	if (visible_local(p_name) || member_index.count(p_name) || static_index.count(p_name) || constant_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name) || cls.find_struct(p_name) ||
-			!inner_class_path(options.path, p_name).empty()) {
+	if (visible_local(p_name) || member_index.count(p_name) || static_index.count(p_name) || function_index.count(p_name) || signal_index.count(p_name) || cls.find_struct(p_name) || declares_constant(p_name)) {
 		return true;
 	}
 	for (const InterfaceDecl &interface : cls.interfaces) {
 		if (interface.name == p_name) {
 			return true;
 		}
+	}
+	return false;
+}
+
+// Whether this class or a base of this language has a constant, an enum, a
+// value of an unnamed enum or an inner class of the name. GDScript finds
+// these in the classes around an inner class, its other members along its
+// bases only (modules/gdscript/gdscript_analyzer.cpp:4203-4262; ed1daf0).
+bool Checker::declares_constant(const std::string &p_name) const {
+	if (constant_index.count(p_name) || !inner_class_path(options.path, p_name).empty()) {
+		return true;
 	}
 	for (const EnumDecl *decl : cls.all_enums) {
 		if (decl->name == p_name || (decl->name.empty() && decl->find(p_name) >= 0)) {
@@ -359,10 +369,11 @@ bool Checker::declares_in_script(const std::string &p_name) const {
 // A name of the engine class this one extends, used bare in an inner class
 // whose classes around it declare it too: GDScript would take theirs, this
 // language the inherited one, so it is an error (spec §4.1). The message
-// writes the inherited one as Node2D.x, or with `p_of_self` as self.x.
-bool Checker::refuse_ambiguous_engine_name(const std::string &p_name, const TokenRange &p_at, bool p_of_self) {
+// writes the inherited one as Node2D.x, or with `p_of_self` as self.x. With
+// `p_constant`, only their constants and the like count, as for a method.
+bool Checker::refuse_ambiguous_engine_name(const std::string &p_name, const TokenRange &p_at, bool p_of_self, bool p_constant) {
 	for (Checker *around = outer_checker; around; around = around->outer_checker) {
-		if (around->declares_in_script(p_name)) {
+		if (p_constant ? around->declares_constant(p_name) : around->declares_in_script(p_name)) {
 			error(p_at, "\"" + p_name + "\" is both a name of " + cls.native_base + ", which " + display_name(cls, options.path) + " extends, and one of " + display_name(around->cls, around->path()) + "; write " + (p_of_self ? std::string("self") : cls.native_base) + "." + p_name + " or " + display_name(around->cls, around->path()) + "." + p_name + ".");
 			return true;
 		}

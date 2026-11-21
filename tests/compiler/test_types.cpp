@@ -63,6 +63,12 @@ TEST_CASE("a class names the constants and enums of its engine base by bare name
 	CHECK(has_error(outer + "return position.x\n", "\"position\" is both a name of Node2D"));
 	CHECK(has_error(outer + "print(ready)\n\t\treturn 0.0\n", "write self.ready or"));
 	CHECK(errors_of(outer + "print(self.ready, self.PROCESS_MODE_ALWAYS)\n\t\treturn self.position.x\n").empty());
+	// A method as a value too, where a class around has a constant, an enum,
+	// an enum value or an inner class of its name, but not in a call.
+	const std::string around = "extends RefCounted\nenum { queue_free }\nconst get_parent = 1\n\nclass Panel extends Node:\n\tfunc f() -> void:\n\t\t";
+	CHECK(has_error(around + "var v := queue_free\n", "write self.queue_free or"));
+	CHECK(has_error(around + "var v := get_parent\n", "write self.get_parent or"));
+	CHECK(errors_of(around + "var v := self.queue_free\n\t\tqueue_free()\n\t\tprint(get_parent())\n").empty());
 }
 
 TEST_CASE("a member or a function is not named as an engine class or a built-in type (spec §4.1)") {
