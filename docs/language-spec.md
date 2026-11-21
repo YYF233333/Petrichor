@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 5588db9664d7edfe53a048a5338e3ac561d772c7. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob ae56f336e1162d50faee21df780a3d0979395451. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -390,6 +390,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - enum values, whose type is that engine enum;
   - enum names, which can be used in type annotations. Bitfield values and the other integer constants are `int`.
 - A direct call of an engine or GDScript utility function name is not looked up in this order: it always calls the utility function.
+- Enums, structs and interfaces declared in the class or an outer class come before the class names of other files. So they can share a name with another file's class, such as this class's `enum State` and a `class_name State` elsewhere.
 - A class declares variables, constants, signals, enums, anonymous enum values and inner classes, which may clash with its engine base class. When one has the name of a property, signal, constant, enum value or enum name there, it is a compile error. When one is named `script`, it is also a compile error. In an inner class, a bare name can be both an outer class's name and one of those engine names. That is a compile error, and `Outer.X`, `self.X` or `Area3D.X` must be written.
 - When one of these declarations has the name of an engine class or a built-in type, it is a compile error, as in `var Node2D` and `func Vector2()`:
   - a class's variables, constants, signals, functions and anonymous enum values, and a struct's fields and methods;

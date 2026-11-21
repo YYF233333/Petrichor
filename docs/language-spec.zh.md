@@ -388,6 +388,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - enum 值，类型为该引擎 enum；
   - enum 名，可用于类型标注；bitfield 值与其余整数常量为 `int`。
 - 直接调用的名字是引擎或 GDScript 的工具函数时，不按上述顺序查找，调用的总是工具函数。
+- 本类和外层类声明的 enum、struct 和接口先于其他文件的类名。所以它们可以与其他文件的类名同名，如本类的 `enum State` 与别处的 `class_name State`。
 - 本类声明的变量、常量、信号、enum、匿名 enum 值或内部类，与引擎基类的属性、信号、常量、enum 值或 enum 名同名时报编译错误。它们名为 `script` 也报编译错误。内部类中，裸写的名字若既是外层类的，又是引擎基类的上述名字，报编译错误。须写 `Outer.X`、`self.X` 或 `Area3D.X`。
 - 以下声明与引擎类或内置类型同名时报编译错误，如 `var Node2D` 和 `func Vector2()`：
   - 类的变量、常量、信号、函数和匿名 enum 值，struct 的字段和方法；
