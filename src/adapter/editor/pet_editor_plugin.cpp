@@ -773,7 +773,9 @@ void PetEditorPlugin::_enter_tree() {
 	add_child(marks);
 	get_undo_redo()->connect("history_changed", callable_mp(this, &PetEditorPlugin::history_changed));
 	get_undo_redo()->connect("version_changed", callable_mp(this, &PetEditorPlugin::history_changed));
-	connect("scene_closed", callable_mp(this, &PetEditorPlugin::history_changed).unbind(1));
+	// Closing a scene drops its history, which adds no step
+	// (editor/editor_data.cpp:674-699; ed1daf0).
+	connect("scene_closed", callable_mp(marks, &Timer::start).bind(-1.0).unbind(1));
 	// A rename or a move in the scene editor, but not an undo or a redo, nor
 	// a change outside an action, as @tool code makes
 	// (editor/editor_undo_redo_manager.cpp:252-260, 298, 327, 380; ed1daf0).

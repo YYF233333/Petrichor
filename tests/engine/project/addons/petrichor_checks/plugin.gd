@@ -656,6 +656,13 @@ func _check_rename() -> void:
 	apply.pressed.emit()
 	_check(code.text == kept.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "a member is renamed in the open script and in the open scene, with its unsaved change")
 	_check(FileAccess.get_file_as_string(unit) == kept and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer() and loaded_user.source_code.contains("unit.pace"), "the scripts stay unsaved, and a loaded one takes the text held for it")
+	# Closing another scene adds no step to the histories.
+	var other := dir + "/other.tscn"
+	_write(other, '[gd_scene format=3]\n\n[node name="Other" type="Node"]\n')
+	EditorInterface.open_scene_from_path(other)
+	EditorInterface.close_scene()
+	await get_tree().process_frame
+	EditorInterface.edit_script(load(unit))
 	await _press(code, "ui_undo")
 	_check(code.text == kept and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n"), "Ctrl+Z in the script, with the rename's edit last there, restores the script and the scene")
 	await _press(code, "ui_redo")
