@@ -108,6 +108,7 @@
 | GDScript 的单引号和双引号字符串可以跨行 | `modules/gdscript/gdscript_tokenizer.cpp:1086-1098` | §2.2 |
 | GDScript 把以 `##` 开头的注释行（含 `###`）当作文档。紧贴在声明或其注解上方的一段，或写在声明同一行之后的一条，说明该声明。局部变量和常量也是如此。第一个成员之前的第一段说明类 | `modules/gdscript/gdscript_parser.cpp:842-862, 1068-1101, 2195-2228, 4066-4075` | §2.2 |
 | GDScript 的 `PI`、`TAU`、`INF`、`NAN` 是可被声明遮蔽的全局常量 | `modules/gdscript/gdscript.cpp:2154-2157`；`modules/gdscript/gdscript_tokenizer.cpp:202-207` | §2.6 |
+| GDScript 直接调用一个名字时，依次找内置类型构造、GDScript 自有工具函数和引擎工具函数，最后才找类的成员。同名的类方法要写出接收者才能调到 | `modules/gdscript/gdscript_analyzer.cpp:3269-3280, 3451, 3502, 3568-3571` | §2.6 |
 | GDScript 的 `Color8`、`convert`、`type_exists`、`inst_to_dict`、`dict_to_inst` 在禁用弃用功能的构建中不存在，文档给出替代写法 | `modules/gdscript/gdscript_utility_functions.cpp:572-585`；`modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269` | §2.6 |
 | GDScript 的 `is_instance_of` 的第二个参数可以是 `TYPE_*` 常量、原生类或脚本，三者都可以是变量中的值 | `modules/gdscript/gdscript_utility_functions.cpp:454-506` | §2.6 |
 | GDScript 的 `is_instance_of` 的第二个参数是 `TYPE_*` 常量时，只比较值的 Variant 类型，不查对象是否已释放，所以 `is_instance_of(freed, TYPE_OBJECT)` 为真。第二个参数是类或脚本时，对已释放的值报错。值为 null 或不是对象时得到假，此前不查第二个参数是不是类或脚本 | `modules/gdscript/gdscript_utility_functions.cpp:457-462, 471-477, 479-505` | §2.6 |
