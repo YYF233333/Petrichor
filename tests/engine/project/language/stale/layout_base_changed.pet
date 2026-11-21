@@ -1,0 +1,4 @@
+# layout_base.pet with its member made one that must be assigned, which keeps
+# 8 more bytes after it.
+extends Node
+var t: RefCounted

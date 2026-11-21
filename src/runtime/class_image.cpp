@@ -82,7 +82,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	for (uint32_t i = 0; i < image->module.inherited_members; ++i) {
 		const auto &a = image->module.members[i];
 		const auto &b = p_base->module.members[i];
-		if (a.name != b.name || a.offset != b.offset || !same_type(image->module, a.type, p_base->module, b.type) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready || a.setter != b.setter || a.getter != b.getter) {
+		if (a.name != b.name || a.offset != b.offset || !same_type(image->module, a.type, p_base->module, b.type) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready || a.must_assign != b.must_assign || a.setter != b.setter || a.getter != b.getter) {
 			r_error = "Inherited member layout changed. Rebuild the project.";
 			return nullptr;
 		}

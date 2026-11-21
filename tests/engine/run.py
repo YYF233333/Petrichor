@@ -318,12 +318,12 @@ def run_stale_bytecode(godot):
     still has the signature the caller was compiled against, a member or a
     static variable of another script the type, and a class loads only with
     the base it was compiled against. Within a run that always holds
-    (§12.4); a run from bytecode that was not built together, here callee.pet
-    and inherit_base.pet replaced by other versions while the scripts that use
-    them are not built again, is the way to break it."""
+    (§12.4); a run from bytecode that was not built together, here callee.pet,
+    inherit_base.pet and layout_base.pet replaced by other versions while the
+    scripts that use them are not built again, is the way to break it."""
     code, output = run(godot, "--path", str(PROJECT), "res://language/stale/stale_test.tscn")
-    expect_run("stale bytecode: as built", code, output, ["stale: 2", "stale member: true static: true", "stale inheritance: valid: 1"])
-    replaced = ("callee", "inherit_base")
+    expect_run("stale bytecode: as built", code, output, ["stale: 2", "stale member: true static: true", "stale inheritance: valid: 1", "stale layout: valid: 1"])
+    replaced = ("callee", "inherit_base", "layout_base")
     originals = snapshot_files(path for name in replaced for path in (STALE / f"{name}.pet", STALE_BYTECODE / f"{name}.petc"))
     try:
         for name in replaced:
@@ -338,6 +338,8 @@ def run_stale_bytecode(godot):
     expect("stale bytecode: a member or static variable whose type changed is a program error", all(text in output for text in retyped) and "stale member: false static: false" in output, output)
     refused = "inherit_derived.pet Base method declaration changed. Rebuild the project."
     expect("stale bytecode: a class whose base changed is refused", refused in output and "stale inheritance: rejected" in output, output)
+    relaid = "layout_derived.pet Inherited member layout changed. Rebuild the project."
+    expect("stale bytecode: a class whose base's member must now be assigned is refused", relaid in output and "stale layout: rejected" in output, output)
 
 
 def drain(connection):

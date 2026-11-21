@@ -1,0 +1,3 @@
+extends "layout_base.pet"
+pub static func run() -> int:
+	return 1
