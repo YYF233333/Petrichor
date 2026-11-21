@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <optional>
 #include <set>
 #include <tuple>
@@ -1689,7 +1690,7 @@ Variant LspServer::on_resolve_action(const Dictionary &p_params) {
 	const std::optional<int64_t> revision = integer(data.get("revision", Variant()), 0, int64_t(1) << 53);
 	const Variant files = data.get("files", Variant());
 	const Variant title = data.get("title", Variant());
-	const std::optional<int64_t> kind = integer(data.get("kind", Variant()), 0, int64_t(compiler::FixKind::GetNodeOrNull));
+	const std::optional<int64_t> kind = integer(data.get("kind", Variant()), 0, int64_t(std::size(compiler::FIX_KINDS)) - 1);
 	if (path.empty() || !revision || files.get_type() != Variant::ARRAY || (title.get_type() != Variant::STRING && !kind)) {
 		return action;
 	}
