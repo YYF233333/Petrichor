@@ -1166,6 +1166,7 @@ def check_lsp(project, info, editor):
     published = first.diagnostics(enemy, lambda p: not says(p, "Head/Camera"))
     expect("lsp: a scene saved reaches the scripts it places at once", published and not says(published, "Head/Camera") and says(published, "max_speed"), str(published))
     check_rename_written(first, project, uri, editor)
+    check_closed_unsaved(first, project, uri, editor)
 
     # A save writes the bytecode of the file as the files compile, not as an
     # unsaved dependency in the client would make it.
@@ -1476,6 +1477,28 @@ def check_rename_written(client, project, uri, editor):
     tab = re.findall(r"lsp refactor: (.*)", editor.output.decode("utf-8", "replace"))
     client.notify("textDocument/didClose", {"textDocument": {"uri": gunner}})
     expect("lsp: a refactoring in Godot of a script whose tab differs from the client's text changes nothing", refactored and len(tab) == 1 and "var weapon" in tab[0] and "movement_speed" in tab[0] and "gun" not in tab[0], str(tab))
+
+
+def check_closed_unsaved(client, project, uri, editor):
+    """A resource the client wrote gives Godot's loaded weapon.pet the
+    client's unsaved text; closed without saving, the script goes back to
+    its file, as a tab whose changes are discarded."""
+    weapon = uri("weapon.pet")
+    text = (project / "weapon.pet").read_text(encoding="utf-8")
+    client.open(weapon, text)
+    client.notify("textDocument/didChange", {"textDocument": {"uri": weapon, "version": 2}, "contentChanges": [{"text": text.replace("@export pub var shots := 1\n", "")}]})
+    blaster = project / "blaster.tres"
+    blaster.write_bytes(blaster.read_bytes() + b"\n")
+    client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri("blaster.tres"), "type": 2}]})
+    client.notify("textDocument/didClose", {"textDocument": {"uri": weapon}})
+    # Answered once the notifications before it are handled.
+    client.request("petrichor/unknown")
+    # Whole when the editor sees it.
+    (project / "probe.part").write_text("res://weapon.pet", encoding="utf-8")
+    (project / "probe.part").replace(project / "probe")
+    editor.wait_for(b"lsp probe:")
+    probed = re.findall(r"lsp probe: (\S+) (\S*)", editor.output.decode("utf-8", "replace"))
+    expect("lsp: a script whose unsaved text Godot took goes back to its file once the client closes it", len(probed) == 1 and probed[0][0] == "true" and "shots" in probed[0][1].split(","), str(probed))
 
 
 def run_debugger_groups(godot):

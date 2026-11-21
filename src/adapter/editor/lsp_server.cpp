@@ -17,6 +17,8 @@
 #include <godot_cpp/classes/json.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/resource_loader.hpp>
+#include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -1025,16 +1027,25 @@ void LspServer::closed(const Dictionary &p_params) {
 	params["diagnostics"] = Array();
 	notify("textDocument/publishDiagnostics", params);
 	if (found->second.versions.empty()) {
-		release(found->first);
+		const std::string path = found->first;
 		documents.erase(found);
+		release(path);
 	}
 }
 
-// What the analysis kept for a script with no file goes with its text.
+// What the analysis kept for a script with no file goes with its text. A
+// loaded script that took the client's unsaved text, as reading a scene or a
+// resource again gives it, takes the text the workspace has now, as the
+// script editor reloads a script whose tab's changes are discarded
+// (editor/script/script_editor_plugin.cpp:607-611; ed1daf0).
 void LspServer::release(const std::string &p_path) {
 	drop_client_script(p_path);
 	if (!FileAccess::file_exists(to_godot(p_path))) {
 		analysis().forget(p_path);
+	}
+	const Ref<Script> loaded = ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path));
+	if (loaded.is_valid() && loaded->get_source_code() != to_godot(workspace().script_source(p_path).value_or(std::string()))) {
+		editor_written({ p_path });
 	}
 }
 

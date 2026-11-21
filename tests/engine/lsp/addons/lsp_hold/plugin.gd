@@ -7,6 +7,8 @@ extends EditorPlugin
 # arena.tscn, and gunner.pet in a tab. Once the file res://check is there, prints what the loaded blaster.tres
 # holds and saves the scene shown, as Ctrl+S does. Once res://refactor is
 # there, makes the refactoring's edit it holds and prints the tab's text.
+# Once res://probe is there, prints whether the loaded script it names has its
+# file's text, and its properties.
 # Quits once the file res://quit is there.
 
 
@@ -39,5 +41,11 @@ func _hold() -> void:
 			DirAccess.remove_absolute("res://refactor")
 			plugin.call("_change_scripts", [edit], true)
 			print("lsp refactor: ", EditorInterface.get_script_editor().get_current_editor().get_base_editor().text.c_escape())
+		if FileAccess.file_exists("res://probe"):
+			var path := FileAccess.get_file_as_string("res://probe")
+			DirAccess.remove_absolute("res://probe")
+			var script: Script = load(path)
+			var names := script.get_script_property_list().map(func(p): return p.name)
+			print("lsp probe: %s %s" % [script.source_code == FileAccess.get_file_as_string(path), ",".join(PackedStringArray(names))])
 		await get_tree().create_timer(0.1).timeout
 	get_tree().quit()
