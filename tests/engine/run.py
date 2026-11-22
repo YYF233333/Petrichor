@@ -1160,26 +1160,23 @@ def check_lsp(project, info, editor):
     first.open(stat, "class_name Stat extends RefCounted\n\npub const L := 99\n")
     bytecode = project / ".godot" / "petrichor" / "score.petc"
     bytecode.unlink(missing_ok=True)
+    score = project / "score.pet"
+    score.write_bytes(score.read_bytes())
     first.notify("textDocument/didSave", {"textDocument": {"uri": uri("score.pet")}})
     first.request("textDocument/documentSymbol", {"textDocument": {"uri": stat}})
     first.notify("textDocument/didClose", {"textDocument": {"uri": stat}})
     expect("lsp: a save writes the bytecode of the file as the files on disk compile it", bytecode.exists(), str(bytecode))
 
-    # A save reaches the editor's class list, and so does a file added outside
-    # the client (godotengine/godot#42786).
+    # A file changed and a file added on disk, with no notification, reach the
+    # editor's class list and the human's view within seconds (architecture
+    # §6.5; godotengine/godot#42786).
     board = uri("board.pet")
     first.open(board, (project / "board.pet").read_text(encoding="utf-8"))
     published = first.diagnostics(board, lambda p: says(p, "Rank") and says(p, "Bonus"))
-    rank = uri("rank.pet")
-    rank_text = "class_name Rank extends RefCounted\n\npub const TOP := 3\n"
-    first.open(rank, rank_text)
-    (project / "rank.pet").write_text(rank_text, encoding="utf-8")
-    first.notify("textDocument/didSave", {"textDocument": {"uri": rank}})
-    saved = first.diagnostics(board, lambda p: not says(p, "Rank"))
+    (project / "rank.pet").write_text("class_name Rank extends RefCounted\n\npub const TOP := 3\n", encoding="utf-8")
     (project / "bonus.pet").write_text("class_name Bonus extends RefCounted\n\npub const VALUE := 2\n", encoding="utf-8")
-    first.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri("bonus.pet"), "type": 1}]})
-    added = first.diagnostics(board, lambda p: not p["diagnostics"])
-    expect("lsp: a save and a file added reach the other scripts at once", says(published, "Rank") and saved and not says(saved, "Rank") and added and not added["diagnostics"], f"{published}\n{saved}\n{added}")
+    found = first.diagnostics(board, lambda p: not p["diagnostics"], 5)
+    expect("lsp: a file changed and a file added on disk, unannounced, reach the other scripts within seconds", says(published, "Rank") and says(published, "Bonus") and found and not found["diagnostics"], f"{published}\n{found}")
 
     outside = outside_uris(project, uri)
     stray = [m for m in first.kept if "error" in m or (m.get("params") or {}).get("uri") in outside]
@@ -1581,6 +1578,14 @@ def check_sessions(project, uri, port):
         all(reply and "result" in reply for reply in replies) and own and says(shared, "amount") and apart and not says(apart, "amount") and says(saved, "amount"),
         f"{replies}\n{own}\n{shared}\n{apart}\n{saved}",
     )
+    # The disk view answers from a file added just before, with no notification (architecture §6.5).
+    fresh = uri("fresh_use.pet")
+    fresh_text = "extends Node\n\n\nfunc f() -> int:\n\treturn Fresh.N\n"
+    disk.open(fresh, fresh_text)
+    (project / "fresh.pet").write_text("class_name Fresh extends RefCounted\n\npub const N := 4\n", encoding="utf-8")
+    hover = disk.request("textDocument/hover", {"textDocument": {"uri": fresh}, "position": lsp_position(fresh_text, fresh_text.index("N\n"))})
+    disk.notify("textDocument/didClose", {"textDocument": {"uri": fresh}})
+    expect("lsp: the disk view's next answer reads a file added on disk, unannounced", hover and "Fresh.N: int" in str(hover.get("result")), str(hover))
     (project / "supply.pet").write_text(supply_text, encoding="utf-8")
     a.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": supply, "type": 2}]})
     restored = disk.diagnostics(demand, lambda p: not says(p, "amount"))

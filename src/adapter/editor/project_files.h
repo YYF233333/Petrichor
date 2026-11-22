@@ -1,13 +1,32 @@
 #pragma once
 
 #include <godot_cpp/variant/packed_string_array.hpp>
-#include <godot_cpp/variant/string.hpp>
+
+#include <cstdint>
+#include <map>
+#include <optional>
+#include <string>
 
 namespace petrichor {
 
-// The project's files with one of `p_extensions` (lower case, without the
-// dot), as the editor's file system sees them: without hidden entries, other
-// projects and directories with a .gdignore file.
+// When a file last changed, in the file system's precision, and its size.
+struct FileStat {
+	int64_t time = 0;
+	int64_t size = 0;
+
+	bool operator==(const FileStat &p_other) const { return time == p_other.time && size == p_other.size; }
+	bool operator!=(const FileStat &p_other) const { return !(*this == p_other); }
+};
+
+// The project's files by res:// path, as the editor's file system sees them:
+// without hidden entries, other projects and directories with a .gdignore
+// file. It calls nothing of the engine, so a thread may walk them.
+std::map<std::string, FileStat> walk_project(const std::string &p_root);
+// The project's directory in UTF-8, with a "/" at its end, for walk_project().
+std::string project_directory();
+// The project's files with one of `p_extensions` (lower case, without the dot).
 godot::PackedStringArray project_files(const godot::PackedStringArray &p_extensions);
+// Of the file at a path of the engine's; nullopt if there is none.
+std::optional<FileStat> file_stat(const std::string &p_path);
 
 } // namespace petrichor

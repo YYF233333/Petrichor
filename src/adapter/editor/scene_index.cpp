@@ -25,7 +25,6 @@
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/classes/script_editor.hpp>
 #include <godot_cpp/classes/script_editor_base.hpp>
-#include <godot_cpp/classes/time.hpp>
 
 #include <algorithm>
 #include <optional>
@@ -512,10 +511,8 @@ const SceneIndex &SceneIndex::get() {
 	return index;
 }
 
-// Checked since the last change on disk, or else by the times of its files,
-// unless one was too recent to tell (gopls internal/cache/fs_memoized.go:72-80,
-// v0.24.0). The editor reports changes on disk by its events (architecture
-// §2.1).
+// Checked since the last change on disk, or else by the stats of its files
+// (architecture §2.1).
 bool SceneIndex::current(const Read &p_read) const {
 	uint64_t now;
 	{
@@ -525,7 +522,7 @@ bool SceneIndex::current(const Read &p_read) const {
 			return true;
 		}
 	}
-	if (p_read.recent || !std::all_of(p_read.files.begin(), p_read.files.end(), [](const auto &p_file) { return FileAccess::get_modified_time(to_godot(p_file.first)) == p_file.second; })) {
+	if (!std::all_of(p_read.files.begin(), p_read.files.end(), [](const auto &p_file) { return file_stat(p_file.first) == p_file.second; })) {
 		return false;
 	}
 	std::lock_guard<std::mutex> lock(mutex);
@@ -533,11 +530,9 @@ bool SceneIndex::current(const Read &p_read) const {
 	return true;
 }
 
-void SceneIndex::stamp(Read &r_read, const std::set<std::string> &p_files, double p_time) const {
+void SceneIndex::stamp(Read &r_read, const std::set<std::string> &p_files) const {
 	for (const std::string &file : p_files) {
-		const uint64_t modified = FileAccess::get_modified_time(to_godot(file));
-		r_read.files.emplace_back(file, modified);
-		r_read.recent = r_read.recent || double(modified) + 2 > p_time;
+		r_read.files.emplace_back(file, file_stat(file));
 	}
 	std::lock_guard<std::mutex> lock(mutex);
 	r_read.checked = changes;
@@ -548,13 +543,16 @@ void SceneIndex::disk_changed() const {
 	changes++;
 }
 
-void SceneIndex::scripts_reloaded(const std::set<std::string> &p_scripts) const {
+void SceneIndex::files_changed(const std::set<std::string> &p_files) const {
+	const auto reads = [&](const Read &p_read) { return std::any_of(p_read.files.begin(), p_read.files.end(), [&](const auto &p_file) { return p_files.count(p_file.first) > 0; }); };
+	const auto drop = [&](auto &r_reads) {
+		for (auto entry = r_reads.begin(); entry != r_reads.end();) {
+			entry = reads(*entry->second) ? r_reads.erase(entry) : std::next(entry);
+		}
+	};
 	std::lock_guard<std::mutex> lock(mutex);
-	for (auto entry = scenes.begin(); entry != scenes.end();) {
-		const auto &files = entry->second->files;
-		const bool read = std::any_of(files.begin(), files.end(), [&](const auto &p_file) { return p_scripts.count(p_file.first) > 0; });
-		entry = read ? scenes.erase(entry) : std::next(entry);
-	}
+	drop(scenes);
+	drop(loads);
 	changes++;
 }
 
@@ -573,8 +571,6 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	}
 
 	const std::shared_ptr<Entry> entry = std::make_shared<Entry>();
-	// Before loading, so that a change during the load is seen as recent.
-	const double time = Time::get_singleton()->get_unix_time_from_system();
 	// From the file: the editor keeps the scene it loaded once, such as one in
 	// an exported property, after the file changes (core/io/resource_loader.cpp:800-803,
 	// scene/resources/packed_scene.h:256).
@@ -600,7 +596,7 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 			read_resources(path, ResourceLoader::get_singleton()->load(path, "", ResourceLoader::CACHE_MODE_IGNORE), entry->scene, files, seen, entry->embedded);
 		}
 	}
-	stamp(*entry, files, time);
+	stamp(*entry, files);
 	std::lock_guard<std::mutex> lock(mutex);
 	scenes.insert_or_assign(p_path, entry);
 	return entry;
@@ -936,9 +932,8 @@ std::vector<std::pair<bool, std::string>> SceneIndex::literal_loads(const std::s
 		return cached->found;
 	}
 	const std::shared_ptr<Loads> read = std::make_shared<Loads>();
-	const double time = Time::get_singleton()->get_unix_time_from_system();
 	read->found = ProjectApi::literal_loads(p_path);
-	stamp(*read, { p_path }, time);
+	stamp(*read, { p_path });
 	std::lock_guard<std::mutex> lock(mutex);
 	loads.insert_or_assign(p_path, read);
 	return read->found;

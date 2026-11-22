@@ -1666,7 +1666,7 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 	// the placeholder of another still to reload, which gave it the members
 	// of the old text.
 	if (!reloaded.empty()) {
-		SceneIndex::get().scripts_reloaded(reloaded);
+		SceneIndex::get().files_changed(reloaded);
 		disk_changed();
 	}
 	for (const std::string &file : others) {

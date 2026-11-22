@@ -24,6 +24,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <climits>
 #include <cmath>
 #include <cstring>
@@ -284,7 +285,7 @@ std::string long_path(const std::string &p_path) {
 // The project's root with long names, and a "/" at its end.
 const std::string &project_root() {
 	static const std::string root = [] {
-		const std::string path = to_utf8(ProjectSettings::get_singleton()->globalize_path("res://"));
+		const std::string path = project_directory();
 		return long_path(path.substr(0, path.size() - 1)) + "/";
 	}();
 	return root;
@@ -548,10 +549,20 @@ LspServer::LspServer(Ref<EditorDebuggerPlugin> p_debugger, std::function<void()>
 	if (file.is_valid()) {
 		file->store_string(JSON::stringify(info));
 	}
+	walked = walk_project(root);
+	walker = std::thread(&LspServer::watch, this, root);
 }
 
 // The file stays if another editor has written it since.
 LspServer::~LspServer() {
+	if (walker.joinable()) {
+		{
+			std::lock_guard<std::mutex> lock(walking);
+			stopping = true;
+		}
+		wake.notify_all();
+		walker.join();
+	}
 	for (Session &each : sessions) {
 		each.connection.peer->disconnect_from_host();
 	}
@@ -626,6 +637,9 @@ uint64_t LspServer::revision() const {
 }
 
 void LspServer::step() {
+	if (stale) {
+		refresh();
+	}
 	Time *time = Time::get_singleton();
 	const uint64_t start = time->get_ticks_msec();
 	for (auto each = sessions.begin(); each != sessions.end();) {
@@ -842,6 +856,10 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		state = State::ShutDown;
 		reply(out, p_id, Variant());
 	} else if (const auto query = QUERIES.find(to_utf8(p_method)); query != QUERIES.end()) {
+		// On the files as they are now (architecture §6.5).
+		if (session->disk) {
+			refresh();
+		}
 		failure = String();
 		Variant result;
 		in_view([&] { result = (this->*query->second)(dictionary(p_params)); });
@@ -870,77 +888,88 @@ void LspServer::notification(const String &p_method, const Dictionary &p_params)
 		changed(p_params);
 	} else if (p_method == "textDocument/didClose") {
 		closed(p_params);
-	} else if (p_method == "textDocument/didSave") {
-		// A scene or a resource file too, as renaming changes them.
-		const std::string path = project_path(dictionary(p_params.get("textDocument", Variant())).get("uri", Variant()));
-		if (!path.empty()) {
-			files_written({ path }, false);
-		}
-	} else if (p_method == "workspace/didChangeWatchedFiles") {
-		const Variant changes = p_params.get("changes", Variant());
-		const Array list = changes.get_type() == Variant::ARRAY ? Array(changes) : Array();
-		std::set<std::string> written;
-		bool others = false;
-		for (int64_t i = 0; i < list.size(); i++) {
-			const Dictionary change = dictionary(list[i]);
-			const std::string path = project_path(change.get("uri", Variant()));
-			if (path.empty()) {
-				continue;
-			}
-			// LSP 3.17, FileChangeType: one changed, not one created or deleted.
-			if (integer(change.get("type", Variant()), 0, 3) == std::optional<int64_t>(2)) {
-				written.insert(path);
-			} else {
-				others = true;
-			}
-		}
-		files_written(written, others);
+	} else if (p_method == "textDocument/didSave" || p_method == "workspace/didChangeWatchedFiles") {
+		refresh();
 	}
 }
 
-// Files the client wrote, or that changed on disk. A script, a scene or a
-// resource file in the text format is taken in as after a refactoring
-// (PetEditorPlugin::reload_written()): the loaded scripts take the workspace's
-// texts, the client's for those it has open, before what is loaded of the
-// others is read again, so that whatever the order the client saves a
-// rename's files in, nothing is read against a script's old members. Each
+// About once a second, the files compared with those last taken in, which
+// refresh() then takes in on the main thread (architecture §6.5).
+void LspServer::watch(const std::string &p_root) {
+	std::unique_lock<std::mutex> lock(walking);
+	while (!wake.wait_for(lock, std::chrono::seconds(1), [this] { return stopping; })) {
+		lock.unlock();
+		const std::map<std::string, FileStat> found = walk_project(p_root);
+		lock.lock();
+		if (found != walked) {
+			stale = true;
+		}
+	}
+}
+
+// The files changed, added or removed since the last walk. A script, a scene
+// or a resource file in the text format, changed or added, is taken in as
+// after a refactoring (PetEditorPlugin::reload_written()): the loaded scripts
+// take the workspace's texts, the client's for those it has open, before what
+// is loaded of the others is read again, so that whatever the order a rename's
+// files are written in, nothing is read against a script's old members. Each
 // script's bytecode is written (script_written()). Other files, and files
-// added or removed, as the editor scans when it has focus again. A file as the
-// editor last wrote or read it is not one: the client's file watcher reports
-// the editor's own saves too, and reading a scene again clears its history.
-void LspServer::files_written(const std::set<std::string> &p_files, bool p_scan) {
+// removed, as the editor scans when it has focus again: a file loaded that
+// changed is read again (editor/editor_node.cpp:1049-1058, 1291-1323,
+// editor/file_system/editor_file_system.cpp:1597-1607, 1018-1025, 1076-1078;
+// ed1daf0). Updating the file system otherwise would take the change as seen,
+// and the scan would not read it again. An open scene that changed is left to
+// the editor, which asks once it has focus (architecture §2.4). A file as the
+// editor last wrote or read it is no change: the walk finds the editor's own
+// saves too, and reading a scene again clears its history.
+void LspServer::refresh() {
+	stale = false;
+	std::map<std::string, FileStat> found = walk_project(root);
+	std::set<std::string> changed;
+	bool scan = false;
+	{
+		std::lock_guard<std::mutex> lock(walking);
+		if (found == walked) {
+			return;
+		}
+		for (const auto &[path, stat] : found) {
+			const auto was = walked.find(path);
+			if (was == walked.end() || was->second != stat) {
+				changed.insert(path);
+			}
+		}
+		scan = std::any_of(walked.begin(), walked.end(), [&](const auto &p_file) { return !found.count(p_file.first); });
+		walked = std::move(found);
+	}
+	std::set<std::string> outside;
 	std::set<std::string> taken;
-	for (const std::string &file : p_files) {
+	for (const std::string &file : changed) {
 		if (file_unchanged(file)) {
 			continue;
 		}
+		outside.insert(file);
 		const std::string extension = lower_ascii(file.substr(file.find_last_of("./") + 1));
 		if (extension == "pet" || extension == "tscn" || extension == "tres") {
 			taken.insert(file);
 			file_seen(file);
 		} else {
-			p_scan = true;
+			scan = true;
 		}
 	}
+	if (outside.empty() && !scan) {
+		return;
+	}
+	SceneIndex::get().files_changed(outside);
 	editor_written(taken);
 	for (const std::string &file : taken) {
 		if (compiler::is_script_path(file)) {
 			script_written(to_godot(file), debugger);
 		}
 	}
-	if (p_scan) {
-		files_changed();
+	if (scan) {
+		disk_changed();
+		EditorInterface::get_singleton()->get_resource_filesystem()->scan_sources();
 	}
-}
-// As the editor scans when it has focus again: a file loaded that changed is
-// read again (editor/editor_node.cpp:1049-1058, 1291-1323,
-// editor/file_system/editor_file_system.cpp:1597-1607, 1018-1025, 1076-1078;
-// ed1daf0). Updating the file system otherwise would take the change as seen,
-// and the scan would not read it again. An open scene that changed is left to
-// the editor, which asks once it has focus (architecture §2.4).
-void LspServer::files_changed() {
-	disk_changed();
-	EditorInterface::get_singleton()->get_resource_filesystem()->scan_sources();
 }
 
 void LspServer::opened(const Dictionary &p_params) {

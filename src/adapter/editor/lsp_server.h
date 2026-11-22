@@ -1,5 +1,6 @@
 #pragma once
 
+#include "adapter/editor/project_files.h"
 #include "compiler/diagnostic.h"
 
 #include <godot_cpp/classes/editor_debugger_plugin.hpp>
@@ -7,13 +8,17 @@
 #include <godot_cpp/classes/tcp_server.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 
+#include <atomic>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <list>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -83,6 +88,15 @@ class LspServer {
 	bool settle = false;
 	uint64_t continuing = 0; // revision() whose diagnostics the frame before did not all send.
 	bool polling = false;
+	// The project's files as last taken in, which a thread compares with the
+	// disk (architecture §6.5).
+	const std::string root = project_directory();
+	std::map<std::string, FileStat> walked;
+	std::mutex walking; // Around `walked` and `stopping`.
+	std::condition_variable wake;
+	bool stopping = false;
+	std::atomic<bool> stale{ false }; // The thread found other files.
+	std::thread walker;
 
 	// The workspace's revision with the sessions' edits, which their
 	// diagnostics depend on.
@@ -97,8 +111,8 @@ class LspServer {
 	void changed(const godot::Dictionary &p_params);
 	void closed(const godot::Dictionary &p_params);
 	void release(const std::string &p_path);
-	void files_changed();
-	void files_written(const std::set<std::string> &p_files, bool p_scan);
+	void watch(const std::string &p_root);
+	void refresh();
 	void in_view(const std::function<void()> &p_do);
 	void publish(const std::string &p_path, Document &r_document);
 	void notify(const char *p_method, const godot::Dictionary &p_params);

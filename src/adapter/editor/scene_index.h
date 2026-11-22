@@ -1,5 +1,6 @@
 #pragma once
 
+#include "adapter/editor/project_files.h"
 #include "compiler/workspace.h"
 
 #include <godot_cpp/classes/code_edit.hpp>
@@ -25,12 +26,9 @@ namespace petrichor {
 // outside of resource loading (CheckMode::Program). Global classes and
 // autoloads come from the project settings, and sources from the files.
 class SceneIndex : public compiler::ProjectApi {
-	// What was read from files, with when they changed then.
+	// What was read from files, with their stats then.
 	struct Read {
-		std::vector<std::pair<std::string, uint64_t>> files;
-		// One changed less than 2 s before it was read, so its time, in whole
-		// seconds, may not tell a later change apart.
-		bool recent = false;
+		std::vector<std::pair<std::string, std::optional<FileStat>>> files;
 		mutable uint64_t checked = 0; // The count of changes on disk when it was last found current.
 	};
 	// A scene's files: its own; the scenes it instances, at any depth, as an
@@ -57,8 +55,8 @@ class SceneIndex : public compiler::ProjectApi {
 	// The scene, read again unless it is up to date.
 	std::shared_ptr<const Entry> read(const std::string &p_path) const;
 	bool current(const Read &p_read) const;
-	// Notes when the files changed, read from at `p_time` and after.
-	void stamp(Read &r_read, const std::set<std::string> &p_files, double p_time) const;
+	// Notes the stats of the files read.
+	void stamp(Read &r_read, const std::set<std::string> &p_files) const;
 	std::shared_ptr<const std::map<std::string, std::string>> listed_classes() const;
 
 public:
@@ -80,12 +78,12 @@ public:
 	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 
 	// Files changed on disk, which ones unknown: what was read from them is
-	// checked again, by their modification times.
+	// checked again, by their stats.
 	void disk_changed() const;
-	// Loaded scripts took new declarations, which no file's time tells: what
-	// was read with their placeholders, as a resource's stored values, is read
-	// again.
-	void scripts_reloaded(const std::set<std::string> &p_scripts) const;
+	// What was read from the files is read again, which their stats may not
+	// tell: changed elsewhere as they were read, or loaded scripts that took
+	// new declarations, which a resource's stored values are read with.
+	void files_changed(const std::set<std::string> &p_files) const;
 	// The paths of the scenes that the file at `p_file` embeds.
 	std::vector<std::string> embedded_scenes(const std::string &p_file) const;
 
