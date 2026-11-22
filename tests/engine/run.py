@@ -1750,6 +1750,7 @@ def check_conflicts(client, project, editor, port):
     # The client has the file's text, which differs from the tab because of
     # the conflict, so the conflict is what a refactoring tells.
     client.open(file_uri(note), note.read_bytes().decode())
+    client.request("petrichor/unknown")
     hud = (project / "hud.pet").read_bytes()
     at = hud.index(b"show_health")
     refused = hold(project, editor, "call", b"lsp call:", json.dumps(["_change_scripts", [["res://note.pet", 0, 7, "extends", "extends"], ["res://hud.pet", at, at + 11, "show_health", "show_life"]], True]))
