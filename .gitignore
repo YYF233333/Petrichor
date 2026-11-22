@@ -13,6 +13,7 @@ tests/engine/project/bin/*.pdb
 tests/engine/project/bin/*.lib
 tests/engine/project/bin/*.exp
 tests/engine/project/bin/*.ilk
+tests/engine/project/bin/pet.*
 
 # Godot
 .godot/

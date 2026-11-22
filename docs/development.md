@@ -10,6 +10,9 @@
 - 后台 `scons` 在编译时，不要改头文件。
 - 同一棵树里不要同时跑两个 SCons，它们共用 `.sconsign`。
 - 切换 `debug_symbols` 会重编整个 godot-cpp，全核约 90 秒，少做。
+- `scons` 也构建 `pet`，`scons pet` 只构建它。
+- 构建标识取 HEAD 的提交，所以提交后的第一次构建要重编 `lsp_server.cpp`。
+- 用 MinGW 完整编译 `src/pet/pet.cpp` 时，加上 `-municode -lws2_32`。它在 Windows 上的入口是 `wmain`。
 
 ## 代码
 

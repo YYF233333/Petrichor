@@ -1,5 +1,6 @@
 """The release's acceptance test: without a C++ toolchain, a project is
-edited, exported and run on the host (architecture §5, step 10).
+edited, checked with pet, exported and run on the host (architecture §5,
+step 10).
 
 Usage:
     python tests/acceptance/run.py <godot editor binary> <export templates directory> <addon zip> [<demo zip>]
@@ -12,6 +13,7 @@ the limit PETRICHOR_TEST_TIMEOUT, in seconds, 60 by default.
 
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import zipfile
@@ -56,12 +58,30 @@ def build(godot, name, project):
     engine.expect(f"{name}: edit", code == 0 and ", 0 with errors" in output, output)
 
 
+def check_pet(godot, project):
+    """pet from the unzipped addon, as the README runs it: from bash on Linux,
+    zsh on macOS and cmd on Windows."""
+    command = {
+        "win32": ["cmd", "/c", r"addons\petrichor\pet"],
+        "linux": ["bash", "-c", 'addons/petrichor/pet "$@"', "pet"],
+        "darwin": ["zsh", "-c", 'addons/petrichor/pet "$@"', "pet"],
+    }[sys.platform]
+    ran = subprocess.run([*command, "check", "--godot", str(Path(godot).resolve())], cwd=project, capture_output=True, timeout=engine.TIMEOUT)
+    output = ran.stdout.decode("utf-8", "replace") + ran.stderr.decode("utf-8", "replace")
+    engine.expect("project: pet checks it", ran.returncode == 0 and re.search(r"^petrichor check: \d+ script\(s\), .*, 0 with errors", output, flags=re.M), output)
+
+
 def check_project(godot, templates, addon, tmp):
     project = tmp / "project"
     shutil.copytree(HERE / "project", project)
-    zipfile.ZipFile(addon).extractall(project)
+    # As users unzip it, keeping the executable bits that pet needs.
+    if sys.platform == "win32":
+        zipfile.ZipFile(addon).extractall(project)
+    else:
+        subprocess.run(["unzip", "-q", str(Path(addon).resolve()), "-d", str(project)], check=True)
     use_templates(project, templates)
     build(godot, "project", project)
+    check_pet(godot, project)
     code, output = engine.run(godot, "--path", str(project))
     engine.expect_run("project: run in the editor's binary", code, output, [LINE])
     for kind in ("debug", "release"):

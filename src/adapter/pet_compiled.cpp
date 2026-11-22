@@ -39,7 +39,7 @@ std::shared_ptr<const ClassImage> load_compiled(const String &p_compiled_path, c
 	} pop{ loading };
 	const PackedByteArray bytes = FileAccess::get_file_as_bytes(p_compiled_path);
 	if (bytes.is_empty()) {
-		r_error = "has not been compiled. Run the project from the editor, or build it with: godot --headless -e --path <project> -- --petrichor-build";
+		r_error = "has not been compiled. Run the project from the editor, or build it with: addons/petrichor/pet build";
 		return nullptr;
 	}
 	bytecode::Module module;

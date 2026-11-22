@@ -800,13 +800,28 @@ void PetEditorPlugin::_enter_tree() {
 	sessions.instantiate();
 	add_debugger_plugin(sessions);
 	const PackedStringArray args = OS::get_singleton()->get_cmdline_user_args();
-	if (args.has("--petrichor-build")) {
-		callable_mp(this, &PetEditorPlugin::run_build_command).call_deferred();
-	} else if (args.has("--petrichor-format")) {
-		callable_mp(this, &PetEditorPlugin::run_format_command).call_deferred();
-	} else if (args.has("--petrichor-lsp") || DisplayServer::get_singleton()->get_name() != "headless") {
-		lsp = std::make_unique<LspServer>(sessions, [this] { changed(); }, [this](const std::set<std::string> &p_files) { reload_written(p_files); });
+	const bool headless = DisplayServer::get_singleton()->get_name() == "headless";
+	for (const char *command : { "check", "build", "format" }) {
+		if (args.has(String("--petrichor-") + command)) {
+			callable_mp(this, &PetEditorPlugin::run_headless).call_deferred(String(command));
+			return;
+		}
+	}
+	if (args.has("--petrichor-lsp") || !headless) {
+		const auto run = [this](const std::string &p_command, const std::vector<std::string> &p_args, const std::set<std::string> &p_conflicts) { return run_command(p_command, p_args, p_conflicts); };
+		lsp = std::make_unique<LspServer>(sessions, [this] { changed(); }, [this](const std::set<std::string> &p_files) { reload_written(p_files); }, run);
 		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::poll_lsp));
+	}
+	// Where pet finds an editor to run headless once none is open
+	// (architecture §6.5).
+	const String recorded = "res://.godot/petrichor/editor_path";
+	const String executable = OS::get_singleton()->get_executable_path();
+	if (!headless && (!FileAccess::file_exists(recorded) || FileAccess::get_file_as_string(recorded) != executable)) {
+		DirAccess::make_dir_recursive_absolute(ProjectSettings::get_singleton()->globalize_path(recorded.get_base_dir()));
+		const Ref<FileAccess> file = FileAccess::open(recorded, FileAccess::WRITE);
+		if (file.is_valid()) {
+			file->store_string(executable);
+		}
 	}
 }
 
@@ -1581,17 +1596,20 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 		}
 	}
 	reload_written(files);
-	if (one_tab) {
-		return true;
+	if (!one_tab) {
+		scripts_saved(files);
 	}
-	// As the editor saves a script, for a tab: the script editor's record of
-	// when the file changed follows, so that it does not take the file as
-	// changed elsewhere, and a running game reloads the script
-	// (editor/editor_node.cpp:1774, 8664-8665,
-	// editor/script/script_editor_plugin.cpp:723-742, 803-850,
-	// editor/script/script_editor_base.cpp:91-93, 570-573; ed1daf0).
+	return true;
+}
+
+// As the editor saves a script, for a tab: the script editor's record of when
+// the file changed follows, so that it does not take the file as changed
+// elsewhere, and a running game reloads the script (editor/editor_node.cpp:1774, 8664-8665,
+// editor/script/script_editor_plugin.cpp:723-742, 803-850,
+// editor/script/script_editor_base.cpp:91-93, 570-573; ed1daf0).
+void PetEditorPlugin::scripts_saved(const std::set<std::string> &p_files) {
 	Node *editor_node = EditorInterface::get_singleton()->get_base_control()->get_parent();
-	for (const std::string &file : files) {
+	for (const std::string &file : p_files) {
 		const String path = to_godot(file);
 		const Ref<Resource> shown = open_code_edit(file) ? ResourceLoader::get_singleton()->get_cached_ref(path) : Ref<Resource>();
 		if (shown.is_valid()) {
@@ -1603,7 +1621,6 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 			script_written(path, sessions);
 		}
 	}
-	return true;
 }
 
 // After files of the project changed, written by a refactoring or by the LSP
@@ -2067,67 +2084,122 @@ void PetEditorPlugin::_exit_tree() {
 }
 
 bool PetEditorPlugin::_build() {
+	const ProjectReport report = build_project(true, false);
+	for (const compiler::Diagnostic &error : report.diagnostics) {
+		gdextension_interface::print_script_error(error.message.c_str(), "", error.file.c_str(), error.line, true);
+	}
 	// Compile errors keep the project from running (spec §1.4).
-	return build_project() == 0;
+	return report.failed == 0;
 }
 
 // The first scan imports the project, and lasts until its imports are done
 // (editor/file_system/editor_file_system.cpp:1131-1137, 1838-1840), so a
 // command on a fresh copy runs once it ends.
-bool PetEditorPlugin::waits_for_scan(void (PetEditorPlugin::*p_command)()) {
-	if (!EditorInterface::get_singleton()->get_resource_filesystem()->is_scanning()) {
-		return false;
-	}
-	get_tree()->connect("process_frame", callable_mp(this, p_command), CONNECT_ONE_SHOT);
-	return true;
-}
-
-void PetEditorPlugin::run_build_command() {
-	if (waits_for_scan(&PetEditorPlugin::run_build_command)) {
+void PetEditorPlugin::run_headless(const String &p_command) {
+	if (EditorInterface::get_singleton()->get_resource_filesystem()->is_scanning()) {
+		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::run_headless).bind(p_command), CONNECT_ONE_SHOT);
 		return;
 	}
-	int scripts = 0;
-	int scenes = 0;
-	int resources = 0;
-	const int failed = build_project(&scripts, &scenes, &resources, true);
-	UtilityFunctions::print(vformat("petrichor build: %d script(s), %d scene(s), %d resource file(s), %d with errors", scripts, scenes, resources, failed));
-	// A non-zero exit code on compile errors (spec §13.1).
-	get_tree()->quit(failed > 0 ? 1 : 0);
+	std::vector<std::string> args;
+	for (const String &arg : OS::get_singleton()->get_cmdline_user_args()) {
+		args.push_back(to_utf8(arg));
+	}
+	const std::pair<std::string, int> ran = *run_command(to_utf8(p_command), args, {});
+	UtilityFunctions::print(to_godot(ran.first));
+	get_tree()->quit(ran.second);
 }
 
-void PetEditorPlugin::run_format_command() {
-	if (waits_for_scan(&PetEditorPlugin::run_format_command)) {
-		return;
+namespace {
+
+std::string relative(const std::string &p_path) {
+	return p_path.rfind("res://", 0) == 0 ? p_path.substr(6) : p_path;
+}
+
+// As compilers print one: its file from the project's root, with its line and
+// column where it has them.
+std::string diagnostic_line(const compiler::Diagnostic &p_diagnostic) {
+	std::string line = relative(p_diagnostic.file) + ":";
+	if (p_diagnostic.line > 0) {
+		line += std::to_string(p_diagnostic.line) + ":";
+		if (p_diagnostic.column > 0) {
+			line += std::to_string(p_diagnostic.column) + ":";
+		}
 	}
-	const bool check = OS::get_singleton()->get_cmdline_user_args().has("--check");
+	const char *const SEVERITIES[] = { "error", "warning", "hint" };
+	line += std::string(" ") + SEVERITIES[size_t(p_diagnostic.severity)] + ": " + p_diagnostic.message;
+	return p_diagnostic.warning.empty() ? line : line + " (" + p_diagnostic.warning + ")";
+}
+
+} // namespace
+
+// The output and the exit code of a command of pet (architecture §6.5), which
+// the headless editor and the service give alike: the files with errors and
+// what they are, then a count. Each of `p_conflicts` is warned of first. A
+// command with errors exits with 1 (spec §13.1), as does a format check that
+// finds a script not formatted. Formatting writes as a refactoring does
+// (change_files()), but not over unsaved changes. Nullopt for no command.
+std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const std::string &p_command, const std::vector<std::string> &p_args, const std::set<std::string> &p_conflicts) {
+	if (p_command != "check" && p_command != "build" && p_command != "format") {
+		return std::nullopt;
+	}
+	std::string output;
+	for (const std::string &file : p_conflicts) {
+		output += "warning: " + relative(file) + (FileAccess::file_exists(to_godot(file)) ? " changed" : " was deleted") + " on disk while Godot has unsaved changes to it.\n";
+	}
+	if (p_command != "format") {
+		const ProjectReport report = build_project(p_command == "build", true);
+		for (const compiler::Diagnostic &each : report.diagnostics) {
+			output += diagnostic_line(each) + "\n";
+		}
+		output += to_utf8(vformat("petrichor %s: %d script(s), %d scene(s), %d resource file(s), %d with errors", to_godot(p_command), report.scripts, report.scenes, report.resources, report.failed));
+		return std::make_pair(output, report.failed > 0 ? 1 : 0);
+	}
+	const bool check = std::find(p_args.begin(), p_args.end(), "--check") != p_args.end();
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
+	const PackedStringArray unsaved = EditorInterface::get_singleton()->get_script_editor()->get_unsaved_files();
 	int changed = 0;
 	int failed = 0;
+	std::set<std::string> written;
 	for (const String &path : paths) {
+		const std::string file = to_utf8(path);
 		// As bytes, which keeps the file's line breaks.
 		std::string source = file_bytes(path);
 		const std::string bom = byte_order_mark(source);
 		source.erase(0, bom.size());
 		std::string error;
 		const std::optional<std::string> result = compiler::format(source, &error);
-		if (!result) {
-			failed++;
-			const CharString file = path.utf8();
-			gdextension_interface::print_script_error(error.c_str(), "", file.get_data(), 0, false);
+		if (result && *result == source) {
 			continue;
 		}
-		if (*result == source) {
+		changed += result.has_value();
+		if (result && check) {
+			output += relative(file) + " is not formatted.\n";
 			continue;
 		}
-		changed++;
-		if (check) {
-			UtilityFunctions::print(vformat("%s is not formatted.", path));
-			continue;
+		if (result) {
+			if (unsaved.has(path)) {
+				error = "Godot has unsaved changes to it. Save them in Godot first.";
+			} else if (client_unsaved(file)) {
+				error = "Another editor has unsaved changes to it. Save them there first.";
+			} else if (!write_file(path, bom + *result)) {
+				error = "It cannot be written.";
+			} else {
+				written.insert(file);
+				continue;
+			}
 		}
-		failed += !write_file(path, bom + *result);
+		failed++;
+		output += relative(file) + ": error: " + error + "\n";
 	}
-	UtilityFunctions::print(vformat("petrichor format: %d script(s), %d %s, %d with errors", int(paths.size()), changed, check ? "not formatted" : "formatted", failed));
-	get_tree()->quit(failed > 0 || (check && changed > 0) ? 1 : 0);
+	for (const std::string &file : written) {
+		file_seen(file);
+	}
+	if (lsp) {
+		reload_written(written);
+		scripts_saved(written);
+	}
+	output += to_utf8(vformat("petrichor format: %d script(s), %d %s, %d with errors", int(paths.size()), changed, check ? "not formatted" : "formatted", failed));
+	return std::make_pair(output, failed > 0 || (check && changed > 0) ? 1 : 0);
 }
 
 } // namespace petrichor

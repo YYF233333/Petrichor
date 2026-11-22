@@ -85,15 +85,23 @@ xattr -dr com.apple.quarantine addons/petrichor
 | Linux | x86_64，需要 glibc 2.35 或更新 | Ubuntu 22.04 |
 | macOS | x86_64 和 arm64 合一，需要 macOS 11 或更新 | macOS 15，arm64；x86_64 经 Rosetta 运行 |
 
-在 CI 中检查整个项目：
+在项目的根目录下，命令行工具 `pet` 检查、构建和格式化整个项目：
 
 ```sh
-godot --headless --path <project> --import
-godot --headless -e --path <project> -- --petrichor-build
-godot --headless -e --path <project> -- --petrichor-format --check
+addons/petrichor/pet check            # 检查磁盘上的文件，不写入任何文件
+addons/petrichor/pet build            # 检查并写出字节码
+addons/petrichor/pet format --check   # 列出未格式化的脚本，不带 --check 时格式化它们
+addons/petrichor/pet lsp              # 经 stdio 为 Neovim、Helix 等 LSP 客户端转接
 ```
 
-第一行只在全新克隆的项目上需要，它的退出码不必检查。Godot 4.7 的编辑器第一次打开项目后立刻退出时可能崩溃（[godot#111048](https://github.com/godotengine/godot/issues/111048)）。
+在 Windows 上写作 `addons\petrichor\pet`。Godot 编辑器开着这个项目时，命令在其中运行，不另起进程。否则 `pet` 运行无界面的 Godot，即编辑器上次打开项目时记下的那个。没有记下时，用 `--godot <path>` 指定，在 CI 中就是这样：
+
+```sh
+addons/petrichor/pet build --godot <godot>
+addons/petrichor/pet format --check --godot <godot>
+```
+
+每个错误占一行，如 `player.pet:12:5: error: ...`。退出码 0 表示没有错误，1 表示有错误或有未格式化的脚本，2 表示没能运行。代理写完文件后运行 `pet check`，得到的就是磁盘上此刻的结果。
 
 从源码构建需要 C++17 工具链和 SCons。先运行 `git submodule update --init`，再运行 `scons`。
 

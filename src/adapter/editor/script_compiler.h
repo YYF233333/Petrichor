@@ -28,14 +28,25 @@ compiler::Analysis &analysis();
 // loaded, when the scenes that use it cannot be loaded
 // (core/io/resource_loader.cpp:1049-1056). Returns null when there are
 // errors; with `p_report`, each error is printed as a script error at its line.
-std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, const godot::String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, compiler::CheckMode p_mode = compiler::CheckMode::Program, std::vector<compiler::Diagnostic> *r_warnings = nullptr);
+// `r_load_error` gets why a script without errors gives no class.
+std::shared_ptr<const ClassImage> compile_script(const godot::String &p_path, const godot::String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, compiler::CheckMode p_mode = compiler::CheckMode::Program, std::vector<compiler::Diagnostic> *r_warnings = nullptr, godot::String *r_load_error = nullptr);
 
-// Compiles every .pet file of the project and writes the bytecode cache
-// (architecture §2.4), and checks every scene and resource file (§6.4).
-// Returns the number of files with errors that keep the game from running.
-// For the headless command (spec §13.1, §7.5), `p_command` counts every error
-// and prints the warnings and hints too.
-int build_project(int *r_script_count = nullptr, int *r_scene_count = nullptr, int *r_resource_count = nullptr, bool p_command = false);
+// What build_project() found: the files checked, and the files with errors
+// that keep the game from running, or with any error for a command.
+struct ProjectReport {
+	int scripts = 0;
+	int scenes = 0;
+	int resources = 0;
+	int failed = 0;
+	// Each naming its file, in the order checked.
+	std::vector<compiler::Diagnostic> diagnostics;
+};
+
+// Compiles every .pet file of the project as it is on disk, and checks every
+// scene and resource file (§6.4). `p_write` writes the bytecode cache
+// (architecture §2.4). For the commands (spec §13.1, §7.5), `p_command`
+// counts every error and gives the warnings and hints too.
+ProjectReport build_project(bool p_write, bool p_command);
 
 // Writes the bytecode of the script at the path as its file compiles against
 // the project's files, as the build compiles it (architecture §2.4), so that

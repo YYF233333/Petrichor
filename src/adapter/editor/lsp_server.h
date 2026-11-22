@@ -30,7 +30,8 @@ class ProjectApi;
 
 // The language server in the editor (architecture §2.4): JSON-RPC with
 // Content-Length headers over TCP on 127.0.0.1, at the port the system gives,
-// which .godot/petrichor/lsp.json names with the editor's process id. It
+// which .godot/petrichor/lsp.json names with the editor's process id and the
+// build (architecture §6.5). It
 // serves each connection as a session of its own, on the main thread, polled
 // each frame, and shares the workspace and the analysis with the editor.
 class LspServer {
@@ -72,10 +73,17 @@ class LspServer {
 		std::map<std::string, Document> documents;
 	};
 
+public:
+	// A command of pet with its arguments and the conflicts to warn of: its
+	// output and exit code, nullopt for no command.
+	using Run = std::function<std::optional<std::pair<std::string, int>>(const std::string &, const std::vector<std::string> &, const std::set<std::string> &)>;
+
+private:
 	godot::Ref<godot::TCPServer> server;
 	godot::Ref<godot::EditorDebuggerPlugin> debugger;
 	std::function<void()> editor_changed;
 	std::function<void(const std::set<std::string> &)> editor_written;
+	Run run;
 	uint64_t told = 0; // The workspace's revision that editor_changed() was last called at.
 	std::list<Session> sessions;
 	Session *session = nullptr; // Whose message is handled, or whose diagnostics are sent.
@@ -148,8 +156,9 @@ class LspServer {
 public:
 	// `p_changed` is what the editor does once a change has settled: it checks
 	// what it shows again (architecture §2.4). `p_written` is what it does once
-	// a refactoring wrote files: it reloads what it has loaded of them.
-	LspServer(godot::Ref<godot::EditorDebuggerPlugin> p_debugger, std::function<void()> p_changed, std::function<void(const std::set<std::string> &)> p_written);
+	// a refactoring wrote files: it reloads what it has loaded of them. `p_run`
+	// runs pet's commands (architecture §6.5).
+	LspServer(godot::Ref<godot::EditorDebuggerPlugin> p_debugger, std::function<void()> p_changed, std::function<void(const std::set<std::string> &)> p_written, Run p_run);
 	~LspServer();
 	void poll();
 	// The editor has taken in a change: what the sessions have open is checked

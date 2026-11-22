@@ -35,7 +35,7 @@ compiler::Analysis &analysis() {
 	return analysis;
 }
 
-std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, compiler::CheckMode p_mode, std::vector<compiler::Diagnostic> *r_warnings) {
+std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, compiler::CheckMode p_mode, std::vector<compiler::Diagnostic> *r_warnings, String *r_load_error) {
 	std::shared_ptr<const compiler::CompileResult> result;
 	// Loads, which compile declarations, take no part in the analysis, whose
 	// passes take a lock while they load scenes.
@@ -108,6 +108,9 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 		const CharString file = p_path.utf8();
 		godot::gdextension_interface::print_script_error(message.get_data(), "", file.get_data(), 0, true);
 	}
+	if (r_load_error) {
+		*r_load_error = load_error;
+	}
 	return image;
 }
 
@@ -144,43 +147,40 @@ std::shared_ptr<const compiler::CompileResult> check_scene(const String &p_path,
 	return result;
 }
 
-int build_project(int *r_script_count, int *r_scene_count, int *r_resource_count, bool p_command) {
+ProjectReport build_project(bool p_write, bool p_command) {
 	const compiler::Analysis::Pass analysis_pass(analysis(), &SceneIndex::get());
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
-	int failed = 0;
+	ProjectReport report;
 	for (const String &path : paths) {
-		const String source = FileAccess::get_file_as_string(path);
+		std::vector<compiler::Diagnostic> found;
 		std::vector<compiler::Diagnostic> warnings;
-		const std::shared_ptr<const ClassImage> image = compile_script(path, source, nullptr, true, compiler::CheckMode::Program, &warnings);
-		if (!image || !write_compiled(cache_path(path), *image)) {
-			failed++;
+		String load_error;
+		const std::shared_ptr<const ClassImage> image = compile_script(path, FileAccess::get_file_as_string(path), &found, false, compiler::CheckMode::Program, &warnings, &load_error);
+		if (!image && found.empty()) {
+			found.emplace_back().message = to_utf8(load_error);
+		} else if (image && p_write && !write_compiled(cache_path(path), *image)) {
+			found.emplace_back().message = "Its bytecode cannot be written.";
 		}
-		const CharString file = path.utf8();
-		for (size_t i = 0; p_command && i < warnings.size(); i++) {
-			const std::string message = warnings[i].message + " (" + warnings[i].warning + ")";
-			gdextension_interface::print_warning(message.c_str(), "", file.get_data(), warnings[i].line, false);
+		report.failed += !found.empty();
+		if (p_command) {
+			found.insert(found.end(), warnings.begin(), warnings.end());
+		}
+		for (compiler::Diagnostic &each : found) {
+			each.file = to_utf8(path);
+			report.diagnostics.push_back(std::move(each));
 		}
 	}
-	int scenes = 0;
 	const std::vector<std::string> checked = SceneIndex::get().scene_paths();
 	for (const std::string &path : checked) {
-		const std::shared_ptr<const compiler::CompileResult> result = check_scene(to_godot(path), true);
-		if (p_command ? !result->errors.empty() : !result->ok()) {
-			failed++;
-		}
+		const std::shared_ptr<const compiler::CompileResult> result = check_scene(to_godot(path), false);
+		report.failed += p_command ? !result->errors.empty() : !result->ok();
+		report.diagnostics.insert(report.diagnostics.end(), result->errors.begin(), result->errors.end());
 		const String extension = to_godot(path).get_extension().to_lower();
-		scenes += extension == "tscn" || extension == "scn";
+		report.scenes += extension == "tscn" || extension == "scn";
 	}
-	if (r_script_count) {
-		*r_script_count = int(paths.size());
-	}
-	if (r_scene_count) {
-		*r_scene_count = scenes;
-	}
-	if (r_resource_count) {
-		*r_resource_count = int(checked.size()) - scenes;
-	}
-	return failed;
+	report.scripts = int(paths.size());
+	report.resources = int(checked.size()) - report.scenes;
+	return report;
 }
 
 void engine_classes_changed() {

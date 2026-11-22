@@ -60,7 +60,7 @@ GAME_OUTPUT = [
     "greeter: _ready, message = set from GDScript",
 ]
 
-GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "fps", "ring", "dotnet"]
+GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "pet", "fps", "ring", "dotnet"]
 LSP = HERE / "lsp"
 DOTNET = HERE / "dotnet"
 DOTNET_ASSEMBLY = Path(".godot", "mono", "temp", "bin", "Debug", "DotnetCheck.dll")
@@ -560,11 +560,13 @@ def main():
     if not editor_library.is_file():
         sys.exit(f"{editor_library} is missing. Build it with: scons")
 
-    # The lsp, fps and ring groups prepare projects of their own, so they run
-    # beside the groups of the test project.
+    # The lsp, pet, fps and ring groups prepare projects of their own, so they
+    # run beside the groups of the test project.
     finishes = []
     if wanted("lsp"):
         finishes.append(beside("lsp", run_lsp_group, godot))
+    if wanted("pet"):
+        finishes.append(beside("pet", run_pet_group, godot))
     if wanted("fps"):
         finishes.append(beside("fps", run_migration_group, godot, "fps", prepare_fps, FPS_MIGRATED, True))
     if wanted("ring"):
@@ -575,7 +577,7 @@ def main():
     elif not only:
         print(f"dotnet: skipped, as {godot} is not a .NET build")
 
-    if not only or (only - {"lsp", "fps", "ring", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
+    if not only or (only - {"lsp", "pet", "fps", "ring", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
         # The game reads the bytecode the editor writes (architecture §2.4).
         # The checked build runs on an imported project, as import_project()
         # explains.
@@ -750,7 +752,7 @@ def run_dotnet_group(godot, dotnet):
             return
         # The static view of C# classes refuses what spec §11.1 says it does.
         code, output = run(godot, "-e", "--path", str(project), "--", "--petrichor-build")
-        refused = re.findall(r"^SCRIPT ERROR: ([^\r\n]*)\s+at:  \(res://cs_limits\.pet:(\d+)\)", output, flags=re.M)
+        refused = [(message, line) for line, message in re.findall(r"^cs_limits\.pet:(\d+):\d+: error: ([^\r\n]*)", output, flags=re.M)]
         expect("dotnet build: only cs_limits.pet has errors", ", 1 with errors" in output, output)
         expect("dotnet build: a C# class has no constructor arguments and no constants, its object members and results are T?, and its untyped ones Variant", [
             ('Function "new()" takes 0 argument(s), 1 given.', "6"),
@@ -937,6 +939,87 @@ def run_lsp_group(godot):
         # The engine's String prints its faults without "ERROR".
         errors = [line for line in output.splitlines() if "ERROR" in line or "Unicode parsing error" in line]
         expect("lsp: the editor quits without errors, and its lsp.json with it", code == 0 and not errors and not info.exists(), output)
+
+
+PET = Path("bin", {"win32": "pet.windows.x86_64.exe", "linux": "pet.linux.x86_64", "darwin": "pet.macos.universal"}[sys.platform])
+
+
+def lsp_reply(stream):
+    """The body of the next message on the stream."""
+    header = b""
+    while not header.endswith(b"\r\n\r\n") and (byte := stream.read(1)):
+        header += byte
+    found = re.search(rb"Content-Length: (\d+)", header)
+    return json.loads(stream.read(int(found.group(1)))) if found else None
+
+
+def run_pet_group(godot):
+    """pet (architecture §6.5) in a project's addons/petrichor/. Without a
+    service it runs a headless editor, which imports a fresh copy first. With
+    one it asks the service, which reads the files as they are, and refuses a
+    service of another build."""
+    if not (PROJECT / PET).is_file():
+        expect("pet: it is built", False, f"{PROJECT / PET} is missing. Build it with: scons")
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        project = Path(tmp).resolve() / "pet 项目"
+        addon = project / "addons" / "petrichor"
+        (addon / "bin").mkdir(parents=True)
+        for name in ("petrichor.gdextension", host_library("editor"), PET):
+            shutil.copy(PROJECT / name, addon / name)
+        # A downloaded CI artifact loses it.
+        (addon / PET).chmod(0o755)
+        (project / "project.godot").write_text("config_version=5\n", encoding="utf-8")
+        script = project / "broken.pet"
+        script.write_text('extends Node\n\n\nfunc _ready() -> void:\n\tvar x: int = "a"\n', encoding="utf-8")
+
+        def pet(*args):
+            ran = subprocess.run([addon / PET, *args], capture_output=True, timeout=TIMEOUT)
+            return ran.returncode, ran.stdout.decode("utf-8", "replace"), ran.stderr.decode("utf-8", "replace")
+
+        error = "broken.pet:5:15: error: Cannot assign a value of type String as int."
+        summary = "petrichor check: 1 script(s), 0 scene(s), 0 resource file(s), {} with errors"
+        code, out, err = pet("check", "--godot", godot)
+        expect("pet: without a service, a headless editor checks a fresh copy", code == 1 and error in out.splitlines() and summary.format(1) in out.splitlines(), out + err)
+        expect("pet: check writes no bytecode", not list(project.glob(".godot/**/*.petc")))
+
+        info = project / ".godot" / "petrichor" / "lsp.json"
+        editor = Running(godot, "-e", "--path", str(project), "--", "--petrichor-lsp")
+        try:
+            while not info.exists() and not editor.ended and editor._remaining() > 0:
+                time.sleep(0.05)
+            code, out, err = pet("check")
+            expect("pet: a service checks, printing each error, and exits with 1", (code, out.splitlines()) == (1, [error, summary.format(1)]), out + err)
+            started = info.read_text(encoding="utf-8")
+            info.write_text(json.dumps({**json.loads(started), "build": "other"}), encoding="utf-8")
+            code, out, err = pet("check")
+            expect("pet: a service of another build is refused, with 2", code == 2 and "build other" in err, out + err)
+            info.write_text(started, encoding="utf-8")
+            script.write_text("extends Node\n\n\nfunc _ready() -> void:\n\tvar x: int=1\n", encoding="utf-8")
+            code, out, err = pet("format")
+            expect("pet: a service formats the files as they are now", code == 0 and "var x: int = 1" in script.read_text(encoding="utf-8"), out + err)
+            code, out, err = pet("check")
+            expect("pet: a project without errors gives 0", (code, out.splitlines()) == (0, [summary.format(0)]), out + err)
+            bridge = subprocess.Popen([addon / PET, "lsp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+            body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}}).encode()
+            bridge.stdin.write(b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+            bridge.stdin.flush()
+            reply = lsp_reply(bridge.stdout)
+            bridge.stdin.close()
+            expect("pet: lsp bridges a client to the service until stdin closes", reply and "capabilities" in reply.get("result", {}) and bridge.wait(timeout=10) == 0, str(reply))
+        finally:
+            editor.process.kill()
+            code, output = editor.finish()
+            # On Windows the editor holds its copy of the library until the
+            # console wrapper's job has ended it.
+            copy = addon / "bin" / ("~" + Path(host_library("editor")).name)
+            deadline = time.monotonic() + 10
+            while copy.exists() and time.monotonic() < deadline:
+                try:
+                    copy.unlink()
+                except OSError:
+                    time.sleep(0.1)
+        expect("pet: the service reports no errors", "ERROR" not in output, output)
 
 
 FOLDS_CASE = sys.platform in ("win32", "darwin")

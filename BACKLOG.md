@@ -18,7 +18,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 0.2.1, due 2026-11-26, with only the project service. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
 
-- The project service (architecture §6.5), in the part left: the command-line executable. It checks, builds and formats through the running service. It bridges clients that start a server over stdio. Without a service it starts one for the run.
 - Its acceptance is a scripted run. Godot is open, VS Code is connected, and a script writes files and runs the check. No window gets the focus during it.
   - The check answers for the disk as the script left it.
   - VS Code's diagnostics follow within about a second.
@@ -93,7 +92,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
-- `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). The README says to import first.
+- `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). `pet` imports a fresh clone first.
 - On Windows, `--petrichor-build` cannot copy the extension's library while an editor has the same project open. Each editor process loads a copy named `~<library>`, which the open editor holds (`platform/windows/os_windows.cpp:488-504`, `core/extension/gdextension_library_loader.cpp:196`, `ed1daf0`).
   - The build still runs and prints its result. The process then ends with 0xC0000005 instead of its own exit code (two headless editors, 11-19).
   - The same holds for any second editor process on the project, such as a language server started apart from the editor.

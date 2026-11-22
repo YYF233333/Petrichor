@@ -4,8 +4,8 @@ Usage:
     python tools/package.py <libraries> <version> <output directory> [--allow-missing] [--godot <editor>]
 
 <libraries> holds the libraries that tests/engine/project/petrichor.gdextension
-lists, at any depth, as `gh run download` leaves them. Each one must be there,
-unless --allow-missing is given.
+lists and the builds of pet, at any depth, as `gh run download` leaves them.
+Each one must be there, unless --allow-missing is given.
 
 petrichor-<version>-addon.zip unzips into a project as addons/petrichor/.
 petrichor-<version>-demo.zip is the FPS starter kit with its migrated scripts
@@ -32,7 +32,8 @@ import run as engine_tests  # noqa: E402
 
 EXTENSION = engine_tests.PROJECT / "petrichor.gdextension"
 ADDON = "addons/petrichor"
-LIBRARY_SUFFIXES = (".dll", ".so", ".dylib")
+PET = ["bin/pet.windows.x86_64.exe", "bin/pet.linux.x86_64", "bin/pet.macos.universal"]
+EXECUTABLES = (".dll", ".so", ".dylib", "/pet", *(name.removeprefix("bin") for name in PET))
 
 
 def git(*args, cwd=ROOT):
@@ -46,9 +47,10 @@ def pinned(submodule):
 def addon_files(libraries, allow_missing):
     """The plugin's files by their paths in a project."""
     found = {path.name: path for path in Path(libraries).rglob("*") if path.is_file()}
-    files = {f"{ADDON}/petrichor.gdextension": EXTENSION.read_bytes()}
+    # pet's wrappers pick its build for the system (architecture §6.5).
+    files = {f"{ADDON}/{name}": (engine_tests.PROJECT / name).read_bytes() for name in ("petrichor.gdextension", "pet", "pet.cmd")}
     missing = []
-    for _, library in engine_tests.libraries():
+    for library in [library for _, library in engine_tests.libraries()] + PET:
         if Path(library).name in found:
             files[f"{ADDON}/{library}"] = found[Path(library).name].read_bytes()
         else:
@@ -56,7 +58,7 @@ def addon_files(libraries, allow_missing):
     if missing:
         listed = "".join(f"\n    {library}" for library in missing)
         if not allow_missing:
-            sys.exit(f"{libraries} lacks these libraries of {EXTENSION.name}:{listed}")
+            sys.exit(f"{libraries} lacks these files of the addon:{listed}")
         print(f"Left out, as missing:{listed}")
     files[f"{ADDON}/LICENSE.md"] = (ROOT / "LICENSE").read_bytes()
     godot_cpp = (ROOT / "thirdparty" / "godot-cpp" / "LICENSE.md").read_text(encoding="utf-8")
@@ -121,7 +123,7 @@ def write_zip(path, files):
         for name in sorted(files):
             info = zipfile.ZipInfo(name, date)
             info.create_system = 3
-            info.external_attr = (0o100755 if name.endswith(LIBRARY_SUFFIXES) else 0o100644) << 16
+            info.external_attr = (0o100755 if name.endswith(EXECUTABLES) else 0o100644) << 16
             info.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(info, files[name])
     print(path)

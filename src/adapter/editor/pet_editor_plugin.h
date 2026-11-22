@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -139,7 +140,8 @@ public:
 };
 
 // Compiles the project before it runs (architecture §2.4), provides the
-// headless commands (spec §13.1, §13.2):
+// commands of pet, also headless (spec §13.1, §13.2, architecture §6.5):
+//   godot --headless -e --path <project> -- --petrichor-check
 //   godot --headless -e --path <project> -- --petrichor-build
 //   godot --headless -e --path <project> -- --petrichor-format [--check]
 // has the nodes ask again for their errors when a file or an open scene
@@ -251,9 +253,9 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void apply_previewed();
 	void apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record, bool p_undo);
 	godot::String rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates, bool p_undo, bool p_apply);
-	bool waits_for_scan(void (PetEditorPlugin::*p_command)());
-	void run_build_command();
-	void run_format_command();
+	void scripts_saved(const std::set<std::string> &p_files);
+	void run_headless(const godot::String &p_command);
+	std::optional<std::pair<std::string, int>> run_command(const std::string &p_command, const std::vector<std::string> &p_args, const std::set<std::string> &p_conflicts);
 	void files_changed();
 	void scene_saved(const godot::String &p_path);
 	void scenes_paused();

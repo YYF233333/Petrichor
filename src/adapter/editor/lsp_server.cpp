@@ -3,6 +3,7 @@
 #include "adapter/editor/scene_index.h"
 #include "adapter/editor/script_compiler.h"
 #include "adapter/pet_compiled.h"
+#include "build_id.gen.h"
 #include "compiler/analysis.h"
 #include "compiler/formatter.h"
 #include "compiler/lexer.h"
@@ -558,8 +559,8 @@ struct LspServer::Unsaved {
 	}
 };
 
-LspServer::LspServer(Ref<EditorDebuggerPlugin> p_debugger, std::function<void()> p_changed, std::function<void(const std::set<std::string> &)> p_written) :
-		debugger(std::move(p_debugger)), editor_changed(std::move(p_changed)), editor_written(std::move(p_written)) {
+LspServer::LspServer(Ref<EditorDebuggerPlugin> p_debugger, std::function<void()> p_changed, std::function<void(const std::set<std::string> &)> p_written, Run p_run) :
+		debugger(std::move(p_debugger)), editor_changed(std::move(p_changed)), editor_written(std::move(p_written)), run(std::move(p_run)) {
 	delay = uint64_t(double(EditorInterface::get_singleton()->get_editor_settings()->get_setting("text_editor/completion/idle_parse_delay")) * 1000);
 	server.instantiate();
 	if (server->listen(0, "127.0.0.1") != OK) {
@@ -571,6 +572,7 @@ LspServer::LspServer(Ref<EditorDebuggerPlugin> p_debugger, std::function<void()>
 	Dictionary info;
 	info["pid"] = OS::get_singleton()->get_process_id();
 	info["port"] = server->get_local_port();
+	info["build"] = PETRICHOR_BUILD_ID;
 	const Ref<FileAccess> file = FileAccess::open(path, FileAccess::WRITE);
 	if (file.is_valid()) {
 		file->store_string(JSON::stringify(info));
@@ -895,6 +897,30 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 			files.push_back(each);
 		}
 		reply(out, p_id, files);
+	} else if (p_method == "petrichor/run") {
+		// A command of pet, on the files as they are now (architecture §6.5).
+		const Dictionary params = dictionary(p_params);
+		const Variant listed = params.get("args", Array());
+		std::vector<std::string> args;
+		for (int64_t i = 0; listed.get_type() == Variant::ARRAY && i < Array(listed).size(); i++) {
+			args.push_back(to_utf8(Array(listed)[i].stringify()));
+		}
+		refresh();
+		std::set<std::string> warned;
+		for (const std::string &file : held()) {
+			if (conflicts.count(file)) {
+				warned.insert(file);
+			}
+		}
+		const std::optional<std::pair<std::string, int>> ran = run(to_utf8(params.get("command", String()).stringify()), args, warned);
+		if (ran) {
+			Dictionary result;
+			result["output"] = to_godot(ran->first);
+			result["exitCode"] = ran->second;
+			reply(out, p_id, result);
+		} else {
+			reply_error(out, p_id, INVALID_PARAMS, "The command is none of check, build and format.");
+		}
 	} else if (const auto query = QUERIES.find(to_utf8(p_method)); query != QUERIES.end()) {
 		// On the files as they are now (architecture §6.5).
 		if (session->disk) {

@@ -85,15 +85,23 @@ CI tests each release with the official editor and the official export templates
 | Linux | x86_64, needs glibc 2.35 or later | Ubuntu 22.04 |
 | macOS | universal (x86_64 and arm64), needs macOS 11 or later | macOS 15 on arm64; x86_64 through Rosetta |
 
-To check a whole project in CI:
+From the project's root, the command-line tool `pet` checks, builds and formats the whole project:
 
 ```sh
-godot --headless --path <project> --import
-godot --headless -e --path <project> -- --petrichor-build
-godot --headless -e --path <project> -- --petrichor-format --check
+addons/petrichor/pet check            # checks the files on disk, writing nothing
+addons/petrichor/pet build            # checks them and writes the bytecode
+addons/petrichor/pet format --check   # lists the scripts not formatted; without --check, formats them
+addons/petrichor/pet lsp              # bridges LSP clients such as Neovim and Helix over stdio
 ```
 
-Only a fresh clone needs the first line, and its exit code need not be checked. The editor of Godot 4.7 can crash when it exits right after it first opens a project ([godot#111048](https://github.com/godotengine/godot/issues/111048)).
+On Windows, write `addons\petrichor\pet`. While the Godot editor has the project open, the command runs in it, without another process. Otherwise `pet` runs a headless Godot, the one the editor recorded when it last opened the project. Where none was recorded, name one with `--godot <path>`, as in CI:
+
+```sh
+addons/petrichor/pet build --godot <godot>
+addons/petrichor/pet format --check --godot <godot>
+```
+
+Each error takes one line, such as `player.pet:12:5: error: ...`. The exit code is 0 for no errors, 1 for errors or scripts not formatted, and 2 when it could not run. An agent that has written files runs `pet check` to get the result for the disk as it is now.
 
 To build from source, you need a C++17 toolchain and SCons. Run `git submodule update --init`, then `scons`.
 

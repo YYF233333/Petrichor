@@ -69,12 +69,14 @@ jobs:
       - name: Build the library
         run: scons target=${{ matrix.target }} ${{ matrix.scons_args }}
 
-      # Ad hoc, on both architectures: the release is not notarized.
+      # Ad hoc, on both architectures: the release is not notarized. The
+      # editor build also gives pet.
       - name: Sign the library
         if: matrix.platform == 'macos'
         run: |
-          codesign --force --sign - tests/engine/project/bin/*.dylib
-          codesign --verify --verbose tests/engine/project/bin/*.dylib
+          shopt -s nullglob
+          codesign --force --sign - tests/engine/project/bin/*.dylib tests/engine/project/bin/pet.*
+          codesign --verify --verbose tests/engine/project/bin/*.dylib tests/engine/project/bin/pet.*
 
       - name: Compiler tests
         if: matrix.target == 'editor'
@@ -89,6 +91,7 @@ jobs:
             tests/engine/project/bin/*.dll
             tests/engine/project/bin/*.so
             tests/engine/project/bin/*.dylib
+            tests/engine/project/bin/pet.*
           if-no-files-found: error
 
   # On the engine the libraries are built for, and on the latest pre-release
