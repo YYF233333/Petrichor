@@ -16,7 +16,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Next release
 
-0.2, due 2026-11-29. Its list and date are set with the owner (architecture §5, step 11).
+0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11).
 
 ## Language
 
