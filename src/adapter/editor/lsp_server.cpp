@@ -1037,7 +1037,7 @@ void LspServer::release(const std::string &p_path) {
 	if (!FileAccess::file_exists(to_godot(p_path))) {
 		analysis().forget(p_path);
 	}
-	const Ref<Script> loaded = session->disk ? Ref<Script>() : ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path));
+	const Ref<Script> loaded = session->disk ? Ref<Script>() : Ref<Script>(ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path)));
 	if (loaded.is_valid() && loaded->get_source_code() != to_godot(workspace().script_source(p_path).value_or(std::string()))) {
 		editor_written({ p_path });
 	}
