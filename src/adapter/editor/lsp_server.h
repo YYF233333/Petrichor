@@ -117,6 +117,10 @@ class LspServer {
 	void release(const std::string &p_path);
 	void watch(const std::string &p_root);
 	void refresh();
+	// The files Godot holds unsaved changes of: its unsaved tabs and scenes,
+	// and the edited resources in conflict, as no binding lists the others.
+	// A conflict on another file ends.
+	std::set<std::string> held();
 	void in_view(const std::function<void()> &p_do);
 	void publish(const std::string &p_path, Document &r_document);
 	void notify(const char *p_method, const godot::Dictionary &p_params);

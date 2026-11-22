@@ -1569,9 +1569,10 @@ def check_conflicts(client, project, editor, port):
     """Files changed on disk while Godot holds unsaved changes of them
     (architecture §6.5). arena.tscn, open without unsaved changes, is reloaded
     once it changes on disk. Then note.pet, given an unsaved change in a tab,
-    and arena.tscn, given one, conflict: each is told once to every session and
-    listed on request, a rename that must save arena.tscn is refused, and each
-    conflict ends once its file is back as Godot saw it."""
+    changed and then deleted, arena.tscn, given one, and ramp.tres, edited
+    through the undo history, conflict. Each is told once to every session and
+    listed on request, and a rename that must save arena.tscn is refused. A
+    conflict ends once its file is back as Godot saw it; ramp.tres stays edited."""
     disk = LspClient(port)
     disk.initialize(view="disk")
     arena, note = project / "arena.tscn", project / "note.pet"
@@ -1613,6 +1614,17 @@ def check_conflicts(client, project, editor, port):
         f"{first}\n{again}\n{tab}",
     )
 
+    note.write_bytes(saved[note])
+    back = unsaved()
+    note.unlink()
+    gone = unsaved()
+    deleted = told(client)
+    expect(
+        "lsp: a file deleted on disk while Godot's tab of it is unsaved is a conflict, told with how to write it back",
+        back == {"note.pet": False} and gone == {"note.pet": True} and deleted and "res://note.pet" in deleted and "Ctrl+S" in deleted,
+        f"{back}\n{gone}\n{deleted}",
+    )
+
     hold("dirty", b"lsp dirty:")
     arena.write_bytes(saved[arena] + b"\n")
     scene = unsaved()
@@ -1624,11 +1636,27 @@ def check_conflicts(client, project, editor, port):
         f"{scene}\n{renamed}",
     )
 
-    for path in (arena, note):
+    ramp = project / "ramp.tres"
+    saved[ramp] = ramp.read_bytes()
+    hold("dirty", b"lsp dirty:", "res://ramp.tres")
+    ramp.write_bytes(saved[ramp].replace(b"width = 64", b"width = 32"))
+    resource = unsaved()
+    replaced = told(client)
+    expect(
+        "lsp: a resource edited in Godot that changed on disk is a conflict, told that the file replaced the edit",
+        resource == {"note.pet": True, "arena.tscn": True, "ramp.tres": True} and replaced and "res://ramp.tres" in replaced and "replaced" in replaced,
+        f"{resource}\n{replaced}",
+    )
+
+    for path in (arena, note, ramp):
         path.write_bytes(saved[path])
     ended = unsaved()
     disk.socket.close()
-    expect("lsp: a conflict ends once its file is again as Godot saw it", ended == {"note.pet": False, "arena.tscn": False}, str(ended))
+    expect(
+        "lsp: a conflict ends once its file is again as Godot saw it, but an edited resource's lasts until Godot saves it",
+        ended == {"note.pet": False, "arena.tscn": False, "ramp.tres": True},
+        str(ended),
+    )
 
 
 def check_sessions(project, uri, port):

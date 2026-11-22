@@ -520,7 +520,7 @@
     - 所以编辑器保存场景、资源和脚本时（`editor/plugins/editor_plugin.cpp:284-289`），以及每次读回之后，记下文件的 MD5。重构写入的文件也记下。
     - 标签页没有未保存的改动、文本与文件相同时，也记下。它打开、保存和重载时都是这样（`editor/script/script_text_editor.cpp:248-251`，`editor/script/script_editor_plugin.cpp:723-728`，`editor/script/script_editor_base.cpp:575-604`）。
     - 重构按这个记录判断标签页的文件是否在别处改过（§2.3）。
-    - Godot 有未保存改动的文件变了时，读回照常进行，但不记下 MD5。这是冲突（§6.5），重构因此不写掉这个改动。
+    - Godot 的标签页或场景有未保存改动的文件变了时，读回照常进行，但不记下 MD5。这是冲突（§6.5），重构因此不写掉这个改动。
     - 保存场景时，编辑器在 `scene_saved` 之后保存改过的外部资源和脚本，不发信号。然后它才调用各插件的 `_save_external_data()`（`editor/editor_node.cpp:2521-2526, 2374-2408`，`editor/editor_data.cpp:421-425`）。
     - 所以服务在这两处各走查一遍，其间变了的文件都算编辑器的写入，记下 MD5，不读回。否则读回给资源换上新读的子资源，撤销历史和检查器仍持有旧的。
     - 【已知限制】以下写入也不发信号，比较时当作其他程序的写入读回，已加载的资源同样换上新读的子资源：
@@ -1006,22 +1006,29 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
   - 撤销同样写盘；
   - 只改一个打开的脚本时，改动仍是它标签页中的一步编辑。
   - VS Code 默认在多文件的重构后保存文件（§2.4）。Godot 移动文件时也直接改写依赖它的文件（`editor/docks/filesystem_dock.cpp:1676-1705`）。
-- 冲突只上报。服务读回磁盘上的改动时（§2.4），Godot 若有这个文件未保存的改动，就是冲突：
-  - Godot 未保存的改动有两种：脚本编辑器中未保存的标签页，和 `get_unsaved_scenes()` 中的已打开场景（`editor/script/script_editor_plugin.cpp:2408-2418`，`editor/editor_interface.cpp:738-748`）；
-  - 服务记下当前的冲突。Godot 保存或重载这个文件后，冲突结束；文件又与编辑器上次所见相同时，也结束；
+- 冲突只上报。服务读回磁盘上的改动时（§2.4），Godot 若有这个文件未保存的改动，就是冲突。文件被删除时也是这样：
+  - Godot 未保存的改动有三种：脚本编辑器中未保存的标签页，`get_unsaved_scenes()` 中的已打开场景，和编辑过的外部资源（`editor/script/script_editor_plugin.cpp:2408-2418`，`editor/editor_interface.cpp:738-748`）；
+  - 外部资源指已加载、`is_object_edited()` 为真的资源，脚本和场景除外。场景保存时，编辑器把它们一起保存（`editor/editor_interface.cpp:719-722`，`editor/editor_node.cpp:2374-2408`）；
+  - 【已知限制】只看文件的主资源。只改了子资源时看不到，编辑器却按文件保存（`editor/editor_node.cpp:2379-2388`）；
+  - 服务记下当前的冲突。Godot 保存或关闭这个文件，或者重载它之后，冲突结束。文件又与编辑器上次所见相同时，也结束；
   - 服务察觉冲突时立即提示，每个冲突只提示一次；
   - Godot 中弹出提示框（`editor/gui/editor_toaster.cpp:563`）。每个会话收到类型为 Warning 的 `window/showMessage`，磁盘视图上的也收到，因为写入的多是代理。两者都写明文件；
-  - 客户端在两个视图上都可以发 `petrichor/unsavedFiles` 请求。回答列出 Godot 有未保存改动的文件，每项是 URI 和它是否冲突。命令行打印这个列表。
+  - 客户端在两个视图上都可以发 `petrichor/unsavedFiles` 请求。回答列出 Godot 有未保存改动的文件，每项是 URI 和它是否冲突。命令行打印这个列表；
+  - 编辑过的外部资源只在冲突时列出。没有绑定列出已加载的资源。
 - 取舍由人在引擎的对话框中决定，服务不合并两边，也不替他选：
   - Godot 重获焦点时，按文件的修改时间发现这些文件，弹出对话框（`editor/script/script_editor_plugin.cpp:803-850`，`editor/editor_node.cpp:1550-1591`）；
   - 对话框有三个按钮（`editor/script/script_editor_plugin.cpp:4118-4142`，`editor/editor_node.cpp:9354-9382`）：
     - 从磁盘重载；
     - 忽略外部改动，即保存 Godot 的版本；
     - 取消。关掉对话框也是这样，两边都留着。
-  - 读回不改有未保存改动的标签页和场景，也不改它们记下的修改时间，所以对话框照常弹出。
+  - 读回不改有未保存改动的标签页和场景，也不改它们记下的修改时间，所以对话框照常弹出；
+  - 【已知限制】保存场景时，编辑器若一起保存了编辑过的脚本，会重记每个脚本标签页的修改时间（`editor/editor_node.cpp:2411-2413`，`editor/script/script_editor_plugin.cpp:2504-2510`）。这之后冲突的标签页不再弹出对话框，它下次保存就写掉磁盘上的改动。服务仍列出这个冲突，重构也仍然拒绝。
+- 引擎不为编辑过的外部资源询问。重获焦点时，它直接重新读取文件，丢掉 Godot 中的改动（`editor/file_system/editor_file_system.cpp:1018-1025`，`editor/editor_node.cpp:1291-1323`）：
+  - 服务照样读回，只是更早。提示告诉人，磁盘上的文件替换了 Godot 中未保存的改动；
+  - 资源仍标为编辑过，冲突持续到 Godot 保存它。
+- 文件被删除时，引擎不为场景询问（`editor/editor_node.cpp:1565-1567`）。提示告诉人，在 Godot 中按 Ctrl+S 会把它写回。
 - 没有未保存改动的已打开场景，自己的文件变了就直接重载，与引擎的重载一样清空它的历史（`editor/editor_node.cpp:7143-7151`）。
 - 服务发起的保存遇到冲突时拒绝，并列出文件。重构要先保存的标签页或场景有冲突时，什么都不改（§2.3）。
-- 【待定】编辑过、还没保存的外部资源。引擎绑定了 `is_object_edited()`，看得出来。但引擎不为它询问，重获焦点时直接重新读取文件，丢掉 Godot 中的改动（`editor/editor_interface.cpp:719-722`，`editor/file_system/editor_file_system.cpp:1018-1025`，`editor/editor_node.cpp:1291-1323`）。服务现在照样读回它们。
 - 在此之前要守住：
   - 分析可以按任一视图读项目（`Analysis::Pass`），检查不读视图之外的状态；
   - 新的无界面命令做成服务的请求，不另加一种启动编辑器的参数；

@@ -517,6 +517,14 @@ std::set<std::string> godot_unsaved() {
 	return files;
 }
 
+// An external resource edited in Godot, which it saves with the next scene
+// (editor/editor_node.cpp:2374-2408, editor/editor_interface.cpp:719-722; ed1daf0).
+// A script's or a scene's unsaved changes are its tab's or the open scene's.
+bool edited_resource(const std::string &p_path) {
+	const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path));
+	return loaded.is_valid() && !loaded->is_class("Script") && !loaded->is_class("PackedScene") && EditorInterface::get_singleton()->is_object_edited(loaded.ptr());
+}
+
 } // namespace
 
 // The files that an edit is refused for: those with content in Godot that is
@@ -658,12 +666,8 @@ void LspServer::step() {
 	if (stale) {
 		refresh();
 	}
-	// A conflict ends once Godot saves or reloads the file (architecture §6.5).
 	if (!conflicts.empty()) {
-		const std::set<std::string> unsaved = godot_unsaved();
-		for (auto each = conflicts.begin(); each != conflicts.end();) {
-			each = unsaved.count(*each) ? std::next(each) : conflicts.erase(each);
-		}
+		held();
 	}
 	Time *time = Time::get_singleton();
 	const uint64_t start = time->get_ticks_msec();
@@ -884,7 +888,7 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		// On either view (architecture §6.5).
 		refresh();
 		Array files;
-		for (const std::string &file : godot_unsaved()) {
+		for (const std::string &file : held()) {
 			Dictionary each;
 			each["uri"] = uri_of(file);
 			each["conflict"] = conflicts.count(file) > 0;
@@ -959,16 +963,18 @@ void LspServer::watch(const std::string &p_root) {
 // a scene again clears its history.
 //
 // A file that Godot holds unsaved changes of is a conflict, told once to Godot
-// and to every session. It is not taken as seen, so that refactorings refuse
-// to write over it. Godot's tab or scene keeps its changes, and its file time,
-// so that Godot asks which to keep once it has focus
-// (editor/script/script_editor_plugin.cpp:803-850, editor/editor_node.cpp:1550-1591;
-// ed1daf0).
+// and to every session (architecture §6.5). A tab or a scene keeps its
+// changes, and its file time, so that Godot asks which to keep once it has
+// focus (editor/script/script_editor_plugin.cpp:803-850, editor/editor_node.cpp:1550-1591;
+// ed1daf0). Its file is not taken as seen, so that refactorings refuse to
+// write over it. An edited resource is read back as Godot reads it once it has
+// focus, which drops the edit. Godot does not ask about a scene whose file was
+// removed, and saving writes it back (editor/editor_node.cpp:1565-1567).
 void LspServer::refresh() {
 	stale = false;
 	std::map<std::string, FileStat> found = walk_project(root);
 	std::set<std::string> changed;
-	bool scan = false;
+	std::vector<std::string> removed;
 	{
 		std::lock_guard<std::mutex> lock(walking);
 		if (found == walked) {
@@ -980,37 +986,60 @@ void LspServer::refresh() {
 				changed.insert(path);
 			}
 		}
-		scan = std::any_of(walked.begin(), walked.end(), [&](const auto &p_file) { return !found.count(p_file.first); });
+		for (const auto &[path, stat] : walked) {
+			if (!found.count(path)) {
+				removed.push_back(path);
+			}
+		}
 		walked = std::move(found);
 	}
+	bool scan = !removed.empty();
 	std::set<std::string> outside;
 	std::set<std::string> taken;
 	const std::set<std::string> unsaved = godot_unsaved();
-	PackedStringArray found_conflicts;
+	PackedStringArray asked;
+	PackedStringArray replaced;
+	PackedStringArray deleted;
+	for (const std::string &file : removed) {
+		if ((unsaved.count(file) || edited_resource(file)) && conflicts.insert(file).second) {
+			deleted.push_back(to_godot(file));
+		}
+	}
 	for (const std::string &file : changed) {
 		if (file_unchanged(file)) {
 			conflicts.erase(file);
 			continue;
 		}
 		outside.insert(file);
-		const bool conflict = unsaved.count(file) > 0;
-		if (!conflict) {
+		const bool asks = unsaved.count(file) > 0;
+		const bool edited = !asks && edited_resource(file);
+		if (!asks && !edited) {
 			conflicts.erase(file);
 		} else if (conflicts.insert(file).second) {
-			found_conflicts.push_back(to_godot(file));
+			(asks ? asked : replaced).push_back(to_godot(file));
 		}
 		const std::string extension = lower_ascii(file.substr(file.find_last_of("./") + 1));
 		if (extension == "pet" || extension == "tscn" || extension == "scn" || extension == "tres") {
 			taken.insert(file);
-			if (!conflict) {
+			if (!asks) {
 				file_seen(file);
 			}
 		} else {
 			scan = true;
 		}
 	}
-	if (!found_conflicts.is_empty()) {
-		const String message = vformat("Godot has unsaved changes to %s, which changed on disk. It asks which to keep once it has focus.", String(", ").join(found_conflicts));
+	PackedStringArray told_now;
+	if (!asked.is_empty()) {
+		told_now.push_back(vformat("Godot has unsaved changes to %s, which changed on disk. It asks which to keep once it has focus.", String(", ").join(asked)));
+	}
+	if (!replaced.is_empty()) {
+		told_now.push_back(vformat("What changed on disk replaced Godot's unsaved changes to %s, as Godot itself does once it has focus.", String(", ").join(replaced)));
+	}
+	if (!deleted.is_empty()) {
+		told_now.push_back(vformat("Godot has unsaved changes to %s, deleted on disk. Ctrl+S in Godot writes back what it has.", String(", ").join(deleted)));
+	}
+	if (!told_now.is_empty()) {
+		const String message = String(" ").join(told_now);
 		EditorInterface::get_singleton()->get_editor_toaster()->push_toast(message, EditorToaster::SEVERITY_WARNING);
 		Session *asking = session;
 		for (Session &each : sessions) {
@@ -1060,6 +1089,19 @@ void LspServer::resources_saved() {
 	for (const std::string &path : written) {
 		file_seen(path);
 	}
+}
+
+std::set<std::string> LspServer::held() {
+	std::set<std::string> files = godot_unsaved();
+	for (auto each = conflicts.begin(); each != conflicts.end();) {
+		if (files.count(*each) || edited_resource(*each)) {
+			files.insert(*each);
+			++each;
+		} else {
+			each = conflicts.erase(each);
+		}
+	}
+	return files;
 }
 
 // A change that refresh() has not taken in has other stats than the walk.

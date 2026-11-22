@@ -16,8 +16,9 @@ extends EditorPlugin
 # history and saves the scene shown, which saves the resource too; the next
 # time, prints whether the resource keeps its gradient. Once res://scene is
 # there, prints whether the scene shown has a node Extra; once res://dirty is
-# there, makes an unsaved change in the tab of the script it names, or else in
-# the scene shown. Once res://call is there, calls the method
+# there, makes an unsaved change in the tab of the script it names, through the
+# undo history in the resource it names, or else in the scene shown. Once
+# res://call is there, calls the method
 # of the Petrichor plugin it names with the arguments after, and prints the
 # result.
 # Quits once the file res://quit is there.
@@ -26,6 +27,7 @@ extends EditorPlugin
 var probed: Script
 var ramp: GradientTexture1D
 var gradient: Gradient
+var edited: Resource
 
 
 func _enter_tree() -> void:
@@ -93,10 +95,16 @@ func _hold() -> void:
 			DirAccess.remove_absolute("res://scene")
 			print("lsp scene: ", EditorInterface.get_edited_scene_root().has_node("Extra"))
 		if FileAccess.file_exists("res://dirty"):
-			var script := FileAccess.get_file_as_string("res://dirty")
+			var path := FileAccess.get_file_as_string("res://dirty")
 			DirAccess.remove_absolute("res://dirty")
-			if script:
-				EditorInterface.edit_script(load(script))
+			if path.ends_with(".tres"):
+				edited = load(path)
+				get_undo_redo().create_action("Widen it")
+				get_undo_redo().add_do_property(edited, "width", 128)
+				get_undo_redo().add_undo_property(edited, "width", edited.get("width"))
+				get_undo_redo().commit_action()
+			elif path:
+				EditorInterface.edit_script(load(path))
 				EditorInterface.get_script_editor().get_current_editor().get_base_editor().insert_text("# Unsaved in Godot.\n", 0, 0)
 			else:
 				var root := EditorInterface.get_edited_scene_root()
