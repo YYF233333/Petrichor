@@ -72,4 +72,33 @@ public:
 	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override { return disk.foreign_class(p_path, p_members); }
 };
 
+// Another project with texts of its own for some scripts, as an LSP session
+// lays the documents it has open over its view (architecture §2.4).
+class Overlay : public ProjectApi {
+	const ProjectApi &under;
+
+public:
+	std::map<std::string, std::string> scripts;
+
+	explicit Overlay(const ProjectApi &p_under) :
+			under(p_under) {}
+
+	std::vector<std::string> scene_paths() const override { return under.scene_paths(); }
+	std::optional<Scene> scene(const std::string &p_path) const override { return under.scene(p_path); }
+	std::string main_scene() const override { return under.main_scene(); }
+	std::optional<ResourceInfo> resource(const std::string &p_path) const override { return under.resource(p_path); }
+	std::string uid_path(const std::string &p_uid) const override { return under.uid_path(p_uid); }
+	std::vector<std::string> dependencies(const std::string &p_path) const override { return under.dependencies(p_path); }
+	std::string global_class_path(const std::string &p_name) const override { return under.global_class_path(p_name); }
+	std::string autoload_path(const std::string &p_name) const override { return under.autoload_path(p_name); }
+	std::map<std::string, std::string> global_class_paths() const override { return under.global_class_paths(); }
+	std::vector<std::string> autoload_names() const override { return under.autoload_names(); }
+	std::vector<std::string> resource_files() const override { return under.resource_files(); }
+	std::vector<std::string> input_actions() const override { return under.input_actions(); }
+	std::vector<std::string> script_paths() const override { return under.script_paths(); }
+	std::optional<std::string> script_source(const std::string &p_path) const override;
+	std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const override;
+	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override { return under.foreign_class(p_path, p_members); }
+};
+
 } // namespace petrichor::compiler

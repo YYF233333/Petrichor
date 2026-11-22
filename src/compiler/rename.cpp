@@ -51,9 +51,7 @@ std::string applied(const std::string &p_text, const Edits &p_edits) {
 
 // The project as the edits leave it: the sources of the scripts, a global
 // class name that renaming changes, and scenes whose nodes moved.
-class EditedProject : public ProjectApi {
-	const ProjectApi &project;
-	const std::map<std::string, std::string> &sources;
+class EditedProject : public Overlay {
 	std::string old_global;
 	std::string new_global;
 	std::string global_path;
@@ -61,8 +59,7 @@ class EditedProject : public ProjectApi {
 public:
 	std::map<std::string, Scene> scenes;
 
-	EditedProject(const ProjectApi &p_project, const std::map<std::string, std::string> &p_sources) :
-			project(p_project), sources(p_sources) {}
+	using Overlay::Overlay;
 
 	void rename_global(const std::string &p_old, const std::string &p_new, const std::string &p_path) {
 		old_global = p_old;
@@ -70,47 +67,32 @@ public:
 		global_path = p_path;
 	}
 
-	std::vector<std::string> scene_paths() const override { return project.scene_paths(); }
 	std::optional<Scene> scene(const std::string &p_path) const override {
 		const auto found = scenes.find(p_path);
-		return found == scenes.end() ? project.scene(p_path) : std::optional<Scene>(found->second);
+		return found == scenes.end() ? Overlay::scene(p_path) : std::optional<Scene>(found->second);
 	}
-	std::string main_scene() const override { return project.main_scene(); }
 	// The edits rewrite the headers that name the class (architecture §6.4).
 	std::optional<ResourceInfo> resource(const std::string &p_path) const override {
-		std::optional<ResourceInfo> found = project.resource(p_path);
+		std::optional<ResourceInfo> found = Overlay::resource(p_path);
 		if (found && !global_path.empty() && found->script_class == old_global) {
 			found->script_class = new_global;
 		}
 		return found;
 	}
-	std::string uid_path(const std::string &p_uid) const override { return project.uid_path(p_uid); }
-	std::vector<std::string> dependencies(const std::string &p_path) const override { return project.dependencies(p_path); }
 	std::string global_class_path(const std::string &p_name) const override {
 		if (!global_path.empty() && (p_name == old_global || p_name == new_global)) {
 			return p_name == new_global ? global_path : std::string();
 		}
-		return project.global_class_path(p_name);
+		return Overlay::global_class_path(p_name);
 	}
-	std::string autoload_path(const std::string &p_name) const override { return project.autoload_path(p_name); }
 	std::map<std::string, std::string> global_class_paths() const override {
-		std::map<std::string, std::string> paths = project.global_class_paths();
+		std::map<std::string, std::string> paths = Overlay::global_class_paths();
 		if (!global_path.empty()) {
 			paths.erase(old_global);
 			paths[new_global] = global_path;
 		}
 		return paths;
 	}
-	std::vector<std::string> autoload_names() const override { return project.autoload_names(); }
-	std::vector<std::string> resource_files() const override { return project.resource_files(); }
-	std::vector<std::string> input_actions() const override { return project.input_actions(); }
-	std::vector<std::string> script_paths() const override { return project.script_paths(); }
-	std::optional<std::string> script_source(const std::string &p_path) const override {
-		const auto found = sources.find(p_path);
-		return found == sources.end() ? project.script_source(p_path) : std::optional<std::string>(found->second);
-	}
-	std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const override { return project.literal_loads(p_path); }
-	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override { return project.foreign_class(p_path, p_members); }
 };
 
 std::string extension(const std::string &p_file) {
@@ -563,12 +545,11 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 		}
 	}
 
-	std::map<std::string, std::string> edited_sources;
+	EditedProject edited(project);
 	for (auto &[file, in_file] : edits) {
 		std::sort(in_file.begin(), in_file.end(), [](const CheckedEdit &p_a, const CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
-		edited_sources[file] = applied(text_of(file), in_file);
+		edited.scripts[file] = applied(text_of(file), in_file);
 	}
-	EditedProject edited(project, edited_sources);
 	if (!global.empty()) {
 		edited.rename_global(old_name, p_new, global);
 	}
@@ -600,8 +581,7 @@ Rename rename(Analysis &r_analysis, const std::string &p_path, uint32_t p_offset
 	using Meaning = std::set<std::pair<DeclId, std::optional<DeclId>>>;
 	const Analysis::Pass pass(r_analysis, &edited);
 	for (const std::string &path : scripts) {
-		const auto found = edited_sources.find(path);
-		const std::shared_ptr<const CompileResult> after = r_analysis.compile(path, found == edited_sources.end() ? text_of(path) : found->second);
+		const std::shared_ptr<const CompileResult> after = r_analysis.compile(path, edited.script_source(path).value_or(std::string()));
 		// What it read did not change, so it refers to nothing renamed.
 		if (after == before[path]) {
 			continue;
@@ -677,10 +657,8 @@ MovedNodes move_nodes(Analysis &r_analysis, const std::string &p_scene, const st
 	for (const auto &[from, to] : p_moved) {
 		back[to] = from;
 	}
-	const std::map<std::string, std::string> unedited;
-	EditedProject before(project, unedited);
-	std::map<std::string, std::string> edited;
-	EditedProject after(project, edited);
+	EditedProject before(project);
+	EditedProject after(project);
 	// The scene and those that inherit it have the nodes moved, by their own
 	// paths. One that inherits it is taken as before or after the move,
 	// whichever it is, unless the root moves, which every scene has.
@@ -771,13 +749,13 @@ MovedNodes move_nodes(Analysis &r_analysis, const std::string &p_scene, const st
 	// Each path, written anew or not, must lead where the nodes it led to are,
 	// in every scene where it did.
 	for (const auto &[file, in_file] : pending) {
-		edited[file] = applied(texts[file], edits[file]);
+		after.scripts[file] = applied(texts[file], edits[file]);
 	}
 	const Analysis::Pass pass(r_analysis, &after);
 	for (const auto &[file, in_file] : pending) {
 		using Walked = std::set<std::tuple<std::string, std::string, std::string>>;
 		std::map<uint32_t, Walked> reached;
-		for (const NodePathWalk &walk : r_analysis.compile(file, edited[file])->node_paths) {
+		for (const NodePathWalk &walk : r_analysis.compile(file, after.scripts[file])->node_paths) {
 			reached[moved(edits[file], walk.begin, true)].insert({ walk.scene, walk.from.path, walk.to.path });
 		}
 		for (const RenameEdit &edit : in_file) {

@@ -19,7 +19,9 @@ namespace petrichor::compiler {
 // declarations are checked once; between passes only the results are kept,
 // since checked declarations point into the syntax trees of other files. A
 // result found unchanged at a revision of the workspace is not read again
-// until the revision changes.
+// until the revision changes. The results of passes that read the files, the
+// workspace's disk, are kept apart from the others, so that passes alternating
+// between the two views do not check again.
 class Analysis {
 	struct Compiled {
 		uint64_t source_hash = 0;
@@ -36,8 +38,11 @@ class Analysis {
 	std::recursive_mutex mutex;
 	int passes = 0; // Nested on the thread that holds `mutex`.
 	const ProjectApi *reading = nullptr; // By the outermost pass.
+	bool on_disk = false; // Whether it reads the disk view.
+	const ProjectApi *viewed = nullptr; // By passes given no project; the workspace if null.
+	bool viewed_on_disk = false;
 	std::unique_ptr<ScriptClasses> classes; // Of the pass.
-	std::map<std::string, Compiled> compiled; // Scripts, and the checks of scenes, by their paths.
+	std::map<std::string, Compiled> compiled[2]; // Scripts, and the checks of scenes, by their paths; of the disk view second.
 	std::map<std::string, std::pair<uint64_t, std::vector<Diagnostic>>> placed; // placed_errors() by path, with the revision.
 	int checks = 0;
 
@@ -51,12 +56,12 @@ public:
 			engine(p_engine), workspace(r_workspace) {}
 
 	const EngineApi &engine_api() const { return engine; }
-	const ProjectApi &project_api() const { return workspace; }
+	const ProjectApi &project_api() const { return viewed ? *viewed : workspace; }
 
 	// One at a time; nested ones are part of the outermost, and read its
 	// project. An outermost one may read the project from `p_project`, as
 	// renaming checks the scripts it would edit and the build reads the files;
-	// what it compiles is kept as any other pass's.
+	// what it compiles is kept as any other pass's of its view.
 	class Pass {
 		Analysis &analysis;
 		std::lock_guard<std::recursive_mutex> lock;
@@ -66,6 +71,20 @@ public:
 		~Pass();
 		Pass(const Pass &) = delete;
 		Pass &operator=(const Pass &) = delete;
+	};
+
+	// While it lives, passes given no project read `p_project`, and
+	// project_api() gives it: what an LSP session sees, its view with its
+	// documents over it (architecture §2.4). `p_disk` tells the disk view.
+	class View {
+		Analysis &analysis;
+		std::lock_guard<std::recursive_mutex> lock;
+
+	public:
+		View(Analysis &r_analysis, const ProjectApi &p_project, bool p_disk);
+		~View();
+		View(const View &) = delete;
+		View &operator=(const View &) = delete;
 	};
 
 	// The script at `p_path` (res://) compiled from `p_source` with its scenes,

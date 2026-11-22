@@ -99,4 +99,13 @@ std::vector<std::pair<bool, std::string>> Workspace::literal_loads(const std::st
 	return scripts.count(p_path) ? ProjectApi::literal_loads(p_path) : disk.literal_loads(p_path);
 }
 
+std::optional<std::string> Overlay::script_source(const std::string &p_path) const {
+	const auto found = scripts.find(p_path);
+	return found == scripts.end() ? under.script_source(p_path) : std::optional<std::string>(found->second);
+}
+
+std::vector<std::pair<bool, std::string>> Overlay::literal_loads(const std::string &p_path) const {
+	return scripts.count(p_path) ? ProjectApi::literal_loads(p_path) : under.literal_loads(p_path);
+}
+
 } // namespace petrichor::compiler

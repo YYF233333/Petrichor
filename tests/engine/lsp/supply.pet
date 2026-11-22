@@ -1,0 +1,5 @@
+extends Node
+
+
+pub func amount() -> int:
+	return 1

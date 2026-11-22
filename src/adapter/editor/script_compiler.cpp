@@ -391,12 +391,13 @@ bool fixes_all(const std::vector<compiler::Diagnostic> &p_fixable, const std::st
 }
 
 FileEdits fix_again(const std::string &p_path, const compiler::Stamp &p_stamp, const compiler::Diagnostic *p_error, const std::string &p_title, compiler::FixKind p_kind) {
-	const std::string source = workspace().script_source(p_path).value_or(std::string());
+	const compiler::ProjectApi &project = analysis().project_api();
+	const std::string source = project.script_source(p_path).value_or(std::string());
 	std::shared_ptr<const compiler::CompileResult> result;
 	if (workspace().changed(p_stamp)) {
 		compiler::CompileOptions options;
 		options.path = p_path;
-		options.project = &workspace();
+		options.project = &project;
 		result = std::make_shared<const compiler::CompileResult>(compiler::compile(source, ClassDBApi::get(), options));
 	} else {
 		result = analysis().compile(p_path, source);

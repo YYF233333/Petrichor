@@ -42,16 +42,11 @@ namespace {
 constexpr size_t MAX_MESSAGE = size_t(16) << 20;
 constexpr size_t MAX_HEADER = size_t(64) << 10;
 constexpr size_t MAX_UNSENT = size_t(128) << 20; // For a client that reads nothing.
-constexpr size_t MAX_REFUSED = 4;
 constexpr int32_t CHUNK = 4 << 20; // Read or sent in a frame.
 constexpr uint64_t FRAME_BUDGET = 50; // In ms, for the messages and diagnostics of a frame.
-// In ms. A client sends `initialize` as it connects; this frees the place
-// that a connection that never does would hold, soon enough for a client's
-// reconnecting.
+// In ms. A client sends `initialize` as it connects; a connection that never
+// does is let go.
 constexpr uint64_t INITIALIZE_WAIT = 10000;
-// In ms, before a connection is told that it is refused: the client before it
-// may be leaving, which is seen only once what it sent last has been read.
-constexpr uint64_t REFUSE_AFTER = 1000;
 
 #if defined(_WIN32) || defined(__APPLE__)
 constexpr bool FOLDS_CASE = true; // As their file systems do by default.
@@ -63,6 +58,7 @@ constexpr bool FOLDS_CASE = false;
 constexpr int PARSE_ERROR = -32700;
 constexpr int INVALID_REQUEST = -32600;
 constexpr int METHOD_NOT_FOUND = -32601;
+constexpr int INVALID_PARAMS = -32602;
 constexpr int SERVER_NOT_INITIALIZED = -32002;
 constexpr int REQUEST_FAILED = -32803;
 
@@ -388,7 +384,7 @@ bool is_text(const std::string &p_path) {
 	return p_path.find("::") == std::string::npos && (extension == "pet" || extension == "gd" || extension == "cs" || extension == "tscn" || extension == "tres");
 }
 
-// The script a request is for, as the workspace has it, and the offset of the
+// The script a request is for, as the session sees it, and the offset of the
 // request's position, which `p_position` requires.
 struct Place {
 	std::string path;
@@ -396,9 +392,9 @@ struct Place {
 	uint32_t offset = 0;
 };
 
-std::optional<Place> place_of(const Dictionary &p_params, bool p_position) {
+std::optional<Place> place_of(const compiler::ProjectApi &p_view, const Dictionary &p_params, bool p_position) {
 	const std::string path = script_path(dictionary(p_params.get("textDocument", Variant())).get("uri", Variant()));
-	const std::optional<std::string> text = path.empty() ? std::nullopt : workspace().script_source(path);
+	const std::optional<std::string> text = path.empty() ? std::nullopt : p_view.script_source(path);
 	const std::optional<compiler::Utf16Position> at = position(p_params.get("position", Variant()));
 	if (!text || (p_position && !at)) {
 		return std::nullopt;
@@ -471,9 +467,12 @@ uint32_t completion_start(const std::string &p_text, uint32_t p_offset, std::str
 	return uint32_t(start);
 }
 
-// Why an edit of files that Godot has unsaved is refused.
-String unsaved_reason(const PackedStringArray &p_unsaved) {
-	return vformat("Godot has unsaved changes to %s. Save them in Godot first.", String(", ").join(p_unsaved));
+String names_of(const PackedStringArray &p_files) {
+	PackedStringArray names;
+	for (const String &file : p_files) {
+		names.push_back(file.get_file());
+	}
+	return String(", ").join(names);
 }
 
 // Why renaming in the script at `p_path` is refused, a line each, with the
@@ -501,8 +500,39 @@ constexpr const char *CURSOR = "\xEF\xBF\xBF"; // U+FFFF, as the script editor m
 
 } // namespace
 
-LspServer::LspServer(Ref<EditorDebuggerPlugin> p_sessions, std::function<void()> p_changed, std::function<void(const std::set<std::string> &)> p_written) :
-		sessions(std::move(p_sessions)), editor_changed(std::move(p_changed)), editor_written(std::move(p_written)) {
+// The files that an edit is refused for: those with content in Godot that is
+// not saved, and those that another session on the human's view has unsaved
+// changes to (architecture §2.4).
+struct LspServer::Unsaved {
+	PackedStringArray godot;
+	PackedStringArray elsewhere;
+
+	bool empty() const { return godot.is_empty() && elsewhere.is_empty(); }
+	String reason() const {
+		PackedStringArray told;
+		if (!godot.is_empty()) {
+			told.push_back(vformat("Godot has unsaved changes to %s. Save them in Godot first.", String(", ").join(godot)));
+		}
+		if (!elsewhere.is_empty()) {
+			told.push_back(vformat("Another editor has unsaved changes to %s. Save them there first.", String(", ").join(elsewhere)));
+		}
+		return String(" ").join(told);
+	}
+	// For the title of a quick fix.
+	String note() const {
+		PackedStringArray told;
+		if (!godot.is_empty()) {
+			told.push_back(vformat("save %s in Godot first", names_of(godot)));
+		}
+		if (!elsewhere.is_empty()) {
+			told.push_back(vformat("save %s in the other editor first", names_of(elsewhere)));
+		}
+		return String("; ").join(told);
+	}
+};
+
+LspServer::LspServer(Ref<EditorDebuggerPlugin> p_debugger, std::function<void()> p_changed, std::function<void(const std::set<std::string> &)> p_written) :
+		debugger(std::move(p_debugger)), editor_changed(std::move(p_changed)), editor_written(std::move(p_written)) {
 	delay = uint64_t(double(EditorInterface::get_singleton()->get_editor_settings()->get_setting("text_editor/completion/idle_parse_delay")) * 1000);
 	server.instantiate();
 	if (server->listen(0, "127.0.0.1") != OK) {
@@ -522,11 +552,8 @@ LspServer::LspServer(Ref<EditorDebuggerPlugin> p_sessions, std::function<void()>
 
 // The file stays if another editor has written it since.
 LspServer::~LspServer() {
-	if (client.peer.is_valid()) {
-		client.peer->disconnect_from_host();
-	}
-	for (Connection &each : refused) {
-		each.peer->disconnect_from_host();
+	for (Session &each : sessions) {
+		each.connection.peer->disconnect_from_host();
 	}
 	server->stop();
 	const String path = info_path();
@@ -587,112 +614,86 @@ void LspServer::poll() {
 	step();
 	// What the frame computed goes out in it, not a frame later; a failure is
 	// seen as the next frame reads.
-	if (client.peer.is_valid()) {
-		flush(client);
-	}
-	for (Connection &each : refused) {
-		flush(each);
+	for (Session &each : sessions) {
+		flush(each.connection);
 	}
 	polling = false;
+}
+
+// Both only go up, so their sum changes with either.
+uint64_t LspServer::revision() const {
+	return workspace().revision() + edited;
 }
 
 void LspServer::step() {
 	Time *time = Time::get_singleton();
 	const uint64_t start = time->get_ticks_msec();
-	// Before connections are taken, so that one that comes as the client
-	// leaves takes its place.
-	if (client.peer.is_valid()) {
-		if (!transfer(client) || (state == State::Waiting && start - client.since > INITIALIZE_WAIT)) {
-			disconnect();
-		}
-	}
-	// The first not told yet that it is refused, which waits for `initialize`
-	// from now on.
-	const auto waiting = std::find_if(refused.begin(), refused.end(), [](const Connection &p_each) { return !p_each.closing; });
-	if (client.peer.is_null() && waiting != refused.end()) {
-		client = std::move(*waiting);
-		client.since = start;
-		refused.erase(waiting);
+	for (auto each = sessions.begin(); each != sessions.end();) {
+		const bool gone = !transfer(each->connection) || (each->state == State::Waiting && start - each->connection.since > INITIALIZE_WAIT);
+		each = gone ? end(each) : std::next(each);
 	}
 	while (server->is_connection_available()) {
-		Connection connection;
+		Connection &connection = sessions.emplace_back().connection;
 		connection.peer = server->take_connection();
 		connection.since = start;
-		if (client.peer.is_null()) {
-			client = std::move(connection);
-		} else if (refused.size() < MAX_REFUSED) {
-			refused.push_back(std::move(connection));
-		} else {
-			connection.peer->disconnect_from_host();
-		}
 	}
-	for (auto each = refused.begin(); each != refused.end();) {
-		if (!transfer(*each) || start - each->since > INITIALIZE_WAIT) {
-			each->peer->disconnect_from_host();
-			each = refused.erase(each);
-			continue;
-		}
-		size_t skipped = 0;
-		while (!each->closing && start - each->since >= REFUSE_AFTER) {
-			const std::optional<std::string> body = each->next(skipped);
+	// A message of each session at least, so that none waits for another's.
+	for (Session &each : sessions) {
+		session = &each;
+		Connection &connection = each.connection;
+		for (bool first = true; !connection.closing && (first || time->get_ticks_msec() - start < FRAME_BUDGET); first = false) {
+			size_t skipped = 0;
+			const std::optional<std::string> body = connection.next(skipped);
+			if (skipped > 0 && each.state == State::Running) {
+				show_message(vformat("Petrichor's language server skipped a message of %d bytes, as it reads messages of up to %d.", int64_t(skipped), int64_t(MAX_MESSAGE)));
+			}
 			if (!body) {
 				break;
 			}
-			handle(*each, *body);
+			handle(*body);
 		}
-		each->in.erase(0, each->read);
-		each->read = 0;
-		++each;
+		connection.in.erase(0, connection.read);
+		connection.read = 0;
 	}
-	if (client.peer.is_null()) {
+	session = nullptr;
+	const auto serving = [](const Session &p_session) { return p_session.state == State::Running && !p_session.connection.closing; };
+	if (std::none_of(sessions.begin(), sessions.end(), serving)) {
 		return;
 	}
-	while (!client.closing && time->get_ticks_msec() - start < FRAME_BUDGET) {
-		size_t skipped = 0;
-		const std::optional<std::string> body = client.next(skipped);
-		if (skipped > 0 && state == State::Running) {
-			show_message(vformat("Petrichor's language server skipped a message of %d bytes, as it reads messages of up to %d.", int64_t(skipped), int64_t(MAX_MESSAGE)));
-		}
-		if (!body) {
-			break;
-		}
-		handle(client, *body);
-	}
-	client.in.erase(0, client.read);
-	client.read = 0;
-	if (state != State::Running || client.closing) {
-		return;
-	}
-	// Once the workspace has stayed for as long as the script editor waits
-	// before it checks a script, or the editor has taken in a change; a script
-	// just opened at once (architecture §2.4). One a frame at least, more
-	// within the frame's budget, the rest the frame after.
-	const uint64_t revision = workspace().revision();
-	if (revision != seen) {
-		seen = revision;
+	// Once the workspace and the documents have stayed for as long as the
+	// script editor waits before it checks a script, or the editor has taken
+	// in a change; a script just opened at once (architecture §2.4). One a
+	// frame at least, more within the frame's budget, the rest the frame after.
+	const uint64_t now = revision();
+	if (now != seen) {
+		seen = now;
 		quiet_since = start;
 	}
-	const bool quiet = settle || start - quiet_since >= delay || continuing == revision;
+	const bool quiet = settle || start - quiet_since >= delay || continuing == now;
 	settle = false;
 	continuing = 0;
-	// The client's changes count as the editor's own, which the editor checks
+	// The sessions' changes count as the editor's own, which the editor checks
 	// once a revision. The settle it then asks for is this one.
-	if (quiet && told != revision) {
-		told = revision;
+	if (quiet && told != workspace().revision()) {
+		told = workspace().revision();
 		editor_changed();
 		settle = false;
 	}
 	bool sent = false;
-	for (auto &[path, document] : documents) {
-		if (document.published == revision || !(quiet || document.published == 0)) {
-			continue;
+	for (Session &each : sessions) {
+		for (auto &[path, document] : each.documents) {
+			if (!serving(each) || document.published == now || !(quiet || document.published == 0)) {
+				continue;
+			}
+			if (sent && time->get_ticks_msec() - start >= FRAME_BUDGET) {
+				continuing = quiet ? now : 0;
+				return;
+			}
+			session = &each;
+			publish(path, document);
+			session = nullptr;
+			sent = true;
 		}
-		if (sent && time->get_ticks_msec() - start >= FRAME_BUDGET) {
-			continuing = quiet ? revision : 0;
-			break;
-		}
-		publish(path, document);
-		sent = true;
 	}
 }
 
@@ -743,12 +744,12 @@ std::optional<std::string> LspServer::Connection::next(size_t &r_skipped) {
 
 // A response is never answered, also one without a usable id (JSON-RPC 2.0,
 // Response object).
-void LspServer::handle(Connection &r_connection, const std::string &p_body) {
+void LspServer::handle(const std::string &p_body) {
 	Ref<JSON> json;
 	json.instantiate();
 	const std::optional<String> text = json_text(p_body);
 	if (!text || json->parse(*text) != OK) {
-		reply_error(r_connection.out, Variant(), PARSE_ERROR, "The message is not JSON in UTF-8.");
+		reply_error(session->connection.out, Variant(), PARSE_ERROR, "The message is not JSON in UTF-8.");
 		return;
 	}
 	const Variant data = json->get_data();
@@ -760,12 +761,7 @@ void LspServer::handle(Connection &r_connection, const std::string &p_body) {
 		return;
 	}
 	if (data.get_type() != Variant::DICTIONARY || (message.has("id") && !has_id) || !message.has("method") || method.get_type() != Variant::STRING) {
-		reply_error(r_connection.out, id, INVALID_REQUEST, "The message is no JSON-RPC request, notification or response.");
-	} else if (&r_connection != &client) {
-		if (has_id) {
-			reply_error(r_connection.out, id, REQUEST_FAILED, "Another client is connected to the Petrichor language server of this Godot editor.");
-			r_connection.closing = true;
-		}
+		reply_error(session->connection.out, id, INVALID_REQUEST, "The message is no JSON-RPC request, notification or response.");
 	} else if (has_id) {
 		request(id, method, message.get("params", Variant()));
 	} else {
@@ -791,15 +787,22 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		{ "textDocument/prepareRename", &LspServer::on_prepare_rename },
 		{ "textDocument/rename", &LspServer::on_rename },
 	};
-	if (p_method == "initialize" && state == State::Waiting) {
+	std::string &out = session->connection.out;
+	State &state = session->state;
+	const Dictionary options = dictionary(dictionary(p_params).get("initializationOptions", Variant()));
+	const Variant view_asked = options.get("view", Variant());
+	if (p_method == "initialize" && state == State::Waiting && options.has("view") && view_asked != Variant("disk")) {
+		reply_error(out, p_id, INVALID_PARAMS, vformat("The view %s is unknown. Ask for \"disk\", or for none to be on the human's view.", JSON::stringify(view_asked)));
+	} else if (p_method == "initialize" && state == State::Waiting) {
 		const Dictionary capabilities = dictionary(dictionary(p_params).get("capabilities", Variant()));
 		const Dictionary document = dictionary(capabilities.get("textDocument", Variant()));
 		const Dictionary files = dictionary(capabilities.get("workspace", Variant()));
+		session->disk = options.has("view");
 		// Of a rename's edits, which alone are annotated (LSP 3.17, RenameClientCapabilities).
-		annotates = dictionary(files.get("workspaceEdit", Variant())).get("changeAnnotationSupport", Variant()).get_type() == Variant::DICTIONARY && dictionary(document.get("rename", Variant())).get("honorsChangeAnnotations", false) == Variant(true);
-		snippets = dictionary(dictionary(document.get("completion", Variant())).get("completionItem", Variant())).get("snippetSupport", false) == Variant(true);
+		session->annotates = dictionary(files.get("workspaceEdit", Variant())).get("changeAnnotationSupport", Variant()).get_type() == Variant::DICTIONARY && dictionary(document.get("rename", Variant())).get("honorsChangeAnnotations", false) == Variant(true);
+		session->snippets = dictionary(dictionary(document.get("completion", Variant())).get("completionItem", Variant())).get("snippetSupport", false) == Variant(true);
 		const Variant resolved = dictionary(dictionary(document.get("codeAction", Variant())).get("resolveSupport", Variant())).get("properties", Variant());
-		resolves_edits = resolved.get_type() == Variant::ARRAY && Array(resolved).has("edit");
+		session->resolves_edits = resolved.get_type() == Variant::ARRAY && Array(resolved).has("edit");
 		Dictionary sync;
 		sync["openClose"] = true;
 		sync["change"] = 2; // Incremental.
@@ -829,35 +832,36 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		Dictionary result;
 		result["capabilities"] = offered;
 		result["serverInfo"] = info;
-		reply(client.out, p_id, result);
+		reply(out, p_id, result);
 		state = State::Running;
 	} else if (state == State::Waiting) {
-		reply_error(client.out, p_id, SERVER_NOT_INITIALIZED, "The server is not initialized.");
+		reply_error(out, p_id, SERVER_NOT_INITIALIZED, "The server is not initialized.");
 	} else if (p_method == "initialize" || state == State::ShutDown) {
-		reply_error(client.out, p_id, INVALID_REQUEST, state == State::ShutDown ? "The server is shut down." : "The server is initialized already.");
+		reply_error(out, p_id, INVALID_REQUEST, state == State::ShutDown ? "The server is shut down." : "The server is initialized already.");
 	} else if (p_method == "shutdown") {
 		state = State::ShutDown;
-		reply(client.out, p_id, Variant());
+		reply(out, p_id, Variant());
 	} else if (const auto query = QUERIES.find(to_utf8(p_method)); query != QUERIES.end()) {
 		failure = String();
-		const Variant result = (this->*query->second)(dictionary(p_params));
+		Variant result;
+		in_view([&] { result = (this->*query->second)(dictionary(p_params)); });
 		if (failure.is_empty()) {
-			reply(client.out, p_id, result);
+			reply(out, p_id, result);
 		} else {
-			reply_error(client.out, p_id, REQUEST_FAILED, failure);
+			reply_error(out, p_id, REQUEST_FAILED, failure);
 		}
 	} else {
-		reply_error(client.out, p_id, METHOD_NOT_FOUND, "Unknown method: " + p_method);
+		reply_error(out, p_id, METHOD_NOT_FOUND, "Unknown method: " + p_method);
 	}
 }
 
 // One with a malformed field is ignored.
 void LspServer::notification(const String &p_method, const Dictionary &p_params) {
 	if (p_method == "exit") {
-		client.closing = true;
+		session->connection.closing = true;
 		return;
 	}
-	if (state != State::Running) {
+	if (session->state != State::Running) {
 		return;
 	}
 	if (p_method == "textDocument/didOpen") {
@@ -921,7 +925,7 @@ void LspServer::files_written(const std::set<std::string> &p_files, bool p_scan)
 	editor_written(taken);
 	for (const std::string &file : taken) {
 		if (compiler::is_script_path(file)) {
-			script_written(to_godot(file), sessions);
+			script_written(to_godot(file), debugger);
 		}
 	}
 	if (p_scan) {
@@ -948,10 +952,14 @@ void LspServer::opened(const Dictionary &p_params) {
 	if (path.empty() || text.get_type() != Variant::STRING || !version) {
 		return;
 	}
-	Document &document = documents[path];
+	Document &document = session->documents[path];
 	document.versions[uri] = *version;
 	document.published = 0;
-	set_client_script(path, to_utf8(text));
+	document.text = to_utf8(text);
+	edited++;
+	if (!session->disk) {
+		set_client_script(path, session, document.text);
+	}
 }
 
 // Each change applies to the text that the one before it left (LSP 3.17,
@@ -960,13 +968,13 @@ void LspServer::opened(const Dictionary &p_params) {
 void LspServer::changed(const Dictionary &p_params) {
 	const Dictionary item = dictionary(p_params.get("textDocument", Variant()));
 	const Variant uri = item.get("uri", Variant());
-	const auto found = documents.find(script_path(uri));
+	const auto found = session->documents.find(script_path(uri));
 	const std::optional<int64_t> version = integer(item.get("version", Variant()), INT32_MIN, INT32_MAX);
 	const Variant changes = p_params.get("contentChanges", Variant());
-	if (found == documents.end() || !found->second.versions.count(uri) || !version || changes.get_type() != Variant::ARRAY) {
+	if (found == session->documents.end() || !found->second.versions.count(uri) || !version || changes.get_type() != Variant::ARRAY) {
 		return;
 	}
-	std::string text = workspace().script_source(found->first).value_or(std::string());
+	std::string text = found->second.text;
 	const Array list = changes;
 	for (int64_t i = 0; i < list.size(); i++) {
 		const Dictionary change = dictionary(list[i]);
@@ -989,15 +997,18 @@ void LspServer::changed(const Dictionary &p_params) {
 		text.replace(std::min(from, to), std::max(from, to) - std::min(from, to), to_utf8(replacement));
 	}
 	found->second.versions[uri] = *version;
-	set_client_script(found->first, std::move(text));
+	found->second.text = std::move(text);
+	edited++;
+	if (!session->disk) {
+		set_client_script(found->first, session, found->second.text);
+	}
 }
 
-// Its diagnostics cleared; closed under its last spelling, back to the tab or
-// the file.
+// Its diagnostics cleared; closed under its last spelling, given back.
 void LspServer::closed(const Dictionary &p_params) {
 	const Variant uri = dictionary(p_params.get("textDocument", Variant())).get("uri", Variant());
-	const auto found = documents.find(script_path(uri));
-	if (found == documents.end() || !found->second.versions.erase(uri)) {
+	const auto found = session->documents.find(script_path(uri));
+	if (found == session->documents.end() || !found->second.versions.erase(uri)) {
 		return;
 	}
 	Dictionary params;
@@ -1006,41 +1017,66 @@ void LspServer::closed(const Dictionary &p_params) {
 	notify("textDocument/publishDiagnostics", params);
 	if (found->second.versions.empty()) {
 		const std::string path = found->first;
-		documents.erase(found);
+		session->documents.erase(found);
+		edited++;
 		release(path);
 	}
 }
 
-// What the analysis kept for a script with no file goes with its text. A
-// loaded script that took the client's unsaved text, as reading a scene or a
+// A script that the session closed, on the human's view, goes to the text of
+// another session that has it open, else to its tab or its file (architecture
+// §2.4). What the analysis kept for a script with no file goes with its text. A
+// loaded script that took the session's unsaved text, as reading a scene or a
 // resource again gives it, takes the text the workspace has now, as the
 // script editor reloads a script whose tab's changes are discarded
 // (editor/script/script_editor_plugin.cpp:607-611; ed1daf0).
 void LspServer::release(const std::string &p_path) {
-	drop_client_script(p_path);
+	if (!session->disk) {
+		drop_client_script(p_path, session);
+	}
 	if (!FileAccess::file_exists(to_godot(p_path))) {
 		analysis().forget(p_path);
 	}
-	const Ref<Script> loaded = ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path));
+	const Ref<Script> loaded = session->disk ? Ref<Script>() : ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path));
 	if (loaded.is_valid() && loaded->get_source_code() != to_godot(workspace().script_source(p_path).value_or(std::string()))) {
 		editor_written({ p_path });
 	}
 }
 
-// The diagnostics that the script editor shows for the client's text: the
+// What the session sees: its view, the human's or the disk's, with the texts
+// of its documents where they differ (architecture §2.4). The analysis reads
+// it while `p_do` runs. A session on the human's view that changed its
+// documents last sees the workspace.
+void LspServer::in_view(const std::function<void()> &p_do) {
+	const compiler::ProjectApi &under = session->disk ? static_cast<const compiler::ProjectApi &>(SceneIndex::get()) : workspace();
+	compiler::Overlay own(under);
+	for (const auto &[path, document] : session->documents) {
+		if (under.script_source(path) != document.text) {
+			own.scripts[path] = document.text;
+		}
+	}
+	view = own.scripts.empty() ? &under : &own;
+	{
+		const compiler::Analysis::View viewing(analysis(), *view, session->disk);
+		p_do();
+	}
+	view = nullptr;
+}
+
+// The diagnostics that the script editor shows for the session's text: the
 // script's own, with those of the scenes that place it (architecture §2.4).
 void LspServer::publish(const std::string &p_path, Document &r_document) {
-	const uint64_t revision = workspace().revision();
-	const std::string text = workspace().script_source(p_path).value_or(std::string());
+	const uint64_t now = revision();
+	const std::string &text = r_document.text;
 	std::vector<compiler::Diagnostic> found;
-	{
+	in_view([&] {
 		const compiler::Analysis::Pass pass(analysis());
 		const std::shared_ptr<const compiler::CompileResult> result = analysis().compile(p_path, text);
 		const std::vector<compiler::Diagnostic> placed = analysis().placed_errors(p_path);
 		found = result->errors;
 		found.insert(found.end(), placed.begin(), placed.end());
 		found.insert(found.end(), result->warnings.begin(), result->warnings.end());
-	}
+	});
 	std::vector<uint32_t> offsets;
 	for (const compiler::Diagnostic &each : found) {
 		offsets.push_back(each.begin);
@@ -1058,14 +1094,14 @@ void LspServer::publish(const std::string &p_path, Document &r_document) {
 		params["diagnostics"] = diagnostics;
 		notify("textDocument/publishDiagnostics", params);
 	}
-	r_document.published = revision;
+	r_document.published = now;
 }
 
 void LspServer::notify(const char *p_method, const Dictionary &p_params) {
 	Dictionary message;
 	message["method"] = p_method;
 	message["params"] = p_params;
-	send(client.out, message);
+	send(session->connection.out, message);
 }
 
 void LspServer::show_message(const String &p_message) {
@@ -1075,26 +1111,28 @@ void LspServer::show_message(const String &p_message) {
 	notify("window/showMessage", params);
 }
 
-// The scripts the client had open go back to their tabs or files, which the
-// editor checks again at once, as after a change on disk.
-void LspServer::disconnect() {
-	client.peer->disconnect_from_host();
+// The scripts the session had open are given back as it closes them. On the
+// human's view, the editor checks again at once, as after a change on disk.
+std::list<LspServer::Session>::iterator LspServer::end(std::list<Session>::iterator p_session) {
+	session = &*p_session;
+	session->connection.peer->disconnect_from_host();
+	const std::map<std::string, Document> documents = std::move(session->documents);
+	session->documents.clear();
 	for (const auto &[path, document] : documents) {
 		release(path);
 	}
-	const bool had = !documents.empty();
-	documents.clear();
-	client = Connection();
-	state = State::Waiting;
-	if (had) {
+	const bool given = !documents.empty() && !session->disk;
+	session = nullptr;
+	if (given) {
 		editor_changed();
 	}
+	return sessions.erase(p_session);
 }
 
-// The client's own for a script it has open; otherwise with long names.
+// The session's own for a script it has open; otherwise with long names.
 String LspServer::uri_of(const std::string &p_path) const {
-	const auto open = documents.find(p_path);
-	if (open != documents.end()) {
+	const auto open = session->documents.find(p_path);
+	if (open != session->documents.end()) {
 		return open->second.versions.begin()->first;
 	}
 	const std::string path = project_root() + p_path.substr(6);
@@ -1118,23 +1156,26 @@ Dictionary LspServer::location(const std::string &p_path, const std::string &p_t
 	return result;
 }
 
-// Against the texts the workspace has, the edits in `p_confirm`, by file and
-// start, annotated to need confirmation. None where a file that the client
-// does not have open has content in Godot that is not saved, a script's or an
-// open scene's, which `r_unsaved` lists: the client edits the file
-// (architecture §2.4). A tab's text, without carriage returns, is compared
-// with its file's without them; the positions are the same in both.
-Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, PackedStringArray &r_unsaved, const std::set<std::pair<std::string, uint32_t>> &p_confirm) const {
+// Against the texts the session sees, the edits in `p_confirm`, by file and
+// start, annotated to need confirmation. None where a file that the session
+// does not have open has unsaved content, which `r_unsaved` lists: the client
+// edits the file (architecture §2.4). That is content in Godot, a tab's or an
+// open scene's, and on the human's view also another session's text. A text,
+// without carriage returns, is compared with its file's without them; the
+// positions are the same in both.
+Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, Unsaved &r_unsaved, const std::set<std::pair<std::string, uint32_t>> &p_confirm) const {
 	const PackedStringArray scenes = EditorInterface::get_singleton()->get_unsaved_scenes();
 	Array changes;
-	for (const auto &[file, edits] : p_edits) {
-		const std::string text = workspace().script_source(file).value_or(std::string());
-		const auto open = documents.find(file);
-		if (open == documents.end() && (without_cr(text) != without_cr(SceneIndex::get().script_source(file).value_or(std::string())) || scenes.has(to_godot(file)))) {
-			r_unsaved.push_back(to_godot(file));
-			continue;
+	for (const auto &[file, in_file] : p_edits) {
+		const std::string text = view->script_source(file).value_or(std::string());
+		const auto open = session->documents.find(file);
+		const CodeEdit *tab = open == session->documents.end() ? open_code_edit(file) : nullptr;
+		if (scenes.has(to_godot(file)) || (tab && without_cr(to_utf8(tab->get_text())) != without_cr(SceneIndex::get().script_source(file).value_or(std::string())))) {
+			r_unsaved.godot.push_back(to_godot(file));
+		} else if (open == session->documents.end() && !session->disk && client_unsaved(file)) {
+			r_unsaved.elsewhere.push_back(to_godot(file));
 		}
-		std::vector<compiler::CheckedEdit> ordered = edits;
+		std::vector<compiler::CheckedEdit> ordered = in_file;
 		std::stable_sort(ordered.begin(), ordered.end(), [](const compiler::CheckedEdit &p_a, const compiler::CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
 		Array text_edits;
 		for (const compiler::CheckedEdit &edit : ordered) {
@@ -1146,13 +1187,13 @@ Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::
 		}
 		Dictionary document;
 		document["uri"] = uri_of(file);
-		document["version"] = open == documents.end() ? Variant() : Variant(open->second.versions.begin()->second);
+		document["version"] = open == session->documents.end() ? Variant() : Variant(open->second.versions.begin()->second);
 		Dictionary change;
 		change["textDocument"] = document;
 		change["edits"] = text_edits;
 		changes.push_back(change);
 	}
-	if (!r_unsaved.is_empty()) {
+	if (!r_unsaved.empty()) {
 		return Dictionary();
 	}
 	Dictionary result;
@@ -1178,7 +1219,7 @@ Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::
 // (scene/gui/code_edit.cpp:2614-2618, 3916-3927). Typed right after "(", the
 // list is empty unless it is forced, as in the editor (:3832-3835).
 Variant LspServer::on_completion(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	if (!at) {
 		return Variant();
 	}
@@ -1202,7 +1243,7 @@ Variant LspServer::on_completion(const Dictionary &p_params) {
 			const std::string filter = insert;
 			if (!insert.empty() && insert.back() == '(') {
 				insert.pop_back();
-				if (snippets) {
+				if (session->snippets) {
 					std::string escaped;
 					for (const char c : insert) {
 						escaped += c == '$' || c == '}' || c == '\\' ? std::string("\\") + c : std::string(1, c);
@@ -1237,7 +1278,7 @@ Variant LspServer::on_completion(const Dictionary &p_params) {
 // The editor's call hint, one signature for each of its lines, the
 // parameter it marks as the active one.
 Variant LspServer::on_signature_help(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	if (!at) {
 		return Variant();
 	}
@@ -1278,7 +1319,7 @@ Variant LspServer::on_signature_help(const Dictionary &p_params) {
 // What the editor's lookup gives, as Markdown: the declaration, as far as it
 // is known, then its documentation.
 Variant LspServer::on_hover(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	const std::optional<compiler::Lookup> found = at ? lookup_name(to_godot(at->path), at->text, at->offset) : std::nullopt;
 	if (!found) {
 		return Variant();
@@ -1308,13 +1349,13 @@ Variant LspServer::on_hover(const Dictionary &p_params) {
 // engine's. A node path leads to the node's header in each text scene that
 // places the script.
 Variant LspServer::on_definition(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	if (!at) {
 		return Variant();
 	}
 	const std::optional<compiler::Lookup> found = lookup_name(to_godot(at->path), at->text, at->offset);
 	if (found && !found->path.empty()) {
-		return location(found->path, workspace().script_source(found->path).value_or(std::string()), found->begin, found->end);
+		return location(found->path, view->script_source(found->path).value_or(std::string()), found->begin, found->end);
 	}
 	std::vector<compiler::DeclId> nodes;
 	{
@@ -1327,7 +1368,7 @@ Variant LspServer::on_definition(const Dictionary &p_params) {
 	}
 	Array headers;
 	for (const compiler::DeclId &node : nodes) {
-		const std::optional<std::string> text = is_text(node.scope) ? workspace().script_source(node.scope) : std::nullopt;
+		const std::optional<std::string> text = is_text(node.scope) ? view->script_source(node.scope) : std::nullopt;
 		const std::optional<uint32_t> header = text ? compiler::node_header(*text, node.name) : std::nullopt;
 		if (header) {
 			headers.push_back(location(node.scope, *text, *header, *header));
@@ -1337,10 +1378,10 @@ Variant LspServer::on_definition(const Dictionary &p_params) {
 }
 
 Variant LspServer::on_type_definition(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	Array found;
 	for (const compiler::Lookup &each : at ? type_definition(at->path, at->text, at->offset) : std::vector<compiler::Lookup>()) {
-		found.push_back(location(each.path, workspace().script_source(each.path).value_or(std::string()), each.begin, each.end));
+		found.push_back(location(each.path, view->script_source(each.path).value_or(std::string()), each.begin, each.end));
 	}
 	return found;
 }
@@ -1350,7 +1391,7 @@ Variant LspServer::on_type_definition(const Dictionary &p_params) {
 // in its text, as compiler::rename() finds it; the line it would refuse at;
 // or the file's start, of a binary one.
 Variant LspServer::on_references(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	const std::optional<std::vector<compiler::Occurrence>> found = at ? find_references(at->path, at->offset) : std::nullopt;
 	if (!found) {
 		return Variant();
@@ -1368,7 +1409,7 @@ Variant LspServer::on_references(const Dictionary &p_params) {
 	const auto text_of = [&](const std::string &p_file) -> const std::string & {
 		auto known = texts.find(p_file);
 		if (known == texts.end()) {
-			known = texts.emplace(p_file, is_text(p_file) ? workspace().script_source(p_file).value_or(std::string()) : std::string()).first;
+			known = texts.emplace(p_file, is_text(p_file) ? view->script_source(p_file).value_or(std::string()) : std::string()).first;
 		}
 		return known->second;
 	};
@@ -1407,7 +1448,7 @@ Variant LspServer::on_references(const Dictionary &p_params) {
 }
 
 Variant LspServer::on_document_symbol(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, false);
+	const std::optional<Place> at = place_of(*view, p_params, false);
 	if (!at) {
 		return Variant();
 	}
@@ -1447,7 +1488,7 @@ Variant LspServer::on_document_symbol(const Dictionary &p_params) {
 // from its own references; each one of a node path, which refers to the node
 // in each scene, once.
 Variant LspServer::on_highlight(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	if (!at) {
 		return Variant();
 	}
@@ -1476,7 +1517,7 @@ Variant LspServer::on_highlight(const Dictionary &p_params) {
 
 // As the editor's Format, which fails with the reason on a syntax error.
 Variant LspServer::on_formatting(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, false);
+	const std::optional<Place> at = place_of(*view, p_params, false);
 	if (!at) {
 		return Variant();
 	}
@@ -1508,7 +1549,7 @@ Variant LspServer::on_formatting(const Dictionary &p_params) {
 // meets, then of the others by position, each once; after them, fixing all
 // of each automatic kind among them where the editor offers it.
 Variant LspServer::on_code_action(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, false);
+	const std::optional<Place> at = place_of(*view, p_params, false);
 	const Dictionary span = dictionary(p_params.get("range", Variant()));
 	const std::optional<compiler::Utf16Position> start = position(span.get("start", Variant()));
 	const std::optional<compiler::Utf16Position> end = position(span.get("end", Variant()));
@@ -1545,14 +1586,10 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 	// says so in its title and has no edit: VS Code does not show a disabled
 	// action among the quick fixes, nor its reason.
 	const auto add = [&](const String &p_title, const FileEdits &p_edits, const compiler::Diagnostic *p_error, bool p_preferred, Dictionary p_data) {
-		PackedStringArray unsaved;
+		Unsaved unsaved;
 		const Dictionary edit = edit_of(p_edits, unsaved);
-		PackedStringArray names;
-		for (const String &file : unsaved) {
-			names.push_back(file.get_file());
-		}
 		Dictionary action;
-		action["title"] = unsaved.is_empty() ? p_title : vformat("%s (save %s in Godot first)", p_title, String(", ").join(names));
+		action["title"] = unsaved.empty() ? p_title : vformat("%s (%s)", p_title, unsaved.note());
 		action["kind"] = "quickfix";
 		if (p_error) {
 			action["diagnostics"] = Array::make(diagnostic(*p_error, range_of(at->text, p_error->begin, p_error->end)));
@@ -1561,14 +1598,14 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 			action["isPreferred"] = true;
 		}
 		Array files = Array::make(to_godot(at->path));
-		for (const auto &[file, edits] : p_edits) {
+		for (const auto &[file, in_file] : p_edits) {
 			files.push_back(to_godot(file));
 		}
 		p_data["uri"] = uri_of(at->path);
 		p_data["revision"] = int64_t(revision);
 		p_data["files"] = files;
 		action["data"] = p_data;
-		if (unsaved.is_empty() && !resolves_edits) {
+		if (unsaved.empty() && !session->resolves_edits) {
 			action["edit"] = edit;
 		}
 		actions.push_back(action);
@@ -1639,10 +1676,10 @@ Variant LspServer::on_resolve_action(const Dictionary &p_params) {
 		show_message("The project changed. Ask for the quick fixes again.");
 		return action;
 	}
-	PackedStringArray unsaved;
+	Unsaved unsaved;
 	const Dictionary edit = edit_of(changes, unsaved);
-	if (!unsaved.is_empty()) {
-		show_message(unsaved_reason(unsaved));
+	if (!unsaved.empty()) {
+		show_message(unsaved.reason());
 		return action;
 	}
 	action["edit"] = edit;
@@ -1652,7 +1689,7 @@ Variant LspServer::on_resolve_action(const Dictionary &p_params) {
 // The name, where the editor asks for a new one (PetEditorPlugin::ask_name());
 // otherwise why it renames nothing there.
 Variant LspServer::on_prepare_rename(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	if (!at) {
 		return Variant();
 	}
@@ -1672,7 +1709,7 @@ Variant LspServer::on_prepare_rename(const Dictionary &p_params) {
 // candidates need confirmation, so they start unchecked. A client that cannot
 // mark them does not get them.
 Variant LspServer::on_rename(const Dictionary &p_params) {
-	const std::optional<Place> at = place_of(p_params, true);
+	const std::optional<Place> at = place_of(*view, p_params, true);
 	const Variant name = p_params.get("newName", Variant());
 	if (!at || name.get_type() != Variant::STRING) {
 		return Variant();
@@ -1682,20 +1719,20 @@ Variant LspServer::on_rename(const Dictionary &p_params) {
 		failure = refused_rename(found.refusals, at->path);
 		return Variant();
 	}
-	std::map<std::string, std::vector<compiler::CheckedEdit>> edits;
+	FileEdits changes;
 	std::set<std::pair<std::string, uint32_t>> candidates;
 	for (const compiler::RenameEdit &each : found.edits) {
-		if (each.occurrence.candidate && !annotates) {
+		if (each.occurrence.candidate && !session->annotates) {
 			continue;
 		}
 		if (each.occurrence.candidate) {
 			candidates.emplace(each.occurrence.file, each.edit.begin);
 		}
-		edits[each.occurrence.file].push_back(each.edit);
+		changes[each.occurrence.file].push_back(each.edit);
 	}
-	PackedStringArray unsaved;
-	const Dictionary edit = edit_of(edits, unsaved, candidates);
-	failure = unsaved.is_empty() ? String() : unsaved_reason(unsaved);
+	Unsaved unsaved;
+	const Dictionary edit = edit_of(changes, unsaved, candidates);
+	failure = unsaved.reason();
 	return edit;
 }
 

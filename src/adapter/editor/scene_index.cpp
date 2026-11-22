@@ -950,7 +950,9 @@ namespace {
 // version of its text that the workspace has.
 std::map<std::string, std::pair<uint64_t, uint32_t>> open_scripts;
 std::set<std::string> packed_scenes;
-std::set<std::string> in_client;
+// By path, the text of each LSP session that has it open, the one changed last
+// at the end.
+std::map<std::string, std::vector<std::pair<const void *, std::string>>> in_client;
 // The MD5 of each file as the editor last wrote or read it.
 std::map<std::string, std::string> seen;
 
@@ -1064,26 +1066,52 @@ CodeEdit *open_code_edit(const std::string &p_path) {
 	return found == open_scripts.end() ? nullptr : Object::cast_to<CodeEdit>(ObjectDB::get_instance(found->second.first));
 }
 
-const std::set<std::string> &client_scripts() {
-	return in_client;
+std::set<std::string> client_scripts() {
+	std::set<std::string> paths;
+	for (const auto &[path, texts] : in_client) {
+		paths.insert(path);
+	}
+	return paths;
 }
 
-void set_client_script(const std::string &p_path, std::string p_text) {
+namespace {
+
+std::vector<std::pair<const void *, std::string>> &without(const std::string &p_path, const void *p_session) {
+	std::vector<std::pair<const void *, std::string>> &texts = in_client[p_path];
+	texts.erase(std::remove_if(texts.begin(), texts.end(), [&](const auto &p_text) { return p_text.first == p_session; }), texts.end());
+	return texts;
+}
+
+} // namespace
+
+void set_client_script(const std::string &p_path, const void *p_session, std::string p_text) {
 	compiler::Workspace &open = workspace();
-	in_client.insert(p_path);
+	without(p_path, p_session).emplace_back(p_session, p_text);
 	open.set_script(p_path, std::move(p_text));
 }
 
-void drop_client_script(const std::string &p_path) {
+void drop_client_script(const std::string &p_path, const void *p_session) {
 	compiler::Workspace &open = workspace();
-	if (!in_client.erase(p_path)) {
+	const std::vector<std::pair<const void *, std::string>> &texts = without(p_path, p_session);
+	if (!texts.empty()) {
+		open.set_script(p_path, texts.back().second);
 		return;
 	}
+	in_client.erase(p_path);
 	if (CodeEdit *code_edit = open_code_edit(p_path)) {
 		open.set_script(p_path, to_utf8(code_edit->get_text()));
 	} else {
 		open.drop_script(p_path);
 	}
+}
+
+bool client_unsaved(const std::string &p_path) {
+	const auto found = in_client.find(p_path);
+	if (found == in_client.end()) {
+		return false;
+	}
+	const std::string file = without_cr(SceneIndex::get().script_source(p_path).value_or(std::string()));
+	return std::any_of(found->second.begin(), found->second.end(), [&](const auto &p_text) { return without_cr(p_text.second) != file; });
 }
 
 std::optional<std::string> file_text(const std::string &p_path) {

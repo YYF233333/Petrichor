@@ -20,7 +20,8 @@ Analysis::Pass::Pass(Analysis &r_analysis, const ProjectApi *p_project) :
 		}
 		return;
 	}
-	analysis.reading = p_project ? p_project : &analysis.workspace;
+	analysis.reading = p_project ? p_project : &analysis.project_api();
+	analysis.on_disk = analysis.reading == &analysis.workspace.disk || analysis.viewed_on_disk;
 	analysis.workspace.passes++;
 	analysis.classes = std::make_unique<ScriptClasses>(analysis.engine, analysis.reading, false, true);
 }
@@ -31,6 +32,17 @@ Analysis::Pass::~Pass() {
 		analysis.workspace.passes--;
 		analysis.reading = nullptr;
 	}
+}
+
+Analysis::View::View(Analysis &r_analysis, const ProjectApi &p_project, bool p_disk) :
+		analysis(r_analysis), lock(r_analysis.mutex) {
+	analysis.viewed = &p_project;
+	analysis.viewed_on_disk = p_disk;
+}
+
+Analysis::View::~View() {
+	analysis.viewed = nullptr;
+	analysis.viewed_on_disk = false;
 }
 
 bool Analysis::unchanged(const Reads &p_reads) {
@@ -70,8 +82,9 @@ bool Analysis::current(Compiled &r_entry) {
 std::shared_ptr<const CompileResult> Analysis::compile(const std::string &p_path, const std::string &p_source) {
 	const Pass pass(*this);
 	const uint64_t source_hash = bytecode::hash_source(p_source);
-	const auto found = compiled.find(p_path);
-	if (found != compiled.end() && found->second.source_hash == source_hash && current(found->second)) {
+	std::map<std::string, Compiled> &kept = compiled[on_disk];
+	const auto found = kept.find(p_path);
+	if (found != kept.end() && found->second.source_hash == source_hash && current(found->second)) {
 		return found->second.result;
 	}
 	checks++;
@@ -81,15 +94,14 @@ std::shared_ptr<const CompileResult> Analysis::compile(const std::string &p_path
 	ClassDecl cls;
 	classes->begin_compile(p_path, p_source);
 	const std::shared_ptr<const CompileResult> result = std::make_shared<const CompileResult>(compiler::compile(p_source, engine, options, *classes, cls));
-	Compiled &entry = compiled[p_path];
-	entry = { source_hash, result, classes->end_compile(), revision(), revision() };
+	kept[p_path] = { source_hash, result, classes->end_compile(), revision(), revision() };
 	return result;
 }
 
 std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_path) {
 	const Pass pass(*this);
-	const auto found = compiled.find(p_path);
-	if (found != compiled.end() && current(found->second)) {
+	const auto found = compiled[on_disk].find(p_path);
+	if (found != compiled[on_disk].end() && current(found->second)) {
 		return found->second.result;
 	}
 	checks++;
@@ -174,7 +186,7 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 		}
 	}
 	const std::shared_ptr<const CompileResult> shared = std::make_shared<const CompileResult>(std::move(result));
-	compiled[p_path] = { 0, shared, std::move(reads), revision(), revision() };
+	compiled[on_disk][p_path] = { 0, shared, std::move(reads), revision(), revision() };
 	return shared;
 }
 
@@ -220,19 +232,23 @@ std::vector<Diagnostic> Analysis::placed_errors(const std::string &p_path) {
 
 uint64_t Analysis::computed(const std::string &p_path) {
 	const std::lock_guard<std::recursive_mutex> lock(mutex);
-	const auto found = compiled.find(p_path);
-	return found == compiled.end() ? 0 : found->second.computed;
+	const auto found = compiled[viewed_on_disk].find(p_path);
+	return found == compiled[viewed_on_disk].end() ? 0 : found->second.computed;
 }
 
 void Analysis::clear() {
 	const std::lock_guard<std::recursive_mutex> lock(mutex);
-	compiled.clear();
+	for (std::map<std::string, Compiled> &kept : compiled) {
+		kept.clear();
+	}
 	placed.clear();
 }
 
 void Analysis::forget(const std::string &p_path) {
 	const std::lock_guard<std::recursive_mutex> lock(mutex);
-	compiled.erase(p_path);
+	for (std::map<std::string, Compiled> &kept : compiled) {
+		kept.erase(p_path);
+	}
 	placed.erase(p_path);
 }
 

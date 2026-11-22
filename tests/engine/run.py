@@ -883,10 +883,11 @@ class LspClient:
     def open(self, uri, text, version=1):
         self.notify("textDocument/didOpen", {"textDocument": {"uri": uri, "languageId": "petrichor", "version": version, "text": text}})
 
-    def initialize(self, annotations=True):
+    def initialize(self, annotations=True, view=None):
         document = {"completion": {"completionItem": {"snippetSupport": True}}, "codeAction": {"disabledSupport": True, "resolveSupport": {"properties": ["edit"]}}, "rename": {"honorsChangeAnnotations": annotations}}
         workspace = {"applyEdit": True, "workspaceEdit": {"changeAnnotationSupport": {}}}
-        return self.request("initialize", {"capabilities": {"workspace": workspace, "textDocument": document}})
+        options = {} if view is None else {"initializationOptions": {"view": view}}
+        return self.request("initialize", {"capabilities": {"workspace": workspace, "textDocument": document}, **options})
 
 
 def says(published, text):
@@ -973,10 +974,9 @@ def check_lsp(project, info, editor):
     def uri(name, encoded=True):
         return file_uri(project / name, encoded)
 
-    # A connection that never initializes gives its place up, to the one waiting.
+    # A connection that never initializes is let go, which the end looks for.
     silent = LspClient(server["port"])
     first = LspClient(server["port"])
-    expect("lsp: a client that does not initialize is let go, and one waiting takes its place", silent.closed(15), "")
     early = first.take(lambda m: True, 0.5)
     hover = first.request("textDocument/hover", {})
     first.open(uri("board.pet"), "x")
@@ -1151,6 +1151,8 @@ def check_lsp(project, info, editor):
     check_scene_saved_in_godot(first, project, uri, editor)
     check_rename_crlf(first, project, uri, editor)
     check_refactoring_client_open(first, project, uri, editor)
+    first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
+    check_sessions(project, uri, server["port"])
 
     # A save writes the bytecode of the file as the files compile, not as an
     # unsaved dependency in the client would make it.
@@ -1183,22 +1185,14 @@ def check_lsp(project, info, editor):
     stray = [m for m in first.kept if "error" in m or (m.get("params") or {}).get("uri") in outside]
     expect("lsp: files outside the project, other files and malformed notifications get nothing", not stray, str(stray))
 
-    # A client gone leaves no text behind, and its place to one that connects
-    # at once; one at a time; shutdown and exit.
-    first.open(player, (project / "player.pet").read_text(encoding="utf-8") + "pub var max_speed := 7.0\n")
     first.socket.close()
     second = LspClient(server["port"])
-    reply = second.initialize(annotations=False)
-    second.open(enemy, (project / "enemy.pet").read_text(encoding="utf-8"))
-    published = second.diagnostics(enemy, lambda p: True)
-    expect("lsp: the texts of a client gone are dropped, and one that reconnects at once is served", reply and "result" in reply and says(published, "max_speed"), f"{reply}\n{published}")
+    second.initialize(annotations=False)
     hit = texts["hit.pet"]
     renamed = second.request("textDocument/rename", {"textDocument": {"uri": uri("hit.pet")}, "position": lsp_position(hit, hit.index("damage")), "newName": "power"})
     renamed = renamed and renamed.get("result")
     expect("lsp: a client that cannot mark candidates does not get them", renamed and [name for name, _, _ in edits(renamed)] == ["hit.pet", "level.tscn", "user.pet"] and "changeAnnotations" not in renamed, str(renamed))
-    third = LspClient(server["port"])
-    refused = third.initialize()
-    expect("lsp: a second client is refused while one is connected", refused and "Another client" in refused["error"]["message"] and third.closed(), str(refused))
+    expect("lsp: a client that does not initialize is let go", silent.closed(15), "")
     down = second.request("shutdown")
     after = second.request("petrichor/unknown")
     second.notify("exit", None)
@@ -1555,6 +1549,88 @@ def check_refactoring_client_open(client, project, uri, editor):
         refused == text and written == text.replace("oranges", "pears") and after[0] == "true",
         f"{refused!r}\n{written!r}\n{after}",
     )
+
+
+def check_sessions(project, uri, port):
+    """Sessions served at once (architecture §2.4). Those on the human's view
+    share the workspace, its text of a file being the session's that changed
+    it last, and each sees its own documents. One on the disk view sees the
+    files with its own documents."""
+    supply, demand, rival, probe = (uri(name) for name in ["supply.pet", "demand.pet", "rival.pet", "probe.pet"])
+    supply_text = (project / "supply.pet").read_text(encoding="utf-8")
+    gone = supply_text.replace("amount", "count")
+    demand_text = 'extends Node\n\nconst Supply = preload("supply.pet")\n\n\nfunc need(supply: Supply) -> int:\n\treturn supply.amount()\n'
+    unknown = LspClient(port)
+    refused = unknown.initialize(view="human")
+    unknown.socket.close()
+    expect("lsp: an unknown view fails initialize, saying so", refused and '"human"' in refused.get("error", {}).get("message", ""), str(refused))
+
+    a, b, disk = LspClient(port), LspClient(port), LspClient(port)
+    replies = [a.initialize(), b.initialize(), disk.initialize(view="disk")]
+    a.open(supply, gone)
+    b.open(demand, demand_text)
+    disk.open(demand, demand_text)
+    own = a.diagnostics(supply, lambda p: True)
+    shared = b.diagnostics(demand, lambda p: says(p, "amount"))
+    apart = disk.diagnostics(demand, lambda p: says(p, "amount"), 3)
+    (project / "supply.pet").write_text(gone, encoding="utf-8")
+    a.notify("textDocument/didSave", {"textDocument": {"uri": supply}})
+    saved = disk.diagnostics(demand, lambda p: says(p, "amount"))
+    expect(
+        "lsp: sessions are served at once; the human's view has another session's unsaved text, the disk view only once it is saved",
+        all(reply and "result" in reply for reply in replies) and own and says(shared, "amount") and apart and not says(apart, "amount") and says(saved, "amount"),
+        f"{replies}\n{own}\n{shared}\n{apart}\n{saved}",
+    )
+    (project / "supply.pet").write_text(supply_text, encoding="utf-8")
+    a.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": supply, "type": 2}]})
+    restored = disk.diagnostics(demand, lambda p: not says(p, "amount"))
+    a.notify("textDocument/didClose", {"textDocument": {"uri": supply}})
+    closed = b.diagnostics(demand, lambda p: not says(p, "amount"))
+    a.open(supply, gone)
+    reopened = b.diagnostics(demand, lambda p: says(p, "amount"))
+    a.socket.close()
+    left = b.diagnostics(demand, lambda p: not says(p, "amount"))
+    expect(
+        "lsp: a document closed, or a session gone, no longer counts for the others",
+        restored and not says(restored, "amount") and closed and not says(closed, "amount") and says(reopened, "amount") and left and not says(left, "amount"),
+        f"{restored}\n{closed}\n{reopened}\n{left}",
+    )
+
+    # One file with an unsaved text in each of two sessions: each is answered for its own.
+    c = LspClient(port)
+    c.initialize()
+    texts = {b: 'extends Node\n\n\nfunc f() -> void:\n\tvar shade := 1\n\tprint(shade, missing_b)\n', c: 'extends Node\n\n\nfunc f() -> void:\n\tvar shade := "x"\n\n\tprint(shade, missing_c)\n'}
+    for client, text in texts.items():
+        client.open(rival, text)
+    lines = []
+    hovers = []
+    for client, text, name in [(b, texts[b], "missing_b"), (c, texts[c], "missing_c")]:
+        published = client.diagnostics(rival, lambda p, name=name: says(p, name))
+        lines.append([d["range"]["start"]["line"] for d in published["diagnostics"] if "missing" in d["message"]] if published else None)
+        hover = client.request("textDocument/hover", {"textDocument": {"uri": rival}, "position": lsp_position(text, text.index("shade"))})
+        hovers.append(hover and hover["result"]["contents"]["value"])
+    expect(
+        "lsp: two sessions with unsaved texts of one file are each answered for their own",
+        lines == [[5], [6]] and hovers == ["```petrichor\nvar shade: int\n```", "```petrichor\nvar shade: String\n```"],
+        f"{lines}\n{hovers}",
+    )
+    stale = {"title": "x", "data": {"uri": rival, "revision": 1, "files": ["res://rival.pet"], "title": "x", "begin": 0, "end": 0, "message": "x", "file": ""}}
+    c.request("codeAction/resolve", stale)
+    told = [client.take(lambda m: m.get("method") == "window/showMessage", 0.5) for client in (c, b)]
+    expect("lsp: a message goes to the session whose request caused it", told[0] and told[1] is None, str(told))
+
+    # A session's text of a script counts over Godot's unsaved tab, until it closes it.
+    user = uri("user.pet")
+    probe_text = 'extends Node\n\nconst User = preload("user.pet")\n\n\nfunc g(user: User) -> int:\n\treturn user.extra()\n'
+    b.open(probe, probe_text)
+    tab = b.diagnostics(probe, lambda p: says(p, "extra"))
+    c.open(user, (project / "user.pet").read_text(encoding="utf-8") + "\n\npub func extra() -> int:\n\treturn 1\n")
+    taken = b.diagnostics(probe, lambda p: not says(p, "extra"))
+    c.notify("textDocument/didClose", {"textDocument": {"uri": user}})
+    back = b.diagnostics(probe, lambda p: says(p, "extra"))
+    expect("lsp: a session's text counts over Godot's tab, which counts again once it is closed", says(tab, "extra") and taken and not says(taken, "extra") and says(back, "extra"), f"{tab}\n{taken}\n{back}")
+    for client in (b, c, disk):
+        client.socket.close()
 
 
 def run_debugger_groups(godot):

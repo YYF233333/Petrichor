@@ -108,12 +108,15 @@ compiler::Workspace &workspace();
 void pack_open_scenes();
 // The open script's editor, or null.
 godot::CodeEdit *open_code_edit(const std::string &p_path);
-// The scripts whose text the LSP client has open.
-const std::set<std::string> &client_scripts();
-// The text of a script open in the LSP client, which the workspace takes over
-// its tab's until the client closes it (architecture §2.4).
-void set_client_script(const std::string &p_path, std::string p_text);
-void drop_client_script(const std::string &p_path);
+// The scripts that LSP sessions on the human's view have open.
+std::set<std::string> client_scripts();
+// The text of a script open in such a session, which the workspace takes over
+// its tab's: of the session that changed it last, until it closes it, and
+// then of the one that did among the others (architecture §2.4).
+void set_client_script(const std::string &p_path, const void *p_session, std::string p_text);
+void drop_client_script(const std::string &p_path, const void *p_session);
+// Whether such a session has a text of the script that its file does not.
+bool client_unsaved(const std::string &p_path);
 // The bytes of a file, an unsaved scene's as the text saver writes it;
 // nullopt if it cannot be read.
 std::optional<std::string> file_text(const std::string &p_path);

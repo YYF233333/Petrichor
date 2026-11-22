@@ -4,12 +4,10 @@ const fs = require('fs');
 const net = require('net');
 const path = require('path');
 const vscode = require('vscode');
-const { CloseAction, ErrorAction, LanguageClient, LSPErrorCodes, State } = require('vscode-languageclient/node');
+const { CloseAction, ErrorAction, LanguageClient, State } = require('vscode-languageclient/node');
 
-// In ms, between attempts to connect: while no Godot editor serves the
-// project, and while another client holds its server.
+// In ms, between attempts to connect while no Godot editor serves the project.
 const RETRY = 3000;
-const RETRY_REFUSED = 10000;
 
 // As the server compares paths (architecture §2.4).
 const FOLDS_CASE = process.platform === 'win32' || process.platform === 'darwin';
@@ -54,16 +52,6 @@ function alive(pid) {
 		return true;
 	} catch (error) {
 		return error.code === 'EPERM';
-	}
-}
-
-// Why the server refused, from its first message.
-function refusalIn(received) {
-	try {
-		const { error } = JSON.parse(received.slice(received.indexOf('\r\n\r\n') + 4));
-		return error?.code === LSPErrorCodes.RequestFailed ? error.message : undefined;
-	} catch {
-		return undefined;
 	}
 }
 
@@ -165,26 +153,13 @@ class Project {
 				this.lost(client, RETRY, 'waiting');
 			}
 		});
-		// The server refuses a second client in its reply to `initialize` and
-		// closes the connection. The library handles the close before it reads
-		// the reply, and drops it; so the reply is read here too.
-		let received = '';
-		const peek = (chunk) => (received += chunk);
-		socket.on('data', peek);
 		try {
 			await client.start();
 		} catch {
-			const refusal = refusalIn(received);
-			if (refusal && !this.told && this.client === client) {
-				this.told = true;
-				vscode.window.showWarningMessage(`${this.name}: ${refusal}`);
-			}
-			this.lost(client, refusal ? RETRY_REFUSED : RETRY, refusal ? 'refused' : 'waiting');
+			this.lost(client, RETRY, 'waiting');
 			return;
 		}
-		socket.off('data', peek);
 		if (this.client === client) {
-			this.told = false;
 			output.info(`Connected to the Godot editor of ${this.root} (process ${pid}).`);
 			this.show('connected');
 		}
@@ -218,12 +193,10 @@ class Project {
 		const [icon, tooltip] = {
 			connected: ['check', `Connected to the Godot editor of ${this.name}`],
 			waiting: ['debug-disconnect', `Waiting for the Godot editor of ${this.name}`],
-			refused: ['warning', `Another client is connected to the Godot editor of ${this.name}`],
 		}[state];
 		this.state = state;
 		this.status.text = `$(${icon}) Petrichor`;
 		this.status.tooltip = tooltip;
-		this.status.backgroundColor = state === 'refused' ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
 		this.reveal();
 	}
 

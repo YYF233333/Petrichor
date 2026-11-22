@@ -378,6 +378,25 @@ TEST_CASE("a result is not read again until the workspace's revision changes") {
 	CHECK(compile_all(checked.analysis, paths)[0]->ok());
 }
 
+// An LSP session on the disk view between requests on the human's (architecture §2.4).
+TEST_CASE("results are kept per view, so that alternating views do not check again") {
+	FakeProject project;
+	project.add_script("res://base.pet", BASE, "Base");
+	project.add_script("res://user.pet", USER);
+	Checked checked(project);
+	checked.workspace.set_script("res://base.pet", "class_name Base\nextends Node\n");
+	const auto check = [&](const compiler::ProjectApi *p_view) {
+		const compiler::Analysis::Pass pass(checked.analysis, p_view);
+		return checked.analysis.compile("res://user.pet", USER)->ok();
+	};
+	CHECK_FALSE(check(nullptr));
+	CHECK(check(&project));
+	const int checks = checked.analysis.checks_run();
+	CHECK_FALSE(check(nullptr));
+	CHECK(check(&project));
+	CHECK(checked.analysis.checks_run() == checks);
+}
+
 TEST_CASE("the results of a script with no file are forgotten with its text") {
 	FakeProject project;
 	Checked checked(project);

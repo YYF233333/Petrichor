@@ -20,7 +20,8 @@ namespace petrichor {
 
 // The project's scripts as the editor and the headless build check them,
 // each checked again only when what it read changes (architecture §2.4). It
-// reads workspace(), the build and the export SceneIndex.
+// reads workspace(), the build and the export SceneIndex, and an LSP session
+// what it sees (compiler::Analysis::View).
 compiler::Analysis &analysis();
 
 // Compiles a script in the editor; CheckMode::Declarations while it is being
