@@ -665,12 +665,6 @@ uint64_t LspServer::revision() const {
 }
 
 void LspServer::step() {
-	if (stale) {
-		refresh();
-	}
-	if (!conflicts.empty()) {
-		held();
-	}
 	Time *time = Time::get_singleton();
 	const uint64_t start = time->get_ticks_msec();
 	for (auto each = sessions.begin(); each != sessions.end();) {
@@ -701,6 +695,14 @@ void LspServer::step() {
 		connection.read = 0;
 	}
 	session = nullptr;
+	// After the sessions' messages, so that a client's text that came with its
+	// write is in place before the write is read back.
+	if (stale) {
+		refresh();
+	}
+	if (!conflicts.empty()) {
+		held();
+	}
 	const auto serving = [](const Session &p_session) { return p_session.state == State::Running && !p_session.connection.closing; };
 	if (std::none_of(sessions.begin(), sessions.end(), serving)) {
 		return;
