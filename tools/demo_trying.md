@@ -14,9 +14,11 @@ On macOS, first run the `xattr` command from the [README](https://github.com/YYF
 
 These are suggestions, and none is required. Each takes a minute and shows one check. Undo a change before trying the next.
 
-1. **Rename a node that a script uses.** In `objects/player.tscn`, rename the node `Cooldown` to `ShotCooldown` and save. `player.pet` reads `$Cooldown`, so the editor reports:
+1. **Delete a node that a script uses.** In `objects/player.tscn`, delete the node `Cooldown` and save. `player.pet` reads `$Cooldown`, so the editor reports:
 
    > res://objects/player.tscn: the root has no node at "Cooldown".
+
+   Renaming the node instead rewrites `$Cooldown` in `player.pet`.
 
 2. **Clear an export that must be set.** In `scenes/main.tscn`, select `Enemies/enemy-flying4` and clear `Player` in the Inspector. The enemy's script declares `@export pub var player: Node3D`, which is not nullable:
 
