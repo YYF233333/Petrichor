@@ -18,12 +18,11 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 0.2.1, due 2026-11-26, with only the project service. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
 
-- Its acceptance is a scripted run. Godot is open, VS Code is connected, and a script writes files and runs the check. No window gets the focus during it.
-  - The check answers for the disk as the script left it.
-  - VS Code's diagnostics follow within about a second.
+- Its acceptance is a hand-try in the GUI editor, with VS Code connected and an agent writing files and running `pet`. The engine tests already run each part headless.
+  - The check answers for the disk as the agent left it.
+  - VS Code's diagnostics and Godot's clean tabs follow within about a second, with Godot in the background.
   - After a rename in Godot, the scripts and scenes on disk agree.
-  - A conflict is reported to the script and to the human.
-- A hand-try in the GUI editor, with VS Code and an agent at work.
+  - A conflict is reported to the agent and to the human.
 
 ## The release after
 
