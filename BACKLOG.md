@@ -16,7 +16,24 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Next release
 
-0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11).
+0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
+
+- The project service (architecture §6.5), in five parts:
+  - several sessions at once, each on the human's view or on the disk view;
+  - the comparison of the project's files before an answer to the disk view, and on a timer;
+  - the command-line executable. It checks, builds and formats through the running service. It bridges clients that start a server over stdio. Without a service it starts one for the run;
+  - refactorings across files written to disk. The unsaved text they leave goes (architecture §2.3);
+  - reports of a file changed on disk while Godot holds unsaved changes of it.
+- Its acceptance is a scripted run. Godot is open, VS Code is connected, and a script writes files and runs the check. No window gets the focus during it.
+  - The check answers for the disk as the script left it.
+  - VS Code's diagnostics follow within about a second.
+  - After a rename in Godot, the scripts and scenes on disk agree.
+  - A conflict is reported to the script and to the human.
+- The migration tool, forward, entered through the executable (Editor).
+- Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
+- One or two open-source games migrated by the tool (Tests).
+- Large projects (Performance).
+- The lints (Editor), if time remains. Otherwise they move to 0.4.
 
 ## Language
 
@@ -77,7 +94,8 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - On Windows, `--petrichor-build` cannot copy the extension's library while an editor has the same project open. Each editor process loads a copy named `~<library>`, which the open editor holds (`platform/windows/os_windows.cpp:488-504`, `core/extension/gdextension_library_loader.cpp:196`, `ed1daf0`).
   - The build still runs and prints its result. The process then ends with 0xC0000005 instead of its own exit code (two headless editors, 11-19).
   - The same holds for any second editor process on the project, such as a language server started apart from the editor.
-- A language server when no editor is open: the VS Code extension would start a headless editor with `--petrichor-lsp`. On Windows the editor the user opens afterwards then lacks this language, as above. Both processes also write the same `.godot/`. A large project takes 80–150 s to open headless.
+- For 0.4: the headless service that stays between commands and yields to an editor opened later (architecture §6.5). On Windows such an editor lacks this language while the service runs, as above. Both processes also write the same `.godot/`. A large project takes 80–150 s to open headless.
+  - First a probe: what the analysis lacks in a process started without `-e`, which loads the library without the copy.
 - Hover in the language server shows a `##` comment as written, its BBCode tags such as `[param amount]` included. GDScript's server turns them into Markdown (`modules/gdscript/language_server/godot_lsp.h:1919`, `ed1daf0`).
 - After a save, check the whole project and send the diagnostics of every file with errors, as gopls does. The server now sends them for the files the client has open (architecture §2.4). Turn it on once a whole-project check is fast enough; measure it on the generated 1000-script project first.
 - The hints of the spec other than `unused_ignore`, as the one on a redundant `as` (spec §5.3). None is implemented.
@@ -274,6 +292,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- The name of the command-line executable (architecture §6.5). Once released, it is a promise to users.
 - Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
 - Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused. `bind()`, `callv()` and a function type that holds `T??` are not checked, and turn `Some(None)` into `None`.
