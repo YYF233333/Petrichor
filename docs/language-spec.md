@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 70f6b97434ab9e1372f86572ea1ba6bf79d2985e. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 3d3be892ddebb1827b764d7b00ea2a4b9a6070f3. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -420,6 +420,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 - A member without `pub` is visible in its declaring file and in subclasses, and not visible to other classes. The same applies to structs, enums, interfaces and inner classes. The declaring file includes the inner classes in it. A subclass can read, write, call and override these members. A member with `pub` is visible to all code.
 - An override must keep the visibility unchanged. A non-`pub` type in the signature of a `pub` member is a compile error.
+- A method that overrides an engine virtual function is treated as `pub`, with or without `pub` written, because the engine calls it by name.
 - The parent interfaces of a `pub` interface must be `pub`, or it is a compile error.
 - The visibility of `new(...)` is that of the nearest `_init` on the inheritance chain. With no `_init`, `new()` can be called anywhere. When `_init` is without `pub`, only its file and subclasses can call `new(...)`.
 - A member that must be assigned and is without `pub` can be assigned only by its file and by subclasses. The section "Members exposed through reflection" says which members reflection by name can see.
@@ -916,7 +917,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 10.5 Members exposed through reflection
 
-- Through reflection by name, the engine, GDScript and C# can access only `pub` members. Reflection by name means `get_property_list`, `has_method`, `call`, `get`, `set` and `connect`. Overrides of engine virtual functions are excepted: the engine calls them by their agreed names. Other members are invisible to access by name, as if they did not exist. In GDScript, writing them is a compile error. In a dynamic access, `call` reports an error, `get` gives null, `set` has no effect and `in` gives false.
+- Through reflection by name, the engine, GDScript and C# can access only `pub` members. Reflection by name means `get_property_list`, `has_method`, `call`, `get`, `set` and `connect`. By the rules of visibility, a method that overrides an engine virtual function is a `pub` member too. Other members are invisible to access by name, as if they did not exist. In GDScript, writing them is a compile error. In a dynamic access, `call` reports an error, `get` gives null, `set` has no effect and `in` gives false.
 - The following members, which the engine accesses by name, must have `pub`. Otherwise it is a compile error, and the quick fix adds `pub`:
   - exported variables and `@rpc` functions;
   - the signals and methods of signal connections in scenes;

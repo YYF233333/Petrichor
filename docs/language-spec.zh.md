@@ -418,6 +418,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - 不带 `pub` 的成员在声明文件内和子类中可见，其他类不可见。struct、enum、interface 和内部类同样适用。声明文件包括其中的内部类。子类可以读写、调用和覆盖这些成员。带 `pub` 的成员对所有代码可见。
 - 覆盖须保持可见性不变；`pub` 成员签名中出现非 `pub` 类型报编译错误。
+- 覆盖引擎虚函数的方法视为 `pub`，写不写 `pub` 都一样，因为引擎按名字调用它。
 - `pub` 接口的父接口须为 `pub`，否则报编译错误。
 - `new(...)` 的可见性取继承链上最近的 `_init`。无 `_init` 时随处可 `new()`。`_init` 不带 `pub` 时，仅本文件和子类可调用 `new(...)`。
 - 不带 `pub` 的必须赋值成员只能由本文件和子类赋值。按名字反射能看到哪些成员，见“反射暴露的成员”一节。
@@ -914,7 +915,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 10.5 反射暴露的成员
 
-- 引擎、GDScript 和 C# 经按名反射（`get_property_list`、`has_method`、`call`、`get`、`set`、`connect`）只能访问 `pub` 成员。引擎虚函数的覆盖除外，引擎按约定的名字调用它们。其余成员对按名访问不可见，如同不存在：GDScript 中写出它们报编译错误。动态访问时 `call` 报错，`get` 得 null，`set` 不起作用，`in` 得 false。
+- 引擎、GDScript 和 C# 经按名反射（`get_property_list`、`has_method`、`call`、`get`、`set`、`connect`）只能访问 `pub` 成员。按可见性的规则，覆盖引擎虚函数的方法也是 `pub` 成员。其余成员对按名访问不可见，如同不存在：GDScript 中写出它们报编译错误。动态访问时 `call` 报错，`get` 得 null，`set` 不起作用，`in` 得 false。
 - 引擎按名字访问的以下成员须带 `pub`，否则报编译错误，快速修复补上 `pub`：
   - 导出的变量和 `@rpc` 函数；
   - 场景中信号连接的信号和方法；
