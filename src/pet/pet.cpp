@@ -661,9 +661,11 @@ int run_in_service(Connection &r_service, const std::string &p_command, const st
 	return report(string_of(member(result, "output")).value_or(std::string()), number_of(member(result, "exitCode")));
 }
 
-// The command's text comes in a file, apart from what the engine prints. An
-// editor that gives none, or ends otherwise than with 0 or 1, is shown by the
-// end of its log.
+// The command's exit code and text come in a file, apart from what the engine
+// prints: the code on the first line. The editor renames the file into place
+// once it is whole, so a result there is complete even when the editor
+// crashes as it exits (godot#111048). An editor that gives none is shown by
+// the end of its log.
 int run_headless(const std::string &p_root, const std::string &p_godot, const std::string &p_command, const std::vector<std::string> &p_args) {
 	const std::string log = p_root + "/.godot/petrichor/pet.log";
 	const std::string result = p_root + "/.godot/petrichor/pet.out";
@@ -673,17 +675,19 @@ int run_headless(const std::string &p_root, const std::string &p_godot, const st
 	command.insert(command.end(), p_args.begin(), p_args.end());
 	start(command, log);
 	const int code = ended(true).value_or(-1);
-	const std::optional<std::string> output = read_file(result);
+	const std::string output = read_file(result).value_or(std::string());
 	remove_file(result);
-	if (!output || (code != NO_ERRORS && code != ERRORS)) {
+	const size_t newline = output.find('\n');
+	if (newline == std::string::npos) {
 		const std::string text = read_file(log).value_or(std::string());
 		size_t from = text.size();
-		for (int i = 0; i <= 20 && from != std::string::npos && from > 0; i++) {
-			from = text.rfind('\n', from - 1);
+		for (int i = 0; i <= 20 && from > 0; i++) {
+			const size_t newline = text.rfind('\n', from - 1);
+			from = newline == std::string::npos ? 0 : newline;
 		}
-		fail("the headless Godot editor ended with code " + std::to_string(code) + " and no result. The end of .godot/petrichor/pet.log:\n" + (from == std::string::npos ? text : text.substr(from + 1)));
+		fail("the headless Godot editor ended with code " + std::to_string(code) + " and no result. The end of .godot/petrichor/pet.log:\n" + text.substr(from == 0 ? 0 : from + 1));
 	}
-	return report(*output, code);
+	return report(output.substr(newline + 1), std::strtol(output.c_str(), nullptr, 10));
 }
 
 [[noreturn]] void finish() {

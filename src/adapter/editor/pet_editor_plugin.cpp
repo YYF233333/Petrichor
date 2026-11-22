@@ -2104,9 +2104,11 @@ bool PetEditorPlugin::_build() {
 
 // The first scan imports the project, and lasts until its imports are done
 // (editor/file_system/editor_file_system.cpp:1131-1137, 1838-1840), so a
-// command on a fresh copy runs once it ends. The output goes to the file that
-// `--petrichor-output=<file>` names, where pet reads it apart from what the
-// engine prints (architecture §6.5), else to standard output.
+// command on a fresh copy runs once it ends. The exit code and the output go to
+// the file that `--petrichor-output=<file>` names, where pet reads them apart
+// from what the engine prints (architecture §6.5), else to standard output.
+// The file is written whole under another name, then renamed, so that a crash
+// as the editor exits (godot#111048) leaves the whole result or none.
 void PetEditorPlugin::run_headless(const String &p_command) {
 	if (EditorInterface::get_singleton()->get_resource_filesystem()->is_scanning()) {
 		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::run_headless).bind(p_command), CONNECT_ONE_SHOT);
@@ -2121,9 +2123,11 @@ void PetEditorPlugin::run_headless(const String &p_command) {
 		}
 	}
 	const std::pair<std::string, int> ran = *run_command(to_utf8(p_command), args, {});
-	const Ref<FileAccess> file = output_file.is_empty() ? Ref<FileAccess>() : FileAccess::open(output_file, FileAccess::WRITE);
+	const Ref<FileAccess> file = output_file.is_empty() ? Ref<FileAccess>() : FileAccess::open(output_file + ".tmp", FileAccess::WRITE);
 	if (file.is_valid()) {
-		file->store_string(to_godot(ran.first));
+		file->store_string(String::num_int64(ran.second) + "\n" + to_godot(ran.first));
+		file->close();
+		DirAccess::rename_absolute(output_file + ".tmp", output_file);
 	} else if (output_file.is_empty()) {
 		UtilityFunctions::print(to_godot(ran.first));
 	}

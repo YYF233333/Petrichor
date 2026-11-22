@@ -997,8 +997,8 @@ def run_pet_group(godot):
         script = project / "broken.pet"
         script.write_text('extends Node\n\n\nfunc _ready() -> void:\n\tvar x: int = "a"\n', encoding="utf-8")
 
-        def pet(*args):
-            ran = subprocess.run([addon / PET, *args], capture_output=True, timeout=TIMEOUT)
+        def pet(*args, env=None):
+            ran = subprocess.run([addon / PET, *args], capture_output=True, timeout=TIMEOUT, env=env)
             return ran.returncode, ran.stdout.decode("utf-8", "replace"), ran.stderr.decode("utf-8", "replace")
 
         error = "broken.pet:5:15: error: Cannot assign a value of type String as int."
@@ -1006,6 +1006,30 @@ def run_pet_group(godot):
         code, headless, err = pet("check", "--godot", godot)
         expect("pet: without a service, a headless editor checks a fresh copy, and pet prints only the command's text", (code, headless.splitlines()) == (1, [error, summary.format(1)]), headless + err)
         expect("pet: check writes no bytecode", not list(project.glob(".godot/**/*.petc")))
+
+        # A stand-in for an editor that crashes as it exits (godot#111048):
+        # after renaming its whole result into place, or before.
+        stand_in = Path(tmp) / "crashing.py"
+        stand_in.write_text(
+            "import os, sys\n"
+            "out = next(a.split('=', 1)[1] for a in sys.argv if a.startswith('--petrichor-output='))\n"
+            "open(out + '.tmp', 'w', newline='').write('1\\nbroken.pet:1:1: error: stand-in\\n')\n"
+            "if os.environ['PET_RENAMED'] == '1':\n"
+            "    os.replace(out + '.tmp', out)\n"
+            "sys.exit(134)\n",
+            encoding="utf-8",
+        )
+        if sys.platform == "win32":
+            crashing = Path(tmp) / "crashing.cmd"
+            crashing.write_text(f'@"{sys.executable}" "{stand_in}" %*\n', encoding="utf-8")
+        else:
+            crashing = Path(tmp) / "crashing.sh"
+            crashing.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{stand_in}" "$@"\n', encoding="utf-8")
+            crashing.chmod(0o755)
+        code, out, err = pet("check", "--godot", str(crashing), env={**os.environ, "PET_RENAMED": "1"})
+        expect("pet: a whole result counts though the editor then crashes", (code, out) == (1, "broken.pet:1:1: error: stand-in\n"), out + err)
+        code, out, err = pet("check", "--godot", str(crashing), env={**os.environ, "PET_RENAMED": "0"})
+        expect("pet: an editor that crashes before its result is whole gives 2, with its log", code == 2 and "pet.log" in err and not out, out + err)
 
         info = project / ".godot" / "petrichor" / "lsp.json"
         editor = Running(godot, "-e", "--path", str(project), "--", "--petrichor-lsp")
