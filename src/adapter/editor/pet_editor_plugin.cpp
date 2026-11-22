@@ -1506,12 +1506,26 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 // written back if one cannot be. A tab then takes its edits as one step to
 // undo, and is saved. Nothing is written over a change the editor has not
 // taken in: the file of a tab that is not as the editor last read or wrote
-// it, or a script an LSP client has unsaved changes to. An undo whose text is
-// what the tab had before its last step, a refactoring's, takes that step off
-// instead (architecture §2.3). The open scenes that show the nodes of a file
-// written are reloaded, which clears their undo histories
+// it, or a script an LSP client has unsaved changes to. A tab's file is looked
+// at first: changed on disk, it is why an LSP client's text differs from the
+// tab, and a conflict if the tab has unsaved changes (architecture §6.5). An
+// undo whose text is what the tab had before its last step, a refactoring's,
+// takes that step off instead (architecture §2.3). The open scenes that show
+// the nodes of a file written are reloaded, which clears their undo histories
 // (editor/editor_node.cpp:7124-7160; ed1daf0).
 bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
+	const bool one_tab = p_changes.size() == 1 && open_code_edit(p_changes.begin()->first);
+	PackedStringArray unseen;
+	PackedStringArray conflicting;
+	for (const auto &[file, edits] : p_changes) {
+		if (const CodeEdit *code_edit = one_tab ? nullptr : open_code_edit(file); code_edit && !file_unchanged(file)) {
+			(code_edit->get_version() == code_edit->get_saved_version() ? unseen : conflicting).push_back(to_godot(file));
+		}
+	}
+	if (!unseen.is_empty() || !conflicting.is_empty()) {
+		toast(conflicting.is_empty() ? vformat("%s changed on disk since Godot last read or wrote it, so nothing was changed.", String(", ").join(unseen)) : vformat("Godot has unsaved changes to %s, which changed on disk, so nothing was changed.", String(", ").join(conflicting)), EditorToaster::SEVERITY_WARNING);
+		return false;
+	}
 	std::map<std::string, std::pair<std::string, std::string>> texts; // Before and after, by file.
 	for (const auto &[file, edits] : p_changes) {
 		const std::optional<std::string> text = is_script(file) ? workspace().script_source(file) : std::optional<std::string>(file_bytes(to_godot(file)));
@@ -1530,20 +1544,15 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 		}
 		texts[file] = { *text, result + text->substr(done) };
 	}
-	const bool one_tab = texts.size() == 1 && open_code_edit(texts.begin()->first);
 	if (!one_tab) {
-		PackedStringArray unseen;
 		PackedStringArray unsaved;
 		for (const auto &[file, text] : texts) {
-			if (open_code_edit(file) && !file_unchanged(file)) {
-				unseen.push_back(to_godot(file));
-			}
 			if (client_unsaved(file)) {
 				unsaved.push_back(to_godot(file));
 			}
 		}
-		if (!unseen.is_empty() || !unsaved.is_empty()) {
-			toast(unseen.is_empty() ? vformat("An LSP client has unsaved changes to %s, so nothing was changed. Save them there first.", String(", ").join(unsaved)) : vformat("%s changed on disk since Godot last read or wrote it, so nothing was changed.", String(", ").join(unseen)), EditorToaster::SEVERITY_WARNING);
+		if (!unsaved.is_empty()) {
+			toast(vformat("An LSP client has unsaved changes to %s, so nothing was changed. Save them there first.", String(", ").join(unsaved)), EditorToaster::SEVERITY_WARNING);
 			return false;
 		}
 		std::map<std::string, std::string> written; // The bytes they had.
@@ -1561,6 +1570,7 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 		}
 		for (const auto &[file, had] : written) {
 			file_seen(file);
+			client_reloads(file);
 		}
 	}
 	std::set<std::string> files;
@@ -2193,6 +2203,7 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 	}
 	for (const std::string &file : written) {
 		file_seen(file);
+		client_reloads(file);
 	}
 	if (lsp) {
 		reload_written(written);

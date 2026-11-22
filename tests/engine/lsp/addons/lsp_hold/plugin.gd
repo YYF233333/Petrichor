@@ -12,7 +12,9 @@ extends EditorPlugin
 # the scene shown and saves it; once res://history is there, prints whether the
 # scene still has a step to undo. Once res://rename is there, renames at the
 # place in the script it names, as F2 does, prints the tab's text and undoes
-# the rename. Once res://ramp is there, widens ramp.tres through the undo
+# the rename; with a fifth item, applies the preview and keeps the rename.
+# Once res://keys is there, presses the key of the action it names in the tab
+# of the script it names, and prints the tab's text. Once res://ramp is there, widens ramp.tres through the undo
 # history and saves the scene shown, which saves the resource too; the next
 # time, prints whether the resource keeps its gradient. Once res://scene is
 # there, prints whether the scene shown has a node Extra; once res://dirty is
@@ -20,7 +22,7 @@ extends EditorPlugin
 # undo history in the resource it names, or else in the scene shown. Once
 # res://call is there, calls the method
 # of the Petrichor plugin it names with the arguments after, and prints the
-# result.
+# result and the toasts shown.
 # Quits once the file res://quit is there.
 
 
@@ -116,7 +118,9 @@ func _hold() -> void:
 		if FileAccess.file_exists("res://call"):
 			var called: Array = JSON.parse_string(FileAccess.get_file_as_string("res://call"))
 			DirAccess.remove_absolute("res://call")
-			print("lsp call: ", plugin.callv(called[0], called.slice(1).map(func(a): return int(a) if a is float else a)))
+			var result: Variant = plugin.callv(called[0], called.slice(1).map(func(a): return int(a) if a is float else a))
+			var toasts := EditorInterface.get_editor_toaster().find_children("*", "Label", true, false).map(func(l): return l.text).filter(func(t): return t)
+			print("lsp call: ", result, " ", " | ".join(PackedStringArray(toasts)))
 		if FileAccess.file_exists("res://rename"):
 			var asked: Array = JSON.parse_string(FileAccess.get_file_as_string("res://rename"))
 			DirAccess.remove_absolute("res://rename")
@@ -135,9 +139,24 @@ func _hold() -> void:
 			var name_edit: LineEdit = plugin.find_children("*", "PopupPanel", false, false)[0].find_children("*", "LineEdit", true, false)[0]
 			name_edit.text = asked[3]
 			name_edit.text_submitted.emit(asked[3])
+			if asked.size() > 4:
+				var panel: Node = EditorInterface.get_base_control().find_children("*", "PetReferences", true, false)[0]
+				panel.find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0].pressed.emit()
 			print("lsp rename: ", code.text.c_escape())
-			if code.text != before:
+			if code.text != before and asked.size() == 4:
 				code.undo()
+		if FileAccess.file_exists("res://keys"):
+			var pressed: Array = JSON.parse_string(FileAccess.get_file_as_string("res://keys"))
+			DirAccess.remove_absolute("res://keys")
+			EditorInterface.edit_script(load(pressed[0]))
+			await get_tree().process_frame
+			var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+			code.grab_focus()
+			var key: InputEventKey = InputMap.action_get_events(pressed[1])[0].duplicate()
+			key.pressed = true
+			get_viewport().push_input(key)
+			await get_tree().process_frame
+			print("lsp keys: ", code.text.c_escape())
 		await get_tree().create_timer(0.1).timeout
 	get_tree().quit()
 

@@ -913,6 +913,30 @@ def text_edit(text, needle, new, length=None):
     return {"range": {"start": lsp_position(text, start), "end": lsp_position(text, start + (len(needle) if length is None else length))}, "newText": new}
 
 
+def lines_changed(old, new):
+    """An incremental change from `old` to `new`: the lines between those both
+    begin and end with."""
+    a, b = old.splitlines(keepends=True), new.splitlines(keepends=True)
+    head = 0
+    while head < min(len(a), len(b)) and a[head] == b[head]:
+        head += 1
+    tail = 0
+    while tail < min(len(a), len(b)) - head and a[-1 - tail] == b[-1 - tail]:
+        tail += 1
+    return {"range": {"start": {"line": head, "character": 0}, "end": {"line": len(a) - tail, "character": 0}}, "text": "".join(b[head : len(b) - tail])}
+
+
+def hold(project, editor, name, printed, content=""):
+    """Asks the helper plugin through the file `name`, whole when the editor
+    sees it, and waits for it to print `printed` once more; what it printed
+    after that."""
+    count = editor.output.count(printed) + 1
+    (project / f"{name}.part").write_text(content, encoding="utf-8")
+    (project / f"{name}.part").replace(project / name)
+    editor.wait_for(printed, count)
+    return editor.output.decode("utf-8", "replace").rsplit(printed.decode(), 1)[-1].split("\n", 1)[0].strip()
+
+
 def run_lsp_group(godot):
     """The language server (architecture §2.4) in a headless editor on a copy
     of tests/engine/lsp, at a path with a space and CJK."""
@@ -1235,6 +1259,7 @@ def check_lsp(project, info, editor):
     check_resource_saved_with_scene(first, project, uri, editor)
     check_rename_crlf(first, project, uri, editor)
     check_refactoring_client_open(first, project, uri, editor)
+    check_rename_in_godot_client_open(first, project, uri, editor)
     check_conflicts(first, project, editor, server["port"])
     first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
     check_sessions(project, uri, server["port"])
@@ -1501,6 +1526,8 @@ def check_rename_written(client, project, uri, editor):
     if changes:
         client.notify("textDocument/didChange", {"textDocument": {"uri": weapon, "version": 2}, "contentChanges": [{"text": written["weapon.pet"]}]})
         client.open(gunner, written["gunner.pet"])
+        # Taken in before the resource is saved, which is seconds later in use.
+        client.request("petrichor/unknown")
         (project / "blaster.tres").write_text(written["blaster.tres"], encoding="utf-8", newline="")
         client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri("blaster.tres"), "type": 2}]})
         time.sleep(3)
@@ -1615,20 +1642,12 @@ def check_refactoring_client_open(client, project, uri, editor):
     path = project / "draft.pet"
     text = path.read_text(encoding="utf-8")
     start = len(text[: text.index("oranges")].encode())
-    loaded = re.compile(r"lsp probe: (\S+) (\S*)")
-
-    def ask(name, content, printed):
-        count = editor.output.count(printed) + 1
-        (project / f"{name}.part").write_text(content, encoding="utf-8")
-        (project / f"{name}.part").replace(project / name)
-        editor.wait_for(printed, count)
 
     def refactor():
-        ask("refactor", json.dumps(["res://draft.pet", start, start + 7, "oranges", "pears"]), b"lsp refactor:")
+        hold(project, editor, "refactor", b"lsp refactor:", json.dumps(["res://draft.pet", start, start + 7, "oranges", "pears"]))
 
     def probe():
-        ask("probe", "res://draft.pet", b"lsp probe:")
-        return loaded.findall(editor.output.decode("utf-8", "replace"))[-1]
+        return hold(project, editor, "probe", b"lsp probe:", "res://draft.pet").split(" ")
 
     client.open(draft, "# From the client.\n" + text)
     client.request("petrichor/unknown")
@@ -1648,6 +1667,45 @@ def check_refactoring_client_open(client, project, uri, editor):
     )
 
 
+def check_rename_in_godot_client_open(client, project, uri, editor):
+    """A rename in Godot of weapon.pet's member, which gunner.pet and
+    blaster.tres use, while the client has both scripts open as their files
+    are. Godot writes the files, and the client reloads its documents a tenth
+    of a second later, as VS Code does. Nothing is read against the client's
+    texts from before, and Ctrl+Z in Godot then undoes the rename in every
+    file."""
+    names = ["weapon.pet", "gunner.pet", "blaster.tres"]
+    before = {name: (project / name).read_bytes().decode() for name in names}
+    for name in names[:2]:
+        client.open(uri(name), before[name])
+    client.request("petrichor/unknown")
+    start = len(editor.output)
+    member = re.search(r"pub var (\w+)", before["weapon.pet"])
+    above = before["weapon.pet"][: member.start(1)]
+    hold(project, editor, "rename", b"lsp rename:", json.dumps(["res://weapon.pet", above.count("\n"), len(above.rsplit("\n", 1)[1]), "spray", True]))
+    renamed = {name: (project / name).read_bytes().decode() for name in names}
+
+    def reload(version, texts):
+        time.sleep(0.1)
+        for name in names[:2]:
+            client.notify("textDocument/didChange", {"textDocument": {"uri": uri(name), "version": version}, "contentChanges": [lines_changed(before[name] if version == 2 else renamed[name], texts[name])]})
+        client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri(name), "type": 2} for name in names]})
+        client.request("petrichor/unknown")
+
+    reload(2, renamed)
+    hold(project, editor, "keys", b"lsp keys:", json.dumps(["res://weapon.pet", "ui_undo"]))
+    undone = {name: (project / name).read_bytes().decode() for name in names}
+    reload(3, undone)
+    for name in names[:2]:
+        client.notify("textDocument/didClose", {"textDocument": {"uri": uri(name)}})
+    printed = [line for line in editor.output[start:].decode("utf-8", "replace").splitlines() if "ERROR" in line or "WARNING" in line]
+    expect(
+        "lsp: a rename in Godot of scripts the client has open as their files reads nothing against the client's old texts, and Ctrl+Z undoes it",
+        all("spray" in renamed[name] for name in names) and undone == before and not printed,
+        f"{renamed}\n{undone}\n{printed}",
+    )
+
+
 def check_conflicts(client, project, editor, port):
     """Files changed on disk while Godot holds unsaved changes of them
     (architecture §6.5). arena.tscn, open without unsaved changes, is reloaded
@@ -1662,13 +1720,6 @@ def check_conflicts(client, project, editor, port):
     note.write_text("extends Node\n", encoding="utf-8")
     saved = {path: path.read_bytes() for path in (arena, note)}
 
-    def hold(name, printed, content=""):
-        count = editor.output.count(printed) + 1
-        (project / f"{name}.part").write_text(content, encoding="utf-8")
-        (project / f"{name}.part").replace(project / name)
-        editor.wait_for(printed, count)
-        return editor.output.decode("utf-8", "replace").rsplit(printed.decode(), 1)[-1].split("\n", 1)[0].strip()
-
     def unsaved():
         """The files the request lists, by name, with whether each conflicts."""
         listed = client.request("petrichor/unsavedFiles")
@@ -1680,12 +1731,12 @@ def check_conflicts(client, project, editor, port):
 
     arena.write_bytes(saved[arena] + b'\n[node name="Extra" type="Node" parent="."]\n')
     unsaved()
-    reloaded = hold("scene", b"lsp scene:")
+    reloaded = hold(project, editor, "scene", b"lsp scene:")
     arena.write_bytes(saved[arena])
     unsaved()
-    expect("lsp: an open scene without unsaved changes is reloaded once it changes on disk", reloaded == "true" and hold("scene", b"lsp scene:") == "false", reloaded)
+    expect("lsp: an open scene without unsaved changes is reloaded once it changes on disk", reloaded == "true" and hold(project, editor, "scene", b"lsp scene:") == "false", reloaded)
 
-    hold("dirty", b"lsp dirty:", "res://note.pet")
+    hold(project, editor, "dirty", b"lsp dirty:", "res://note.pet")
     note.write_bytes(saved[note] + b"# Written on disk.\n")
     first = unsaved()
     tab = [told(client), disk.take(lambda m: m.get("method") == "window/showMessage", 5)]
@@ -1695,6 +1746,18 @@ def check_conflicts(client, project, editor, port):
         "lsp: a file changed on disk while Godot's tab of it is unsaved is told once to every session, and listed",
         first == {"note.pet": True} and again == first and tab[0] and "res://note.pet" in tab[0] and tab[1] and tab[1]["params"]["message"] == tab[0] and told(client) is None,
         f"{first}\n{again}\n{tab}",
+    )
+    # The client has the file's text, which differs from the tab because of
+    # the conflict, so the conflict is what a refactoring tells.
+    client.open(file_uri(note), note.read_bytes().decode())
+    hud = (project / "hud.pet").read_bytes()
+    at = hud.index(b"show_health")
+    refused = hold(project, editor, "call", b"lsp call:", json.dumps(["_change_scripts", [["res://note.pet", 0, 7, "extends", "extends"], ["res://hud.pet", at, at + 11, "show_health", "show_life"]], True]))
+    client.notify("textDocument/didClose", {"textDocument": {"uri": file_uri(note)}})
+    expect(
+        "lsp: a refactoring of a script whose unsaved tab conflicts with its file is refused as a conflict, though the client's text differs from the tab",
+        "Godot has unsaved changes to res://note.pet, which changed on disk, so nothing was changed." in refused and "note.pet: its text in the LSP client" not in refused and (project / "hud.pet").read_bytes() == hud,
+        refused,
     )
 
     note.write_bytes(saved[note])
@@ -1708,10 +1771,10 @@ def check_conflicts(client, project, editor, port):
         f"{back}\n{gone}\n{deleted}",
     )
 
-    hold("dirty", b"lsp dirty:")
+    hold(project, editor, "dirty", b"lsp dirty:")
     arena.write_bytes(saved[arena] + b"\n")
     scene = unsaved()
-    renamed = hold("call", b"lsp call:", json.dumps(["_rename_declaration", 0, "res://hud.pet", "show_health", "show_life", [], False, True]))
+    renamed = hold(project, editor, "call", b"lsp call:", json.dumps(["_rename_declaration", 0, "res://hud.pet", "show_health", "show_life", [], False, True]))
     expect(
         "lsp: a rename that must save an open scene which changed on disk while unsaved is refused",
         scene == {"note.pet": True, "arena.tscn": True} and "arena.tscn" in (told(client) or "") and renamed
@@ -1721,7 +1784,7 @@ def check_conflicts(client, project, editor, port):
 
     ramp = project / "ramp.tres"
     saved[ramp] = ramp.read_bytes()
-    hold("dirty", b"lsp dirty:", "res://ramp.tres")
+    hold(project, editor, "dirty", b"lsp dirty:", "res://ramp.tres")
     ramp.write_bytes(saved[ramp].replace(b"width = 64", b"width = 32"))
     resource = unsaved()
     replaced = told(client)

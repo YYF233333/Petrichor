@@ -1109,6 +1109,12 @@ bool client_unsaved(const std::string &p_path) {
 	return std::any_of(found->second.begin(), found->second.end(), [&](const auto &p_text) { return without_cr(p_text.second) != file; });
 }
 
+void client_reloads(const std::string &p_path) {
+	if (in_client.count(p_path)) {
+		workspace().set_script(p_path, SceneIndex::get().script_source(p_path).value_or(std::string()));
+	}
+}
+
 std::optional<std::string> file_text(const std::string &p_path) {
 	String path = to_godot(p_path);
 	const std::map<std::string, Ref<PackedScene>> unsaved = unsaved_scenes();

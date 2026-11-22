@@ -115,6 +115,10 @@ void set_client_script(const std::string &p_path, const void *p_session, std::st
 void drop_client_script(const std::string &p_path, const void *p_session);
 // Whether such a session has a text of the script that its file does not.
 bool client_unsaved(const std::string &p_path);
+// Godot wrote the file of a script that such sessions have open without
+// unsaved changes, which they read again: the workspace takes the file's text
+// until one of them changes or closes it (architecture §2.3).
+void client_reloads(const std::string &p_path);
 // The bytes of a file, an unsaved scene's as the text saver writes it;
 // nullopt if it cannot be read.
 std::optional<std::string> file_text(const std::string &p_path);
