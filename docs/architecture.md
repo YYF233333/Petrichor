@@ -1027,8 +1027,11 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
   - 库把它写进 `lsp.json`；
   - `pet` 发现它与自己的不符时，说明原因，以 2 退出；
   - 它不重启什么，因为服务是人的编辑器。
-- 没有服务时，`pet` 运行 `godot --headless -e --path <项目> -- --petrichor-<命令>`，照转输出和退出码：
-  - 项目还没有 `.godot/` 时，先运行 `--headless --import`，不看它的退出码（godot#111048）；
+- 没有服务时，`pet` 运行 `godot --headless -e --path <项目> -- --petrichor-<命令>`：
+  - 命令的文本写进 `--petrichor-output=<文件>` 指定的文件，`pet` 读出后打印。所以成功时的输出与经服务时逐字节相同；
+  - 引擎打印的横幅、进度和错误都写进 `.godot/petrichor/pet.log`，每次运行重写；
+  - Godot 的退出码不是 0 或 1，或没有写出文本时，`pet` 打印日志的最后 20 行，写明日志，以 2 退出；
+  - 项目还没有 `.godot/` 时，先运行 `--headless --import`，不看它的退出码（godot#111048）。它的输出也写进日志；
   - 有界面的编辑器把自己的可执行文件记在 `.godot/petrichor/editor_path` 中。编辑器退出后它仍在，`lsp.json` 则被删除；
   - `--godot <路径>` 优先于记下的路径。没有记下时，如在 CI 中，必须给出；
   - 它启动的进程在 Windows 上放进随它结束的作业，在其他系统上随它收到的终止信号停掉；

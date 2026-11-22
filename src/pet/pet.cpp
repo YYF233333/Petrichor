@@ -267,12 +267,11 @@ std::wstring quoted(const std::wstring &p_argument) {
 }
 #endif
 
-// Starts the command with nothing on its standard input. Its output goes to
-// pet's, its standard output to pet's standard error with `p_to_error`. With a
-// `p_log`, all of it goes there instead, so that the LSP messages on pet's
-// standard output stay apart, and a client that reads nothing of pet's
+// Starts the command with nothing on its standard input. All its output goes
+// to the log, so that pet prints only the command's text, the LSP messages on
+// pet's standard output stay apart, and a client that reads nothing of pet's
 // standard error does not stop the editor.
-void start(const std::vector<std::string> &p_command, bool p_to_error, const std::string &p_log = std::string()) {
+void start(const std::vector<std::string> &p_command, const std::string &p_log) {
 #ifdef _WIN32
 	std::wstring line;
 	for (const std::string &argument : p_command) {
@@ -280,20 +279,13 @@ void start(const std::vector<std::string> &p_command, bool p_to_error, const std
 	}
 	SECURITY_ATTRIBUTES inherited = { sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE };
 	const HANDLE nothing = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &inherited, OPEN_EXISTING, 0, nullptr);
-	HANDLE error = GetStdHandle(STD_ERROR_HANDLE);
-	HANDLE output = p_to_error ? error : GetStdHandle(STD_OUTPUT_HANDLE);
-	SetHandleInformation(output, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-	SetHandleInformation(error, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-	if (!p_log.empty()) {
-		error = CreateFileW(wide(p_log).c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, &inherited, OPEN_ALWAYS, 0, nullptr);
-		output = error;
-	}
+	const HANDLE log = CreateFileW(wide(p_log).c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, &inherited, OPEN_ALWAYS, 0, nullptr);
 	STARTUPINFOW info = {};
 	info.cb = sizeof(info);
 	info.dwFlags = STARTF_USESTDHANDLES;
 	info.hStdInput = nothing;
-	info.hStdOutput = output;
-	info.hStdError = error;
+	info.hStdOutput = log;
+	info.hStdError = log;
 	// In a job that ends with pet, so that no editor outlives it. The
 	// console wrapper of the engine's Windows builds starts the editor at once,
 	// so the child is put in the job before it runs.
@@ -307,9 +299,7 @@ void start(const std::vector<std::string> &p_command, bool p_to_error, const std
 	PROCESS_INFORMATION started = {};
 	const BOOL ok = CreateProcessW(nullptr, line.data(), nullptr, nullptr, TRUE, CREATE_SUSPENDED, nullptr, nullptr, &info, &started);
 	CloseHandle(nothing);
-	if (!p_log.empty()) {
-		CloseHandle(error);
-	}
+	CloseHandle(log);
 	if (!ok) {
 		fail("cannot run " + p_command[0] + ".");
 	}
@@ -321,12 +311,8 @@ void start(const std::vector<std::string> &p_command, bool p_to_error, const std
 	posix_spawn_file_actions_t actions;
 	posix_spawn_file_actions_init(&actions);
 	posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0);
-	if (!p_log.empty()) {
-		posix_spawn_file_actions_addopen(&actions, 1, p_log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
-		posix_spawn_file_actions_adddup2(&actions, 1, 2);
-	} else if (p_to_error) {
-		posix_spawn_file_actions_adddup2(&actions, 2, 1);
-	}
+	posix_spawn_file_actions_addopen(&actions, 1, p_log.c_str(), O_WRONLY | O_CREAT | O_APPEND, 0644);
+	posix_spawn_file_actions_adddup2(&actions, 1, 2);
 	std::vector<char *> arguments;
 	for (const std::string &argument : p_command) {
 		arguments.push_back(const_cast<char *>(argument.c_str()));
@@ -647,11 +633,22 @@ std::string find_godot(const std::string &p_root, const std::string &p_given) {
 	return *recorded;
 }
 
-// A fresh copy, without .godot/, is imported first. That run can crash as it
-// exits (godot#111048), so its exit code is not checked.
-void import_project(const std::string &p_root, const std::string &p_godot, const std::string &p_log) {
-	start({ p_godot, "--headless", "--path", p_root, "--import" }, true, p_log);
-	ended(true);
+// Empties the log that the headless editor writes to. A fresh copy, without
+// .godot/, is imported first. That run can crash as it exits (godot#111048),
+// so its exit code is not checked.
+void open_project(const std::string &p_root, const std::string &p_godot, const std::string &p_log) {
+	const bool fresh = !exists(p_root + "/.godot");
+	empty_file(p_log);
+	if (fresh) {
+		start({ p_godot, "--headless", "--path", p_root, "--import" }, p_log);
+		ended(true);
+	}
+}
+
+// The same from the service and from a headless editor.
+int report(const std::string &p_output, long p_code) {
+	print(1, p_output.empty() || p_output.back() == '\n' ? p_output : p_output + "\n");
+	return p_code == NO_ERRORS || p_code == ERRORS ? int(p_code) : NOT_RUN;
 }
 
 int run_in_service(Connection &r_service, const std::string &p_command, const std::vector<std::string> &p_args) {
@@ -661,21 +658,32 @@ int run_in_service(Connection &r_service, const std::string &p_command, const st
 		args += (args.empty() ? "" : ",") + json_string(arg);
 	}
 	const std::string result = r_service.request(2, "petrichor/run", "{\"command\":" + json_string(p_command) + ",\"args\":[" + args + "]}");
-	const std::string output = string_of(member(result, "output")).value_or(std::string());
-	print(1, output.empty() || output.back() == '\n' ? output : output + "\n");
-	const long code = number_of(member(result, "exitCode"));
-	return code == NO_ERRORS || code == ERRORS ? int(code) : NOT_RUN;
+	return report(string_of(member(result, "output")).value_or(std::string()), number_of(member(result, "exitCode")));
 }
 
+// The command's text comes in a file, apart from what the engine prints. An
+// editor that gives none, or ends otherwise than with 0 or 1, is shown by the
+// end of its log.
 int run_headless(const std::string &p_root, const std::string &p_godot, const std::string &p_command, const std::vector<std::string> &p_args) {
-	if (!exists(p_root + "/.godot")) {
-		import_project(p_root, p_godot, std::string());
-	}
-	std::vector<std::string> command = { p_godot, "--headless", "-e", "--path", p_root, "--", "--petrichor-" + p_command };
+	const std::string log = p_root + "/.godot/petrichor/pet.log";
+	const std::string result = p_root + "/.godot/petrichor/pet.out";
+	open_project(p_root, p_godot, log);
+	remove_file(result);
+	std::vector<std::string> command = { p_godot, "--headless", "-e", "--path", p_root, "--", "--petrichor-" + p_command, "--petrichor-output=" + result };
 	command.insert(command.end(), p_args.begin(), p_args.end());
-	start(command, false);
+	start(command, log);
 	const int code = ended(true).value_or(-1);
-	return code == NO_ERRORS || code == ERRORS ? code : NOT_RUN;
+	const std::optional<std::string> output = read_file(result);
+	remove_file(result);
+	if (!output || (code != NO_ERRORS && code != ERRORS)) {
+		const std::string text = read_file(log).value_or(std::string());
+		size_t from = text.size();
+		for (int i = 0; i <= 20 && from != std::string::npos && from > 0; i++) {
+			from = text.rfind('\n', from - 1);
+		}
+		fail("the headless Godot editor ended with code " + std::to_string(code) + " and no result. The end of .godot/petrichor/pet.log:\n" + (from == std::string::npos ? text : text.substr(from + 1)));
+	}
+	return report(*output, code);
 }
 
 [[noreturn]] void finish() {
@@ -695,13 +703,9 @@ int run_headless(const std::string &p_root, const std::string &p_godot, const st
 	if (!p_service) {
 		const std::string godot = find_godot(p_root, p_godot);
 		const std::string log = p_root + "/.godot/petrichor/lsp.log";
-		const bool fresh = !exists(p_root + "/.godot");
-		empty_file(log);
-		if (fresh) {
-			import_project(p_root, godot, log);
-		}
+		open_project(p_root, godot, log);
 		remove_file(p_info);
-		start({ godot, "--headless", "-e", "--path", p_root, "--", "--petrichor-lsp" }, true, log);
+		start({ godot, "--headless", "-e", "--path", p_root, "--", "--petrichor-lsp" }, log);
 		const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(2);
 		while (!(p_service = connect_service(p_info))) {
 			if (ended(false) || std::chrono::steady_clock::now() > deadline) {

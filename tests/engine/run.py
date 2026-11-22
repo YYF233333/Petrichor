@@ -1003,8 +1003,8 @@ def run_pet_group(godot):
 
         error = "broken.pet:5:15: error: Cannot assign a value of type String as int."
         summary = "petrichor check: 1 script(s), 0 scene(s), 0 resource file(s), {} with errors"
-        code, out, err = pet("check", "--godot", godot)
-        expect("pet: without a service, a headless editor checks a fresh copy", code == 1 and error in out.splitlines() and summary.format(1) in out.splitlines(), out + err)
+        code, headless, err = pet("check", "--godot", godot)
+        expect("pet: without a service, a headless editor checks a fresh copy, and pet prints only the command's text", (code, headless.splitlines()) == (1, [error, summary.format(1)]), headless + err)
         expect("pet: check writes no bytecode", not list(project.glob(".godot/**/*.petc")))
 
         info = project / ".godot" / "petrichor" / "lsp.json"
@@ -1013,7 +1013,7 @@ def run_pet_group(godot):
             while not info.exists() and not editor.ended and editor._remaining() > 0:
                 time.sleep(0.05)
             code, out, err = pet("check")
-            expect("pet: a service checks, printing each error, and exits with 1", (code, out.splitlines()) == (1, [error, summary.format(1)]), out + err)
+            expect("pet: a service checks as a headless editor does, byte for byte", (code, out) == (1, headless), out + err)
             started = info.read_text(encoding="utf-8")
             info.write_text(json.dumps({**json.loads(started), "build": "other"}), encoding="utf-8")
             code, out, err = pet("check")

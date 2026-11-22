@@ -2104,18 +2104,29 @@ bool PetEditorPlugin::_build() {
 
 // The first scan imports the project, and lasts until its imports are done
 // (editor/file_system/editor_file_system.cpp:1131-1137, 1838-1840), so a
-// command on a fresh copy runs once it ends.
+// command on a fresh copy runs once it ends. The output goes to the file that
+// `--petrichor-output=<file>` names, where pet reads it apart from what the
+// engine prints (architecture §6.5), else to standard output.
 void PetEditorPlugin::run_headless(const String &p_command) {
 	if (EditorInterface::get_singleton()->get_resource_filesystem()->is_scanning()) {
 		get_tree()->connect("process_frame", callable_mp(this, &PetEditorPlugin::run_headless).bind(p_command), CONNECT_ONE_SHOT);
 		return;
 	}
 	std::vector<std::string> args;
+	String output_file;
 	for (const String &arg : OS::get_singleton()->get_cmdline_user_args()) {
 		args.push_back(to_utf8(arg));
+		if (arg.begins_with("--petrichor-output=")) {
+			output_file = arg.trim_prefix("--petrichor-output=");
+		}
 	}
 	const std::pair<std::string, int> ran = *run_command(to_utf8(p_command), args, {});
-	UtilityFunctions::print(to_godot(ran.first));
+	const Ref<FileAccess> file = output_file.is_empty() ? Ref<FileAccess>() : FileAccess::open(output_file, FileAccess::WRITE);
+	if (file.is_valid()) {
+		file->store_string(to_godot(ran.first));
+	} else if (output_file.is_empty()) {
+		UtilityFunctions::print(to_godot(ran.first));
+	}
 	get_tree()->quit(ran.second);
 }
 
