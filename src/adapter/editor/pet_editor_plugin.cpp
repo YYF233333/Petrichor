@@ -1296,11 +1296,20 @@ void PetEditorPlugin::rename_to(const String &p_name) {
 // editor/scene/scene_tree_editor.cpp:995-1004, 1131-1140; ed1daf0). A scene
 // that is still unsaved once saved, as a read-only file, stops it, as the
 // rename would lose its changes when it reloads the scene; the user is told.
+// So does a scene to save whose file changed on disk, which saving would write
+// over (architecture §6.5).
 PetEditorPlugin::Saving PetEditorPlugin::scenes_saved(const std::set<std::string> &p_files) {
 	EditorInterface *editor = EditorInterface::get_singleton();
 	TabBar *tabs = scene_tabs();
+	const std::vector<std::string> showing = open_scenes_showing(p_files);
+	PackedStringArray conflicting;
+	for (const std::string &scene : showing) {
+		if (lsp && is_unsaved_scene(scene) && lsp->conflicts_with_disk(scene)) {
+			conflicting.push_back(to_godot(scene));
+		}
+	}
 	std::string failed;
-	for (const std::string &scene : open_scenes_showing(p_files)) {
+	for (const std::string &scene : conflicting.is_empty() ? showing : std::vector<std::string>()) {
 		if (!is_unsaved_scene(scene)) {
 			continue;
 		}
@@ -1326,16 +1335,17 @@ PetEditorPlugin::Saving PetEditorPlugin::scenes_saved(const std::set<std::string
 		}
 	}
 	saving.clear();
+	const bool refused = !failed.empty() || !conflicting.is_empty();
 	const int32_t shown = shown_before;
 	shown_before = -1;
 	if (tabs && shown >= 0 && tabs->get_current_tab() != shown) {
 		tabs->set_current_tab(shown);
-		if (failed.empty()) {
+		if (!refused) {
 			return Saving::Waiting;
 		}
 	}
-	if (!failed.empty()) {
-		toast(vformat("%s cannot be saved, so nothing was renamed.", to_godot(failed)), EditorToaster::SEVERITY_WARNING);
+	if (refused) {
+		toast(conflicting.is_empty() ? vformat("%s cannot be saved, so nothing was renamed.", to_godot(failed)) : vformat("Godot has unsaved changes to %s, which changed on disk, so nothing was renamed.", String(", ").join(conflicting)), EditorToaster::SEVERITY_WARNING);
 		return Saving::Failed;
 	}
 	return Saving::Done;

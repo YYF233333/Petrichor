@@ -98,6 +98,9 @@ class LspServer {
 	std::atomic<bool> stale{ false }; // The thread found other files.
 	std::thread walker;
 	std::optional<std::map<std::string, FileStat>> saving; // Walked as the editor saved a scene.
+	// The files that changed on disk while Godot holds unsaved changes of
+	// them, as refresh() took them in (architecture §6.5).
+	std::set<std::string> conflicts;
 
 	// The workspace's revision with the sessions' edits, which their
 	// diagnostics depend on.
@@ -153,6 +156,9 @@ public:
 	// (architecture §2.4): what changes in between is its own writing.
 	void scene_saving() { saving = walk_project(root); }
 	void resources_saved();
+	// Whether the file, which Godot holds unsaved changes of, changed on disk
+	// since the editor last saw it, also before refresh() takes the change in.
+	bool conflicts_with_disk(const std::string &p_path);
 };
 
 } // namespace petrichor

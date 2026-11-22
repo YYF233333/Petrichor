@@ -1152,6 +1152,7 @@ def check_lsp(project, info, editor):
     check_resource_saved_with_scene(first, project, uri, editor)
     check_rename_crlf(first, project, uri, editor)
     check_refactoring_client_open(first, project, uri, editor)
+    check_conflicts(first, project, editor, server["port"])
     first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
     check_sessions(project, uri, server["port"])
 
@@ -1562,6 +1563,72 @@ def check_refactoring_client_open(client, project, uri, editor):
         refused == text and written == text.replace("oranges", "pears") and after[0] == "true",
         f"{refused!r}\n{written!r}\n{after}",
     )
+
+
+def check_conflicts(client, project, editor, port):
+    """Files changed on disk while Godot holds unsaved changes of them
+    (architecture §6.5). arena.tscn, open without unsaved changes, is reloaded
+    once it changes on disk. Then note.pet, given an unsaved change in a tab,
+    and arena.tscn, given one, conflict: each is told once to every session and
+    listed on request, a rename that must save arena.tscn is refused, and each
+    conflict ends once its file is back as Godot saw it."""
+    disk = LspClient(port)
+    disk.initialize(view="disk")
+    arena, note = project / "arena.tscn", project / "note.pet"
+    note.write_text("extends Node\n", encoding="utf-8")
+    saved = {path: path.read_bytes() for path in (arena, note)}
+
+    def hold(name, printed, content=""):
+        count = editor.output.count(printed) + 1
+        (project / f"{name}.part").write_text(content, encoding="utf-8")
+        (project / f"{name}.part").replace(project / name)
+        editor.wait_for(printed, count)
+        return editor.output.decode("utf-8", "replace").rsplit(printed.decode(), 1)[-1].split("\n", 1)[0].strip()
+
+    def unsaved():
+        """The files the request lists, by name, with whether each conflicts."""
+        listed = client.request("petrichor/unsavedFiles")
+        return {file_name(each["uri"]): each["conflict"] for each in listed["result"]} if listed and "result" in listed else listed
+
+    def told(each):
+        message = each.take(lambda m: m.get("method") == "window/showMessage", 0)
+        return message and message["params"]["message"]
+
+    arena.write_bytes(saved[arena] + b'\n[node name="Extra" type="Node" parent="."]\n')
+    unsaved()
+    reloaded = hold("scene", b"lsp scene:")
+    arena.write_bytes(saved[arena])
+    unsaved()
+    expect("lsp: an open scene without unsaved changes is reloaded once it changes on disk", reloaded == "true" and hold("scene", b"lsp scene:") == "false", reloaded)
+
+    hold("dirty", b"lsp dirty:", "res://note.pet")
+    note.write_bytes(saved[note] + b"# Written on disk.\n")
+    first = unsaved()
+    tab = [told(client), disk.take(lambda m: m.get("method") == "window/showMessage", 5)]
+    note.write_bytes(saved[note] + b"# Written on disk again.\n")
+    again = unsaved()
+    expect(
+        "lsp: a file changed on disk while Godot's tab of it is unsaved is told once to every session, and listed",
+        first == {"note.pet": True} and again == first and tab[0] and "res://note.pet" in tab[0] and tab[1] and tab[1]["params"]["message"] == tab[0] and told(client) is None,
+        f"{first}\n{again}\n{tab}",
+    )
+
+    hold("dirty", b"lsp dirty:")
+    arena.write_bytes(saved[arena] + b"\n")
+    scene = unsaved()
+    renamed = hold("call", b"lsp call:", json.dumps(["_rename_declaration", 0, "res://hud.pet", "show_health", "show_life", [], False, True]))
+    expect(
+        "lsp: a rename that must save an open scene which changed on disk while unsaved is refused",
+        scene == {"note.pet": True, "arena.tscn": True} and "arena.tscn" in (told(client) or "") and renamed
+        and arena.read_bytes() == saved[arena] + b"\n" and "show_health" in (project / "hud.pet").read_text(encoding="utf-8"),
+        f"{scene}\n{renamed}",
+    )
+
+    for path in (arena, note):
+        path.write_bytes(saved[path])
+    ended = unsaved()
+    disk.socket.close()
+    expect("lsp: a conflict ends once its file is again as Godot saw it", ended == {"note.pet": False, "arena.tscn": False}, str(ended))
 
 
 def check_sessions(project, uri, port):

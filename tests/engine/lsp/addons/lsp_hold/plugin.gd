@@ -14,7 +14,12 @@ extends EditorPlugin
 # place in the script it names, as F2 does, prints the tab's text and undoes
 # the rename. Once res://ramp is there, widens ramp.tres through the undo
 # history and saves the scene shown, which saves the resource too; the next
-# time, prints whether the resource keeps its gradient.
+# time, prints whether the resource keeps its gradient. Once res://scene is
+# there, prints whether the scene shown has a node Extra; once res://dirty is
+# there, makes an unsaved change in the tab of the script it names, or else in
+# the scene shown. Once res://call is there, calls the method
+# of the Petrichor plugin it names with the arguments after, and prints the
+# result.
 # Quits once the file res://quit is there.
 
 
@@ -84,6 +89,26 @@ func _hold() -> void:
 				get_undo_redo().commit_action()
 				EditorInterface.save_scene()
 				print("lsp ramp: saved ", FileAccess.get_file_as_string("res://ramp.tres").contains("width = 64"))
+		if FileAccess.file_exists("res://scene"):
+			DirAccess.remove_absolute("res://scene")
+			print("lsp scene: ", EditorInterface.get_edited_scene_root().has_node("Extra"))
+		if FileAccess.file_exists("res://dirty"):
+			var script := FileAccess.get_file_as_string("res://dirty")
+			DirAccess.remove_absolute("res://dirty")
+			if script:
+				EditorInterface.edit_script(load(script))
+				EditorInterface.get_script_editor().get_current_editor().get_base_editor().insert_text("# Unsaved in Godot.\n", 0, 0)
+			else:
+				var root := EditorInterface.get_edited_scene_root()
+				get_undo_redo().create_action("Mark the arena")
+				get_undo_redo().add_do_property(root, "editor_description", "unsaved")
+				get_undo_redo().add_undo_property(root, "editor_description", root.editor_description)
+				get_undo_redo().commit_action()
+			print("lsp dirty: ", EditorInterface.get_script_editor().get_unsaved_files(), EditorInterface.get_unsaved_scenes())
+		if FileAccess.file_exists("res://call"):
+			var called: Array = JSON.parse_string(FileAccess.get_file_as_string("res://call"))
+			DirAccess.remove_absolute("res://call")
+			print("lsp call: ", plugin.callv(called[0], called.slice(1).map(func(a): return int(a) if a is float else a)))
 		if FileAccess.file_exists("res://rename"):
 			var asked: Array = JSON.parse_string(FileAccess.get_file_as_string("res://rename"))
 			DirAccess.remove_absolute("res://rename")

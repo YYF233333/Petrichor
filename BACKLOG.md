@@ -18,9 +18,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 0.2.1, due 2026-11-26, with only the project service. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
 
-- The project service (architecture §6.5), in the parts left:
-  - the command-line executable. It checks, builds and formats through the running service. It bridges clients that start a server over stdio. Without a service it starts one for the run;
-  - reports of a file changed on disk while Godot holds unsaved changes of it.
+- The project service (architecture §6.5), in the part left: the command-line executable. It checks, builds and formats through the running service. It bridges clients that start a server over stdio. Without a service it starts one for the run.
 - Its acceptance is a scripted run. Godot is open, VS Code is connected, and a script writes files and runs the check. No window gets the focus during it.
   - The check answers for the disk as the script left it.
   - VS Code's diagnostics follow within about a second.
