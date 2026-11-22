@@ -181,8 +181,11 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	// may come before a rename in its undo (architecture §2.3).
 	uint64_t elsewhere = 0;
 	uint64_t global_version = 0;
-	// Each tab's version after a refactoring last changed it, by its CodeEdit.
-	std::map<uint64_t, uint32_t> refactored;
+	// The tabs' versions after a refactoring added a step to them, and after a
+	// step that undoing a refactoring took off, each with the id of the tab's
+	// CodeEdit.
+	std::set<std::pair<uint64_t, uint32_t>> refactored;
+	std::set<std::pair<uint64_t, uint32_t>> taken_off;
 	// The paths from the edited scene's root of the nodes it owns, by id, as
 	// they were after the last step; the root's id. The nodes renamed or added
 	// while an action is committed (spec §13.3).
@@ -219,7 +222,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void take_scene_nodes();
 	void node_touched(godot::Node *p_node);
 	void nodes_committed();
-	void move_nodes(const godot::String &p_scene, const godot::Dictionary &p_moves);
+	void move_nodes(const godot::String &p_scene, const godot::Dictionary &p_moves, bool p_undo);
 	void script_changed();
 	void validated(godot::Object *p_code_edit);
 	godot::CodeEdit *fixing_code_edit() const;
@@ -231,9 +234,9 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void list_fixes(godot::Object *p_code_edit);
 	void list_fixes_at(godot::CodeEdit *p_code_edit, const godot::Vector2 &p_position);
 	void apply_listed(int p_id);
-	godot::String change_scripts(const FileEdits &p_changes, bool p_apply);
-	godot::String change_scripts_again(const godot::Array &p_edits, bool p_apply);
-	bool change_files(const FileEdits &p_changes);
+	godot::String change_scripts(const FileEdits &p_changes, bool p_undo, bool p_apply);
+	godot::String change_scripts_again(const godot::Array &p_edits, bool p_undo, bool p_apply);
+	bool change_files(const FileEdits &p_changes, bool p_undo);
 	enum class Saving {
 		Done,
 		Waiting, // For the next frame.
@@ -246,8 +249,8 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void ask_name(godot::Object *p_code_edit);
 	void rename_to(const godot::String &p_name);
 	void apply_previewed();
-	void apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record);
-	godot::String rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates, bool p_apply);
+	void apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record, bool p_undo);
+	godot::String rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates, bool p_undo, bool p_apply);
 	bool waits_for_scan(void (PetEditorPlugin::*p_command)());
 	void run_build_command();
 	void run_format_command();

@@ -59,6 +59,7 @@ func _run() -> void:
 	await _check_script_dialog()
 	_check_autoload_by_uid()
 	await _check_rename()
+	await _check_rename_tab_history()
 	await _check_rename_open_scenes()
 	await _check_rename_transaction()
 	await _check_rename_loaded()
@@ -722,6 +723,76 @@ func _check_rename() -> void:
 
 	EditorInterface.close_scene()
 	for file in [unit, user, side]:
+		script_editor.close_file(file)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
+
+
+# Architecture §2.3: undoing a rename takes its edit off each tab whose last
+# change it is. Ctrl+Z there then undoes the tab's own edit before it, and
+# Ctrl+Shift+Z redoes the rename in every file, until the tab has a new edit.
+func _check_rename_tab_history() -> void:
+	var dir := "res://editor_rename_tabs"
+	var weapon := dir + "/weapon.pet"
+	var player := dir + "/player.pet"
+	DirAccess.make_dir_absolute(dir)
+	var weapon_text := "extends Node\n\npub var jitter := 1.0\n"
+	var player_text := "extends Node\n\nconst Weapon = preload(\"weapon.pet\")\n\nfunc aim(weapon: Weapon) -> float:\n\treturn weapon.jitter\n"
+	_write(weapon, weapon_text)
+	_write(player, player_text)
+	var script_editor := EditorInterface.get_script_editor()
+	EditorInterface.edit_script(load(player))
+	var player_code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	EditorInterface.edit_script(load(weapon))
+	var weapon_code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	var noted := "# note\n" + player_text
+	var files := func() -> Array: return [FileAccess.get_file_as_string(weapon), FileAccess.get_file_as_string(player)]
+	var unsaved := func() -> Array: return [weapon, player].filter(func(path): return script_editor.get_unsaved_files().has(path))
+	# This file has the name in its texts, which the rename previews as candidates.
+	var rename := func() -> void:
+		_rename(weapon_code, 2, 9, "aim_jitter")
+		for apply: Button in _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply" and b.is_visible_in_tree()):
+			apply.pressed.emit()
+
+	player_code.insert_text("# note\n", 0, 0)
+	rename.call()
+	await _press(weapon_code, "ui_undo")
+	_check(weapon_code.text == weapon_text and player_code.text == noted and files.call() == [weapon_text, noted] and unsaved.call().is_empty(), "Ctrl+Z in the declaring tab undoes a rename everywhere, the other tab's unsaved edit written")
+	EditorInterface.edit_script(load(player))
+	await _press(player_code, "ui_undo")
+	_check(player_code.text == player_text and weapon_code.text == weapon_text and unsaved.call() == [player] and files.call() == [weapon_text, noted], "Ctrl+Z then in the other tab undoes its own edit before the rename, unsaved, and leaves the files")
+	await _press(player_code, "ui_redo")
+	_check(player_code.text == noted and unsaved.call().is_empty(), "Ctrl+Shift+Z there redoes its own edit")
+
+	EditorInterface.edit_script(load(weapon))
+	rename.call()
+	await _press(weapon_code, "ui_undo")
+	await _press(weapon_code, "ui_redo")
+	_check(weapon_code.text == weapon_text.replace("jitter", "aim_jitter") and player_code.text == noted.replace("jitter", "aim_jitter") and files.call() == [weapon_code.text, player_code.text] and unsaved.call().is_empty(), "Ctrl+Shift+Z in a tab that the undo took the rename's edit off redoes it in every file, and the tabs are saved")
+	await _press(weapon_code, "ui_undo")
+	EditorInterface.edit_script(load(player))
+	await _press(player_code, "ui_undo")
+	_check(player_code.text == player_text and weapon_code.text == weapon_text and files.call() == [weapon_text, noted], "after a redo and an undo, Ctrl+Z in the other tab undoes its own edit too")
+
+	EditorInterface.edit_script(load(weapon))
+	rename.call()
+	await _press(weapon_code, "ui_undo")
+	weapon_code.insert_text("#", 3, 0)
+	await _press(weapon_code, "ui_undo")
+	await _press(weapon_code, "ui_redo")
+	_check(weapon_code.text == weapon_text + "#" and player_code.text == player_text and files.call() == [weapon_text, player_text], "once the tab has a new edit, undone, Ctrl+Shift+Z redoes that edit and no rename")
+
+	rename.call()
+	player_code.insert_text("#", player_code.get_line_count() - 1, 0)
+	await _press(weapon_code, "ui_undo")
+	EditorInterface.edit_script(load(player))
+	await _press(player_code, "ui_undo")
+	await _press(player_code, "ui_redo")
+	_check(player_code.text == player_text + "#" and files.call() == [weapon_text + "#", player_text + "#"] and unsaved.call().is_empty(), "in a tab edited after the rename, Ctrl+Z and then Ctrl+Shift+Z leave it as undoing the rename did, and the files too")
+	_check_errors([], "the tabs' histories report nothing")
+
+	for file in [weapon, player]:
 		script_editor.close_file(file)
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))

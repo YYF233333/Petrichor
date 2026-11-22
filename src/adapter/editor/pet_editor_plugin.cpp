@@ -687,9 +687,9 @@ Dictionary PetHighlighter::_get_line_syntax_highlighting(int32_t p_line) const {
 
 void PetEditorPlugin::_bind_methods() {
 	// For the editor's undo history, which calls methods by name.
-	ClassDB::bind_method(D_METHOD("_rename_declaration", "kind", "scope", "name", "new_name", "candidates", "apply"), &PetEditorPlugin::rename_declaration, DEFVAL(true));
-	ClassDB::bind_method(D_METHOD("_change_scripts", "edits", "apply"), &PetEditorPlugin::change_scripts_again, DEFVAL(true));
-	ClassDB::bind_method(D_METHOD("_move_nodes", "scene", "moves"), &PetEditorPlugin::move_nodes);
+	ClassDB::bind_method(D_METHOD("_rename_declaration", "kind", "scope", "name", "new_name", "candidates", "undo", "apply"), &PetEditorPlugin::rename_declaration, DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("_change_scripts", "edits", "undo", "apply"), &PetEditorPlugin::change_scripts_again, DEFVAL(true));
+	ClassDB::bind_method(D_METHOD("_move_nodes", "scene", "moves", "undo"), &PetEditorPlugin::move_nodes);
 }
 
 static void resource_saved(const Ref<Resource> &p_resource) {
@@ -909,8 +909,8 @@ void PetEditorPlugin::nodes_committed() {
 	const String scene = root->get_scene_file_path();
 	merging = true;
 	undo_redo->create_action(undo_redo->get_history_undo_redo(undo_redo->get_object_history_id(root))->get_current_action_name(), UndoRedo::MERGE_ALL, root);
-	undo_redo->add_do_method(this, "callv", "call_deferred", Array::make("_move_nodes", scene, moves));
-	undo_redo->add_undo_method(this, "callv", "call_deferred", Array::make("_move_nodes", scene, back));
+	undo_redo->add_do_method(this, "callv", "call_deferred", Array::make("_move_nodes", scene, moves, false));
+	undo_redo->add_undo_method(this, "callv", "call_deferred", Array::make("_move_nodes", scene, back, true));
 	undo_redo->commit_action();
 	merging = false;
 }
@@ -918,7 +918,7 @@ void PetEditorPlugin::nodes_committed() {
 // From the texts as they are, as an undo of a rename recomputes it
 // (rename_declaration()). Each change and each path left is a line of the
 // Output panel.
-void PetEditorPlugin::move_nodes(const String &p_scene, const Dictionary &p_moves) {
+void PetEditorPlugin::move_nodes(const String &p_scene, const Dictionary &p_moves, bool p_undo) {
 	pack_open_scenes();
 	std::map<std::string, std::string> moves;
 	const Array keys = p_moves.keys();
@@ -930,7 +930,7 @@ void PetEditorPlugin::move_nodes(const String &p_scene, const Dictionary &p_move
 	for (const compiler::RenameEdit &edit : found.edits) {
 		changes[edit.occurrence.file].push_back(edit.edit);
 	}
-	if (!changes.empty() && !change_files(changes)) {
+	if (!changes.empty() && !change_files(changes, p_undo)) {
 		return;
 	}
 	for (const compiler::RenameEdit &edit : found.edits) {
@@ -1124,23 +1124,36 @@ FileEdits inverse(const FileEdits &p_changes) {
 // (scene/gui/text_edit.cpp:2737-2746, 4766-4768; ed1daf0). In a script of this
 // language, they undo or redo a refactoring that changed it, when the
 // editor's Undo or Redo would: Undo once the script has nothing to undo or
-// the refactoring's edit last, and Redo once it has nothing to redo. One that
-// would be refused is not, and the histories do not move (architecture §2.3).
+// the refactoring's edit last, and Redo once it has nothing to redo or would
+// redo the edit that undoing the refactoring took off (change_files()). Only
+// redoing tells which edit is next, by the version it restores
+// (scene/gui/text_edit.cpp:4840, 4848; ed1daf0), so the script redoes, and
+// undoes again for a refactoring's edit, which it never redoes alone. One that
+// would be refused is not made, and the histories do not move (architecture
+// §2.3).
 void PetEditorPlugin::_input(const Ref<InputEvent> &p_event) {
 	const bool undo = p_event->is_action_pressed("ui_undo", true, true);
-	if (recorded.empty() || !(undo || p_event->is_action_pressed("ui_redo", true, true))) {
+	if (!undo && !p_event->is_action_pressed("ui_redo", true, true)) {
 		return;
 	}
 	ScriptEditor *script_editor = EditorInterface::get_singleton()->get_script_editor();
 	ScriptEditorBase *current = script_editor->get_current_editor();
-	const CodeEdit *code_edit = current ? Object::cast_to<CodeEdit>(current->get_base_editor()) : nullptr;
+	CodeEdit *code_edit = current ? Object::cast_to<CodeEdit>(current->get_base_editor()) : nullptr;
 	const Ref<Script> script = script_editor->get_current_script();
 	if (!code_edit || !code_edit->has_focus() || !Object::cast_to<PetScript>(script.ptr())) {
 		return;
 	}
-	const auto last = refactored.find(code_edit->get_instance_id());
-	if (undo ? code_edit->has_undo() && (last == refactored.end() || last->second != code_edit->get_version()) : code_edit->has_redo()) {
+	const uint64_t id = code_edit->get_instance_id();
+	if (undo && code_edit->has_undo() && !refactored.count({ id, code_edit->get_version() })) {
 		return;
+	}
+	if (!undo && code_edit->has_redo()) {
+		code_edit->redo();
+		get_viewport()->set_input_as_handled();
+		if (!taken_off.count({ id, code_edit->get_version() })) {
+			return;
+		}
+		code_edit->undo();
 	}
 	UndoRedo *global = get_undo_redo()->get_history_undo_redo(EditorUndoRedoManager::GLOBAL_HISTORY);
 	const int32_t index = global->get_current_action() + (undo ? 0 : 1);
@@ -1250,7 +1263,7 @@ void PetEditorPlugin::rename_to(const String &p_name) {
 		references->set_changes(edits, callable_mp(this, &PetEditorPlugin::apply_previewed));
 	} else {
 		references->set_found({});
-		apply(renaming.path, renaming.offset, renaming.name, edits, true);
+		apply(renaming.path, renaming.offset, renaming.name, edits, true, false);
 		return;
 	}
 	make_bottom_panel_item_visible(references);
@@ -1357,12 +1370,12 @@ void PetEditorPlugin::apply_previewed() {
 		}
 	}
 	references->set_found({});
-	apply(renaming.path, renaming.offset, renaming.name, chosen, true);
+	apply(renaming.path, renaming.offset, renaming.name, chosen, true, false);
 }
 
 // A rename in one open script is a step of its undo; one that changes more
 // files, a step of the editor's history (architecture §2.3).
-void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record) {
+void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record, bool p_undo) {
 	std::map<std::string, std::vector<const compiler::RenameEdit *>> by_file;
 	for (const compiler::RenameEdit &edit : p_edits) {
 		by_file[edit.occurrence.file].push_back(&edit);
@@ -1402,7 +1415,7 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 			plain.push_back({ edit.begin, edit.end, edit.new_text });
 		}
 		apply_edits(one_buffer, source, plain);
-	} else if (!change_files(changes)) {
+	} else if (!change_files(changes, p_undo)) {
 		return;
 	}
 	// What finding references lists of the new name should be what changed: in
@@ -1446,7 +1459,7 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 	for (const auto &[file, edits] : changes) {
 		files.insert(file);
 	}
-	record(vformat("Rename \"%s\" to \"%s\"", to_godot(old_name), to_godot(p_name)), files, Array::make("_rename_declaration", int(before.kind), to_godot(before.scope), to_godot(before.name), to_godot(p_name), candidates_before), Array::make("_rename_declaration", int(renamed.kind), to_godot(renamed.scope), to_godot(renamed.name), to_godot(old_name), candidates_after));
+	record(vformat("Rename \"%s\" to \"%s\"", to_godot(old_name), to_godot(p_name)), files, Array::make("_rename_declaration", int(before.kind), to_godot(before.scope), to_godot(before.name), to_godot(p_name), candidates_before, false), Array::make("_rename_declaration", int(renamed.kind), to_godot(renamed.scope), to_godot(renamed.name), to_godot(old_name), candidates_after, true));
 }
 
 // Changes all files or none, and fails when a text is not what an edit
@@ -1456,10 +1469,12 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 // written back if one cannot be. A tab then takes its edits as one step to
 // undo, and is saved. Nothing is written over a change the editor has not
 // taken in: the file of a tab that is not as the editor last read or wrote
-// it, or a script an LSP client has unsaved changes to. The open scenes that
-// show the nodes of a file written are reloaded, which clears their undo
-// histories (editor/editor_node.cpp:7124-7160; ed1daf0).
-bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
+// it, or a script an LSP client has unsaved changes to. An undo whose text is
+// what the tab had before its last step, a refactoring's, takes that step off
+// instead (architecture §2.3). The open scenes that show the nodes of a file
+// written are reloaded, which clears their undo histories
+// (editor/editor_node.cpp:7124-7160; ed1daf0).
+bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 	std::map<std::string, std::pair<std::string, std::string>> texts; // Before and after, by file.
 	for (const auto &[file, edits] : p_changes) {
 		const std::optional<std::string> text = is_script(file) ? workspace().script_source(file) : std::optional<std::string>(file_bytes(to_godot(file)));
@@ -1518,12 +1533,26 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 		if (!code_edit) {
 			continue;
 		}
-		std::vector<compiler::Edit> plain;
-		for (const compiler::CheckedEdit &edit : p_changes.at(file)) {
-			plain.push_back({ edit.begin, edit.end, edit.new_text });
+		const std::pair<uint64_t, uint32_t> last = { code_edit->get_instance_id(), code_edit->get_version() };
+		bool undone = p_undo && refactored.count(last);
+		if (undone) {
+			code_edit->undo();
+			undone = to_utf8(code_edit->get_text()) == without_cr(text.second);
+			if (!undone) {
+				code_edit->redo();
+			}
 		}
-		apply_edits(code_edit, text.first, plain);
-		refactored[code_edit->get_instance_id()] = code_edit->get_version();
+		if (undone) {
+			refactored.erase(last);
+			taken_off.insert(last);
+		} else {
+			std::vector<compiler::Edit> plain;
+			for (const compiler::CheckedEdit &edit : p_changes.at(file)) {
+				plain.push_back({ edit.begin, edit.end, edit.new_text });
+			}
+			apply_edits(code_edit, text.first, plain);
+			refactored.insert({ last.first, code_edit->get_version() });
+		}
 		// Written, or back to its file, as an undo leaves it, the tab is saved.
 		if (!one_tab || without_cr(SceneIndex::get().script_source(file).value_or(std::string())) == text.second) {
 			code_edit->tag_saved_version();
@@ -1700,7 +1729,7 @@ compiler::DeclId renamed_to(compiler::DeclId p_id, const std::string &p_new) {
 // again deferred (scenes_saved()). One named so already is left, as a menu's
 // undo that was refused leaves it once the history moves on (architecture
 // §2.3). Without `p_apply`, it only finds why it would be refused, or "".
-String PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, const String &p_name, const String &p_new, const Array &p_candidates, bool p_apply) {
+String PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, const String &p_name, const String &p_new, const Array &p_candidates, bool p_undo, bool p_apply) {
 	const compiler::DeclId id{ compiler::DeclId::Kind(p_kind), to_utf8(p_scope), to_utf8(p_name) };
 	const std::string file = compiler::script_file(id.scope);
 	const std::optional<uint32_t> offset = declaration_offset(file, id);
@@ -1729,12 +1758,12 @@ String PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, co
 	} else if (!p_apply) {
 		return String();
 	} else if (const Saving saved = scenes_saved(files); saved == Saving::Waiting) {
-		callable_mp(this, &PetEditorPlugin::rename_declaration).call_deferred(p_kind, p_scope, p_name, p_new, p_candidates, p_apply);
+		callable_mp(this, &PetEditorPlugin::rename_declaration).call_deferred(p_kind, p_scope, p_name, p_new, p_candidates, p_undo, p_apply);
 		return String();
 	} else if (saved == Saving::Failed) {
 		return "An open scene cannot be saved."; // As scenes_saved() told.
 	} else {
-		apply(file, *offset, to_utf8(p_new), chosen, false);
+		apply(file, *offset, to_utf8(p_new), chosen, false, p_undo);
 		return String();
 	}
 	const String refusal = vformat("Cannot rename it to \"%s\": %s", p_new, to_godot(why));
@@ -1955,8 +1984,8 @@ void PetEditorPlugin::apply_listed(int p_id) {
 		}
 		apply_edits(code_edit, source, plain);
 		show_bulb();
-	} else if (change_scripts(changes, true).is_empty()) {
-		record(fix_list->get_item_text(fix_list->get_item_index(p_id)), files, Array::make("_change_scripts", to_array(changes)), Array::make("_change_scripts", to_array(inverse(changes))));
+	} else if (change_scripts(changes, false, true).is_empty()) {
+		record(fix_list->get_item_text(fix_list->get_item_index(p_id)), files, Array::make("_change_scripts", to_array(changes), false), Array::make("_change_scripts", to_array(inverse(changes)), true));
 	}
 }
 
@@ -1966,7 +1995,7 @@ void PetEditorPlugin::apply_listed(int p_id) {
 // editor/script/script_editor_base.cpp:653; ed1daf0). Edits made already are
 // left, as a menu's undo that was refused leaves them once the history moves
 // on. Without `p_apply`, it only finds why it would be refused, or "".
-String PetEditorPlugin::change_scripts(const FileEdits &p_changes, bool p_apply) {
+String PetEditorPlugin::change_scripts(const FileEdits &p_changes, bool p_undo, bool p_apply) {
 	const auto all_intact = [](const FileEdits &p_edits) {
 		return std::all_of(p_edits.begin(), p_edits.end(), [](const auto &p_file) {
 			const std::optional<std::string> text = workspace().script_source(p_file.first);
@@ -1983,7 +2012,7 @@ String PetEditorPlugin::change_scripts(const FileEdits &p_changes, bool p_apply)
 		}
 		return "The project changed.";
 	}
-	if (!p_apply || !change_files(p_changes)) {
+	if (!p_apply || !change_files(p_changes, p_undo)) {
 		return String();
 	}
 	if (CodeEdit *code_edit = fixing_code_edit()) {
@@ -1992,8 +2021,8 @@ String PetEditorPlugin::change_scripts(const FileEdits &p_changes, bool p_apply)
 	return String();
 }
 
-String PetEditorPlugin::change_scripts_again(const Array &p_edits, bool p_apply) {
-	return change_scripts(from_array(p_edits), p_apply);
+String PetEditorPlugin::change_scripts_again(const Array &p_edits, bool p_undo, bool p_apply) {
+	return change_scripts(from_array(p_edits), p_undo, p_apply);
 }
 
 void PetEditorPlugin::_exit_tree() {
