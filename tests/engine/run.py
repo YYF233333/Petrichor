@@ -1149,6 +1149,7 @@ def check_lsp(project, info, editor):
     check_rename_written(first, project, uri, editor)
     check_closed_unsaved(first, project, uri, editor)
     check_scene_saved_in_godot(first, project, uri, editor)
+    check_resource_saved_with_scene(first, project, uri, editor)
     check_rename_crlf(first, project, uri, editor)
     check_refactoring_client_open(first, project, uri, editor)
     first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
@@ -1487,6 +1488,21 @@ def check_scene_saved_in_godot(client, project, uri, editor):
     editor.wait_for(b"lsp undo: kept")
     undo = re.findall(r"lsp undo: (\w+ \w+)", editor.output.decode("utf-8", "replace"))
     expect("lsp: a scene saved in Godot keeps its history when the client's file watcher reports it", saved and undo == ["saved true", "kept true"], str(undo))
+
+
+def check_resource_saved_with_scene(client, project, uri, editor):
+    """A resource edited in Godot, which saves it with the scene and reports
+    only the scene, is not read back: it keeps its sub-resources, which its
+    undo history and the inspector hold."""
+    (project / "ramp").touch()
+    saved = editor.wait_for(b"lsp ramp: saved")
+    # The comparison at once, and answered once it is done.
+    client.notify("workspace/didChangeWatchedFiles", {"changes": [{"uri": uri("ramp.tres"), "type": 2}]})
+    client.request("petrichor/unknown")
+    (project / "ramp").touch()
+    editor.wait_for(b"lsp ramp: kept")
+    ramp = re.findall(r"lsp ramp: (\w+ \w+)", editor.output.decode("utf-8", "replace"))
+    expect("lsp: a resource Godot saves with a scene is not read back, and keeps its sub-resources", saved and ramp == ["saved true", "kept true"], str(ramp))
 
 
 def check_rename_crlf(client, project, uri, editor):

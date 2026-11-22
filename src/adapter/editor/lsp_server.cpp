@@ -972,6 +972,31 @@ void LspServer::refresh() {
 	}
 }
 
+// Taken as the editor wrote them, so that they are not read back: that gives
+// a resource it edited sub-resources other than those its undo history and
+// inspector hold. A change made elsewhere before is left to refresh().
+void LspServer::resources_saved() {
+	if (!saving) {
+		return;
+	}
+	const std::map<std::string, FileStat> after = walk_project(root);
+	std::vector<std::string> written;
+	{
+		std::lock_guard<std::mutex> lock(walking);
+		for (const auto &[path, stat] : after) {
+			const auto was = saving->find(path);
+			if (was == saving->end() || was->second != stat) {
+				written.push_back(path);
+				walked[path] = stat;
+			}
+		}
+	}
+	saving.reset();
+	for (const std::string &path : written) {
+		file_seen(path);
+	}
+}
+
 void LspServer::opened(const Dictionary &p_params) {
 	const Dictionary item = dictionary(p_params.get("textDocument", Variant()));
 	const Variant uri = item.get("uri", Variant());

@@ -696,8 +696,20 @@ static void resource_saved(const Ref<Resource> &p_resource) {
 	file_seen(to_utf8(p_resource->get_path()));
 }
 
-static void scene_saved(const String &p_path) {
+void PetEditorPlugin::scene_saved(const String &p_path) {
 	file_seen(to_utf8(p_path));
+	if (lsp) {
+		lsp->scene_saving();
+	}
+}
+
+// After the resources that the editor saves with a scene, scripts too, and
+// the external data of the plugins before this one (editor/editor_node.cpp:2521-2526,
+// 2374-2408, editor/editor_data.cpp:421-425; ed1daf0).
+void PetEditorPlugin::_save_external_data() {
+	if (lsp) {
+		lsp->resources_saved();
+	}
 }
 
 void PetEditorPlugin::_enter_tree() {
@@ -755,7 +767,7 @@ void PetEditorPlugin::_enter_tree() {
 	script_editor->register_syntax_highlighter(highlighter);
 	// editor/plugins/editor_plugin.cpp:284-289 (ed1daf0).
 	connect("resource_saved", callable_mp_static(&resource_saved));
-	connect("scene_saved", callable_mp_static(&scene_saved));
+	connect("scene_saved", callable_mp(this, &PetEditorPlugin::scene_saved));
 	connect("resource_saved", callable_mp(this, &PetEditorPlugin::files_changed).unbind(1));
 	connect("scene_saved", callable_mp(this, &PetEditorPlugin::files_changed).unbind(1));
 	EditorInterface::get_singleton()->get_resource_filesystem()->connect("filesystem_changed", callable_mp(this, &PetEditorPlugin::files_changed));

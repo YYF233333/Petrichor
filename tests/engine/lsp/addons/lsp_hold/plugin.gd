@@ -12,11 +12,15 @@ extends EditorPlugin
 # the scene shown and saves it; once res://history is there, prints whether the
 # scene still has a step to undo. Once res://rename is there, renames at the
 # place in the script it names, as F2 does, prints the tab's text and undoes
-# the rename.
+# the rename. Once res://ramp is there, widens ramp.tres through the undo
+# history and saves the scene shown, which saves the resource too; the next
+# time, prints whether the resource keeps its gradient.
 # Quits once the file res://quit is there.
 
 
 var probed: Script
+var ramp: GradientTexture1D
+var gradient: Gradient
 
 
 func _enter_tree() -> void:
@@ -67,6 +71,19 @@ func _hold() -> void:
 		if FileAccess.file_exists("res://history"):
 			DirAccess.remove_absolute("res://history")
 			print("lsp undo: kept ", _scene_has_undo())
+		if FileAccess.file_exists("res://ramp"):
+			DirAccess.remove_absolute("res://ramp")
+			if ramp:
+				print("lsp ramp: kept ", ramp.gradient == gradient)
+			else:
+				ramp = load("res://ramp.tres")
+				gradient = ramp.gradient
+				get_undo_redo().create_action("Widen the ramp")
+				get_undo_redo().add_do_property(ramp, "width", 64)
+				get_undo_redo().add_undo_property(ramp, "width", ramp.width)
+				get_undo_redo().commit_action()
+				EditorInterface.save_scene()
+				print("lsp ramp: saved ", FileAccess.get_file_as_string("res://ramp.tres").contains("width = 64"))
 		if FileAccess.file_exists("res://rename"):
 			var asked: Array = JSON.parse_string(FileAccess.get_file_as_string("res://rename"))
 			DirAccess.remove_absolute("res://rename")

@@ -97,6 +97,7 @@ class LspServer {
 	bool stopping = false;
 	std::atomic<bool> stale{ false }; // The thread found other files.
 	std::thread walker;
+	std::optional<std::map<std::string, FileStat>> saving; // Walked as the editor saved a scene.
 
 	// The workspace's revision with the sessions' edits, which their
 	// diagnostics depend on.
@@ -147,6 +148,11 @@ public:
 	// The editor has taken in a change: what the sessions have open is checked
 	// again without waiting.
 	void settled() { settle = true; }
+	// The editor saved a scene, and is to save the resources it edited, which
+	// it does not report, until it saves the external data of its plugins
+	// (architecture §2.4): what changes in between is its own writing.
+	void scene_saving() { saving = walk_project(root); }
+	void resources_saved();
 };
 
 } // namespace petrichor

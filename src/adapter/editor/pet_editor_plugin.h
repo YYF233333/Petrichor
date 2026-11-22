@@ -255,6 +255,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void run_build_command();
 	void run_format_command();
 	void files_changed();
+	void scene_saved(const godot::String &p_path);
 	void scenes_paused();
 	void changed();
 	void check_shown();
@@ -269,6 +270,7 @@ public:
 	void _input(const godot::Ref<godot::InputEvent> &p_event) override;
 	void _shortcut_input(const godot::Ref<godot::InputEvent> &p_event) override;
 	bool _build() override;
+	void _save_external_data() override;
 };
 
 } // namespace petrichor
