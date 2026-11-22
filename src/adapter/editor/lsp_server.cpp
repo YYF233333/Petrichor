@@ -599,15 +599,9 @@ void LspServer::poll() {
 void LspServer::step() {
 	Time *time = Time::get_singleton();
 	const uint64_t start = time->get_ticks_msec();
-	// Before reading, so that a text held since the last frame is offered at
-	// the version of the text it was made from; and before connections are
-	// taken, so that one that comes as the client leaves takes its place.
+	// Before connections are taken, so that one that comes as the client
+	// leaves takes its place.
 	if (client.peer.is_valid()) {
-		if (state == State::Running) {
-			for (auto &[path, document] : documents) {
-				offer_held(path, document);
-			}
-		}
 		if (!transfer(client) || (state == State::Waiting && start - client.since > INITIALIZE_WAIT)) {
 			disconnect();
 		}
@@ -763,10 +757,9 @@ void LspServer::handle(Connection &r_connection, const std::string &p_body) {
 	const Variant method = message.get("method", Variant());
 	const bool has_id = id.get_type() != Variant::NIL;
 	if (!message.has("method") && (message.has("result") || message.has("error"))) {
-		if (&r_connection == &client && has_id) {
-			answered(id, message);
-		}
-	} else if (data.get_type() != Variant::DICTIONARY || (message.has("id") && !has_id) || !message.has("method") || method.get_type() != Variant::STRING) {
+		return;
+	}
+	if (data.get_type() != Variant::DICTIONARY || (message.has("id") && !has_id) || !message.has("method") || method.get_type() != Variant::STRING) {
 		reply_error(r_connection.out, id, INVALID_REQUEST, "The message is no JSON-RPC request, notification or response.");
 	} else if (&r_connection != &client) {
 		if (has_id) {
@@ -802,7 +795,6 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		const Dictionary capabilities = dictionary(dictionary(p_params).get("capabilities", Variant()));
 		const Dictionary document = dictionary(capabilities.get("textDocument", Variant()));
 		const Dictionary files = dictionary(capabilities.get("workspace", Variant()));
-		applies_edits = files.get("applyEdit", false) == Variant(true);
 		// Of a rename's edits, which alone are annotated (LSP 3.17, RenameClientCapabilities).
 		annotates = dictionary(files.get("workspaceEdit", Variant())).get("changeAnnotationSupport", Variant()).get_type() == Variant::DICTIONARY && dictionary(document.get("rename", Variant())).get("honorsChangeAnnotations", false) == Variant(true);
 		snippets = dictionary(dictionary(document.get("completion", Variant())).get("completionItem", Variant())).get("snippetSupport", false) == Variant(true);
@@ -921,6 +913,7 @@ void LspServer::files_written(const std::set<std::string> &p_files, bool p_scan)
 		const std::string extension = lower_ascii(file.substr(file.find_last_of("./") + 1));
 		if (extension == "pet" || extension == "tscn" || extension == "tres") {
 			taken.insert(file);
+			file_seen(file);
 		} else {
 			p_scan = true;
 		}
@@ -946,27 +939,6 @@ void LspServer::files_changed() {
 	EditorInterface::get_singleton()->get_resource_filesystem()->scan_sources();
 }
 
-// The reply to workspace/applyEdit. Applied, the text is no longer held: it
-// is the client's unsaved change.
-void LspServer::answered(const Variant &p_id, const Dictionary &p_message) {
-	const auto offer = p_id.get_type() == Variant::INT ? offers.find(int64_t(p_id)) : offers.end();
-	if (offer == offers.end()) {
-		return;
-	}
-	const auto [path, text] = offer->second;
-	offers.erase(offer);
-	const Dictionary result = dictionary(p_message.get("result", Variant()));
-	if (result.get("applied", false) == Variant(true)) {
-		const auto held = held_scripts().find(path);
-		if (held != held_scripts().end() && held->second == text) {
-			drop_held(path);
-		}
-		return;
-	}
-	const Variant reason = result.get("failureReason", dictionary(p_message.get("error", Variant())).get("message", Variant()));
-	show_message(vformat("Godot holds unsaved changes to %s from a refactoring, which could not be applied here%s. Save them in Godot first.", to_godot(path), reason.get_type() == Variant::STRING ? ": " + String(reason) : String()));
-}
-
 void LspServer::opened(const Dictionary &p_params) {
 	const Dictionary item = dictionary(p_params.get("textDocument", Variant()));
 	const Variant uri = item.get("uri", Variant());
@@ -980,7 +952,6 @@ void LspServer::opened(const Dictionary &p_params) {
 	document.versions[uri] = *version;
 	document.published = 0;
 	set_client_script(path, to_utf8(text));
-	offer_held(path, document);
 }
 
 // Each change applies to the text that the one before it left (LSP 3.17,
@@ -1056,47 +1027,6 @@ void LspServer::release(const std::string &p_path) {
 	}
 }
 
-// A text that a refactoring in the editor holds for a script the client has
-// open goes to the client as an unsaved change of its own (architecture §2.3,
-// §2.4), at the version it was made from; once each.
-void LspServer::offer_held(const std::string &p_path, Document &r_document) {
-	const auto held = held_scripts().find(p_path);
-	if (held == held_scripts().end() || held->second == r_document.offered) {
-		return;
-	}
-	// Made from another text than the client has, it would undo what differs.
-	if (String why; !keep_held(p_path, workspace().script_source(p_path).value_or(std::string()), why)) {
-		show_message(why);
-		return;
-	}
-	r_document.offered = held->second;
-	if (!applies_edits) {
-		show_message(vformat("Godot holds unsaved changes to %s from a refactoring, which this client cannot take. Save them in Godot first.", to_godot(p_path)));
-		return;
-	}
-	const std::string text = workspace().script_source(p_path).value_or(std::string());
-	Dictionary edit;
-	edit["range"] = range({}, compiler::utf16_positions(text, { uint32_t(text.size()) })[0]);
-	edit["newText"] = to_godot(held->second);
-	Dictionary document;
-	document["uri"] = r_document.versions.begin()->first;
-	document["version"] = r_document.versions.begin()->second;
-	Dictionary change;
-	change["textDocument"] = document;
-	change["edits"] = Array::make(edit);
-	Dictionary changes;
-	changes["documentChanges"] = Array::make(change);
-	Dictionary params;
-	params["label"] = "Unsaved changes in Godot";
-	params["edit"] = changes;
-	Dictionary message;
-	message["id"] = next_id;
-	message["method"] = "workspace/applyEdit";
-	message["params"] = params;
-	offers[next_id++] = { p_path, held->second };
-	send(client.out, message);
-}
-
 // The diagnostics that the script editor shows for the client's text: the
 // script's own, with those of the scenes that place it (architecture §2.4).
 void LspServer::publish(const std::string &p_path, Document &r_document) {
@@ -1154,10 +1084,8 @@ void LspServer::disconnect() {
 	}
 	const bool had = !documents.empty();
 	documents.clear();
-	offers.clear();
 	client = Connection();
 	state = State::Waiting;
-	applies_edits = false;
 	if (had) {
 		editor_changed();
 	}

@@ -50,7 +50,6 @@ class LspServer {
 	struct Document {
 		std::map<godot::String, int64_t> versions;
 		uint64_t published = 0; // The workspace's revision that the diagnostics sent were computed at.
-		std::string offered; // The text held for it that was last offered.
 	};
 
 	godot::Ref<godot::TCPServer> server;
@@ -61,14 +60,11 @@ class LspServer {
 	Connection client;
 	std::vector<Connection> refused; // Other clients, each told so on its first request.
 	State state = State::Waiting;
-	bool applies_edits = false;
 	bool snippets = false; // In completion items.
 	bool resolves_edits = false; // Of code actions, when one is chosen.
 	bool annotates = false; // Edits that need confirmation.
 	godot::String failure; // Why the query being answered failed.
 	std::map<std::string, Document> documents;
-	std::map<int64_t, std::pair<std::string, std::string>> offers; // The path and the text of each workspace/applyEdit, by id.
-	int64_t next_id = 1;
 	uint64_t seen = 0; // The workspace's revision, unchanged since `quiet_since` (ms).
 	uint64_t quiet_since = 0;
 	uint64_t delay = 0; // In ms, as the script editor waits before it checks.
@@ -82,14 +78,12 @@ class LspServer {
 	void handle(Connection &r_connection, const std::string &p_body);
 	void request(const godot::Variant &p_id, const godot::String &p_method, const godot::Variant &p_params);
 	void notification(const godot::String &p_method, const godot::Dictionary &p_params);
-	void answered(const godot::Variant &p_id, const godot::Dictionary &p_message);
 	void opened(const godot::Dictionary &p_params);
 	void changed(const godot::Dictionary &p_params);
 	void closed(const godot::Dictionary &p_params);
 	void release(const std::string &p_path);
 	void files_changed();
 	void files_written(const std::set<std::string> &p_files, bool p_scan);
-	void offer_held(const std::string &p_path, Document &r_document);
 	void publish(const std::string &p_path, Document &r_document);
 	void notify(const char *p_method, const godot::Dictionary &p_params);
 	void show_message(const godot::String &p_message);

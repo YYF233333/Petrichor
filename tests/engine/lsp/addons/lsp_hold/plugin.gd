@@ -1,19 +1,22 @@
 @tool
 extends EditorPlugin
 
-# Renames hit.damage in user.pet and apples in draft.pet, which no tab has, as
-# the redo of a rename does, so that the editor holds their texts unsaved
-# (architecture §2.3), and saves tour.tscn as a binary scene too. Opens
-# arena.tscn, and gunner.pet in a tab. Once the file res://check is there, prints what the loaded blaster.tres
+# Renames apples in draft.pet, which no tab has, as the redo of a rename does,
+# which writes it (architecture §2.3). Leaves an unsaved change in a tab of
+# user.pet, and saves tour.tscn as a binary scene too. Opens arena.tscn, and
+# gunner.pet in a tab. Once the file res://check is there, prints what the loaded blaster.tres
 # holds and saves the scene shown, as Ctrl+S does. Once res://refactor is
 # there, makes the refactoring's edit it holds and prints the tab's text.
 # Once res://probe is there, prints whether the loaded script it names has its
-# file's text, and its properties. Once res://undo is there, makes a step in
+# file's text, and its properties, and keeps it loaded. Once res://undo is there, makes a step in
 # the scene shown and saves it; once res://history is there, prints whether the
 # scene still has a step to undo. Once res://rename is there, renames at the
 # place in the script it names, as F2 does, prints the tab's text and undoes
 # the rename.
 # Quits once the file res://quit is there.
+
+
+var probed: Script
 
 
 func _enter_tree() -> void:
@@ -24,11 +27,12 @@ func _enter_tree() -> void:
 func _hold() -> void:
 	while EditorInterface.get_resource_filesystem().is_scanning():
 		await get_tree().process_frame
-	var at := FileAccess.get_file_as_string("res://user.pet").find("damage")
 	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
-	plugin.call("_change_scripts", [["res://user.pet", at, at + 6, "damage", "amount"]], true)
-	at = FileAccess.get_file_as_string("res://draft.pet").find("apples")
+	var at := FileAccess.get_file_as_string("res://draft.pet").find("apples")
 	plugin.call("_change_scripts", [["res://draft.pet", at, at + 6, "apples", "oranges"]], true)
+	EditorInterface.edit_script(load("res://user.pet"))
+	var user: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	user.insert_text("# Unsaved in Godot, beside hit.damage.\n", user.get_line_count() - 1, 0)
 	ResourceSaver.save(load("res://tour.tscn"), "res://tour.scn")
 	EditorInterface.open_scene_from_path("res://arena.tscn")
 	EditorInterface.edit_script(load("res://gunner.pet"))
@@ -48,9 +52,9 @@ func _hold() -> void:
 		if FileAccess.file_exists("res://probe"):
 			var path := FileAccess.get_file_as_string("res://probe")
 			DirAccess.remove_absolute("res://probe")
-			var script: Script = load(path)
-			var names := script.get_script_property_list().map(func(p): return p.name)
-			print("lsp probe: %s %s" % [script.source_code == FileAccess.get_file_as_string(path), ",".join(PackedStringArray(names))])
+			probed = load(path)
+			var names := probed.get_script_property_list().map(func(p): return p.name)
+			print("lsp probe: %s %s" % [probed.source_code == FileAccess.get_file_as_string(path), ",".join(PackedStringArray(names))])
 		if FileAccess.file_exists("res://undo"):
 			DirAccess.remove_absolute("res://undo")
 			var root := EditorInterface.get_edited_scene_root()

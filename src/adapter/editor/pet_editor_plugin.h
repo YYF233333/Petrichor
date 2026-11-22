@@ -190,7 +190,6 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	uint64_t scene_root = 0;
 	std::set<uint64_t> touched;
 	bool merging = false;
-	bool exiting = false; // The editor is leaving its tree.
 	// While open scenes are saved before a rename: the tab shown before, and
 	// the scenes saved.
 	int32_t shown_before = -1;
@@ -241,7 +240,6 @@ class PetEditorPlugin : public godot::EditorPlugin {
 		Failed,
 	};
 	Saving scenes_saved(const std::set<std::string> &p_files);
-	void save_held();
 	void reload_written(const std::set<std::string> &p_files);
 	void record(const godot::String &p_action, const std::set<std::string> &p_files, const godot::Array &p_do, const godot::Array &p_undo);
 	void show_references(godot::Object *p_code_edit);
@@ -268,8 +266,6 @@ public:
 	void _input(const godot::Ref<godot::InputEvent> &p_event) override;
 	void _shortcut_input(const godot::Ref<godot::InputEvent> &p_event) override;
 	bool _build() override;
-	godot::String _get_unsaved_status(const godot::String &p_for_scene) const override;
-	void _save_external_data() override;
 };
 
 } // namespace petrichor

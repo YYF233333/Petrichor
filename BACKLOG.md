@@ -22,7 +22,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - several sessions at once, each on the human's view or on the disk view;
   - the comparison of the project's files before an answer to the disk view, and on a timer;
   - the command-line executable. It checks, builds and formats through the running service. It bridges clients that start a server over stdio. Without a service it starts one for the run;
-  - refactorings across files written to disk. The unsaved text they leave goes (architecture §2.3);
   - reports of a file changed on disk while Godot holds unsaved changes of it.
 - Its acceptance is a scripted run. Godot is open, VS Code is connected, and a script writes files and runs the check. No window gets the focus during it.
   - The check answers for the disk as the script left it.
@@ -84,8 +83,9 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - Renaming through binary `.scn` and `.res` files, by an engine resave of `PackedScene._bundled` (design-notes). Until then such a reference refuses the rename (architecture §6.4). Done when someone asks for it.
 - A rename with a scene part writes the scene files and reloads the open ones that show their nodes, which clears their undo histories. An open scene with unsaved changes is saved first (architecture §2.3).
-  - An open scene could take the change through its own history, as the editor rewrites NodePaths. Its nodes would first need the scripts' new exported properties, while the scripts' edits are still unsaved.
+  - An open scene could take the change through its own history, as the editor rewrites NodePaths. Its nodes would first need the scripts' new exported properties.
   - Closed scenes and resource files have no unsaved form in the editor.
+- A refactoring in Godot that changes a script the LSP client has unsaved changes to is refused (architecture §2.3). The server cannot save the client's text. Should it instead write the file and leave the conflict to the client?
 - Godot 4.8 writes the nodes of a scene embedded in a scene file as sections of that file. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.

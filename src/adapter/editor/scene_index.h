@@ -98,7 +98,9 @@ std::string without_cr(std::string p_text);
 
 // The project as the editor has it (architecture §2.1), over SceneIndex.
 // Outside a pass of the analysis, it first takes in the text of each script
-// open in the script editor that changed.
+// open in the script editor that changed. A tab without unsaved changes that
+// has its file's text is what the editor last read or wrote of the file
+// (file_seen()).
 compiler::Workspace &workspace();
 // Takes the scenes open with unsaved changes into the workspace, packed as
 // saving packs them (editor/editor_node.cpp:2505; ed1daf0), and drops the
@@ -106,22 +108,10 @@ compiler::Workspace &workspace();
 void pack_open_scenes();
 // The open script's editor, or null.
 godot::CodeEdit *open_code_edit(const std::string &p_path);
-// Gives the workspace the unsaved text of a script that is not open, which
-// its tab takes if it opens; the same text as its file is none (architecture
-// §2.3).
-void hold_script(const std::string &p_path, std::string p_text);
-void drop_held(const std::string &p_path);
-// Whether the text held for the script was made from p_text, the file's
-// or the client's, as it is now. Otherwise the text is dropped, which
-// `r_why` tells, as a refactoring's edit would undo a change made since.
-bool keep_held(const std::string &p_path, const std::string &p_text, godot::String &r_why);
-// The texts held, by path.
-const std::map<std::string, std::string> &held_scripts();
-// The scripts whose text the LSP client has open or a refactoring holds.
-std::set<std::string> overlaid_scripts();
+// The scripts whose text the LSP client has open.
+const std::set<std::string> &client_scripts();
 // The text of a script open in the LSP client, which the workspace takes over
-// its tab's and the one held, until the client closes it (architecture §2.4).
-// A script held while the client has it open is held all the same.
+// its tab's until the client closes it (architecture §2.4).
 void set_client_script(const std::string &p_path, std::string p_text);
 void drop_client_script(const std::string &p_path);
 // The bytes of a file, an unsaved scene's as the text saver writes it;

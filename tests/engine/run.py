@@ -604,11 +604,6 @@ def main():
         (PROJECT / ".godot" / "editor" / "editor_layout.cfg").unlink(missing_ok=True)
         code, output = run(godot, "-e", "--path", str(PROJECT), "--", "--editor-checks")
         expect_run("editor checks", code, output, ["editor check: 0 failure(s)"], expected_errors(output, "editor check"))
-        # Architecture §2.3: the script a rename left unsaved as the checks
-        # ended is not saved as the editor quits.
-        held = PROJECT / "editor_quit" / "user.pet"
-        expect("editor checks: a script left unsaved stays so after quitting", held.is_file() and "unit.held_at_quit" in held.read_text(encoding="utf-8"), output)
-        shutil.rmtree(PROJECT / "editor_quit", ignore_errors=True)
 
     if wanted("language"):
         # Verbose, so that StringNames still referenced at exit are listed.
@@ -969,9 +964,9 @@ def check_lsp(project, info, editor):
         time.sleep(0.1)
     server = json.loads(info.read_text(encoding="utf-8")) if info.exists() else {}
     expect("lsp: the editor writes its process and port", server.get("pid", 0) > 0 and server.get("port") not in (None, 6005, 6008), str(server))
-    # Once the first scan is done and the text held, which the server takes in
-    # at once (PetEditorPlugin::changed()).
-    held = editor.wait_for(b"lsp hold: done")
+    # Once the first scan is done and the refactoring written, which the
+    # server takes in at once (PetEditorPlugin::changed()).
+    editor.wait_for(b"lsp hold: done")
     if not server:
         return
 
@@ -1108,36 +1103,22 @@ def check_lsp(project, info, editor):
     at = [d["range"]["start"] for d in published["diagnostics"] if "missing2" in d["message"]] if published else []
     expect("lsp: changes apply in order, and diagnostics carry the version they are for", at == [place("missing2")] and versions[-1:] == [4] and 2 not in versions and 3 not in versions, f"{versions}\n{published}\n{text!r}")
 
-    # Before user.pet's held text is applied, which a quick fix and a rename are refused for.
+    # While user.pet has an unsaved change in Godot, which a quick fix and a rename are refused for.
     check_queries(first, project, uri)
     check_rename(first, project, uri)
 
-    # A text held for a script that the client opens with another text, as VS
-    # Code restores unsaved changes, is dropped with a message, not pushed.
+    # Architecture §2.3: a refactoring in Godot writes the scripts it changes,
+    # so a client that opens one after it is sent nothing.
     draft = uri("draft.pet")
-    first.open(draft, (project / "draft.pet").read_text(encoding="utf-8") + "# From the client.\n")
-    dropped = first.take(lambda m: m.get("method") == "window/showMessage" and "res://draft.pet" in m["params"]["message"])
-    pushed = first.take(lambda m: m.get("method") == "workspace/applyEdit" and "draft.pet" in str(m), 1)
+    draft_text = (project / "draft.pet").read_text(encoding="utf-8")
+    first.open(draft, draft_text)
+    pushed = first.take(lambda m: m.get("method") == "workspace/applyEdit", 1)
     first.notify("textDocument/didClose", {"textDocument": {"uri": draft}})
-    expect("lsp: a text held for a script the client has otherwise is dropped, with a message", dropped is not None and pushed is None, f"{dropped}\n{pushed}")
+    expect("lsp: a script that a refactoring in Godot changed is opened as written, and nothing is pushed", "oranges" in draft_text and pushed is None, f"{draft_text}\n{pushed}")
 
     user = uri("user.pet")
     user_text = (project / "user.pet").read_text(encoding="utf-8")
     first.open(user, user_text)
-    offer = first.take(lambda m: m.get("method") == "workspace/applyEdit")
-    change = offer and offer["params"]["edit"]["documentChanges"][0]
-    expect("lsp: a script the editor holds a text for gets it as an edit", held and change and change["textDocument"] == {"uri": user, "version": 1} and "hit.amount" in change["edits"][0]["newText"], str(offer))
-    if offer:
-        first.send({"id": offer["id"], "result": {"applied": False, "failureReason": "a test"}})
-    shown = first.take(lambda m: m.get("method") == "window/showMessage")
-    first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
-    first.open(user, user_text)
-    offer = first.take(lambda m: m.get("method") == "workspace/applyEdit")
-    if offer:
-        first.send({"id": offer["id"], "result": {"applied": True}})
-    first.notify("textDocument/didClose", {"textDocument": {"uri": user}})
-    first.open(user, user_text)
-    expect("lsp: an edit refused is told, offered again, and once applied no longer held", shown and "res://user.pet" in shown["params"]["message"] and offer and first.take(lambda m: m.get("method") == "workspace/applyEdit", 2) is None, f"{shown}\n{offer}")
 
     # A member renamed from user.pet, open in the client, in the scripts and a
     # text scene; the words in the helper plugin's GDScript are candidates.
@@ -1169,6 +1150,7 @@ def check_lsp(project, info, editor):
     check_closed_unsaved(first, project, uri, editor)
     check_scene_saved_in_godot(first, project, uri, editor)
     check_rename_crlf(first, project, uri, editor)
+    check_refactoring_client_open(first, project, uri, editor)
 
     # A save writes the bytecode of the file as the files compile, not as an
     # unsaved dependency in the client would make it.
@@ -1362,7 +1344,7 @@ def check_queries(client, project, uri):
 
 
 def check_rename(client, project, uri):
-    """Renaming from tour.pet while the editor holds user.pet's text: where
+    """Renaming from tour.pet while user.pet has an unsaved change in Godot: where
     prepareRename gives the name or the editor's reason to refuse it, a local
     in one edit, and the reasons a rename is refused, each readable."""
     tour = uri("tour.pet")
@@ -1395,7 +1377,7 @@ def check_rename(client, project, uri):
     expect("lsp: a local is renamed in one versioned edit of its script", renamed and renamed.get("result") == {"documentChanges": [{"textDocument": {"uri": tour, "version": 1}, "edits": changes}]}, str(renamed))
 
     # Refused: by the compiler, each reason with its place unless it is the
-    # script's own; and for user.pet, whose text the editor holds.
+    # script's own; and for user.pet, unsaved in Godot.
     answers = [reason(ask("textDocument/rename", needle, newName=new)) for needle, new in [("speed := 5.0", "pace"), ("move(amount", "count"), ("move(amount", "2x"), ("f)\n", "g")]]
     client.notify("textDocument/didClose", {"textDocument": {"uri": tour}})
     expect(
@@ -1532,6 +1514,47 @@ def check_rename_crlf(client, project, uri, editor):
     tab = re.findall(r"lsp rename: (.*)", editor.output.decode("utf-8", "replace"))
     renamed = text.replace("movement_speed", "movement_pace").replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n")
     expect("lsp: a rename in Godot's tab of a script the client has with carriage returns renames the name at the caret in place", [line.rstrip("\r") for line in tab] == [renamed], f"{tab}\n{renamed}")
+
+
+def check_refactoring_client_open(client, project, uri, editor):
+    """A refactoring in Godot of draft.pet, which the client has open: refused
+    while the client has unsaved changes to it, and written once it has none.
+    The loaded script then takes the file's text, which the client reloads."""
+    draft = uri("draft.pet")
+    path = project / "draft.pet"
+    text = path.read_text(encoding="utf-8")
+    start = len(text[: text.index("oranges")].encode())
+    loaded = re.compile(r"lsp probe: (\S+) (\S*)")
+
+    def ask(name, content, printed):
+        count = editor.output.count(printed) + 1
+        (project / f"{name}.part").write_text(content, encoding="utf-8")
+        (project / f"{name}.part").replace(project / name)
+        editor.wait_for(printed, count)
+
+    def refactor():
+        ask("refactor", json.dumps(["res://draft.pet", start, start + 7, "oranges", "pears"]), b"lsp refactor:")
+
+    def probe():
+        ask("probe", "res://draft.pet", b"lsp probe:")
+        return loaded.findall(editor.output.decode("utf-8", "replace"))[-1]
+
+    client.open(draft, "# From the client.\n" + text)
+    client.request("petrichor/unknown")
+    refactor()
+    refused = path.read_text(encoding="utf-8")
+    client.notify("textDocument/didChange", {"textDocument": {"uri": draft, "version": 2}, "contentChanges": [{"text": text}]})
+    client.request("petrichor/unknown")
+    probe()
+    refactor()
+    written = path.read_text(encoding="utf-8")
+    after = probe()
+    client.notify("textDocument/didClose", {"textDocument": {"uri": draft}})
+    expect(
+        "lsp: a refactoring in Godot of a script the client has open is refused while it has unsaved changes there, and written once it has none, the loaded script taking the file's text",
+        refused == text and written == text.replace("oranges", "pears") and after[0] == "true",
+        f"{refused!r}\n{written!r}\n{after}",
+    )
 
 
 def run_debugger_groups(godot):

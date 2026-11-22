@@ -14,7 +14,6 @@
 #include <godot_cpp/classes/editor_file_system.hpp>
 #include <godot_cpp/classes/editor_file_system_directory.hpp>
 #include <godot_cpp/classes/editor_interface.hpp>
-#include <godot_cpp/classes/editor_toaster.hpp>
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/packed_scene.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
@@ -951,17 +950,9 @@ namespace {
 // version of its text that the workspace has.
 std::map<std::string, std::pair<uint64_t, uint32_t>> open_scripts;
 std::set<std::string> packed_scenes;
-std::map<std::string, std::string> held;
-// What each text held was made from: the file's text, or the client's for a
-// script it has open (architecture §2.3).
-std::map<std::string, std::string> held_bases;
-std::set<std::string> client_scripts;
+std::set<std::string> in_client;
 // The MD5 of each file as the editor last wrote or read it.
 std::map<std::string, std::string> seen;
-
-String dropped_message(const std::string &p_path) {
-	return vformat("%s changed after a refactoring left a change to it unsaved, so that change is dropped.", to_godot(p_path));
-}
 
 // The scenes open with unsaved changes, by path.
 std::map<std::string, Ref<PackedScene>> unsaved_scenes() {
@@ -1016,29 +1007,20 @@ compiler::Workspace &workspace() {
 			continue;
 		}
 		const std::string file = to_utf8(path);
-		// A script opened takes the text held for it, unsaved, with nothing to
-		// undo in its tab (architecture §2.3). The tab clears its history as it
-		// opens (editor/script/script_text_editor.cpp:248-251; ed1daf0), and its
-		// version is then never 0.
-		// One whose file changed since shows the file, and the text is dropped.
-		if (const auto kept = held.find(file); kept != held.end()) {
-			const std::string disk = SceneIndex::get().script_source(file).value_or(std::string());
-			const bool from_disk = without_cr(held_bases[file]) == without_cr(disk);
-			code_edit->set_text(to_godot(from_disk ? kept->second : without_cr(disk)));
-			code_edit->clear_undo_history();
-			if (!from_disk) {
-				code_edit->tag_saved_version();
-				editor->get_editor_toaster()->push_toast(dropped_message(file), EditorToaster::SEVERITY_WARNING);
-			}
-			held.erase(kept);
-			held_bases.erase(file);
-		}
 		const std::pair<uint64_t, uint32_t> now{ code_edit->get_instance_id(), code_edit->get_version() };
 		shown.insert(file);
 		if (open_scripts[file] != now) {
 			open_scripts[file] = now;
-			if (!client_scripts.count(file)) {
-				workspace.set_script(file, to_utf8(code_edit->get_text()));
+			const std::string text = to_utf8(code_edit->get_text());
+			if (!in_client.count(file)) {
+				workspace.set_script(file, text);
+			}
+			// Saved as it opens, saves or reloads its file
+			// (editor/script/script_text_editor.cpp:248-251,
+			// editor/script/script_editor_plugin.cpp:723-728,
+			// editor/script/script_editor_base.cpp:575-604; ed1daf0).
+			if (code_edit->get_version() == code_edit->get_saved_version() && text == without_cr(SceneIndex::get().script_source(file).value_or(std::string()))) {
+				file_seen(file);
 			}
 		}
 	}
@@ -1047,7 +1029,7 @@ compiler::Workspace &workspace() {
 			++entry;
 			continue;
 		}
-		if (!client_scripts.count(entry->first)) {
+		if (!in_client.count(entry->first)) {
 			workspace.drop_script(entry->first);
 		}
 		entry = open_scripts.erase(entry);
@@ -1082,68 +1064,23 @@ CodeEdit *open_code_edit(const std::string &p_path) {
 	return found == open_scripts.end() ? nullptr : Object::cast_to<CodeEdit>(ObjectDB::get_instance(found->second.first));
 }
 
-void hold_script(const std::string &p_path, std::string p_text) {
-	compiler::Workspace &open = workspace();
-	const bool in_client = client_scripts.count(p_path);
-	const std::optional<std::string> disk = SceneIndex::get().script_source(p_path);
-	if (!in_client && disk && without_cr(*disk) == without_cr(p_text)) {
-		drop_held(p_path);
-		return;
-	}
-	if (!held.count(p_path) || in_client) {
-		held_bases[p_path] = open.script_source(p_path).value_or(std::string());
-	}
-	if (!in_client) {
-		open.set_script(p_path, p_text);
-	}
-	held[p_path] = std::move(p_text);
-}
-
-void drop_held(const std::string &p_path) {
-	held_bases.erase(p_path);
-	if (held.erase(p_path) && !client_scripts.count(p_path)) {
-		workspace().drop_script(p_path);
-	}
-}
-
-bool keep_held(const std::string &p_path, const std::string &p_text, String &r_why) {
-	const auto base = held_bases.find(p_path);
-	if (base == held_bases.end() || without_cr(base->second) == without_cr(p_text)) {
-		return true;
-	}
-	r_why = dropped_message(p_path);
-	drop_held(p_path);
-	return false;
-}
-
-const std::map<std::string, std::string> &held_scripts() {
-	return held;
-}
-
-std::set<std::string> overlaid_scripts() {
-	std::set<std::string> scripts = client_scripts;
-	for (const auto &[path, text] : held) {
-		scripts.insert(path);
-	}
-	return scripts;
+const std::set<std::string> &client_scripts() {
+	return in_client;
 }
 
 void set_client_script(const std::string &p_path, std::string p_text) {
 	compiler::Workspace &open = workspace();
-	client_scripts.insert(p_path);
+	in_client.insert(p_path);
 	open.set_script(p_path, std::move(p_text));
 }
 
 void drop_client_script(const std::string &p_path) {
 	compiler::Workspace &open = workspace();
-	if (!client_scripts.erase(p_path)) {
+	if (!in_client.erase(p_path)) {
 		return;
 	}
-	const auto kept = held.find(p_path);
 	if (CodeEdit *code_edit = open_code_edit(p_path)) {
 		open.set_script(p_path, to_utf8(code_edit->get_text()));
-	} else if (kept != held.end()) {
-		open.set_script(p_path, kept->second);
 	} else {
 		open.drop_script(p_path);
 	}

@@ -1450,19 +1450,18 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 }
 
 // Changes all files or none, and fails when a text is not what an edit
-// replaces or a file cannot be written (architecture §2.3). A script's text
-// changes: an open one's in its tab, as one step to undo there, and a closed
-// one's held unsaved. Other files are written as bytes, the first ones
-// written back if one cannot be, and the open scenes that show their nodes
-// reloaded, which clears their undo histories (editor/editor_node.cpp:7124-7160;
-// ed1daf0).
+// replaces or a file cannot be written (architecture §2.3). Edits all in one
+// open script are one step to undo in its tab, unsaved. Otherwise each file is
+// written as bytes, a script's with its byte order mark, and the first ones
+// written back if one cannot be. A tab then takes its edits as one step to
+// undo, and is saved. Nothing is written over a change the editor has not
+// taken in: the file of a tab that is not as the editor last read or wrote
+// it, or a script the LSP client has unsaved changes to. The open scenes that
+// show the nodes of a file written are reloaded, which clears their undo
+// histories (editor/editor_node.cpp:7124-7160; ed1daf0).
 bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 	std::map<std::string, std::pair<std::string, std::string>> texts; // Before and after, by file.
-	std::set<std::string> others; // The files that are not scripts.
 	for (const auto &[file, edits] : p_changes) {
-		if (!is_script(file)) {
-			others.insert(file);
-		}
 		const std::optional<std::string> text = is_script(file) ? workspace().script_source(file) : std::optional<std::string>(file_bytes(to_godot(file)));
 		if (!text || !std::all_of(edits.begin(), edits.end(), [&](const compiler::CheckedEdit &p_edit) { return intact(*text, p_edit); })) {
 			toast(vformat("%s changed while it was being edited, so nothing was changed.", to_godot(file)), EditorToaster::SEVERITY_WARNING);
@@ -1479,27 +1478,44 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 		}
 		texts[file] = { *text, result + text->substr(done) };
 	}
-	std::set<std::string> written;
-	for (const auto &[file, text] : texts) {
-		if (is_script(file)) {
-			continue;
-		}
-		if (!write_file(to_godot(file), text.second)) {
-			for (const std::string &each : written) {
-				write_file(to_godot(each), texts[each].first);
+	const bool one_tab = texts.size() == 1 && open_code_edit(texts.begin()->first);
+	if (!one_tab) {
+		PackedStringArray unseen;
+		PackedStringArray unsaved;
+		for (const auto &[file, text] : texts) {
+			if (open_code_edit(file) && !file_unchanged(file)) {
+				unseen.push_back(to_godot(file));
 			}
-			toast(vformat("Cannot write %s, so nothing was changed.", to_godot(file)), EditorToaster::SEVERITY_WARNING);
+			if (client_scripts().count(file) && without_cr(text.first) != without_cr(SceneIndex::get().script_source(file).value_or(std::string()))) {
+				unsaved.push_back(to_godot(file));
+			}
+		}
+		if (!unseen.is_empty() || !unsaved.is_empty()) {
+			toast(unseen.is_empty() ? vformat("The LSP client has unsaved changes to %s, so nothing was changed. Save them there first.", String(", ").join(unsaved)) : vformat("%s changed on disk since Godot last read or wrote it, so nothing was changed.", String(", ").join(unseen)), EditorToaster::SEVERITY_WARNING);
 			return false;
 		}
-		written.insert(file);
-	}
-	for (const auto &[file, text] : texts) {
-		if (!is_script(file)) {
-			continue;
+		std::map<std::string, std::string> written; // The bytes they had.
+		for (const auto &[file, text] : texts) {
+			const String path = to_godot(file);
+			const std::string had = file_bytes(path);
+			if (!write_file(path, is_script(file) ? byte_order_mark(had) + text.second : text.second)) {
+				for (const auto &[each, bytes] : written) {
+					write_file(to_godot(each), bytes);
+				}
+				toast(vformat("Cannot write %s, so nothing was changed.", path), EditorToaster::SEVERITY_WARNING);
+				return false;
+			}
+			written[file] = had;
 		}
+		for (const auto &[file, had] : written) {
+			file_seen(file);
+		}
+	}
+	std::set<std::string> files;
+	for (const auto &[file, text] : texts) {
+		files.insert(file);
 		CodeEdit *code_edit = open_code_edit(file);
 		if (!code_edit) {
-			hold_script(file, text.second);
 			continue;
 		}
 		std::vector<compiler::Edit> plain;
@@ -1508,26 +1524,46 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes) {
 		}
 		apply_edits(code_edit, text.first, plain);
 		refactored[code_edit->get_instance_id()] = code_edit->get_version();
-		// Back to its file, as an undo leaves it, the tab is saved.
-		if (without_cr(SceneIndex::get().script_source(file).value_or(std::string())) == text.second) {
+		// Written, or back to its file, as an undo leaves it, the tab is saved.
+		if (!one_tab || without_cr(SceneIndex::get().script_source(file).value_or(std::string())) == text.second) {
 			code_edit->tag_saved_version();
 		}
 	}
-	std::set<std::string> files;
-	for (const auto &[file, edits] : p_changes) {
-		files.insert(file);
-	}
 	reload_written(files);
+	if (one_tab) {
+		return true;
+	}
+	// As the editor saves a script, for a tab: the script editor's record of
+	// when the file changed follows, so that it does not take the file as
+	// changed elsewhere, and a running game reloads the script
+	// (editor/editor_node.cpp:1774, 8664-8665,
+	// editor/script/script_editor_plugin.cpp:723-742, 803-850,
+	// editor/script/script_editor_base.cpp:91-93, 570-573; ed1daf0).
+	Node *editor_node = EditorInterface::get_singleton()->get_base_control()->get_parent();
+	for (const std::string &file : files) {
+		const String path = to_godot(file);
+		const Ref<Resource> shown = open_code_edit(file) ? ResourceLoader::get_singleton()->get_cached_ref(path) : Ref<Resource>();
+		if (shown.is_valid()) {
+			if (compiler::is_script_path(file)) {
+				write_bytecode(path);
+			}
+			editor_node->emit_signal("resource_saved", shown);
+		} else if (compiler::is_script_path(file)) {
+			script_written(path, sessions);
+		}
+	}
 	return true;
 }
 
-// After a refactoring changed files of the project, the editor's or the LSP
-// client's (architecture §2.3, §2.4): scripts in their texts, held or in tabs,
-// or written, and the other files written. The loaded scripts among them take
-// the workspace's texts, as a tab's script takes its checked text, and reload
-// in one pass, so that each compiles once against the others' new texts. A tab
-// without unsaved changes takes a script's text written, as the script editor
-// reloads it (editor/script/script_editor_plugin.cpp:2535-2588; ed1daf0). Then
+// After files of the project changed, written by a refactoring or by the LSP
+// client, or a script's tab (architecture §2.3, §2.4). The loaded scripts
+// among them take the workspace's texts, as a tab's script takes its checked
+// text, and reload in one pass, so that each compiles once against the
+// others' new texts. One written that the client has open takes its file's
+// text: the client wrote it, or reloads it as it has no unsaved changes
+// (change_files()). A tab without unsaved changes takes a script's text
+// written, as the script editor reloads it
+// (editor/script/script_editor_plugin.cpp:2535-2588; ed1daf0). Then
 // what else is loaded is read again, as when the editor sees a file change,
 // with the scripts' new members (editor/editor_node.cpp:1291-1323,
 // core/io/resource.cpp:263-276; ed1daf0). A cached scene too: the editor builds
@@ -1547,8 +1583,11 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 	std::vector<Ref<Script>> scripts;
 	// A changed script_class takes effect (editor/file_system/editor_file_system.cpp:2400-2492; ed1daf0).
 	const auto written = [&](const String &p_path) { editor->get_resource_filesystem()->update_file(p_path); };
+	const auto taken = [&](const std::string &p_file) {
+		const bool from_file = p_files.count(p_file) && client_scripts().count(p_file);
+		return (from_file ? SceneIndex::get().script_source(p_file) : workspace().script_source(p_file)).value_or(std::string());
+	};
 	for (const std::string &file : p_files) {
-		file_seen(file);
 		const String path = to_godot(file);
 		if (!is_script(file)) {
 			written(path);
@@ -1565,21 +1604,21 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 			code_edit->set_caret_column(column);
 			code_edit->tag_saved_version();
 		}
-		if (without_cr(workspace().script_source(file).value_or(std::string())) == to_utf8(text)) {
+		if (without_cr(taken(file)) == to_utf8(text)) {
 			written(path);
 		}
 	}
 	// Before what else is loaded is read again, also the scripts that the LSP
-	// client or a refactoring has unsaved texts of, which carry a rename the
-	// client has not saved all of yet.
-	std::set<std::string> taking = others.empty() ? std::set<std::string>() : overlaid_scripts();
+	// client has unsaved texts of, which carry a rename the client has not
+	// saved all of yet.
+	std::set<std::string> taking = others.empty() ? std::set<std::string>() : client_scripts();
 	for (const std::string &file : p_files) {
 		if (is_script(file)) {
 			taking.insert(file);
 		}
 	}
 	for (const std::string &file : taking) {
-		const String current = to_godot(workspace().script_source(file).value_or(std::string()));
+		const String current = to_godot(taken(file));
 		const Ref<Script> loaded = ResourceLoader::get_singleton()->get_cached_ref(to_godot(file));
 		if (loaded.is_valid() && loaded->get_source_code() != current) {
 			loaded->set_source_code(current);
@@ -1618,66 +1657,6 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 	}
 	elsewhere = steps;
 	changed();
-}
-
-// The held scripts are written as a script's tab is saved, and those loaded
-// read again against their new texts, as the script editor reloads a script
-// (editor/script/script_editor_plugin.cpp:2564-2565; ed1daf0). One that cannot
-// be written stays held; one whose file is gone is dropped, and so is one whose
-// file changed since, which is told (keep_held()).
-void PetEditorPlugin::save_held() {
-	std::set<std::string> written;
-	const std::map<std::string, std::string> files = held_scripts();
-	for (const auto &[file, text] : files) {
-		const String path = to_godot(file);
-		if (!FileAccess::file_exists(path)) {
-			drop_held(file);
-			continue;
-		}
-		String why;
-		if (!keep_held(file, SceneIndex::get().script_source(file).value_or(std::string()), why)) {
-			toast(why, EditorToaster::SEVERITY_WARNING);
-			continue;
-		}
-		if (write_file(path, byte_order_mark(file_bytes(path)) + text)) {
-			drop_held(file);
-			written.insert(file);
-		}
-	}
-	reload_written(written);
-	for (const std::string &file : written) {
-		script_written(to_godot(file), sessions);
-	}
-	changed();
-}
-
-// The scripts held unsaved, in the words of the script editor's own
-// (editor/script/script_editor_plugin.cpp:4332-4372; ed1daf0). None is of a
-// scene, whose tab the editor would otherwise mark unsaved
-// (editor/editor_node.cpp:2657-2677).
-String PetEditorPlugin::_get_unsaved_status(const String &p_for_scene) const {
-	if (!p_for_scene.is_empty() || held_scripts().empty()) {
-		return String();
-	}
-	PackedStringArray message({ "Save changes to the following script(s) before quitting?" });
-	for (const auto &held : held_scripts()) {
-		message.push_back(to_godot(held.first));
-	}
-	return String("\n").join(message);
-}
-
-// When a scene is saved, or Save finds no scene's root to save, before the game
-// runs, and on quitting when the user chooses to (editor/editor_node.cpp:2415-2420,
-// 2526, 2603, 3488-3495, 3730-3733, 3793-3806; ed1daf0). Not as the editor
-// leaves the tree, which asks every plugin whatever the user chose; the script
-// editor keeps its tabs then too (editor/editor_node.cpp:969-991,
-// editor/script/script_editor_plugin.cpp:4375-4378). This plugin, a child of
-// the editor, leaves first (editor/editor_node.cpp:4365-4370, 9421;
-// scene/main/node.cpp:421-427; ed1daf0).
-void PetEditorPlugin::_save_external_data() {
-	if (!exiting) {
-		save_held();
-	}
 }
 
 // Adds a step to the editor's global history, already done, that calls the
@@ -1766,9 +1745,9 @@ String PetEditorPlugin::rename_declaration(int p_kind, const String &p_scope, co
 }
 
 // The tab of a script of this language gets a gutter for the bulb of quick
-// fixes, right of the fold gutter (architecture §2.4). A tab opened takes the
-// text held for its script before anything else reads it: the signal comes
-// before the tab's first check (editor/script/script_editor_plugin.cpp:2305,
+// fixes, right of the fold gutter (architecture §2.4). A tab opened is in
+// step with its file, which the workspace notes before the tab can change: the
+// signal comes as it opens (editor/script/script_editor_plugin.cpp:2305,
 // 399-410; ed1daf0).
 void PetEditorPlugin::script_changed() {
 	workspace();
@@ -2018,7 +1997,6 @@ String PetEditorPlugin::change_scripts_again(const Array &p_edits, bool p_apply)
 }
 
 void PetEditorPlugin::_exit_tree() {
-	exiting = true;
 	lsp.reset();
 	remove_debugger_plugin(sessions);
 	sessions.unref();

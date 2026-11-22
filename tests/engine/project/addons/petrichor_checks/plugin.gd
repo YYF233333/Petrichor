@@ -63,7 +63,7 @@ func _run() -> void:
 	await _check_rename_transaction()
 	await _check_rename_loaded()
 	await _check_rename_unsaveable()
-	await _check_held_changed()
+	await _check_rename_unseen()
 	await _check_embedded_scene()
 	await _check_quick_fixes()
 	await _check_unsaved_texts()
@@ -71,7 +71,6 @@ func _run() -> void:
 	await _check_shown_again()
 	await _check_node_moves()
 	_check_unsaved_export()
-	_leave_held_script()
 
 	print("editor check: %d failure(s)" % failures)
 	get_tree().quit(1 if failures > 0 else 0)
@@ -607,23 +606,26 @@ func _check_autoload_by_uid() -> void:
 
 # Spec §13.3 in the editor (architecture §2.3). A rename that cannot be made
 # changes nothing. A local renamed in one script is one step of that script's
-# undo. A member's rename reads the open script's text and the open scene's
-# unsaved change, which it saves before rewriting the scene. The scripts stay
-# unsaved: the open one changes in its tab, whose history stays, and a closed
-# one is held, which the editor's save writes byte for byte; a loaded one takes
-# the text held at once. Ctrl+Z in the script, with the rename's edit last there,
-# undoes it everywhere, and Ctrl+Shift+Z redoes it. A closed script opened
-# shows its text held, unsaved. An undo or redo that would be refused is not
-# made, and no history moves.
+# undo, unsaved. A member's rename reads the open scene's unsaved change,
+# which it saves before rewriting the scene, and writes every script it
+# changes: a closed one byte for byte, which a loaded one takes at once, and
+# an open one as one step of its tab, whose history stays, with an unsaved
+# change it had. The tabs are saved, and the script editor does not take
+# their files as changed elsewhere. Ctrl+Z in the script, with the rename's
+# edit last there, undoes it everywhere, and Ctrl+Shift+Z redoes it, the files
+# following. An undo or redo that would be refused is not made, and no history
+# moves.
 func _check_rename() -> void:
 	var dir := "res://editor_rename"
 	var unit := dir + "/unit.pet"
 	var user := dir + "/user.pet"
+	var side := dir + "/side.pet"
 	var scene := dir + "/unit.tscn"
 	DirAccess.make_dir_absolute(dir)
 	_write(unit, "extends Node\n\n@export pub var stride := 1\nvar health := 3\n\nfunc twice() -> int:\n\tvar count := stride\n\treturn count * 2\n")
 	var user_text := "﻿extends Node\r\n\r\nconst Unit = preload(\"unit.pet\")\r\n\r\nfunc f(unit: Unit) -> int:\r\n\treturn unit.stride\r\n"
 	FileAccess.open(user, FileAccess.WRITE).store_buffer(user_text.to_utf8_buffer())
+	_write(side, "extends Node\n\nconst Unit = preload(\"unit.pet\")\n\nfunc g(unit: Unit) -> int:\n\treturn unit.stride\n")
 	_write(scene, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Unit" type="Node"]\nscript = ExtResource("1")\nstride = 5\n' % unit)
 	EditorInterface.open_scene_from_path(scene)
 	var root := EditorInterface.get_edited_scene_root()
@@ -632,8 +634,9 @@ func _check_rename() -> void:
 	undo_redo.add_do_property(root, "stride", 7)
 	undo_redo.add_undo_property(root, "stride", 5)
 	undo_redo.commit_action()
+	var script_editor := EditorInterface.get_script_editor()
 	EditorInterface.edit_script(load(unit))
-	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var code: CodeEdit = script_editor.get_current_editor().get_base_editor()
 	var text := code.text
 	var scene_text := FileAccess.get_file_as_string(scene)
 	var global := undo_redo.get_history_undo_redo(EditorUndoRedoManager.GLOBAL_HISTORY)
@@ -644,18 +647,44 @@ func _check_rename() -> void:
 	_check(refused.begins_with(unit) and code.text == text and FileAccess.get_file_as_string(scene) == scene_text and EditorInterface.get_unsaved_scenes().has(scene), "a rename that cannot be made shows why and changes nothing: " + refused)
 
 	_rename(code, 6, 7, "total")
-	_check(code.text == text.replace("count", "total") and global.get_history_count() == actions, "a local is renamed in its script, outside the editor's history")
+	_check(code.text == text.replace("count", "total") and global.get_history_count() == actions and FileAccess.get_file_as_string(unit) == text and script_editor.get_unsaved_files().has(unit), "a local is renamed in its script, outside the editor's history, unsaved")
 	code.undo()
 	_check(code.text == text, "one undo in the script restores it")
 
-	var loaded_user := load(user)
+	# An edit saved before the rename, and one unsaved in another tab.
 	code.insert_text("# Kept.\n", code.get_line_count() - 1, 0)
+	script_editor.save_all_scripts()
 	var kept := code.text
+	EditorInterface.edit_script(load(side))
+	var side_code: CodeEdit = script_editor.get_current_editor().get_base_editor()
+	side_code.insert_text("# Unsaved.\n", side_code.get_line_count() - 1, 0)
+	var side_kept := side_code.text
+	EditorInterface.edit_script(load(unit))
+	var loaded_user := load(user)
+	# Written in a later second than the tabs' files, so that the script
+	# editor would tell them apart (editor/script/script_editor_plugin.cpp:826-829; ed1daf0).
+	while int(Time.get_unix_time_from_system()) <= FileAccess.get_modified_time(unit):
+		await get_tree().process_frame
 	_rename(code, 2, 17, "pace")
 	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
 	apply.pressed.emit()
-	_check(code.text == kept.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "a member is renamed in the open script and in the open scene, with its unsaved change")
-	_check(FileAccess.get_file_as_string(unit) == kept and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer() and loaded_user.source_code.contains("unit.pace"), "the scripts stay unsaved, and a loaded one takes the text held for it")
+	var renamed := kept.replace("stride", "pace")
+	var side_renamed := side_kept.replace("stride", "pace")
+	var user_renamed := user_text.replace("stride", "pace").to_utf8_buffer()
+	_check(code.text == renamed and side_code.text == side_renamed and FileAccess.get_file_as_string(scene).contains("\npace = 7\n") and not EditorInterface.get_unsaved_scenes().has(scene), "a member is renamed in the open scripts and in the open scene, with its unsaved change")
+	var unsaved := script_editor.get_unsaved_files()
+	_check(FileAccess.get_file_as_string(unit) == renamed and FileAccess.get_file_as_string(side) == side_renamed and FileAccess.get_file_as_bytes(user) == user_renamed and not unsaved.has(unit) and not unsaved.has(side), "the scripts are written, a closed one with its byte order mark and line breaks, and the tabs are saved: %s" % [unsaved])
+	_check(loaded_user.source_code.contains("unit.pace"), "a loaded script takes its new text")
+	var bytecode := "res://.godot/petrichor/" + user.trim_prefix("res://") + "c"
+	_check(FileAccess.file_exists(bytecode) and FileAccess.get_modified_time(bytecode) >= FileAccess.get_modified_time(user), "and its bytecode is written, which a game reads")
+	# The tabs of the files that the checks before removed, which it would
+	# reload too.
+	for open: Script in script_editor.get_open_scripts():
+		if not FileAccess.file_exists(open.resource_path):
+			script_editor.close_file(open.resource_path)
+	var version := code.get_version()
+	script_editor.reload_open_files()
+	_check(code.get_version() == version and side_code.text == side_renamed, "the script editor does not take a file written as changed elsewhere")
 	# Closing another scene adds no step to the histories.
 	var other := dir + "/other.tscn"
 	_write(other, '[gd_scene format=3]\n\n[node name="Other" type="Node"]\n')
@@ -664,21 +693,18 @@ func _check_rename() -> void:
 	await get_tree().process_frame
 	EditorInterface.edit_script(load(unit))
 	await _press(code, "ui_undo")
-	_check(code.text == kept and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n"), "Ctrl+Z in the script, with the rename's edit last there, restores the script and the scene")
+	_check(code.text == kept and side_code.text == side_kept and FileAccess.get_file_as_string(scene).contains("\nstride = 7\n"), "Ctrl+Z in the script, with the rename's edit last there, restores the scripts and the scene")
+	_check(FileAccess.get_file_as_string(unit) == kept and FileAccess.get_file_as_string(side) == side_kept and FileAccess.get_file_as_bytes(user) == user_text.to_utf8_buffer() and loaded_user.source_code.contains("unit.stride"), "and the files")
 	await _press(code, "ui_redo")
-	_check(code.text == kept.replace("stride", "pace") and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "Ctrl+Shift+Z there renames them again")
-	EditorInterface.save_scene()
-	_check(FileAccess.get_file_as_bytes(user) == user_text.replace("stride", "pace").to_utf8_buffer() and loaded_user.source_code.contains("pace"), "saving the scene writes the closed script with its byte order mark and line breaks, and the loaded one reloads")
-	var bytecode := "res://.godot/petrichor/" + user.trim_prefix("res://") + "c"
-	_check(FileAccess.file_exists(bytecode) and FileAccess.get_modified_time(bytecode) >= FileAccess.get_modified_time(user), "and writes its bytecode, which a game reads")
+	_check(code.text == renamed and FileAccess.get_file_as_string(unit) == renamed and FileAccess.get_file_as_string(side) == side_renamed and FileAccess.get_file_as_bytes(user) == user_renamed and FileAccess.get_file_as_string(scene).contains("\npace = 7\n"), "Ctrl+Shift+Z there renames them again, in the files too")
 
 	await _press(code, "ui_undo")
 	EditorInterface.edit_script(load(user))
-	var user_code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	var user_code: CodeEdit = script_editor.get_current_editor().get_base_editor()
 	var listed := []
-	for names: ItemList in EditorInterface.get_script_editor().find_children("*", "ItemList", true, false):
+	for names: ItemList in script_editor.find_children("*", "ItemList", true, false):
 		listed.append_array(range(names.item_count).map(func(i): return names.get_item_text(i)))
-	_check(user_code.text == user_text.replace("\r", "").trim_prefix("﻿") and listed.has("user.pet(*)"), "a closed script opened shows the text the undo left it, unsaved: %s" % [listed])
+	_check(user_code.text == user_text.replace("\r", "").trim_prefix("﻿") and listed.has("user.pet"), "a closed script opened shows its file, saved: %s" % [listed])
 	var unrenamed := FileAccess.get_file_as_string(scene)
 	_write(scene, unrenamed + "pace = 1\n")
 	_scanned()
@@ -688,15 +714,15 @@ func _check_rename() -> void:
 	_write(scene, unrenamed)
 	_scanned()
 	await _press(user_code, "ui_redo")
-	_check(code.text == kept.replace("stride", "pace") and user_code.text.contains("unit.pace"), "with the scene fixed, it is made")
+	_check(code.text == renamed and user_code.text.contains("unit.pace") and FileAccess.get_file_as_bytes(user) == ("﻿" + user_code.text).to_utf8_buffer(), "with the scene fixed, it is made, and the tab written as the editor saves it, with the byte order mark")
 	while code.has_undo():
 		code.undo()
-	_check(code.text == text, "the open script's own history is kept through it")
+	_check(code.text == text, "the open script's own history is kept through it, the edit before the rename too")
 	_check_errors([], "renaming reports nothing")
 
 	EditorInterface.close_scene()
-	for file in [unit, user]:
-		EditorInterface.get_script_editor().close_file(file)
+	for file in [unit, user, side]:
+		script_editor.close_file(file)
 	for file in DirAccess.get_files_at(dir):
 		DirAccess.remove_absolute(dir.path_join(file))
 	DirAccess.remove_absolute(dir)
@@ -805,29 +831,39 @@ func _check_rename_open_scenes() -> void:
 	_scanned()
 
 
-# Architecture §2.3: a text held for a closed script whose file changed since
-# is dropped as the editor saves, so that the change on disk stays.
-func _check_held_changed() -> void:
-	var path := "res://editor_held_changed.pet"
-	var scene := "res://editor_held_changed.tscn"
-	var changed := "# Changed elsewhere.\nextends Node\n\nvar apples := 1\n"
-	_write(path, "extends Node\n\nvar apples := 1\n")
-	_write(scene, '[gd_scene format=3]\n\n[node name="Root" type="Node"]\n')
-	for file in [path, scene]:
-		EditorInterface.get_resource_filesystem().update_file(file)
+# Architecture §2.3: a refactoring does not save a tab over its file changed
+# on disk since the editor last read or wrote it. It changes nothing, and says
+# which file.
+func _check_rename_unseen() -> void:
+	var dir := "res://editor_unseen"
+	var unit := dir + "/unit.pet"
+	var user := dir + "/user.pet"
+	DirAccess.make_dir_absolute(dir)
+	_write(unit, "extends Node\n\npub var stride := 1\n")
+	var user_text := "extends Node\n\nconst Unit = preload(\"unit.pet\")\n\nfunc f(unit: Unit) -> int:\n\treturn unit.stride\n"
+	_write(user, user_text)
+	EditorInterface.edit_script(load(unit))
+	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
+	code.insert_text("# Unsaved.\n", code.get_line_count() - 1, 0)
+	var text := code.text
+	var changed := "# Changed elsewhere.\n" + FileAccess.get_file_as_string(unit)
+	_write(unit, changed)
+	_rename(code, 2, 9, "pace")
+	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
+	apply.pressed.emit()
 	await get_tree().process_frame
-	EditorInterface.open_scene_from_path(scene)
-	var plugin: Node = get_tree().root.find_children("*", "PetEditorPlugin", true, false)[0]
-	var at := FileAccess.get_file_as_string(path).find("apples")
-	plugin.call("_change_scripts", [[path, at, at + 6, "apples", "oranges"]], true)
-	_write(path, changed)
+	var told := _toasts().filter(func(t): return t.contains(unit))
+	_check(code.text == text and FileAccess.get_file_as_string(unit) == changed and FileAccess.get_file_as_string(user) == user_text and told == [unit + " changed on disk since Godot last read or wrote it, so nothing was changed."], "a rename does not save a tab over a change on disk it has not seen, and says so: %s" % [told])
+	_check_errors([], "it reports nothing else")
+	EditorInterface.get_script_editor().close_file(unit)
+	for file in DirAccess.get_files_at(dir):
+		DirAccess.remove_absolute(dir.path_join(file))
+	DirAccess.remove_absolute(dir)
 	_scanned()
-	EditorInterface.save_scene()
-	_check(FileAccess.get_file_as_string(path) == changed, "a text held for a script whose file changed since is dropped as the editor saves, and the change stays")
-	EditorInterface.close_scene()
-	for file in [path, path + ".uid", scene]:
-		DirAccess.remove_absolute(file)
-	_scanned()
+
+
+func _toasts() -> Array:
+	return EditorInterface.get_editor_toaster().find_children("*", "Label", true, false).map(func(l): return l.text)
 
 
 # Architecture §2.3: an open scene showing the renamed one, which cannot be
@@ -893,10 +929,8 @@ class WarningLog extends Logger:
 
 
 # Architecture §2.3: a rename reads a loaded resource that stores the member
-# again against the scripts' new texts, also one it holds unsaved, so that
-# Ctrl+S, which saves the resource before the held scripts
-# (editor/editor_node.cpp:2518-2526; ed1daf0), keeps the value. Finding
-# references after it lists what it changed, so it warns of nothing.
+# again against the scripts' new texts, so that Ctrl+S keeps the value.
+# Finding references after it lists what it changed, so it warns of nothing.
 func _check_rename_loaded() -> void:
 	var dir := "res://editor_rename_loaded"
 	var weapon := dir + "/weapon.pet"
@@ -933,16 +967,19 @@ func _check_rename_loaded() -> void:
 	_scanned()
 
 
-# Architecture §2.3: a refactoring writes the scene files it changes all or
-# none. One that cannot be written leaves the others and the scripts as they
-# were. Saved safely, as the editor saves by default, the write would fail
-# only after a second of retries.
+# Architecture §2.3: a refactoring writes the files it changes all or none.
+# One that cannot be written, after the scripts in the order of paths, leaves
+# the others as they were, and the tab. Saved safely, as the editor saves by
+# default, the write would fail only after a second of retries.
 func _check_rename_transaction() -> void:
 	var dir := "res://editor_transaction"
 	var unit := dir + "/unit.pet"
-	var scenes := [dir + "/a.tscn", dir + "/b.tscn"]
+	var user := dir + "/user.pet"
+	var scenes := [dir + "/a.tscn", dir + "/z.tscn"]
 	DirAccess.make_dir_absolute(dir)
 	_write(unit, "extends Node\n\n@export pub var stride := 1\n")
+	var user_text := "extends Node\n\nconst Unit = preload(\"unit.pet\")\n\nfunc f(unit: Unit) -> int:\n\treturn unit.stride\n"
+	_write(user, user_text)
 	for scene in scenes:
 		_write(scene, '[gd_scene format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[node name="Unit" type="Node"]\nscript = ExtResource("1")\nstride = 5\n' % unit)
 		EditorInterface.get_resource_filesystem().update_file(scene)
@@ -962,7 +999,8 @@ func _check_rename_transaction() -> void:
 	_rename(code, 2, 17, "pace")
 	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
 	apply.pressed.emit()
-	_check(code.text == text and FileAccess.get_file_as_string(scenes[0]) == scene_text, "a rename that cannot write one scene file changes no file and no script")
+	var unchanged := FileAccess.get_file_as_string(scenes[0]) == scene_text and FileAccess.get_file_as_string(unit) == text and FileAccess.get_file_as_string(user) == user_text
+	_check(unchanged and code.text == text and not EditorInterface.get_script_editor().get_unsaved_files().has(unit), "a rename that cannot write one file changes no file and no tab")
 	_check_errors(["Cannot write %s." % scenes[1]], "it reports the file")
 	OS.set_use_file_access_save_and_swap(true)
 	FileAccess.set_read_only_attribute(scenes[1], false)
@@ -977,8 +1015,9 @@ func _check_rename_transaction() -> void:
 # Spec §13.2 in the editor (architecture §2.4). Alt+Enter lists the fixes of
 # the caret's line. A fix in the script is one step of its undo, and so is
 # fixing all of a kind, which leaves the other kinds. A fix that changes
-# another script changes its text unsaved, found again where it is now, and
-# keeps the tab. Opened, that script shows it, and Ctrl+Z there undoes it.
+# another script, closed, writes it, found again where it is now, and keeps
+# the tab. Opened, that script shows it, and Ctrl+Z there undoes it, in its
+# tab alone.
 func _check_quick_fixes() -> void:
 	var dir := "res://editor_fixes"
 	var target := dir + "/target.pet"
@@ -1011,12 +1050,13 @@ func _check_quick_fixes() -> void:
 	list = _quick_fixes(code, 8)
 	_check(list.item_count == 1, "a kind with one fix in the script has no item to fix all")
 	_choose(list, 0)
-	_check(FileAccess.get_file_as_string(target) == moved and code.text == text and EditorInterface.get_script_editor().get_current_editor().get_base_editor() == code, "a fix in another script leaves its file and the tab")
+	var made_pub := moved.replace("var", "pub var")
+	_check(FileAccess.get_file_as_string(target) == made_pub and code.text == text and EditorInterface.get_script_editor().get_current_editor().get_base_editor() == code, "a fix in another script writes it where its text is now, and keeps the tab")
 	EditorInterface.edit_script(load(target))
 	var target_code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
-	_check(target_code.text == moved.replace("var", "pub var"), "opened, that script shows the fix where its text is now")
+	_check(target_code.text == made_pub, "opened, that script shows the fix")
 	await _press(target_code, "ui_undo")
-	_check(target_code.text == moved, "Ctrl+Z in that script undoes it")
+	_check(target_code.text == moved and FileAccess.get_file_as_string(target) == made_pub, "Ctrl+Z in that script undoes it, which changes that script alone")
 	_check_errors([], "quick fixes report nothing")
 
 	for file in [user, target]:
@@ -1170,9 +1210,10 @@ func _check_shown_again() -> void:
 
 
 # Spec §13.3: renaming or moving a node in the scene dock writes the paths to
-# it anew in the scripts' texts, unsaved: an open one's tab and a closed one's
-# held text. The change joins the action's step in the scene's history, and
-# the Output panel lists it. It undoes there, as the undo probe of 768bec5 did.
+# it anew in the scripts, as a refactoring changes them: in an open one's tab,
+# and written when it changes more than that. The change joins the action's
+# step in the scene's history, and the Output panel lists it. It undoes
+# there, as the undo probe of 768bec5 did.
 func _check_node_moves() -> void:
 	var dir := "res://editor_moves"
 	var root_script := dir + "/root.pet"
@@ -1229,7 +1270,7 @@ func _check_node_moves() -> void:
 	_check(code.text == renamed.replace("$Gun", "$Hand/Gun") and history.get_history_count() == steps + 1, "moving a node writes the path to it anew, in the move's step")
 	EditorInterface.edit_script(load(gun_script))
 	var gun_code: CodeEdit = script_editor.get_current_editor().get_base_editor()
-	_check(gun_code.text == gun_text.replace("../HUD", "../../HUD") and FileAccess.get_file_as_string(gun_script) == gun_text, "a closed script holds the path from the node moved, unsaved")
+	_check(gun_code.text == gun_text.replace("../HUD", "../../HUD") and FileAccess.get_file_as_string(gun_script) == gun_code.text, "a closed script is written with the path from the node moved")
 	await _scene_step(history.undo)
 	_check(root.get_node("Gun").get_parent() == root and code.text == renamed and gun_code.text == gun_text, "one undo restores the node and both scripts")
 	await _scene_step(history.undo)
@@ -1307,25 +1348,6 @@ func _check_unsaved_export() -> void:
 	EditorInterface.get_script_editor().close_file(path)
 	for file in [path, path + ".uid"]:
 		DirAccess.remove_absolute(file)
-
-
-# Architecture §2.3: a script that a rename left unsaved stays so as the
-# editor leaves, which asks every plugin to save (editor/editor_node.cpp:969-991;
-# ed1daf0). run.py reads it once the editor has quit.
-func _leave_held_script() -> void:
-	var dir := "res://editor_quit"
-	DirAccess.make_dir_absolute(dir)
-	_write(dir + "/unit.pet", "extends Node\n\npub var held_at_quit := 1\n")
-	_write(dir + "/user.pet", "extends Node\n\nconst Unit = preload(\"unit.pet\")\n\nfunc f(unit: Unit) -> int:\n\treturn unit.held_at_quit\n")
-	EditorInterface.set_main_screen_editor("Script")
-	EditorInterface.edit_script(load(dir + "/unit.pet"))
-	var code: CodeEdit = EditorInterface.get_script_editor().get_current_editor().get_base_editor()
-	# This file has the name too, as a candidate left unchecked.
-	_rename(code, 2, 9, "saved_at_quit")
-	var apply: Button = _references_tree().get_parent().find_children("*", "Button", true, false).filter(func(b): return b.text == "Apply")[0]
-	apply.pressed.emit()
-	_check(code.text.contains("saved_at_quit"), "a rename leaves a closed script unsaved before the editor quits")
-	EditorInterface.get_script_editor().close_file(dir + "/unit.pet")
 
 
 # Opens the list of quick fixes at the line of the open script, as Alt+Enter
