@@ -21,14 +21,14 @@ function key(root) {
 	return FOLDS_CASE ? root.toLowerCase() : root;
 }
 
-// A folder as the file system names it: Windows' 8.3 names long, the case of
-// its files, links followed. A dialog may give a script under another spelling
-// of the project's folder than the workspace has.
-function real(folder) {
+// A file or folder as the file system names it: Windows' 8.3 names long, the
+// case of its files, links followed. A dialog may give a script under another
+// spelling of the project's folder than the workspace has.
+function real(file) {
 	try {
-		return fs.realpathSync.native(folder);
+		return fs.realpathSync.native(file);
 	} catch {
-		return folder;
+		return file;
 	}
 }
 
@@ -131,9 +131,24 @@ class Project {
 			socket.destroy();
 			return;
 		}
+		const selector = [...this.spellings.values()].map((folder) => ({ scheme: 'file', language: 'petrichor', pattern: { baseUri: vscode.Uri.file(folder).toString(), pattern: '**/*.pet' } }));
 		const client = new Client('petrichor', 'Petrichor', () => Promise.resolve({ reader: socket, writer: socket }), {
-			documentSelector: [...this.spellings.values()].map((folder) => ({ scheme: 'file', language: 'petrichor', pattern: { baseUri: vscode.Uri.file(folder).toString(), pattern: '**/*.pet' } })),
+			documentSelector: selector,
 			synchronize: { fileEvents: this.files },
+			middleware: {
+				// The server places the edits of a file the client does not sync
+				// by its text on disk, which VS Code applies to the text it has
+				// open (architecture §2.4).
+				async provideRenameEdits(document, position, newName, token, next) {
+					const edit = await next(document, position, newName, token);
+					const edited = new Set((edit?.entries() ?? []).map(([uri]) => key(real(uri.fsPath))));
+					const unsaved = vscode.workspace.textDocuments.filter((open) => open.isDirty && open.uri.scheme === 'file' && !vscode.languages.match(selector, open) && edited.has(key(real(open.uri.fsPath))));
+					if (unsaved.length) {
+						throw new Error(`VS Code has unsaved changes to ${unsaved.map((open) => vscode.workspace.asRelativePath(open.uri)).join(', ')}. Save them first.`);
+					}
+					return edit;
+				},
+			},
 			outputChannel: output,
 			// A lost connection goes back to connecting, with a new client: the
 			// server cannot know that a client which reconnects is the same.
