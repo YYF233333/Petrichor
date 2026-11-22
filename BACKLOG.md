@@ -16,7 +16,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Next release
 
-0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
+0.2.1, due 2026-11-26, with only the project service. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
 
 - The project service (architecture §6.5), in the parts left:
   - the command-line executable. It checks, builds and formats through the running service. It bridges clients that start a server over stdio. Without a service it starts one for the run;
@@ -26,6 +26,12 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - VS Code's diagnostics follow within about a second.
   - After a rename in Godot, the scripts and scenes on disk agree.
   - A conflict is reported to the script and to the human.
+- A hand-try in the GUI editor, with VS Code and an agent at work.
+
+## The release after
+
+0.3, due 2026-12-13. The list is in order:
+
 - The migration tool, forward, entered through the executable (Editor).
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).
