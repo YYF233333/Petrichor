@@ -150,6 +150,8 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 ## Tests
 
 - Once the migration tool is ready (0.3), migrate one or two popular open-source games as real-code tests. They can stand in for outside projects in the conditions of 0.9 (architecture §5, step 12). Keep `thirdparty/ring` as a real-code test.
+  - Take games without `@tool` first, such as tanks-of-freedom-ii with its 292 scripts. Until 0.4 a file with `@tool` and its inheritance tree stay GDScript (spec §13.4).
+  - Such trees hold 44% of godot-open-rpg's scripts, and 6% of the scripts of corpus v1's games ([corpus-counts](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)).
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
   - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
@@ -289,7 +291,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Design questions from the third coverage rerun, which the spec leaves open:
   - engine classes as values, as gdUnit4 passes `[InputEventMouseButton, …]` (0.7% of the files; spec §2.6). They would also let `is_instance_of(v, T)` take a native class held in a variable. Decide them before 0.9, with the type patterns of `match` (spec §14.2). An identifier is a value pattern (spec §5.6), so a class that is a value takes the spelling of a type pattern;
   - `Array[T](a)` as a typed copy, which the corpus does not use.
-- Before 0.9: the rules of `@tool` in the editor (spec §2.3, §14.3). They cover keeping edited state across declaration changes via entry checks, and folding repeated per-frame errors.
+- For 0.4: the rules of `@tool` in the editor, with their implementation (spec §2.3, §14.3; architecture §5, 0.9). They cover keeping edited state across declaration changes via entry checks, and folding repeated per-frame errors.
   - When the work starts, gather into one check the about ten branches on `Engine::is_editor_hint()` that mean no code runs in the editor.
   - `PetScript::set_image` swaps every instance's image without comparing declarations. Under `@tool` a changed layout would then corrupt memory, so it must compare them first.
 - Before 0.9: how `NaN` behaves in containers, which GDScript handles inconsistently (spec §5.2, engine facts). NaN rarely stands for a legal state in game logic. Candidates:
