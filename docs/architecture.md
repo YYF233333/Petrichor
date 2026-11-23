@@ -134,7 +134,9 @@
   - 用到有错误的声明时报在使用处，如 `Partly.bad has errors (res://partly.pet, line 4).`。
   - 缺少的块是开启它那一行的错误，报在冒号处（GDScript 亦然，`modules/gdscript/gdscript_parser.cpp:238-240、1956`）。
   - 【已知限制】报错中的行号是使用者上次检查时的；只移动声明的修改不会让使用者重新检查。
-  - 实现接口有错误的类仍可使用，但不能当作该接口，如 `Half implements Combat.Damageable with errors (res://half.pet, line 1).`。子类要求基类的声明全都没有错误。
+  - 实现接口有错误的类仍可使用，但不能当作该接口，如 `Half implements Combat.Damageable with errors (res://half.pet, line 1).`。
+  - 基类有错误时，子类照样检查，按以上规则使用基类的声明。所以迁移时，子类的错误不被基类的错误遮住。
+  - 这时子类另在 `extends` 处报一条，如 `Base script res://base.pet has errors (line 3).`，因此不生成字节码。
   - 找不到的名字所在的类或其本语言基类的文件有语法错误时，报错附上第一处，如 `A has no method "hit()"; res://a.pet has syntax errors (line 4).`。
 - 警告经 `@warning_ignore` 过滤后显示在脚本编辑器的警告列表中。第 8 步加入的 lint 是检查器中的检查，与编译器的警告共用诊断和 `@warning_ignore`（规范 §13.2）。
 - 快速修复（第 8 步）是 token 区间上的文本替换。每个修复属于一个种类，能否自动应用按种类定，不在报错处判断。
