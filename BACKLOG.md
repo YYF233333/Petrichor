@@ -106,6 +106,25 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - For 0.4: the headless service that stays between commands and yields to an editor opened later (architecture §6.5). On Windows such an editor lacks this language while the service runs, as above. Both processes also write the same `.godot/`. A large project takes 80–150 s to open headless.
   - First a probe: what the analysis lacks in a process started without `-e`, which loads the library without the copy.
   - Two `pet` commands at once without a service each start a headless editor, and they share `pet.out` and `pet.log` (`run_headless` in `src/pet/pet.cpp`). The service should make the second wait for the first or use it.
+- For 0.4: builds for Godot 4.4 to 4.6 (architecture §6.3). Compiled against their extension APIs, 7 of the 19 units that use godot-cpp fail on 4.4, and 4 on 4.5 and 4.6. Of the library for exported games, only `duplicate_deep` fails, on 4.4.
+  - Fourteen interfaces are newer than 4.4. Three have an older equivalent: `ResourceUID.ensure_path` and `uid_to_path`, and the status of `StreamPeerSocket`.
+  - Without one, from 4.5:
+    - `duplicate_deep` of Array and Dictionary;
+    - `EditorSyntaxHighlighter._create`;
+    - `EditorInterface.get_open_scene_roots`;
+    - `SceneState.get_base_scene_state`;
+    - the `mark_unsaved` parameter of `EditorUndoRedoManager.create_action`.
+  - Without one, from 4.6: `EditorInterface.is_object_edited`.
+  - Without one, from 4.7:
+    - `EditorInterface.get_unsaved_scenes` and `ScriptEditor.get_unsaved_files`;
+    - `Resource.copy_from_resource`;
+    - `Tree.get_custom_drawing_canvas_item`;
+    - `CODE_COMPLETION_KIND_KEYWORD`.
+  - The project service knows Godot's unsaved state through three of them (architecture §6.5). Decide what its conflicts and the refusals of refactorings do in older editors.
+  - `EditorSettings.add_shortcut` is from 4.6 and already behind a run-time check (`src/adapter/editor/pet_editor_plugin.cpp`).
+  - The compiler's tables come from `extension_api-4-7.json` alone (`SConstruct`). The generator reads the header's `precision`, which 4.4 lacks.
+  - The engine marks non-null results and parameters only from 4.6: 37 and 99 there, 40 and 112 in 4.7. Decide whether older engines take 4.7's marks. Otherwise one script checks differently by engine version.
+  - The engine facts record none of these yet, with its version and what older versions do.
 - Hover in the language server shows a `##` comment as written, its BBCode tags such as `[param amount]` included. GDScript's server turns them into Markdown (`modules/gdscript/language_server/godot_lsp.h:1919`, `ed1daf0`).
 - After a save, check the whole project and send the diagnostics of every file with errors, as gopls does. The server now sends them for the files the client has open (architecture §2.4). Turn it on once a whole-project check is fast enough; measure it on the generated 1000-script project first.
 - The hints of the spec other than `unused_ignore`, as the one on a redundant `as` (spec §5.3). None is implemented.
@@ -268,7 +287,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - in release builds, `as` copies a non-object value into a typed object slot.
 - Godot: `ClassDB` leaves return and parameter metadata empty on `MethodInfo` (`core/object/method_info.h:55-56`, `core/object/class_db.cpp:955-974`, `ed1daf0`). Filling and exporting them exposes `RequiredResult` and integer widths at runtime.
 - Godot: GDScript cannot call static methods of non-GDScript scripts or read the member types of non-GDScript autoloads (`core/object/object.cpp:800-826`, `modules/gdscript/gdscript_analyzer.cpp:806-826`, `ed1daf0`; [#14614](https://github.com/godotengine/godot-proposals/issues/14614)).
-- List the engine interfaces newer than 4.4 that the code uses (architecture §6.3). Compare 4.4-stable with 4.7.2 for the extension interface and the virtual methods of `ScriptLanguageExtension`.
 - Objects that an extension creates have no signal mutex. `_postinitialize` does not run for them (`core/extension/gdextension_interface.cpp:1669-1672`, `core/object/object.cpp:226-231`, `ed1daf0`; godot#125308). So a task's `completed` and `cancelled` are unguarded when GDScript awaits it from another thread.
 - GDScript's per-iteration clearing of loop-body locals, left as commented-out TODOs (engine facts). It would match spec §6.8. The owner may contribute it.
 - Store-forwarding stalls in moves of Variant, found while profiling arrays (d516c08). A wide load reads a Variant just written by narrower stores. It then waits for those stores to reach the cache. The owner may contribute both fixes once the current work is done.
