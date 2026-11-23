@@ -78,7 +78,7 @@ ConstPtr Checker::constant_value(Expr &r_initializer, const std::optional<TypeRe
 			return nullptr;
 		}
 	}
-	if (!r_initializer.constant) {
+	if (!r_initializer.constant || reads_through_call(r_initializer)) {
 		require_constant(r_initializer);
 		return nullptr;
 	}

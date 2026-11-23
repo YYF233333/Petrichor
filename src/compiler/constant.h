@@ -100,6 +100,11 @@ using ConstPtr = std::shared_ptr<const ConstValue>;
 // reason in `constant_error` when computing it would fail or is not allowed.
 ConstPtr fold(Expr &r_expr);
 
+// Whether the expression reads a constant through a call, as `make().N`. It
+// has the constant's value, but the call runs (spec §1.2), so it is no
+// constant expression, and nothing around it folds.
+bool reads_through_call(const Expr &p_expr);
+
 // The constructor of `p_to` that takes one value of `p_from`, as built-in
 // types convert (spec §3.14, §10.7); -1 if there is none.
 int converting_constructor(const Type &p_from, const Type &p_to);

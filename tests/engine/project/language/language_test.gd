@@ -697,6 +697,7 @@ func _ready() -> void:
 	_check(k.mode_name(angry) == "angry", "an exhaustive match over an enum of this language takes every path (spec §5.6)")
 	k.mode_name(stray)
 	_check_errors(["constant_check.pet:140: Expected ConstantCheck.Mode, found 99, which is none of its values."], "an int that is none of the enum's values is a program error when read from a container (spec §3.7)")
+	_check(k.through_call() == [86400000, 10, -7, 3], "a constant read through a call keeps the call, also in an expression around it (spec §1.2)")
 
 	var statics := StaticChild.new()
 	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")

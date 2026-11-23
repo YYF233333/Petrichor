@@ -2152,7 +2152,7 @@ class Lowerer {
 
 	uint32_t lower_expr(const Expr &p_expr) {
 		if (lowered_as_constant(p_expr)) {
-			if (p_expr.kind == ExprKind::Member && p_expr.base && p_expr.base->kind == ExprKind::Call) {
+			if (reads_through_call(p_expr)) {
 				lower_expr(*p_expr.base); // For what the call does; the constant is the class's.
 			}
 			// A constant of T? keeps the value inside Some (converted()).

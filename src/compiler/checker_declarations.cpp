@@ -90,7 +90,7 @@ const ConstValue *Checker::annotation_argument(Expr &r_arg) {
 	if (type.is_error()) {
 		return nullptr;
 	}
-	if (!r_arg.constant) {
+	if (!r_arg.constant || reads_through_call(r_arg)) {
 		require_constant(r_arg);
 		return nullptr;
 	}

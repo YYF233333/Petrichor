@@ -142,3 +142,17 @@ pub func mode_name(modes: Array[Mode]) -> String:
 			return "calm"
 		Mode.ANGRY:
 			return "angry"
+
+
+# Spec §1.2: a constant read through a call keeps the call, also in an
+# expression around it.
+pub var made := 0
+
+
+func make() -> ConstantCheck:
+	made += 1
+	return self
+
+
+pub func through_call() -> Array[int]:
+	return [make().DAY_MS, make().MASK + 1, -make().SECRET, made]

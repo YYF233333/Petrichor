@@ -145,6 +145,11 @@ TEST_CASE("an initializer that is not a constant expression is reported at what 
 	CHECK(errors_of("const R = randi() + 1\n") == Errors{ "1:11: \"randi()\" is not a constant expression: of calls, only constructors of built-in types and math functions are." });
 	CHECK_MESSAGE(errors_of("var hp = 3\nconst H = hp * 2\n") == Errors{ "2:11: \"hp\" is a variable, not a constant." }, joined(errors_of("var hp = 3\nconst H = hp * 2\n")));
 	CHECK(errors_of("const A = B\nconst B = A\n") == Errors{ "2:11: The constant \"A\" depends on its own value." });
+	// A constant read through a call keeps the call (spec §1.2).
+	FakeProject project;
+	project.global_classes["Maker"] = "res://test.pet";
+	const std::string call = "\"make()\" is not a constant expression: of calls, only constructors of built-in types and math functions are.\n";
+	CHECK(messages(compile_in("class_name Maker\nextends RefCounted\nconst N = 3\nconst X = make().N\nconst Y = make().N + 1\nstatic func make() -> Maker:\n\treturn Maker.new()\n", project)) == "4:11: " + call + "5:11: " + call);
 }
 
 TEST_CASE("a constant of T? is used as Some of its value") {
