@@ -45,9 +45,10 @@ class Parser {
 	bool failed = false;
 	bool line_failed = false; // Whether the line the last line break ended had failed.
 	std::vector<Annotation> warning_ignores; // For the class, wherever they are.
-	// Lambdas whose statements are on one line, which a semicolon separates and
-	// the end of the expression around them ends; `semicolon` when one did.
+	// Lambdas whose statements are on one line, which the end of the
+	// expression around them ends.
 	int inline_lambdas = 0;
+	// The last statement ended in a semicolon, and another follows on its line.
 	bool semicolon = false;
 	// Right after the block of a lambda, which ends the statement it is in;
 	// cleared when that statement ends.
@@ -715,21 +716,15 @@ class Parser {
 		}
 		expect(TokenKind::Colon, "\":\"");
 		if (!failed) {
-			if (check(TokenKind::Newline)) {
-				const int was_inline = inline_lambdas;
-				inline_lambdas = 0;
-				function->body = block();
-				inline_lambdas = was_inline;
+			const bool indented = check(TokenKind::Newline);
+			const int was_inline = inline_lambdas;
+			inline_lambdas = indented ? 0 : inline_lambdas + 1;
+			function->body = block();
+			inline_lambdas = was_inline;
+			if (indented) {
 				// The statement around it ends with the block.
 				block_end = uint32_t(at);
 				block_end_stops = 0;
-			} else {
-				inline_lambdas++;
-				do {
-					function->body.push_back(statement());
-				} while (!failed && semicolon);
-				semicolon = false;
-				inline_lambdas--;
 			}
 		}
 		function->range = span(first);
@@ -790,11 +785,17 @@ class Parser {
 
 	/* Statements */
 
-	// After a colon: a statement on the same line, or an indented block.
+	// After a colon: the statements on the same line, which semicolons
+	// separate, or an indented block, as in GDScript
+	// (modules/gdscript/gdscript_parser.cpp:1966-2010; ed1daf0).
 	Block block() {
 		Block body;
 		if (!check(TokenKind::Newline)) {
-			body.push_back(statement());
+			do {
+				semicolon = false;
+				body.push_back(statement());
+			} while (!failed && semicolon);
+			semicolon = false;
 			return body;
 		}
 		advance();
@@ -808,6 +809,8 @@ class Parser {
 		advance();
 		statements(body);
 		match(TokenKind::Dedent);
+		// A statement that failed may not have reached the end of its line.
+		semicolon = false;
 		return body;
 	}
 
@@ -869,7 +872,8 @@ class Parser {
 			return;
 		}
 		// `a = 1; b = 2`: the next statement follows on the same line.
-		if (match(TokenKind::Semicolon) && !check(TokenKind::Newline) && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {
+		semicolon = match(TokenKind::Semicolon) && !check(TokenKind::Newline) && !check(TokenKind::Dedent) && !check(TokenKind::EndOfFile);
+		if (semicolon) {
 			return;
 		}
 		if (!check(TokenKind::Dedent) && !check(TokenKind::EndOfFile)) {

@@ -343,6 +343,10 @@ TEST_CASE("% of a String formats a value of any type, which enters the engine as
 TEST_CASE("! is not, and ; separates statements, as in GDScript") {
 	CHECK(errors_of(in_function("var a := !true; var b := not a")).empty());
 	CHECK(has_error(in_function("var b := !1"), "requires bool"));
+	// A block on the line of its colon takes the statements up to the end of the
+	// line (modules/gdscript/gdscript_parser.cpp:1966-2010; ed1daf0).
+	CHECK(joined(errors_of(in_function("if randi() > 0: var x := 1; print(x)\nelse: var x := 2; x += 1\nvar x := 3"))) == "");
+	CHECK(joined(errors_of("extends Node\n\nfunc f() -> int: print(1); return 0\n")) == "");
 }
 
 // Spec §5.5.
