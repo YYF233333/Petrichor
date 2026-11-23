@@ -494,7 +494,7 @@ const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
 std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, const ProjectApi &p_project, Inflows &r_inflows) {
 	r_inflows.flows.clear();
 	r_inflows.calls.clear();
-	r_inflows.unfit.clear();
+	r_inflows.about.clear();
 	r_inflows.unknown.clear();
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
@@ -1110,13 +1110,10 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 					refused.insert(*inside);
 					continue;
 				}
+				const auto about = std::find_if(check.about.begin(), check.about.end(), [&](const Inflows::About &p_about) { return p_about.file == path && p_about.error == Range(error.begin, error.end); });
 				std::set<Inflows::Key> seen;
-				involved(result, error.begin, error.end, seen, refused, involved);
-				// An assigned value that does not fit is about its target too.
-				for (const Inflows::Unfit &unfit : check.unfit) {
-					if (unfit.file == path && unfit.value == Range(error.begin, error.end)) {
-						involved(result, unfit.target.first, unfit.target.second, seen, refused, involved);
-					}
+				for (const Range &range : about != check.about.end() ? about->places : std::vector<Range>{ { error.begin, error.end } }) {
+					involved(result, range.first, range.second, seen, refused, involved);
 				}
 				for (const auto &[slot, at] : place) {
 					const bool bare = slot.first == path && std::any_of(at.bare.begin(), at.bare.end(), [&](const std::pair<uint32_t, uint32_t> &p_return) { return p_return.first <= begin && begin < p_return.second; });

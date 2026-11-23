@@ -805,10 +805,10 @@ Type Checker::check_language_method(Expr &r_expr, const Type &p_base, const Type
 	const bool of_result = p_base.is_result();
 	const LanguageFunction *method = language_function(of_result ? LanguageFunction::Of::Result : LanguageFunction::Of::Option, name);
 	if (!method && of_result) {
-		return fail_call(r_expr, p_base.to_string() + " has no method \"" + name + "()\".");
+		return fail_receiver(r_expr, p_base.to_string() + " has no method \"" + name + "()\".");
 	}
 	if (!method) {
-		fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
+		fail_receiver(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
 		fix_unwrap(r_expr.base, [&] { return !type_method_call(r_expr, p_expected).is_error(); });
 		// GDScript calls a method that the class does not have by name.
 		const Type inner = p_base.unwrapped();

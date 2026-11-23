@@ -956,7 +956,7 @@ Type Checker::check_builtin_method(Expr &r_expr, const Type &p_base, bool p_stat
 	const builtin::Class *type = builtin::find_class(base_name);
 	const builtin::Method *method = type ? builtin::find_method(*type, r_expr.text) : nullptr;
 	if (!method) {
-		return fail_call(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
+		return fail_receiver(r_expr, p_base.to_string() + " has no method \"" + r_expr.text + "()\".");
 	}
 	hint(r_expr, [&](int p_current) { return api_signature(r_expr.text, method->arguments, method->argument_count, method->is_vararg, method->return_type, p_current); });
 	// On a value, the type's own (spec §4.8).
@@ -1463,7 +1463,7 @@ Type Checker::check_struct_call(Expr &r_expr, const Type &p_struct, bool p_on_va
 	}
 	const FuncDecl *callee = decl->find_method(r_expr.text);
 	if (!callee) {
-		return fail_call(r_expr, missing(p_struct.name + " has no method \"" + r_expr.text + "()\".", p_struct.script));
+		return fail_receiver(r_expr, missing(p_struct.name + " has no method \"" + r_expr.text + "()\".", p_struct.script));
 	}
 	refer(r_expr.name_token, script_id(p_struct.script, callee->name));
 	if (!callee->is_static && !p_on_value) {
@@ -1943,7 +1943,7 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 		return check_language_method(r_expr, base_type, p_expected);
 	}
 	if (base_type.kind == TypeKind::Variant) {
-		fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
+		fail_receiver(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
 		call_by_name(r_expr);
 		return r_expr.type;
 	}
@@ -1999,14 +1999,14 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 			}
 			return result;
 		}
-		fail_call(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
+		fail_receiver(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
 		call_by_name(r_expr);
 		return r_expr.type;
 	}
 	if (base_type.kind == TypeKind::Struct) {
 		return check_struct_call(r_expr, base_type, true);
 	}
-	return fail(r_expr, "Values of type " + base_type.to_string() + " have no methods.");
+	return fail_receiver(r_expr, "Values of type " + base_type.to_string() + " have no methods.");
 }
 
 // GDScript's range(to), range(from, to) and range(from, to, step) of ints,

@@ -1294,6 +1294,29 @@ Type Checker::fail_call(Expr &r_call) {
 	return set(r_call, Type::of(TypeKind::Error));
 }
 
+// A call that fails for its receiver, which the error is about.
+Type Checker::fail_receiver(Expr &r_call, const std::string &p_message) {
+	fail_call(r_call, p_message);
+	if (r_call.base) {
+		about(r_call, { r_call.base.get() });
+	}
+	return r_call.type;
+}
+
+// In a migration, that the error just reported at `p_error` is about the
+// places of `p_places`, not its own range (architecture §6.6).
+void Checker::about(const Expr &p_error, std::initializer_list<const Expr *> p_places) {
+	if (!options.inflows) {
+		return;
+	}
+	const auto range = [&](const Expr &p_expr) { return Inflows::Range(cls.source->begin(p_expr.range), cls.source->end(p_expr.range)); };
+	Inflows::About record{ script_file(options.path), range(p_error), {} };
+	for (const Expr *place : p_places) {
+		record.places.push_back(range(*place));
+	}
+	options.inflows->about.push_back(std::move(record));
+}
+
 /* Locals and captures (spec §3.11) */
 
 int Checker::find_in(const std::vector<std::unordered_map<std::string, int>> &p_scopes, const std::string &p_name) {

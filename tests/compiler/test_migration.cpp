@@ -295,11 +295,11 @@ TEST_CASE("an error about an override's parameter withdraws the type of its base
 	CHECK(migration.withdrawn == 1);
 }
 
-TEST_CASE("an error inside an assigned value about something else leaves the slots of the target") {
+TEST_CASE("an error about a call's receiver inside an assigned value leaves the slots of the arguments and of the target") {
 	FakeProject project;
-	project.add_script("res://g.gd", "extends Node\n\n\nfunc total(start, items):\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.size()\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
+	project.add_script("res://g.gd", "extends Node\n\n\nfunc total(start, items):\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
-	CHECK(migration.texts.at("res://g.pet") == "extends Node\n\n\nfunc total(start: int, items) -> int:\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.size()\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
+	CHECK(migration.texts.at("res://g.pet") == "extends Node\n\n\nfunc total(start: int, items) -> int:\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
 	CHECK(migration.withdrawn == 1);
 }
 

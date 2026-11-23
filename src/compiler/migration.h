@@ -61,13 +61,14 @@ struct Inflows {
 		std::vector<Type> args;
 		std::vector<Key> at;
 	};
-	// An assignment whose value does not fit its target: the file, and
-	// where the value and the target are.
+	// An error about other places than its own range, by its file and range:
+	// an assigned value that does not fit is about its target too, and a call
+	// that fails for its receiver only about the receiver.
 	using Range = std::pair<uint32_t, uint32_t>;
-	struct Unfit {
+	struct About {
 		std::string file;
-		Range value;
-		Range target;
+		Range error;
+		std::vector<Range> places;
 	};
 	std::set<std::string> files;
 	std::map<Key, Type> tried;
@@ -78,7 +79,7 @@ struct Inflows {
 	std::map<Key, Key> shared;
 	std::vector<Flow> flows;
 	std::vector<Call> calls;
-	std::vector<Unfit> unfit;
+	std::vector<About> about;
 	// Members typed from the scenes that another file read without their
 	// types, which the next round takes as slots.
 	std::vector<Slot> unknown;
