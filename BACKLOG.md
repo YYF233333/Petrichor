@@ -20,7 +20,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
-  - The GDScript that the parser refuses (Language), with parameters written `name := default` (spec §4.6).
+  - The GDScript that the parser refuses (Language), with parameters written `name := default` (spec §4.6). The checker still asks for `pub` on exported variables, `@rpc` functions and the members an interface requires, which spec §4.2 now treats as pub.
   - A subclass's bodies checked although its base has errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project, 303 s for tanks-of-freedom-ii.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
@@ -341,6 +341,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- Whether a method that overrides a `pub` method of a base class is `pub` without writing it (spec §4.2). Now the override must repeat `pub`, though the members that an annotation or an interface makes pub need not write it. Kotlin keeps the overridden member's visibility, as its docs state for `protected` and `internal`. The owner finds that object-oriented languages have not settled it.
 - Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
 - Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused. `bind()`, `callv()` and a function type that holds `T??` are not checked, and turn `Some(None)` into `None`.
