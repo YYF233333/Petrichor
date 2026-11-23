@@ -15,7 +15,7 @@ concurrency:
 
 env:
   # The version the packages carry: the release being prepared.
-  VERSION: "0.2.0"
+  VERSION: "0.2.1"
 
 defaults:
   run:
