@@ -444,7 +444,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 4.5 常量
 
-- `const` 可声明在类或函数中。类常量在本类、子类和静态函数中用裸名。其他类写 `Player.MAX`，也可经实例写 `self.MAX`、`p.MAX`。类型省略时按成员变量的规则推断，如 `const SPEEDS = [1.0, 2.0]` 为 `Array[float]`。值为 `None` 时须写 `T?`。
+- `const` 可声明在类或函数中。类常量在本类、子类和静态函数中用裸名。其他类写 `Player.MAX`，也可经实例写 `self.MAX`、`p.MAX`。经实例读取时，实例表达式照常求值，如 `make().MAX` 调用 `make()`。实例只是一个名字时不求值，如 `p.MAX`。类型省略时按成员变量的规则推断，如 `const SPEEDS = [1.0, 2.0]` 为 `Array[float]`。值为 `None` 时须写 `T?`。
 - 初始化式须为常量表达式，不含方法调用、lambda、`self` 和变量。常量表达式由以下部分组成：
   - 字面量、常量、enum 值、引擎类与内置类型常量；
   - `preload`、运算符与条件表达式；

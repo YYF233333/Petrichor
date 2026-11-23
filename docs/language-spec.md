@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob bfcf08e2ad237ebe7aa5adc82506ce440ef0f04f. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 3a233d6d02a329a42f4f42679a74c2932f181f83. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -446,7 +446,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 4.5 Constants
 
-- `const` may be declared in a class or in a function. A class constant is used by its bare name in its class, in subclasses and in static functions. Other classes write `Player.MAX`. It may also be written through an instance, as `self.MAX` or `p.MAX`. An omitted type is inferred by the rules of member variables, so `const SPEEDS = [1.0, 2.0]` is `Array[float]`. When the value is `None`, `T?` must be written.
+- `const` may be declared in a class or in a function. A class constant is used by its bare name in its class, in subclasses and in static functions. Other classes write `Player.MAX`. It may also be written through an instance, as `self.MAX` or `p.MAX`. Read through an instance, the instance expression is evaluated as usual, so `make().MAX` calls `make()`. When the instance is just a name, as in `p.MAX`, it is not evaluated. An omitted type is inferred by the rules of member variables, so `const SPEEDS = [1.0, 2.0]` is `Array[float]`. When the value is `None`, `T?` must be written.
 - The initializer must be a constant expression, with no method calls, lambdas, `self` or variables. A constant expression is made of the following parts:
   - literals, constants, enum values, and constants of engine classes and built-in types;
   - `preload`, operators and conditional expressions;
