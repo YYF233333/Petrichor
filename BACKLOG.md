@@ -21,7 +21,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
   - A subclass's bodies checked although its base has errors.
-  - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project, 303 s for tanks-of-freedom-ii.
+  - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 136 s for tanks-of-freedom-ii, whose 661 scenes load 6,951 files one scene at a time, 944 of them distinct. That clone lacks the binary assets, which real projects add.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
     - Its writing refuses files with unsaved changes, as refactorings do (architecture §6.5).
     - Three places check that today, each its own way and with its own messages: `LspServer::edit_of`, `PetEditorPlugin::change_files` and `pet format` in `run_command`.
@@ -35,7 +35,9 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Language
 
-- `f.bind("Deck")` is refused with two errors when `f` has a trailing parameter with a default, as `func f(title: String, randomized: bool = false)` connected to a signal without arguments (deck_builder_tutorial `scenes/run/run.gd:148`). Read from the check's output, not from the engine.
+- `f.bind(x)` where `f` has a parameter with a default. Spec §3.11 types it by dropping the last parameters. The engine passes bound arguments after the caller's (`core/variant/callable_bind.cpp:141-150`), so `x` lands where the caller's arguments end.
+  - So `pressed.connect(f.bind("Deck"))` with `func f(title: String, randomized := false)` is refused, though it runs (deck_builder_tutorial `scenes/run/run.gd:148`).
+  - In corpus v2, 27 such binds of a class's own methods leave the defaults to the caller, and 17 fill them. Scene connections already follow the engine (`checker_scenes.cpp`).
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
 - `Array[PackedScene[T]]` cannot be written, though `[preload(...)]` infers it and spec §7.4 lists container elements.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
