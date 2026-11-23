@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 582e0f8775f5d53bfddb1a6422827d1da7b4c79a. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 9beca98746341380129c632df2c25cdd1bdf1529. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -475,8 +475,9 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 4.6 Functions
 
-- Function signatures are not inferred. Parameters must be annotated with types, except in overrides and in lambdas with an expected type. In a function that is not an override, an omitted return type means `void`. Returning a value is then a compile error.
+- Function signatures are not inferred from function bodies. Parameters must be annotated with types, or take the type of their default value with `:=`. Overrides and lambdas with an expected type are excepted. In a function that is not an override, an omitted return type means `void`. Returning a value is then a compile error.
 - **Default values**: a parameter may have a default value. When an argument is omitted, the called function evaluates the default value at its start, each time. The default value can read `self` and the earlier parameters.
+  - A parameter may be written as `speed := 5.0`. Its type is the type of the default value, by the rule that infers a local variable's type from its initializer.
   - When an overriding method is called through the base class, the overriding method's own default values are used.
 - **Overrides**: an override of an engine virtual function or a base class method may omit parameter and return types. An omitted type is taken from the overridden declaration, as `delta` is `float` in `func _process(delta):`. Written types allow a covariant return and contravariant parameters, and parameter names may differ.
   - An override must accept every argument count that the overridden method accepts. So it may add parameters with default values or a rest parameter, but cannot drop a rest parameter.
