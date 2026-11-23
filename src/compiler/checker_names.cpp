@@ -78,7 +78,7 @@ ConstPtr Checker::constant_value(Expr &r_initializer, const std::optional<TypeRe
 			return nullptr;
 		}
 	}
-	if (!r_initializer.constant || reads_through_call(r_initializer)) {
+	if (!r_initializer.constant) {
 		require_constant(r_initializer);
 		return nullptr;
 	}
@@ -1165,6 +1165,9 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		return member->property->type;
 	}
 	if (const std::optional<Type> constant = class_constant(r_expr, p_class.script, p_class.name)) {
+		if (!r_expr.base->constant && r_expr.base->kind != ExprKind::Name) {
+			r_expr.read_through = std::move(r_expr.constant);
+		}
 		return constant;
 	}
 	// An inner class, reached through an object as constants are (spec §4.1).

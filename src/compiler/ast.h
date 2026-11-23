@@ -355,6 +355,10 @@ struct Expr {
 	ConstPtr constant;
 	std::string constant_error;
 	const Expr *constant_error_at = nullptr;
+	// A constant read through a value that takes more than a name to
+	// compute, as `make().N`: the constant's value, read once the value is
+	// computed (spec §1.2). Such a read is no constant expression (§4.5).
+	ConstPtr read_through;
 };
 
 // The type an element of an array literal is stored as: the array's element

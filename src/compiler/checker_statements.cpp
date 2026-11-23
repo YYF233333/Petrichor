@@ -132,7 +132,7 @@ void Checker::check_pattern(Pattern &r_pattern, const Type &p_matched, int p_loc
 			while (named->kind == ExprKind::Member) {
 				named = named->base.get();
 			}
-			if (!value.type.is_error() && !value.constant && named->kind != ExprKind::Name) {
+			if (!value.type.is_error() && !value.constant && !value.read_through && named->kind != ExprKind::Name) {
 				error(value.range, "A pattern is a literal, a constant expression, an identifier or an attribute access.");
 			} else if (!r_pattern.value->type.is_error() && !pattern_fits(value.type, p_matched)) {
 				error(value.range, "The pattern is " + value.type.to_string() + ", but the value matched is " + p_matched.to_string() + "; a value pattern must have its type.");

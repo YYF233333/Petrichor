@@ -144,9 +144,10 @@ pub func mode_name(modes: Array[Mode]) -> String:
 			return "angry"
 
 
-# Spec §1.2: a constant read through a call keeps the call, also in an
-# expression around it.
+# Spec §1.2: a constant read through a value keeps what computes the value,
+# also in an expression around it: a call, an index or an await.
 pub var made := 0
+pub signal step
 
 
 func make() -> ConstantCheck:
@@ -154,5 +155,19 @@ func make() -> ConstantCheck:
 	return self
 
 
+func first() -> int:
+	made += 1
+	return 0
+
+
+async func later() -> ConstantCheck:
+	await step
+	return make()
+
+
 pub func through_call() -> Array[int]:
-	return [make().DAY_MS, make().MASK + 1, -make().SECRET, made]
+	return [make().DAY_MS, make().MASK + 1, -make().SECRET, [self][first()].SECRET + 1, made]
+
+
+pub async func through_await() -> int:
+	return (await later()).SECRET + 1

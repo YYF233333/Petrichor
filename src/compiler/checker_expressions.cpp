@@ -1512,12 +1512,12 @@ void Checker::report_constant_error(const Expr &p_expr) {
 // The part of an expression that keeps it from being a constant expression.
 const Expr &Checker::not_constant_part(const Expr &p_expr) {
 	for (const Expr *child : { p_expr.base.get(), p_expr.left.get(), p_expr.right.get() }) {
-		if (child && (!child->constant || reads_through_call(*child)) && !child->type.is_error()) {
+		if (child && !child->constant && !child->type.is_error()) {
 			return not_constant_part(*child);
 		}
 	}
 	for (const auto &arg : p_expr.args) {
-		if ((!arg->constant || reads_through_call(*arg)) && !arg->type.is_error()) {
+		if (!arg->constant && !arg->type.is_error()) {
 			return not_constant_part(*arg);
 		}
 	}

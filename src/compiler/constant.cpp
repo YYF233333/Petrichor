@@ -824,18 +824,8 @@ bool loads(const ConstValue &p_value) {
 	return false;
 }
 
-bool reads_through_call(const Expr &p_expr) {
-	return p_expr.kind == ExprKind::Member && p_expr.base && p_expr.base->kind == ExprKind::Call && !p_expr.base->constant;
-}
-
 ConstPtr fold(Expr &r_expr) {
-	bool call = false;
-	for_each_child(r_expr, [&](const auto &p_child) {
-		if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
-			call = call || reads_through_call(p_child);
-		}
-	});
-	if (r_expr.type.is_error() || call) {
+	if (r_expr.type.is_error()) {
 		return nullptr;
 	}
 	switch (r_expr.kind) {

@@ -2151,13 +2151,14 @@ class Lowerer {
 	}
 
 	uint32_t lower_expr(const Expr &p_expr) {
-		if (lowered_as_constant(p_expr)) {
-			if (reads_through_call(p_expr)) {
-				lower_expr(*p_expr.base); // For what the call does; the constant is the class's.
+		if (lowered_as_constant(p_expr) || p_expr.read_through) {
+			if (p_expr.read_through) {
+				lower_expr(*p_expr.base); // For what computing it does; the constant is the class's.
 			}
+			const ConstPtr &constant = p_expr.read_through ? p_expr.read_through : p_expr.constant;
 			// A constant of T? keeps the value inside Some (converted()).
-			const uint32_t value = load_constant(p_expr.constant);
-			return p_expr.type.kind == TypeKind::Option ? convert(value, p_expr.constant->type, p_expr.type) : value;
+			const uint32_t value = load_constant(constant);
+			return p_expr.type.kind == TypeKind::Option ? convert(value, constant->type, p_expr.type) : value;
 		}
 		switch (p_expr.kind) {
 			case ExprKind::Lambda:
