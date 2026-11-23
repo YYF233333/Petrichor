@@ -339,6 +339,12 @@ func _ready() -> void:
 	_check(v.mortal_signal(target) == "[\"fall\"] true", "a signal an interface requires connects and emits through it, and an object of an interface is one of those it extends")
 	_check(CombatCheck.new().spawned() == "Node2D", "a method that a child interface redeclares with a narrower result is called through the parent")
 	_check(v.objects_found() == [true, true, true, true], "instance_from_id() and get_object() give the object, or None once it is freed")
+	var orders := []
+	for pair in [["apple", "banana"], ["b", "b"], ["é", "z"]]:
+		var a: String = pair[0]
+		var b: String = pair[1]
+		orders.append(v.ordered(a, b, a == b, true) == [a < b, a <= b, a > b, a >= b, (a == b) < true, (a == b) > true])
+	_check(orders == [true, true, true], "Strings, and bools by < and >, are ordered as the engine orders them (spec §5.2)")
 	_check(v.damageable == null, "a member of an interface refuses an object that does not implement it")
 	v.damageable = target
 	_check(v.damageable == target, "a member of an interface takes an object that implements it")

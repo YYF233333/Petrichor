@@ -445,3 +445,8 @@ pub func objects_found() -> Array[bool]:
 	var found := instance_from_id(id) == node
 	node.free()
 	return [found, instance_from_id(id) == None, scaled.get_object() == self, visibility_changed.get_object() == self]
+
+
+# Strings, and bools by < and >, are ordered by the engine's operators (spec §5.2).
+pub func ordered(a: String, b: String, x: bool, y: bool) -> Array[bool]:
+	return [a < b, a <= b, a > b, a >= b, x < y, x > y]

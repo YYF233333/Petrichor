@@ -130,6 +130,10 @@ TEST_CASE("% requires int operands") {
 TEST_CASE("comparisons") {
 	CHECK(errors_of(in_function("var a := 1 == 1.0")).empty());
 	CHECK(has_error(in_function("var hp := 3\nvar b := hp == \"3\""), "Cannot compare int with String"));
+	// Strings, and bools by < and >, are ordered as the engine's operator table
+	// has them (core/variant/variant_op.cpp:731-782; ed1daf0).
+	CHECK(type_of("\"a\" < \"b\" and \"a\" >= \"b\" and true > false") == "bool");
+	CHECK(has_error(in_function("var b := true <= false"), "Invalid operands bool and bool"));
 }
 
 // Spec §5.4, narrowing: conditions must be bool, and the fix writes out

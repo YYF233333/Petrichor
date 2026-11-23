@@ -1615,8 +1615,9 @@ class Lowerer {
 			instr(Op::EQUAL, result, p_left, p_right, 0, fn.regs[p_left].type);
 			return p_op == TokenKind::BangEqual ? negate(result) : result;
 		}
-		if (!is_primitive(left_type) || !is_primitive(right_type)) {
-			// The engine's operator for these two types (spec §5.1).
+		if (!is_primitive(left_type) || !is_primitive(right_type) || (ordering && (left_type == ValueType::String || left_type == ValueType::Bool))) {
+			// The engine's operator for these two types (spec §5.1), which
+			// orders Strings and bools too.
 			const uint8_t op = engine_operator(p_op);
 			if (op == OP_UNKNOWN) {
 				return internal_error("no engine operator for this binary operator");

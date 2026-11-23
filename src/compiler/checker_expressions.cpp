@@ -43,6 +43,21 @@ const char *operator_name(TokenKind p_op) {
 	}
 }
 
+// The engine's operator on values of the two types, from its table; null
+// for none.
+static const builtin::Operator *table_operator(TokenKind p_op, const Type &p_left, const Type &p_right) {
+	const std::string left = p_left.builtin_name();
+	const std::string right = p_right.builtin_name();
+	const builtin::Class *type = left.empty() ? nullptr : builtin::find_class(left);
+	const std::string name = operator_name(p_op);
+	for (uint32_t i = 0; type && !right.empty() && i < type->operator_count; i++) {
+		if (name == type->operators[i].name && right == type->operators[i].right_type) {
+			return &type->operators[i];
+		}
+	}
+	return nullptr;
+}
+
 /* Operators (spec §5.1) */
 
 Type Checker::check_unary(Expr &r_expr) {
@@ -233,13 +248,8 @@ Type Checker::binary_type(TokenKind p_op, const Type &p_left, const Type &p_righ
 		error(p_at, p_left.to_string() + " and " + p_right.to_string() + " are equal only when both are empty, so comparing them is an error.");
 		return Type::of(TypeKind::Error);
 	}
-	const builtin::Class *type = left.empty() ? nullptr : builtin::find_class(left);
-	const std::string name = operator_name(p_op);
-	for (uint32_t i = 0; type && !right.empty() && i < type->operator_count; i++) {
-		const builtin::Operator &op = type->operators[i];
-		if (name == op.name && right == op.right_type) {
-			return api_type(op.return_type, false);
-		}
+	if (const builtin::Operator *op = table_operator(p_op, p_left, p_right)) {
+		return api_type(op->return_type, false);
 	}
 	error(p_at, std::string("Invalid operands ") + p_left.to_string() + " and " + p_right.to_string() + " for " + token_name(p_op) + ".");
 	return Type::of(TypeKind::Error);
@@ -285,7 +295,8 @@ Type Checker::primitive_binary_type(TokenKind p_op, const Type &p_left, const Ty
 		case TokenKind::LessEqual:
 		case TokenKind::Greater:
 		case TokenKind::GreaterEqual:
-			if (numeric) {
+			// Strings, and bools by < and >, as the engine orders them.
+			if (numeric || table_operator(p_op, p_left, p_right)) {
 				return Type::of(TypeKind::Bool);
 			}
 			break;
