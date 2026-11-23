@@ -113,9 +113,12 @@ void Checker::check_constant(ConstDecl &r_decl) {
 	r_decl.state = ConstDecl::State::Checked;
 }
 
-// A use of a constant of the class at `p_path`, which declares it.
-Type Checker::use_constant(Expr &r_expr, const ConstDecl &p_decl, const std::string &p_path) {
-	refer(r_expr.name_token, script_id(p_path, p_decl.name));
+// A use of a constant of the class `p_owner`, which declares it.
+Type Checker::use_constant(Expr &r_expr, const ConstDecl &p_decl, const ClassDecl &p_owner) {
+	refer(r_expr.name_token, script_id(p_owner.path, p_decl.name));
+	if (const auto message = broken_in(p_owner, p_decl, &ClassDecl::constants)) {
+		return fail(r_expr, *message);
+	}
 	r_expr.target = Target::Constant;
 	if (p_decl.state == ConstDecl::State::Checking) {
 		return fail(r_expr, "The constant \"" + p_decl.name + "\" depends on its own value.");
@@ -432,6 +435,9 @@ const EnumDecl *Checker::named_enum(Expr &r_name, bool p_call) {
 		const EnumDecl *decl = aliased ? aliased_enum(name) : scope_enum(name);
 		if (decl) {
 			refer(r_name.name_token, aliased ? alias_id(name) : enum_id(*decl));
+		}
+		if (decl && !aliased && classes.errors_in(decl)) {
+			error(r_name.range, *broken(decl, display_name(*script_header(decl->script), decl->script) + "." + name));
 		}
 		return decl;
 	}
@@ -776,10 +782,11 @@ std::optional<Type> Checker::named_class(Expr &r_base) {
 std::optional<Type> Checker::class_constant(Expr &r_expr, const std::string &p_path, const std::string &p_class) {
 	if (p_path == options.path) {
 		if (const ConstDecl *decl = own_constant(r_expr.text)) {
-			return use_constant(r_expr, *decl, declaring(cls, *decl, &ClassDecl::constants).path);
+			return use_constant(r_expr, *decl, declaring(cls, *decl, &ClassDecl::constants));
 		}
 		if (const auto value = bare_enum_value(r_expr.text)) {
-			return use_enum_value(r_expr, *value->first, value->second);
+			const auto message = broken_in(cls, *value->first, &ClassDecl::enums, r_expr.text);
+			return message ? fail(r_expr, *message) : use_enum_value(r_expr, *value->first, value->second);
 		}
 		return std::nullopt;
 	}
@@ -788,8 +795,8 @@ std::optional<Type> Checker::class_constant(Expr &r_expr, const std::string &p_p
 		return fail(r_expr, p_class + " has errors.");
 	}
 	if (const ConstDecl *constant = find_named(decl->all_constants, r_expr.text)) {
-		const std::string &owner = declaring(*decl, *constant, &ClassDecl::constants).path;
-		if (refuse(r_expr.range, refused(*constant, owner, "The constant ", p_class, constant->name))) {
+		const ClassDecl &owner = declaring(*decl, *constant, &ClassDecl::constants);
+		if (refuse(r_expr.range, refused(*constant, owner.path, "The constant ", p_class, constant->name))) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		return use_constant(r_expr, *constant, owner);
@@ -812,6 +819,9 @@ std::optional<Type> Checker::class_constant(Expr &r_expr, const std::string &p_p
 // an initializer of that class may read once it is initialized.
 Type Checker::use_static(Expr &r_expr, const VarDecl &p_variable, const ClassDecl &p_owner) {
 	refer(r_expr.name_token, script_id(p_owner.path, p_variable.name));
+	if (const auto message = broken_in(p_owner, p_variable, &ClassDecl::static_vars)) {
+		return fail(r_expr, *message);
+	}
 	if (in_constant) {
 		return fail(r_expr, "\"" + p_variable.name + "\" is a variable, not a constant.");
 	}
@@ -847,9 +857,6 @@ std::optional<Type> Checker::class_static(Expr &r_expr, const std::string &p_pat
 			refer(r_expr.name_token, script_id(owner.path, variable->name));
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
-		if (const auto message = broken(variable, p_class + "." + variable->name)) {
-			return fail(r_expr, *message);
-		}
 		return use_static(r_expr, *variable, owner);
 	}
 	return std::nullopt;
@@ -859,17 +866,22 @@ std::optional<Type> Checker::class_static(Expr &r_expr, const std::string &p_pat
 // function or a signal; also what `self.name` reads, past the locals.
 std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 	if (const auto value = bare_enum_value(r_expr.text)) {
-		return use_enum_value(r_expr, *value->first, value->second);
+		const auto message = broken_in(cls, *value->first, &ClassDecl::enums, r_expr.text);
+		return message ? fail(r_expr, *message) : use_enum_value(r_expr, *value->first, value->second);
 	}
 	if (const ConstDecl *constant = own_constant(r_expr.text)) {
-		return use_constant(r_expr, *constant, declaring(cls, *constant, &ClassDecl::constants).path);
+		return use_constant(r_expr, *constant, declaring(cls, *constant, &ClassDecl::constants));
 	}
 	if (const EnumDecl *decl = own_enum(r_expr.text)) {
-		return use_enum_dictionary(r_expr, *decl);
+		const auto message = broken_in(cls, *decl, &ClassDecl::enums);
+		return message ? fail(r_expr, *message) : use_enum_dictionary(r_expr, *decl);
 	}
 	const auto member = member_index.find(r_expr.text);
 	if (member != member_index.end()) {
 		const VarDecl &read = *cls.all_members[member->second];
+		if (const auto message = broken_in(cls, read, &ClassDecl::members)) {
+			return fail(r_expr, *message);
+		}
 		if (in_constant) {
 			refer(r_expr.name_token, script_id(declaring(cls, read, &ClassDecl::members).path, read.name));
 			return fail(r_expr, "\"" + r_expr.text + "\" is a variable, not a constant.");
@@ -931,6 +943,9 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 	const auto function_found = function_index.find(r_expr.text);
 	if (function_found != function_index.end()) {
 		const FuncDecl &method = *cls.all_functions[function_found->second];
+		if (const auto message = broken_in(cls, method, &ClassDecl::functions)) {
+			return fail(r_expr, *message);
+		}
 		const std::string &owner = declaring(cls, method, &ClassDecl::functions).path;
 		refer(r_expr.name_token, script_id(owner, method.name));
 		if (method.is_static) {
@@ -946,11 +961,14 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 	}
 	const auto own_signal = signal_index.find(r_expr.text);
 	if (own_signal != signal_index.end()) {
+		const SignalDecl &signal = *cls.all_signals[own_signal->second];
+		if (const auto message = broken_in(cls, signal, &ClassDecl::signals)) {
+			return fail(r_expr, *message);
+		}
 		if (refuse_in_static(r_expr, r_expr.text)) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		r_expr.target = Target::SelfSignal;
-		const SignalDecl &signal = *cls.all_signals[own_signal->second];
 		r_expr.signal = &signal;
 		refer(r_expr.name_token, script_id(declaring(cls, signal, &ClassDecl::signals).path, signal.name));
 		return set(r_expr, Type::signal(param_types(signal.params)));
@@ -1136,7 +1154,7 @@ Type Checker::check_name(Expr &r_expr) {
 	if (is_type_name(r_expr.text)) {
 		return fail(r_expr, "\"" + r_expr.text + "\" is a type, not a value.");
 	}
-	return fail(r_expr, "Identifier \"" + r_expr.text + "\" is not declared in the current scope.");
+	return fail(r_expr, missing("Identifier \"" + r_expr.text + "\" is not declared in the current scope.", options.path));
 }
 
 // A member or signal of an object of a class of this language, seen where
@@ -1494,7 +1512,7 @@ Type Checker::check_member_access(Expr &r_expr) {
 			}
 			return *found;
 		}
-		return refuse_in_static(base, "self") ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, display_name(cls, options.path) + " has no member \"" + r_expr.text + "\".");
+		return refuse_in_static(base, "self") ? set(r_expr, Type::of(TypeKind::Error)) : fail(r_expr, missing(display_name(cls, options.path) + " has no member \"" + r_expr.text + "\".", options.path));
 	}
 	if (const EnumDecl *decl = named_enum(base)) {
 		return check_enum_value(r_expr, *decl);

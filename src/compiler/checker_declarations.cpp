@@ -858,15 +858,23 @@ bool Checker::override_assignable(const Type &p_from, const Type &p_to) const {
 	return p_from.kind == TypeKind::Builtin && p_to.kind == TypeKind::Builtin && p_from.name == "Array" && p_to.name == "Array" && p_to.args.empty();
 }
 
+// The override takes the types it does not write from the base, and is
+// compared with it unless the base has errors, which it reports instead
+// (architecture §2.1).
 void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 	r_fn.is_override = p_base.is_override;
 	r_fn.is_pub = r_fn.is_pub || r_fn.is_override;
-	if (r_fn.is_pub != p_base.is_pub) {
+	const std::optional<std::string> message = broken_in(*cls.base, p_base, &ClassDecl::functions);
+	if (message) {
+		error(r_fn.name_token, *message);
+	}
+	const bool compared = !message;
+	if (compared && r_fn.is_pub != p_base.is_pub) {
 		error(r_fn.name_token, "An override must preserve its base method's visibility.");
 		// On the side that lacks it, as the base's other overrides then must.
 		fix(r_fn.is_pub ? pub_fix(declaring(*cls.base, p_base, &ClassDecl::functions).path, p_base.name_token) : pub_fix(options.path, r_fn.name_token));
 	}
-	if (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async) {
+	if (compared && (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async)) {
 		error(r_fn.name_token, "An override must preserve static and async.");
 		if (p_base.is_async && !r_fn.is_async && r_fn.is_static == p_base.is_static) {
 			fix_async(r_fn);
@@ -894,19 +902,19 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 		if (param.is_rest && p_base.has_rest()) {
 			narrows = narrows || !override_assignable(p_base.params.back().type, param.type);
 		}
-		if (narrows) {
+		if (compared && narrows) {
 			error(param.name_token, "The override narrows its base parameter type.");
 		}
 	}
 	check_rest(r_fn);
 	check_defaults(r_fn);
-	if (p_base.has_rest() && !r_fn.has_rest()) {
+	if (compared && p_base.has_rest() && !r_fn.has_rest()) {
 		error(r_fn.name_token, "The override must keep the rest parameter of its base method.");
-	} else if (!takes(r_fn, base_fixed) || required_params(r_fn) > required_params(p_base)) {
+	} else if (compared && (!takes(r_fn, base_fixed) || required_params(r_fn) > required_params(p_base))) {
 		error(r_fn.name_token, "The override must accept every argument count of its base method.");
 	}
 	r_fn.return_type = r_fn.return_type_ref ? resolve(*r_fn.return_type_ref, true) : p_base.return_type;
-	if (!override_assignable(r_fn.return_type, p_base.return_type)) {
+	if (compared && !override_assignable(r_fn.return_type, p_base.return_type)) {
 		error(r_fn.name_token, "The override widens its base return type.");
 	}
 }
@@ -1145,7 +1153,7 @@ void Checker::infer_params(FuncDecl &r_function) {
 			ParamDecl &param = r_function.params[i];
 			if (param.infers_type && param.default_value) {
 				param.type = param.default_value->kind == ExprKind::Error ? Type::of(TypeKind::Error) : inferred(check_value(*param.default_value), param.name_token, param.name);
-				const std::optional<Type> base = parent ? argument_type(*parent, i) : std::nullopt;
+				const std::optional<Type> base = parent && !classes.errors_in(parent) ? argument_type(*parent, i) : std::nullopt;
 				if (base && !override_assignable(*base, param.type)) {
 					error(param.name_token, "The override narrows its base parameter type.");
 				}
@@ -1437,6 +1445,10 @@ void Checker::check_implements() {
 			if (is_own(function, cls.functions)) {
 				refer(function.name_token, script_id(options.path, function.name), SymbolKind::Method, interface_member_id(member));
 			}
+			if (const auto message = broken_in(cls, function, &ClassDecl::functions)) {
+				error(ref.range, *message);
+				continue;
+			}
 			known_params(function);
 			if (!function.is_pub) {
 				error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + " and must be pub.");
@@ -1464,13 +1476,13 @@ void Checker::note_implementation(const Type &p_interface, const TypeRef &p_ref,
 	if (errors.size() == p_reported || std::any_of(noted.begin(), noted.end(), [&](const auto &p_noted) { return p_noted.first == p_interface; })) {
 		return;
 	}
-	cls.implemented_with_errors.push_back({ p_interface, cls.source->position(cls.source->begin(p_ref.range)).line });
+	cls.implemented_with_errors.push_back({ p_interface, { script_file(options.path), cls.source->position(cls.source->begin(p_ref.range)).line } });
 }
 
-// A class of another file used as an interface it has errors in
-// implementing, as other declarations with errors are (architecture §2.1).
+// A class used as an interface that it or a base has errors in implementing
+// in another file, as other declarations with errors are (architecture §2.1).
 void Checker::expect_implemented(const Expr &p_value, const Type &p_from, const Type &p_to) {
-	if (!p_to.is_interface || p_from.is_interface || !is_script_path(p_from.script) || in_this_file(p_from.script)) {
+	if (!p_to.is_interface || p_from.is_interface || !is_script_path(p_from.script)) {
 		return;
 	}
 	const ClassDecl *decl = script_decl(p_from.script);
@@ -1479,11 +1491,11 @@ void Checker::expect_implemented(const Expr &p_value, const Type &p_from, const 
 	}
 	Type interface = p_to;
 	interface.nullable = false;
-	for (const auto &[type, line] : decl->implemented_with_errors) {
-		if (type == interface) {
+	for (const auto &[type, at] : decl->implemented_with_errors) {
+		if (type == interface && !in_this_file(at.first)) {
 			Type from = p_from;
 			from.nullable = false;
-			error(p_value.range, from.to_string() + " implements " + interface.to_string() + " with errors (" + script_file(p_from.script) + ", line " + std::to_string(line) + ").");
+			error(p_value.range, from.to_string() + " implements " + interface.to_string() + " with errors (" + at.first + ", line " + std::to_string(at.second) + ").");
 		}
 	}
 }

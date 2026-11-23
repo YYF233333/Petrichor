@@ -51,7 +51,7 @@ class ScriptClasses {
 		ClassDecl decl; // Recovered from syntax errors, if any.
 		int syntax_error_line = 0; // The first one's; 0 for none.
 		bool checked = false; // The checker's fields of its classes are filled in.
-		bool failed = false; // Its class could not be declared, as when its base has errors.
+		bool failed = false; // Its class could not be declared, as when its base cannot be read.
 		bool with_scenes = false; // How they were checked.
 		Reads reads; // Of its declarations' check.
 	};
@@ -151,8 +151,8 @@ public:
 	// function body leaves its declarations usable.
 	const ClassDecl *header(const std::string &p_path);
 	// With its declarations checked; null when the class could not be
-	// declared, as when its base has errors or it depends on itself. Each of
-	// its declarations that has errors says so through errors_in().
+	// declared, as when its base cannot be read or it depends on itself. Each
+	// of its declarations that has errors says so through errors_in().
 	const ClassDecl *declarations(const std::string &p_path, bool p_with_scenes = false);
 	// The file and line of the first error in a declaration of a class that
 	// declarations() gave, such as a VarDecl or a FuncDecl's signature;

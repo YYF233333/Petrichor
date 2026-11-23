@@ -465,13 +465,15 @@ Type Checker::class_value(Expr &r_expr, const std::string &p_path) {
 Type Checker::value_around(Expr &r_expr, Checker &r_around) {
 	const std::string &name = r_expr.text;
 	if (const auto value = r_around.bare_enum_value(name)) {
-		return use_enum_value(r_expr, *value->first, value->second);
+		const auto message = broken_in(r_around.cls, *value->first, &ClassDecl::enums, name);
+		return message ? fail(r_expr, *message) : use_enum_value(r_expr, *value->first, value->second);
 	}
 	if (const ConstDecl *constant = r_around.own_constant(name)) {
-		return use_constant(r_expr, *constant, declaring(r_around.cls, *constant, &ClassDecl::constants).path);
+		return use_constant(r_expr, *constant, declaring(r_around.cls, *constant, &ClassDecl::constants));
 	}
 	if (const EnumDecl *decl = r_around.own_enum(name)) {
-		return use_enum_dictionary(r_expr, *decl);
+		const auto message = broken_in(r_around.cls, *decl, &ClassDecl::enums);
+		return message ? fail(r_expr, *message) : use_enum_dictionary(r_expr, *decl);
 	}
 	const std::string inner = inner_class_path(r_around.path(), name);
 	if (!inner.empty()) {
@@ -485,6 +487,9 @@ Type Checker::value_around(Expr &r_expr, Checker &r_around) {
 	const auto function = r_around.function_index.find(name);
 	if (function != r_around.function_index.end() && r_around.cls.all_functions[function->second]->is_static) {
 		const FuncDecl &found = *r_around.cls.all_functions[function->second];
+		if (const auto message = broken_in(r_around.cls, found, &ClassDecl::functions)) {
+			return fail(r_expr, *message);
+		}
 		const std::string &owner = declaring(r_around.cls, found, &ClassDecl::functions).path;
 		refer(r_expr.name_token, script_id(owner, name));
 		return static_value(r_expr, found, owner);
@@ -725,6 +730,13 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 	// The token of each name of `Outer.Inner.Hit`.
 	const auto token = [&](size_t p_index) { return p_ref.name_token == NO_TOKEN ? NO_TOKEN : p_ref.name_token + uint32_t(2 * p_index); };
 	const ConstPtr alias = class_alias(head);
+	// Such as `const Unit = preload(...)` in a base, which names no class
+	// while it has errors.
+	const auto constant = constant_index.find(head);
+	if (const auto message = !alias && constant != constant_index.end() ? broken_in(cls, *cls.all_constants[constant->second], &ClassDecl::constants) : std::nullopt) {
+		error(p_ref.range, *message);
+		return Type::of(TypeKind::Error);
+	}
 	std::string path = alias ? alias->script : scope_class(head);
 	if (alias) {
 		// GDScript takes the autoload in a type (spec §11.1).
@@ -899,6 +911,10 @@ std::optional<Type> Checker::own_type(const std::string &p_name, uint32_t p_toke
 	}
 	if (const EnumDecl *decl = p_name.empty() ? nullptr : cls.find_enum(p_name)) {
 		refer(p_token, script_id(decl->script, decl->name));
+		if (const auto message = broken_in(cls, *decl, &ClassDecl::enums)) {
+			error(p_token, *message);
+			return Type::of(TypeKind::Error);
+		}
 		return decl->type;
 	}
 	return std::nullopt;
@@ -1465,10 +1481,9 @@ bool Checker::declare_class() {
 			parent = local->declared ? &local->cls : nullptr;
 		} else {
 			parent = classes.declarations(cls.base_script, !loading());
-			// A subclass holds all of its base's members, so it needs them all.
+			// Checked all the same, but without bytecode, as its base has none.
 			if (const std::optional<int> line = parent ? classes.first_error(cls.base_script) : std::nullopt) {
 				error(cls.extends_token, "Base script " + cls.base_script + " has errors (line " + std::to_string(*line) + ").");
-				return false;
 			}
 		}
 		if (!parent) {

@@ -20,7 +20,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
-  - A subclass's bodies checked although its base has errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 136 s for tanks-of-freedom-ii, whose 661 scenes load 6,951 files one scene at a time, 944 of them distinct. That clone lacks the binary assets, which real projects add.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
     - Its writing refuses files with unsaved changes, as refactorings do (architecture §6.5).

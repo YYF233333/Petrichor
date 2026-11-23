@@ -1224,6 +1224,9 @@ Type Checker::check_super(Expr &r_expr) {
 		r_expr.name_token = NO_TOKEN;
 	}
 	const FuncDecl *callee = base_function(r_expr.text);
+	if (const auto message = callee ? broken_in(*cls.base, *callee, &ClassDecl::functions) : std::nullopt) {
+		return fail_call(r_expr, *message);
+	}
 	if (callee && callee->is_abstract) {
 		return fail_call(r_expr, "\"" + callee->name + "()\" is abstract in the base class, which has no body to call.");
 	}
@@ -1248,7 +1251,7 @@ Type Checker::check_super(Expr &r_expr) {
 	}
 	const auto method = engine.find_method(cls.native_base, r_expr.text);
 	if (!method || method->is_virtual) {
-		return fail_call(r_expr, "No base implementation of \"" + r_expr.text + "()\".");
+		return fail_call(r_expr, missing("No base implementation of \"" + r_expr.text + "()\".", options.path));
 	}
 	if (!method->is_static && refuse_in_static(r_expr, r_expr.text)) {
 		return fail_call(r_expr);

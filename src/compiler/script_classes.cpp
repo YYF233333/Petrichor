@@ -95,8 +95,9 @@ void mark_bodies(const ClassDecl &p_decl, std::vector<bool> &r_body) {
 }
 
 // Notes in `r_marked` the declarations of `p_decl` and its inner classes on
-// whose lines `p_errors` fall, with `p_key` and the line of the first. Errors
-// in function bodies, those of inline setters and getters included, mark none.
+// whose lines `p_errors` fall, with `p_key` and the line of the first; a
+// class itself by the line of its extends. Errors in function bodies, those
+// of inline setters and getters included, mark none.
 void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_errors, const std::string &p_key, std::map<const void *, std::pair<std::string, int>> &r_marked) {
 	const SourceFile &source = *p_decl.source;
 	std::vector<TokenRange> bodies;
@@ -126,6 +127,9 @@ void mark_errors(const ClassDecl &p_decl, const std::vector<Diagnostic> &p_error
 			}
 		}
 	};
+	if (p_decl.extends_token != NO_TOKEN) {
+		mark(&p_decl, TokenRange{ p_decl.extends_token, p_decl.extends_token });
+	}
 	for_each_child(p_decl, [&](const auto &p_child) {
 		if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, ClassDecl>) {
 			mark_errors(p_child, p_errors, p_key, r_marked);

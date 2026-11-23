@@ -185,10 +185,6 @@ TEST_CASE("an export that must be assigned gets a value from a scene the node is
 	const compiler::CompileResult subclass = check_scenes_in(source, based);
 	REQUIRE(subclass.errors.size() == 1);
 	CHECK(subclass.errors[0].file == "res://test.pet");
-	// Not while the subclass cannot be declared, which its own check reports.
-	based.add_script("res://archer.pet", "extends \"res://broken.pet\"\n");
-	based.add_script("res://broken.pet", "extends \"res://test.pet\"\nvar x: Missing\n");
-	CHECK(check_scenes_in(source, based).errors.empty());
 	// Up the instances, any scene may give it; the error is marked on the node.
 	compiler::Scene game;
 	game.path = "res://game.tscn";
@@ -547,8 +543,6 @@ TEST_CASE("a resource file gives a resource with the class each member that must
 	const auto errors = [&](const std::string &p_script, const std::vector<std::pair<std::string, compiler::SceneValue>> &p_stored, bool p_unread = false) {
 		FakeProject project;
 		project.add_script("res://knife.pet", "extends \"res://test.pet\"\n\nfunc _init():\n\tholder = RefCounted.new()\n");
-		project.add_script("res://broken.pet", "extends \"res://test.pet\"\nvar x: Missing\n");
-		project.add_script("res://dagger.pet", "extends \"res://broken.pet\"\n");
 		compiler::Scene file;
 		file.path = "res://knife.tres";
 		file.resources = { { file.path, p_script, p_stored, p_unread } };
@@ -570,7 +564,6 @@ TEST_CASE("a resource file gives a resource with the class each member that must
 	CHECK(errors("res://knife.pet", { { "icon", icon } }).empty());
 	CHECK(errors("res://knife.pet", {}) == std::vector<std::string>{ lacking_icon });
 	// Not while the script fails to compile in the editor, which then reads
-	// no value, or cannot be declared: its own check reports why.
+	// no value: its own check reports why.
 	CHECK(errors("res://test.pet", {}, true).empty());
-	CHECK(errors("res://dagger.pet", {}).empty());
 }

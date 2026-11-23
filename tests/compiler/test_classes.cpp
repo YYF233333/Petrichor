@@ -377,8 +377,22 @@ TEST_CASE("other scripts use the declarations of a script that have no errors") 
 	CHECK(errors("var h: Node3D = Half.new()").empty());
 	CHECK(contains(errors("var d: Combat.Damageable? = Half.new()"), "Half implements Combat.Damageable with errors (res://half.pet, line 1)."));
 	CHECK(contains(errors("var all: Array[Combat.Damageable] = [Half.new()]"), "Half implements Combat.Damageable with errors (res://half.pet, line 1)."));
-	// A subclass holds all of its base's members.
-	CHECK(contains(errors("pass", "extends Partly"), "Base script res://partly.pet has errors (line 4)."));
+}
+
+TEST_CASE("a subclass of a base with errors is checked against the declarations of the base, but not compiled") {
+	const std::string base_errors = "1:9: Base script res://partly.pet has errors (line 4).\n";
+	CHECK(errors("print(good + ok())\n\tprint(bad)\n\tvar s: String = 1\n\tvar l: LIMIT", "extends Partly") == base_errors + "5:8: Partly.bad has errors (res://partly.pet, line 4).\n6:18: Cannot assign a value of type int as String.\n7:9: Partly.LIMIT has errors (res://partly.pet, line 9).\n");
+	// An override is not compared with a function with errors.
+	CHECK(errors("pass\n\nfunc takes(m) -> void:\n\tpass", "extends Partly") == base_errors + "6:6: Partly.takes() has errors (res://partly.pet, line 7).\n");
+	CHECK(contains(errors("var d: Combat.Damageable? = self", "extends Half"), "test.pet implements Combat.Damageable with errors (res://half.pet, line 1)."));
+	// Nor is a subclass of it compiled.
+	FakeProject p = project();
+	p.add_script("res://heir.pet", "extends Partly\n", "Heir");
+	CHECK(messages(compile_in("extends Heir\n", p)) == "1:9: Base script res://heir.pet has errors (line 1).\n");
+	// What a base recovers from syntax errors, and the note on what it may have lost.
+	CHECK(errors("hit(hp)\n\theal(1)\n\tprint(x)", "extends Typing") == "1:9: Base script res://typing.pet has errors (line 6).\n"
+																		"5:2: Function \"heal()\" not found in the class or its base Typing; res://typing.pet has syntax errors (line 5).\n"
+																		"6:8: Typing.x has errors (res://typing.pet, line 7).\n");
 }
 
 TEST_CASE("GDScript classes and autoloads as reflection shows them (spec §11.1)") {

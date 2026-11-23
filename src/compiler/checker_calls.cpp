@@ -1728,6 +1728,9 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 	const auto script = function_index.find(name);
 	if (script != function_index.end()) {
 		const FuncDecl &callee = *cls.all_functions[script->second];
+		if (const auto message = broken_in(cls, callee, &ClassDecl::functions)) {
+			return fail_call(r_expr, *message);
+		}
 		// A static function needs no instance, but `self` does
 		// (modules/gdscript/gdscript_parser.cpp:2901; ed1daf0).
 		if ((!callee.is_static || r_expr.base) && refuse_in_static(r_expr, callee.is_static ? std::string("self") : name + "()", callee.is_static ? name + "()" : std::string())) {
@@ -1763,7 +1766,7 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 		}
 	}
 
-	return fail_call(r_expr, "Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".");
+	return fail_call(r_expr, missing("Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".", options.path));
 }
 
 // A direct call of a built-in type's constructor, of preload(), a keyword in

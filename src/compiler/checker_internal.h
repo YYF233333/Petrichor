@@ -328,6 +328,22 @@ class Checker : public ClassRelation {
 		return message ? std::optional<Refusal>(Refusal{ *message }) : std::nullopt;
 	}
 
+	// broken() for a declaration that `p_class` has or inherits, as a base in
+	// another file may have it with errors (architecture §2.1), named by the
+	// class that declares it. `p_value` names a value of an unnamed enum.
+	template <typename T>
+	std::optional<std::string> broken_in(const ClassDecl &p_class, const T &p_decl, std::vector<T> ClassDecl::*p_own, const std::string &p_value = std::string()) const {
+		if (!classes.errors_in(&p_decl)) {
+			return std::nullopt;
+		}
+		const ClassDecl &owner = declaring(p_class, p_decl, p_own);
+		std::string name = p_value.empty() ? p_decl.name : p_value;
+		if constexpr (std::is_same_v<T, FuncDecl>) {
+			name += "()";
+		}
+		return broken(&p_decl, display_name(owner, owner.path) + "." + name);
+	}
+
 	// Whether the project is read as while a script loads: for classes and
 	// sources, but no scenes, resources or members of other languages' classes.
 	bool loading() const { return options.mode == CheckMode::Declarations || options.mode == CheckMode::ForOthers || options.mode == CheckMode::Scene; }
@@ -810,7 +826,7 @@ class Checker : public ClassRelation {
 	Type inferred(const Type &p_value, uint32_t p_name_token, const std::string &p_name);
 	ConstPtr constant_value(Expr &r_initializer, const std::optional<TypeRef> &p_declared, uint32_t p_name_token, const std::string &p_name, Type &r_type);
 	void check_constant(ConstDecl &r_decl);
-	Type use_constant(Expr &r_expr, const ConstDecl &p_decl, const std::string &p_path);
+	Type use_constant(Expr &r_expr, const ConstDecl &p_decl, const ClassDecl &p_owner);
 	const EnumDecl *initializer_payload_enum(Expr &r_initializer);
 	const ConstDecl *own_constant(const std::string &p_name);
 	void declare_enums();

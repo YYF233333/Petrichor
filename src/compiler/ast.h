@@ -851,13 +851,14 @@ struct ClassDecl {
 	std::vector<const EnumDecl *> all_enums; // With those it inherits; filled by the checker.
 	std::vector<Type> implemented; // Filled by the checker.
 	std::vector<const FuncDecl *> interface_methods; // Filled by the checker: the methods of `implemented`.
-	// Filled by the checker: the interfaces of `implemented` it has errors in
-	// implementing, with the line of their `implements`, which other scripts
-	// report where they use the class as one (architecture §2.1).
-	std::vector<std::pair<Type, int>> implemented_with_errors;
+	// Filled by the checker: the interfaces of `implemented` it or a base has
+	// errors in implementing, with the file and line of their `implements`,
+	// which other files report where they use the class as one (architecture
+	// §2.1).
+	std::vector<std::pair<Type, std::pair<std::string, int>>> implemented_with_errors;
 	bool is_node = false; // Filled by the checker: it extends Node, and becomes ready.
 	// Filled by the checker: its declarations were checked, whether or not
-	// some have errors, as they are not when its base has errors.
+	// some have errors, as they are not when its base cannot be read.
 	bool declared = false;
 	std::vector<ConstDecl> constants;
 	std::vector<VarDecl> members;
