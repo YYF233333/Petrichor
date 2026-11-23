@@ -431,14 +431,21 @@ void Checker::check_groups() {
 // read any of the others (spec §6.3), so that a member's type is known
 // before an initializer reads it.
 void Checker::check_members() {
-	cls.is_node = engine.inherits(cls.native_base, "Node");
-	// First, since instance initializers may read them; the types written
-	// before any initializer, whose lambdas may read later ones.
-	for (VarDecl &variable : cls.static_vars) {
-		if (variable.declared_type) {
-			variable.type = resolve(*variable.declared_type, false);
+	// The parameters typed by their default values first, which may read the
+	// members: one is then checked before the others.
+	for (FuncDecl &fn : cls.functions) {
+		if (is_declared(fn)) {
+			infer_params(fn);
 		}
 	}
+	for (StructDecl &decl : cls.structs) {
+		for (FuncDecl &method : decl.methods) {
+			if (is_declared(method)) {
+				infer_params(method);
+			}
+		}
+	}
+	// First, since instance initializers may read them.
 	for (size_t i = 0; i < cls.static_vars.size(); i++) {
 		check_static_declaration(i);
 	}
@@ -455,9 +462,10 @@ void Checker::check_member_declaration(size_t p_index) {
 	// A name declared twice is reported where it is registered.
 	VarDecl &member = cls.members[p_index];
 	const auto registered = member_index.find(member.name);
-	if (registered == member_index.end() || cls.all_members[registered->second] != &member) {
+	if (registered == member_index.end() || cls.all_members[registered->second] != &member || member.state != VarDecl::State::Unchecked) {
 		return;
 	}
+	member.state = VarDecl::State::Checking;
 	Type type = Type::of(TypeKind::Error);
 	if (member.declared_type) {
 		type = resolve(*member.declared_type, false);
@@ -522,6 +530,7 @@ void Checker::check_member_declaration(size_t p_index) {
 		member.hint_string = "0:" + type.to_string();
 	}
 	check_accessors(member);
+	member.state = VarDecl::State::Checked;
 }
 
 // A member's first value as reflection shows it, when the compiler knows
@@ -669,9 +678,10 @@ std::string Checker::node_field(const Type &p_type, const std::string &p_field, 
 void Checker::check_static_declaration(size_t p_index) {
 	VarDecl &variable = cls.static_vars[p_index];
 	const auto registered = static_index.find(variable.name);
-	if (registered == static_index.end() || cls.all_static_vars[registered->second] != &variable) {
+	if (registered == static_index.end() || cls.all_static_vars[registered->second] != &variable || variable.state != VarDecl::State::Unchecked) {
 		return;
 	}
+	variable.state = VarDecl::State::Checking;
 	Type type = variable.declared_type ? variable.type : Type::of(TypeKind::Error);
 	if (variable.initializer && !(loading() && variable.declared_type)) {
 		static_initializing = int(p_index);
@@ -692,6 +702,7 @@ void Checker::check_static_declaration(size_t p_index) {
 	}
 	variable.type = type;
 	check_accessors(variable);
+	variable.state = VarDecl::State::Checked;
 }
 
 // A property's setter and getter (spec §4.4): its own inline ones, which
@@ -876,6 +887,8 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 		const std::optional<Type> base = argument_type(p_base, i);
 		if (param.declared_type) {
 			param.type = resolve(*param.declared_type, false);
+		} else if (param.infers_type) {
+			continue; // infer_params() types it and compares.
 		} else if (param.is_rest ? p_base.has_rest() : base.has_value()) {
 			param.type = param.is_rest ? p_base.params.back().type : *base;
 		} else {
@@ -1050,14 +1063,9 @@ void Checker::check_signature(FuncDecl &r_function) {
 		}
 		if (param.declared_type) {
 			param.type = resolve(*param.declared_type, false);
-			// A parameter may accept more than the overridden one does, such as
-			// T? for T (spec §4.6).
-			const Type taken = param.is_rest ? rest_element(param.type) : param.type;
-			for (const Type &engine_type : engine_types) {
-				if (!engine_type.is_error() && !taken.is_error() && !assignable(engine_type, taken)) {
-					error(param.declared_type->range, param.is_rest ? "The overridden method passes " + engine_type.to_string() + " in this rest parameter." : "The overridden method declares this parameter as " + engine_type.to_string() + ".");
-				}
-			}
+			check_engine_param(param, engine_types, param.declared_type->range);
+		} else if (param.infers_type) {
+			// infer_params() types it and compares.
 		} else if (!param.is_rest && !engine_types.empty()) {
 			// The type comes from the overridden declaration (spec §4.6).
 			param.type = engine_types[0];
@@ -1101,12 +1109,104 @@ void Checker::check_signature(FuncDecl &r_function) {
 	}
 }
 
+// A parameter may accept more than the overridden one does, such as T? for
+// T (spec §4.6).
+void Checker::check_engine_param(const ParamDecl &p_param, const std::vector<Type> &p_engine_types, const TokenRange &p_at) {
+	const Type taken = p_param.is_rest ? rest_element(p_param.type) : p_param.type;
+	for (const Type &engine_type : p_engine_types) {
+		if (!engine_type.is_error() && !taken.is_error() && !assignable(engine_type, taken)) {
+			error(p_at, p_param.is_rest ? "The overridden method passes " + engine_type.to_string() + " in this rest parameter." : "The overridden method declares this parameter as " + engine_type.to_string() + ".");
+		}
+	}
+}
+
+// The parameters written `name := value` take the types of their default
+// values, as a local variable takes its initializer's (spec §4.6). The
+// values see self and the parameters before them, and are checked here
+// only. A member they read is checked first when it is not yet.
+void Checker::infer_params(FuncDecl &r_function) {
+	if (r_function.inference != FuncDecl::Inference::Waiting) {
+		return;
+	}
+	r_function.inference = FuncDecl::Inference::Running;
+	{
+		const ClassScope scope(*this);
+		function = &r_function;
+		scopes.emplace_back();
+		std::vector<LocalInfo> outer_locals = std::move(r_function.locals);
+		r_function.locals.clear();
+		inferring_params++;
+		for (StructDecl &decl : cls.structs) {
+			if (r_function.of_struct && is_own(r_function, decl.methods)) {
+				structure = &decl;
+				structure_type = Type::structure(display_name(cls, options.path) + "." + decl.name, options.path);
+			}
+		}
+		if (r_function.of_struct && !r_function.is_static) {
+			scopes.back()["self"] = 0;
+			r_function.locals.push_back({ "self", structure_type, r_function.name_token });
+		}
+		const FuncDecl *parent = r_function.name == "_init" || r_function.of_struct ? nullptr : base_function(r_function.name);
+		const std::optional<EngineMethod> engine_method = r_function.is_override && !parent ? engine.find_method(cls.native_base, r_function.name) : std::nullopt;
+		for (size_t i = 0; i < r_function.params.size(); i++) {
+			ParamDecl &param = r_function.params[i];
+			if (param.infers_type && param.default_value) {
+				param.type = param.default_value->kind == ExprKind::Error ? Type::of(TypeKind::Error) : inferred(check_value(*param.default_value), param.name_token, param.name);
+				const std::optional<Type> base = parent ? argument_type(*parent, i) : std::nullopt;
+				if (base && !override_assignable(*base, param.type)) {
+					error(param.name_token, "The override narrows its base parameter type.");
+				}
+				if (engine_method && i < engine_method->params.size() && engine_method->params[i].type.is_storable()) {
+					Type engine_type = engine_method->params[i].type;
+					engine_type.nullable = false;
+					check_engine_param(param, { engine_type }, param.default_value->range);
+				}
+			}
+			scopes.back()[param.name] = int(r_function.locals.size());
+			r_function.locals.push_back({ param.name, param.type, param.name_token });
+		}
+		inferring_params--;
+		r_function.locals = std::move(outer_locals);
+	}
+	r_function.inference = FuncDecl::Inference::Done;
+}
+
+// Before the types of a function's parameters are read: this class's are
+// inferred first. One still unknown is one whose default value needs it,
+// or one of a class around this one that is being declared.
+void Checker::known_params(const FuncDecl &p_function) {
+	if (p_function.inference == FuncDecl::Inference::Done) {
+		return;
+	}
+	for (FuncDecl &own : cls.functions) {
+		if (&own == &p_function) {
+			infer_params(own);
+		}
+	}
+	for (StructDecl &decl : cls.structs) {
+		for (FuncDecl &method : decl.methods) {
+			if (&method == &p_function) {
+				infer_params(method);
+			}
+		}
+	}
+	if (p_function.inference == FuncDecl::Inference::Done) {
+		return;
+	}
+	for (const ParamDecl &param : p_function.params) {
+		if (param.infers_type && param.type.is_error()) {
+			error(param.name_token, "The type of parameter \"" + param.name + "\" is needed before its default value can give it; write the type, as in `" + param.name + ": T = value`.");
+		}
+	}
+}
+
 // A function's default values see self and the parameters before them
 // (spec §4.6).
 void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
 	for (const ParamDecl &param : r_function.params) {
-		// What a syntax error left is reported.
-		if (p_defaults && param.default_value && param.default_value->kind != ExprKind::Error) {
+		// What a syntax error left is reported; one that gives the type is
+		// checked with the signature.
+		if (p_defaults && param.default_value && param.default_value->kind != ExprKind::Error && !param.infers_type) {
 			expect_assignable(*param.default_value, check_value(*param.default_value, param.type), param.type, "use", param.declared_type ? &*param.declared_type : nullptr);
 		}
 		if (scopes.back().count(param.name)) {
@@ -1173,11 +1273,14 @@ void Checker::declare_interfaces() {
 					error(param.default_value->range, "Interface methods have no default values.");
 				}
 				if (!param.declared_type) {
-					untyped(param);
+					if (!param.infers_type) {
+						untyped(param);
+					}
 					continue;
 				}
 				param.type = resolve(*param.declared_type, false);
 			}
+			method.inference = FuncDecl::Inference::Done;
 			check_rest(method);
 			method.return_type = method.return_type_ref ? resolve(*method.return_type_ref, true) : Type::of(TypeKind::Void);
 		}
@@ -1341,6 +1444,7 @@ void Checker::check_implements() {
 			if (is_own(function, cls.functions)) {
 				refer(function.name_token, script_id(options.path, function.name), SymbolKind::Method, interface_member_id(member));
 			}
+			known_params(function);
 			if (!function.is_pub) {
 				error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + " and must be pub.");
 				fix(pub_fix(declaring(cls, function, &ClassDecl::functions).path, function.name_token));

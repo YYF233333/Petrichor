@@ -36,3 +36,25 @@ TEST_CASE("constant defaults are listed with their values") {
 	CHECK(defaults[1].constructor >= 0);
 	CHECK(defaults[2].i == 16);
 }
+
+// `speed := 5.0` (spec §4.6). The default may read a member or call a
+// function declared later, as Pixelorama's `frame_index := current_frame`
+// and gdUnit4's `_test_parameters := _parameters_typed()` do.
+TEST_CASE("a parameter written := takes the type of its default value, which may read what is declared later") {
+	const auto result = compile(R"(extends Node
+func move(speed := 5.0, frame := current_frame, label := label_of(frame)) -> String:
+	return label
+func use() -> String:
+	return move(2)
+var current_frame := 0
+func label_of(frame: int) -> String:
+	return str(frame)
+)");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	const auto &move = function_named(result.module, "move");
+	CHECK(storage(result.module, move.params[0].type) == bytecode::ValueType::Float);
+	CHECK(storage(result.module, move.params[1].type) == bytecode::ValueType::Int);
+	CHECK(errors_of("extends Node\nfunc f(none := null, empty := []) -> void:\n\tpass\n") == std::vector<std::string>{ "2:8: \"none\" needs a type: None does not say which T? it is.", "2:31: An empty array needs a declared type, for example var a: Array[int] = []." });
+	CHECK(errors_of("extends Node\nfunc _process(delta := \"0\") -> void:\n\tpass\n") == std::vector<std::string>{ "2:24: The overridden method declares this parameter as float." });
+	CHECK(errors_of("extends Node\nvar total := count()\nfunc count(from := total) -> int:\n\treturn from\n") == std::vector<std::string>{ "3:12: The type of parameter \"from\" is needed before its default value can give it; write the type, as in `from: T = value`." });
+}

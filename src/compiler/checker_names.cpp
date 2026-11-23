@@ -819,6 +819,10 @@ Type Checker::use_static(Expr &r_expr, const VarDecl &p_variable, const ClassDec
 	if (static_initializing >= 0 && p_owner.path == options.path && index >= static_initializing) {
 		return fail(r_expr, "\"" + p_variable.name + "\" is not initialized yet: static variables are initialized in declaration order.");
 	}
+	if (inferring_params > 0 && p_variable.state == VarDecl::State::Unchecked && &p_owner == &cls) {
+		const ClassScope scope(*this);
+		check_static_declaration(size_t(index));
+	}
 	if (p_variable.type.is_error()) {
 		return fail(r_expr, "The type of " + display_name(p_owner, p_owner.path) + "." + p_variable.name + " is not known here" + (p_variable.declared_type ? std::string(".") : "; declare it, as in `static var " + p_variable.name + ": T`."));
 	}
@@ -887,6 +891,13 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		}
 		if (refuse_in_static(r_expr, r_expr.text)) {
 			return set(r_expr, Type::of(TypeKind::Error));
+		}
+		if (inferring_params > 0 && read.state != VarDecl::State::Checked && is_own(read, cls.members)) {
+			if (read.state == VarDecl::State::Checking) {
+				return fail(r_expr, "The type of \"" + r_expr.text + "\" depends on itself, through the default value of a parameter.");
+			}
+			const ClassScope scope(*this);
+			check_member_declaration(size_t(&read - cls.members.data()));
 		}
 		r_expr.target = Target::Member;
 		r_expr.index = member->second;
@@ -1439,6 +1450,7 @@ std::optional<Type> Checker::script_method(Expr &r_expr, const Type &p_class) {
 // hint, showing `p_result`, its arguments, and the defaults it is left to
 // fill when called by name.
 Type Checker::call_declared(Expr &r_expr, const FuncDecl &p_callee, const SourceFile &p_source, const Type &p_result) {
+	known_params(p_callee);
 	hint(r_expr, [&](int p_current) { return declared_signature(r_expr.text, p_callee, p_source, p_current, p_result); });
 	const std::vector<Type> params = param_types(p_callee.params);
 	const bool rest = p_callee.has_rest();

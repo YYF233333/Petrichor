@@ -525,6 +525,14 @@ struct VarDecl {
 	uint32_t getter_token = NO_TOKEN;
 	// Filled by the checker.
 	Type type;
+	// Of a member or a static variable, checked in order, or first where a
+	// parameter's default value needs it (spec §4.6).
+	enum class State {
+		Unchecked,
+		Checking,
+		Checked,
+	};
+	State state = State::Unchecked;
 	int setter_index = -1; // In the class's functions.
 	int getter_index = -1;
 	// Its first value as reflection shows it, when the compiler knows it: the
@@ -570,6 +578,7 @@ struct ParamDecl {
 	TokenRange range;
 	uint32_t name_token = 0;
 	std::optional<TypeRef> declared_type;
+	bool infers_type = false; // Written `name := value`: typed by the value (spec §4.6).
 	std::unique_ptr<Expr> default_value;
 	// `...args`, the last parameter, which takes the arguments after the
 	// others as an Array (spec §4.6).
@@ -608,6 +617,14 @@ struct FuncDecl {
 	// Filled by the checker.
 	Type return_type = Type::of(TypeKind::Void);
 	bool is_override = false;
+	// Its parameters written `name := value` are typed once the members are
+	// known, or before, when something needs them (spec §4.6).
+	enum class Inference {
+		Waiting,
+		Running,
+		Done,
+	};
+	Inference inference = Inference::Waiting;
 	std::vector<LocalInfo> locals; // Parameters first.
 	bytecode::Rpc rpc;
 	// A lambda (spec §3.11): the local each value it captures goes in, in the

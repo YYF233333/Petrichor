@@ -1101,6 +1101,7 @@ Type Checker::container_element(const TypeRef &p_ref, const std::string &p_what)
 // Of a function with a rest parameter, a Callable of unknown signature
 // (spec §4.6).
 Type Checker::function_type(const FuncDecl &p_function) {
+	known_params(p_function);
 	if (p_function.has_rest()) {
 		return Type::builtin("Callable");
 	}
@@ -1515,6 +1516,14 @@ bool Checker::declare_class() {
 	declare_structs();
 	declare_requirement(cls.owner_ref, cls.owner_type, "@owner");
 	declare_requirement(cls.parent_ref, cls.parent_type, "@parent");
+	cls.is_node = engine.inherits(cls.native_base, "Node");
+	// The types written before any initializer, which lambdas and default
+	// values may read before the variables are checked.
+	for (VarDecl &variable : cls.static_vars) {
+		if (variable.declared_type) {
+			variable.type = resolve(*variable.declared_type, false);
+		}
+	}
 	for (FuncDecl &fn : cls.functions) {
 		if (completion && at_cursor(fn.name)) {
 			complete_override(fn);

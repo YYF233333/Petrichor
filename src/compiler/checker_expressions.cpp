@@ -655,10 +655,11 @@ Type Checker::check_lambda(Expr &r_expr, const Type &p_expected) {
 			param.type = resolve(*param.declared_type, false);
 		} else if (typed_by_expected) {
 			param.type = p_expected.args[i + 1];
-		} else {
+		} else if (!param.infers_type) {
 			untyped(param, ": nothing the lambda goes to gives one");
 		}
 	}
+	lambda.inference = FuncDecl::Inference::Done;
 	check_rest(lambda);
 	Returns inferred;
 	if (typed_by_expected) {

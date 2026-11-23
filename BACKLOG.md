@@ -20,7 +20,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
-  - The GDScript that the parser refuses (Language), with parameters written `name := default` (spec §4.6). The checker still asks for `pub` on exported variables and `@rpc` functions, which spec §4.2 now treats as pub.
+  - The GDScript that the parser refuses (Language). The checker still asks for `pub` on exported variables and `@rpc` functions, which spec §4.2 now treats as pub.
   - A subclass's bodies checked although its base has errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project, 303 s for tanks-of-freedom-ii.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
@@ -36,7 +36,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Language
 
-- GDScript that the parser refuses, in the files of corpus v1 without `@tool`. Of 2,474 files, 260 do not parse, 213 of them for a parameter written `name := default` (spec §4.6). The others, each from real code:
+- GDScript that the parser refuses, in the files of corpus v1 without `@tool`. Of 2,474 files, 41 do not parse. Each of these from real code:
   - `when` and `match` as names, as `var when: Label` and `func match(...)` (godot-tiny-mmo `guild_menu.gd:901`, gdUnit4 `GdUnitSignalCollector.gd:110`);
   - named accessors on the lines after the variable, as `set = set_priority,` (phantom-camera `phantom_camera_2d.gd:134`);
   - a member without a type before its accessor block, as `var map:` (godot-open-rts `Match.gd:14`). It should parse and then need a type;

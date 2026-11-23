@@ -187,6 +187,9 @@ class Checker : public ClassRelation {
 	int static_initializing = -1;
 	// Checking a constant's initializer, which may come before the members' types are known.
 	bool in_constant = false;
+	// Checking the default values that give parameters their types, which may
+	// come before the members' types are known (spec §4.6).
+	int inferring_params = 0;
 	// The enum whose values are being computed, whose values before
 	// `current_value` its own may name (spec §3.7).
 	const EnumDecl *current_enum = nullptr;
@@ -783,7 +786,7 @@ class Checker : public ClassRelation {
 	Type resolve_name(const TypeRef &p_ref, bool p_allow_void);
 	Type resolve_generic(const TypeRef &p_ref);
 	Type container_element(const TypeRef &p_ref, const std::string &p_what);
-	static Type function_type(const FuncDecl &p_function);
+	Type function_type(const FuncDecl &p_function);
 	static std::string signature_text(const FuncDecl &p_function);
 	Type set(Expr &r_expr, const Type &p_type);
 	Type fail(Expr &r_expr, const std::string &p_message);
@@ -1111,6 +1114,9 @@ class Checker : public ClassRelation {
 	void check_engine_names();
 	void refuse_new(const FuncDecl &p_function);
 	void check_signature(FuncDecl &r_function);
+	void check_engine_param(const ParamDecl &p_param, const std::vector<Type> &p_engine_types, const TokenRange &p_at);
+	void infer_params(FuncDecl &r_function);
+	void known_params(const FuncDecl &p_function);
 	void declare_params(FuncDecl &r_function, bool p_defaults = false);
 	void check_body(FuncDecl &r_function);
 	void declare_interfaces();

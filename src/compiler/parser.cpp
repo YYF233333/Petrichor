@@ -1220,8 +1220,13 @@ class Parser {
 			const Token &param_name = p_signal ? expect(TokenKind::Identifier, "a parameter name") : declared_name("a parameter name");
 			param.name = param_name.text;
 			param.name_token = index(param_name);
+			// `speed := 5.0` takes the type of its default value (spec §4.6), as
+			// in GDScript (modules/gdscript/gdscript_parser.cpp:1523-1526; ed1daf0).
 			if (match(TokenKind::Colon)) {
-				param.declared_type = type_ref();
+				param.infers_type = check(TokenKind::Equal);
+				if (!param.infers_type) {
+					param.declared_type = type_ref();
+				}
 			}
 			if (check(TokenKind::Equal) && param.is_rest) {
 				report(peek(), "The rest parameter cannot have a default value.");
