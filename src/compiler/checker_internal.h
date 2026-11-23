@@ -754,8 +754,11 @@ class Checker : public ClassRelation {
 	int untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token);
 	static Inflows::Slot parameter_slot(const FuncDecl &p_function, size_t p_index);
 	Type tried(int p_slot) const;
-	void flow(int p_slot, const Type &p_type, const TokenRange &p_at);
+	void flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflows::Part p_part = Inflows::Part::Whole);
 	int slot_of(const Expr &p_target) const;
+	int container_slot(const Expr &p_expr) const;
+	bool fill_container(const Expr &p_base, const Expr &p_call);
+	static std::string empty_container(const Expr *p_value);
 	void call_by_name(const Expr &p_call);
 	void error(const TokenRange &p_range, const std::string &p_message);
 	void error_in_scene(const TokenRange &p_range, const Scene &p_scene, const std::string &p_node, const std::string &p_message);

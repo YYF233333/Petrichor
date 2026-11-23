@@ -37,13 +37,23 @@ struct Inflows {
 		int most = 0;
 		Key key;
 		std::string owner; // The class, but of a local.
+		// A variable that starts as an empty container, whose elements are the
+		// slot: "Array" or "Dictionary".
+		std::string container;
 	};
 	// A value into a slot, at an offset of a file, or the arguments of a call by
-	// name, on a value whose class is not known to have the method.
+	// name, on a value whose class is not known to have the method. One into
+	// an empty container may be an element, or a key of a Dictionary.
+	enum class Part {
+		Whole,
+		Element,
+		Key,
+	};
 	struct Flow {
 		int slot = -1;
 		Type type;
 		Key at;
+		Part part = Part::Whole;
 	};
 	struct Call {
 		std::string name;

@@ -1913,7 +1913,9 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 	const Type base_type = check_value(base);
 	if (base_type.is_error()) {
 		fail_call(r_expr);
-		call_by_name(r_expr);
+		if (!fill_container(base, r_expr)) {
+			call_by_name(r_expr);
+		}
 		return r_expr.type;
 	}
 	if (base.target == Target::ClassScript) {
@@ -1972,6 +1974,7 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 	}
 	if (!base_type.builtin_name().empty()) {
 		const Type result = check_builtin_method(r_expr, base_type);
+		fill_container(base, r_expr);
 		const std::string constant = result.is_error() || r_expr.is_const ? std::string() : constant_root(base);
 		if (!constant.empty()) {
 			return fail(r_expr, "\"" + constant + "\" is a constant, whose containers are read-only.");

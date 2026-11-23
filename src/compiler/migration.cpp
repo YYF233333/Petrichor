@@ -522,6 +522,7 @@ struct Received {
 	Type type;
 	Inflows::Key at;
 	bool by_name = false;
+	Inflows::Part part = Inflows::Part::Whole;
 };
 
 // What each slot received in the check, once from each place, by the slot's
@@ -544,7 +545,7 @@ std::vector<std::vector<Received>> received(const Inflows &p_inflows) {
 		}
 	}
 	for (const Inflows::Flow &flow : p_inflows.flows) {
-		add(flow.slot, { flow.type, flow.at });
+		add(flow.slot, { flow.type, flow.at, false, flow.part });
 	}
 	for (const Inflows::Call &call : p_inflows.calls) {
 		const int count = int(call.args.size());
@@ -658,6 +659,42 @@ std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasse
 	return none && result.kind != TypeKind::Variant ? optional_of(result) : result;
 }
 
+// What flows into an empty container of the kind merges into (architecture
+// §6.6): Array[T] or Dictionary[K, V] when its elements, and its keys,
+// merge to a type; otherwise the untyped container. A container that flows
+// in gives its elements and keys. Nullopt when no type is known.
+std::optional<Type> merged_container(const std::string &p_kind, const std::vector<Received> &p_received, ScriptClasses &r_classes, const EngineApi &p_engine, bool &r_numbers) {
+	std::vector<Received> elements;
+	std::vector<Received> keys;
+	bool known = false;
+	bool untyped = false;
+	for (const Received &each : p_received) {
+		known = known || !each.type.is_error();
+		if (each.part != Inflows::Part::Whole) {
+			(each.part == Inflows::Part::Key ? keys : elements).push_back(each);
+		} else if (each.type.kind == TypeKind::Builtin && each.type.name == p_kind && !each.type.args.empty()) {
+			elements.push_back({ each.type.args.back(), each.at });
+			keys.push_back({ each.type.args.front(), each.at });
+		} else {
+			untyped = untyped || !each.type.is_error();
+		}
+	}
+	if (!known) {
+		return std::nullopt;
+	}
+	for (const Received &each : p_received) {
+	}
+	bool numbers[2] = {};
+	const std::optional<Type> element = merged(elements, r_classes, p_engine, numbers[0]);
+	const std::optional<Type> key = p_kind == "Dictionary" ? merged(keys, r_classes, p_engine, numbers[1]) : Type::of(TypeKind::Int);
+	r_numbers = numbers[0] || numbers[1];
+	const auto typed = [](const std::optional<Type> &p_type) { return p_type && p_type->kind != TypeKind::Variant; };
+	if (untyped || !typed(element) || !typed(key)) {
+		return Type::builtin(p_kind);
+	}
+	return p_kind == "Array" ? Type::array(*element) : Type::dictionary(*key, *element);
+}
+
 // How the file writes the type; empty when it cannot, as a class without a
 // name, which the checker calls by its file. The file's own enums and inner
 // classes go without its name.
@@ -671,12 +708,15 @@ std::string spelled(const Type &p_type, const std::string &p_file) {
 	return unnamed || text.find('<') != std::string::npos || p_type.kind == TypeKind::Unsupported ? std::string() : text;
 }
 
-// Where the type of each slot of a file is written: after its name, or
-// after the parameters of the function whose return it is; with the ranges
-// of that function's bare returns, which report a return type that does not
-// fit.
+// Where the type of each slot of a file is written: after its name, over
+// the colon of `:=`, or after the parameters of the function whose return it
+// is; with the ranges of that function's bare returns, which report a
+// return type that does not fit.
 struct Place {
 	uint32_t at = 0;
+	uint32_t end = 0;
+	std::string before = ": ";
+	std::string after;
 	std::vector<std::pair<uint32_t, uint32_t>> bare;
 };
 
@@ -695,14 +735,21 @@ void bare_returns(const Block &p_block, const SourceFile &p_source, std::vector<
 
 std::map<Inflows::Key, Place> places(const std::string &p_file, const std::string &p_text, const Inflows &p_inflows) {
 	std::map<Inflows::Key, Place> found;
-	for (const Inflows::Slot &slot : p_inflows.slots) {
-		if (slot.key.first == p_file && slot.kind != Inflows::Kind::Return) {
-			found[slot.key].at = slot.key.second + uint32_t(slot.name.size());
-		}
-	}
 	std::vector<Diagnostic> ignored;
 	const ClassDecl decl = parse(p_text, ignored);
 	const std::vector<Token> &tokens = decl.source->tokens;
+	for (const Inflows::Slot &slot : p_inflows.slots) {
+		if (slot.key.first != p_file || slot.kind == Inflows::Kind::Return) {
+			continue;
+		}
+		const auto name = std::lower_bound(tokens.begin(), tokens.end(), slot.key.second, [](const Token &p_token, uint32_t p_offset) { return p_token.offset < p_offset; });
+		Place &place = found[slot.key];
+		place.at = place.end = name->end();
+		if (name + 2 < tokens.end() && name[1].kind == TokenKind::Colon && name[2].kind == TokenKind::Equal) {
+			place.end = name[1].end();
+			place.after = " ";
+		}
+	}
 	const auto functions = [&](const ClassDecl &p_class, const auto &p_self) -> void {
 		for (const FuncDecl &function : p_class.functions) {
 			const Inflows::Key key = { p_file, tokens[function.name_token].offset };
@@ -710,12 +757,13 @@ std::map<Inflows::Key, Place> places(const std::string &p_file, const std::strin
 				continue;
 			}
 			Place &place = found[key];
+			place.before = " -> ";
 			int depth = 0;
 			for (size_t i = function.name_token + 1; i < tokens.size(); i++) {
 				if (tokens[i].kind == TokenKind::ParenOpen) {
 					depth++;
 				} else if (tokens[i].kind == TokenKind::ParenClose && --depth == 0) {
-					place.at = tokens[i].end();
+					place.at = place.end = tokens[i].end();
 					break;
 				}
 			}
@@ -750,14 +798,21 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			reported.emplace(path, error.begin, error.message);
 		}
 	}
+	// What a slot's types merge into, and the type it tries without any.
+	const auto merge = [&](const Inflows::Slot &p_slot, const std::vector<Received> &p_received, bool &r_numbers) {
+		if (p_slot.container.empty()) {
+			return std::make_pair(merged(p_received, classes, p_engine, r_numbers), Type::of(TypeKind::Variant));
+		}
+		return std::make_pair(merged_container(p_slot.container, p_received, classes, p_engine, r_numbers), Type::builtin(p_slot.container));
+	};
 	const auto candidates = [&](bool p_unknown) {
 		std::map<Inflows::Key, Type> next;
 		const std::vector<std::vector<Received>> flowed = received(inflows);
 		for (size_t i = 0; i < flowed.size(); i++) {
 			bool numbers = false;
-			const std::optional<Type> type = merged(flowed[i], classes, p_engine, numbers);
+			const auto [type, otherwise] = merge(inflows.slots[i], flowed[i], numbers);
 			if (type || p_unknown) {
-				next[inflows.slots[i].key] = type.value_or(Type::of(TypeKind::Variant));
+				next[inflows.slots[i].key] = type.value_or(otherwise);
 			}
 		}
 		return next;
@@ -807,12 +862,20 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		}
 	}
 
+	// The types written, by file, in order: what each replaces in the
+	// original text, and the slot.
+	struct Written {
+		uint32_t at;
+		uint32_t end;
+		std::string text;
+		Inflows::Key slot;
+	};
+	std::map<std::string, std::vector<Written>> insertions;
 	// A hint at the slot, in the text written.
-	std::map<std::string, std::vector<std::pair<uint32_t, std::string>>> insertions; // By file, by where in its original text.
 	const auto note = [&](const Inflows::Key &p_slot, const std::string &p_message) {
 		uint32_t at = p_slot.second;
-		for (const auto &[before, text] : insertions[p_slot.first]) {
-			at += before < p_slot.second ? uint32_t(text.size()) : 0;
+		for (const Written &each : insertions[p_slot.first]) {
+			at += each.at < p_slot.second ? uint32_t(each.text.size()) - (each.end - each.at) : 0;
 		}
 		const std::string &text = r_project.texts.at(p_slot.first);
 		const SourcePosition position = position_in(text, line_starts_of(text), at);
@@ -841,15 +904,15 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	for (int pass = 0;; pass++) {
 		insertions.clear();
 		for (const auto &[slot, text] : written) {
-			const bool returned = inflows.slots[size_t(inflows.found.at(slot))].kind == Inflows::Kind::Return;
-			insertions[slot.first].emplace_back(place.at(slot).at, (returned ? " -> " : ": ") + text);
+			const Place &at = place.at(slot);
+			insertions[slot.first].push_back({ at.at, at.end, at.before + text + at.after, slot });
 		}
 		for (auto &[file, text] : r_project.texts) {
-			std::vector<std::pair<uint32_t, std::string>> &in_file = insertions[file];
-			std::sort(in_file.begin(), in_file.end());
+			std::vector<Written> &in_file = insertions[file];
+			std::sort(in_file.begin(), in_file.end(), [](const Written &p_a, const Written &p_b) { return p_a.at < p_b.at; });
 			text = original.at(file);
 			for (auto each = in_file.rbegin(); each != in_file.rend(); ++each) {
-				text.insert(each->first, each->second);
+				text.replace(each->at, each->end - each->at, each->text);
 			}
 		}
 		if (pass == p_rounds) {
@@ -858,30 +921,37 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		// Where a byte of the text written was in the original, and the slot
 		// whose type it is part of, if any.
 		const auto original_at = [&](const std::string &p_file, uint32_t p_offset) -> std::pair<uint32_t, std::optional<Inflows::Key>> {
-			uint32_t shift = 0;
-			for (const auto &[at, text] : insertions[p_file]) {
-				if (p_offset < at + shift) {
+			int64_t shift = 0;
+			for (const Written &each : insertions[p_file]) {
+				if (p_offset < each.at + shift) {
 					break;
 				}
-				if (p_offset < at + shift + text.size()) {
-					return { at, std::find_if(written.begin(), written.end(), [&](const auto &p_each) { return p_each.first.first == p_file && place.at(p_each.first).at == at; })->first };
+				if (p_offset < each.at + shift + int64_t(each.text.size())) {
+					return { each.at, each.slot };
 				}
-				shift += uint32_t(text.size());
+				shift += int64_t(each.text.size()) - (each.end - each.at);
 			}
-			return { p_offset - shift, std::nullopt };
+			return { uint32_t(p_offset - shift), std::nullopt };
 		};
 		results = checked_with(p_engine, r_project, check);
 		// The locals typed by a value, by where each is declared in the text
-		// written, with where the value is.
-		std::map<Inflows::Key, std::pair<uint32_t, uint32_t>> typed_by;
+		// written, with where the value is; and the targets of assignments, by
+		// where the value is, which the value must fit.
+		using Range = std::pair<uint32_t, uint32_t>;
+		std::map<Inflows::Key, Range> typed_by;
+		std::map<std::string, std::vector<std::pair<Range, Range>>> assigned;
 		for (const auto &[path, result] : results) {
 			std::vector<Diagnostic> ignored;
 			const ClassDecl decl = parse(r_project.script_source(path).value_or(std::string()), ignored);
 			const SourceFile &source = *decl.source;
+			const auto range = [&](const Expr &p_expr) { return Range(source.begin(p_expr.range), source.end(p_expr.range)); };
 			const auto block = [&](const Block &p_block, const auto &p_self) -> void {
 				for (const std::unique_ptr<Stmt> &stmt : p_block) {
 					if ((stmt->kind == StmtKind::Var || stmt->kind == StmtKind::For) && !stmt->declared_type && stmt->value) {
-						typed_by[{ path, source.tokens[stmt->name_token].offset }] = { source.begin(stmt->value->range), source.end(stmt->value->range) };
+						typed_by[{ path, source.tokens[stmt->name_token].offset }] = range(*stmt->value);
+					}
+					if (stmt->kind == StmtKind::Assign && stmt->target && stmt->value) {
+						assigned[path].emplace_back(range(*stmt->value), range(*stmt->target));
 					}
 					p_self(stmt->body, p_self);
 					p_self(stmt->else_body, p_self);
@@ -937,6 +1007,11 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 				}
 				std::set<Inflows::Key> seen;
 				involved(result, error.begin, error.end, seen, refused, involved);
+				for (const auto &[value, target] : assigned[path]) {
+					if (value.first <= error.begin && error.end <= value.second) {
+						involved(result, target.first, target.second, seen, refused, involved);
+					}
+				}
 				for (const auto &[slot, at] : place) {
 					for (const auto &[from, to] : written.count(slot) && slot.first == path ? at.bare : std::vector<std::pair<uint32_t, uint32_t>>()) {
 						if (from <= begin && begin < to) {
@@ -962,8 +1037,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		std::string from;
 		std::string by_name;
 		for (const Received &each : flowed[index]) {
+			const char *const PARTS[] = { "", "an element ", "a key " };
 			if (!each.type.is_error()) {
-				from += (from.empty() ? "" : ", ") + each.type.to_string() + " (" + where(each.at) + ")";
+				from += std::string(from.empty() ? "" : ", ") + PARTS[size_t(each.part)] + each.type.to_string() + " (" + where(each.at) + ")";
 			}
 			if (each.by_name && !each.type.is_error()) {
 				by_name += (by_name.empty() ? "" : ", ") + where(each.at);
@@ -978,7 +1054,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			r_result.by_name++;
 		}
 		bool numbers = false;
-		merged(flowed[index], classes, p_engine, numbers);
+		merge(slot, flowed[index], numbers);
 		r_result.numbers += numbers;
 	}
 	r_result.typed = int(written.size());

@@ -24,10 +24,54 @@ Type Checker::tried(int p_slot) const {
 	return p_slot < 0 ? Type::of(TypeKind::Error) : options.inflows->type(p_slot);
 }
 
-void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at) {
+void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflows::Part p_part) {
 	if (p_slot >= 0 && options.inflows) {
-		options.inflows->flows.push_back({ p_slot, p_type, { script_file(options.path), cls.source->begin(p_at) } });
+		options.inflows->flows.push_back({ p_slot, p_type, { script_file(options.path), cls.source->begin(p_at) }, p_part });
 	}
+}
+
+// The slot of an empty container that the expression reads, or -1.
+int Checker::container_slot(const Expr &p_expr) const {
+	const int slot = slot_of(p_expr);
+	return slot >= 0 && !options.inflows->slots[size_t(slot)].container.empty() ? slot : -1;
+}
+
+// What a method of an empty container's variable puts in it (architecture
+// §6.6); whether `p_base` is one.
+bool Checker::fill_container(const Expr &p_base, const Expr &p_call) {
+	const int slot = container_slot(p_base);
+	if (slot < 0) {
+		return false;
+	}
+	const std::string &name = p_call.text;
+	const auto put = [&](size_t p_arg, Inflows::Part p_part) {
+		if (p_arg < p_call.args.size()) {
+			flow(slot, p_call.args[p_arg]->type, p_call.args[p_arg]->range, p_part);
+		}
+	};
+	if (name == "append" || name == "push_back" || name == "push_front" || name == "fill") {
+		put(0, Inflows::Part::Element);
+	} else if (name == "insert") {
+		put(1, Inflows::Part::Element);
+	} else if (name == "set") {
+		put(0, Inflows::Part::Key);
+		put(1, Inflows::Part::Element);
+	} else if (name == "append_array" || name == "merge") {
+		put(0, Inflows::Part::Whole);
+	}
+	return true;
+}
+
+// The kind of an empty container literal, which leaves its elements to
+// what fills it: "Array" for [], "Dictionary" for {}; "" for anything else.
+std::string Checker::empty_container(const Expr *p_value) {
+	if (!p_value || !p_value->args.empty()) {
+		return std::string();
+	}
+	if (p_value->kind == ExprKind::ArrayLiteral) {
+		return "Array";
+	}
+	return p_value->kind == ExprKind::DictionaryLiteral ? "Dictionary" : std::string();
 }
 
 // The slot that an assignment to the target writes.

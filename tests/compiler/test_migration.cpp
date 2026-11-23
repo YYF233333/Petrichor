@@ -188,6 +188,33 @@ TEST_CASE("a type that the check refuses is withdrawn, and the slot stays an err
 	CHECK(contains(migration.errors[0].message, "\"x\" needs a type"));
 }
 
+TEST_CASE("an empty container takes the types of the elements and keys put in it, or else stays untyped") {
+	FakeProject project;
+	project.add_script("res://e.gd", "extends Node\nvar names = []\nvar scores = {}\n\n\nfunc gather(nodes: Array[Node]) -> void:\n\tvar picked = []\n\tnames.append(\"a\")\n\tscores[\"a\"] = 1\n\tfor child in nodes:\n\t\tpicked.push_back(child)\n\tvar mixed = []\n\tmixed.append(1)\n\tmixed.append(\"x\")\n\tvar unused = {}\n\tprint(picked, mixed, unused)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://e.gd" }, 10);
+	CHECK(migration.texts.at("res://e.pet") == "extends Node\nvar names: Array[String] = []\nvar scores: Dictionary[String, int] = {}\n\n\nfunc gather(nodes: Array[Node]) -> void:\n\tvar picked: Array[Node] = []\n\tnames.append(\"a\")\n\tscores[\"a\"] = 1\n\tfor child in nodes:\n\t\tpicked.push_back(child)\n\tvar mixed: Array = []\n\tmixed.append(1)\n\tmixed.append(\"x\")\n\tvar unused: Dictionary = {}\n\tprint(picked, mixed, unused)\n");
+	CHECK(migration.errors.empty());
+}
+
+TEST_CASE("a type written over := keeps the initializer, and an error at an assigned value is about its target too") {
+	FakeProject project;
+	project.add_script("res://f.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tvar points := []\n\tpoints.append(Vector2.ZERO)\n\tvar labels = []\n\tlabels.append(Label.new())\n\tlabels[0].text = 3\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://f.gd" }, 10);
+	CHECK(migration.texts.at("res://f.pet") == "extends Node\n\n\nfunc _ready() -> void:\n\tvar points: Array[Vector2] = []\n\tpoints.append(Vector2.ZERO)\n\tvar labels = []\n\tlabels.append(Label.new())\n\tlabels[0].text = 3\n");
+	REQUIRE(migration.notes.size() == 1);
+	CHECK(migration.notes[0].message == "\"labels\" is left without a type: Array[Label] does not check. It receives an element Label (res://f.pet:8).");
+}
+
+TEST_CASE("the inference reads a declaration through an error that the loop of fixes then fixes") {
+	FakeProject project;
+	project.add_script("res://state.gd", "class_name CardState\nextends Node\nenum State { BASE, CLICKED }\n@export var state: State\n", "CardState");
+	project.add_script("res://machine.gd", "extends Node\nvar states := {}\n\n\nfunc add(child: CardState) -> void:\n\tstates[child.state] = child\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://state.gd", "res://machine.gd" }, 10);
+	CHECK(migration.texts.at("res://state.pet") == "class_name CardState\nextends Node\npub enum State { BASE, CLICKED }\n@export var state: State\n");
+	CHECK(migration.texts.at("res://machine.pet") == "extends Node\nvar states: Dictionary[CardState.State, CardState] = {}\n\n\nfunc add(child: CardState) -> void:\n\tstates[child.state] = child\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a type is withdrawn for an error that reaches it through the locals and loops it types") {
 	FakeProject project;
 	project.add_script("res://d.gd", "extends Node\n\n\nfunc first(values):\n\tfor each in values:\n\t\tvar copy = each\n\t\tprint(copy + 1)\n\n\nfunc _ready() -> void:\n\tfirst([1])\n\tfirst([\"a\"])\n");

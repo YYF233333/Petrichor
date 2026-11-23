@@ -690,17 +690,18 @@ void Checker::check_stmt(Stmt &r_stmt) {
 		case StmtKind::Var: {
 			Type type = Type::of(TypeKind::Error);
 			int slot = -1;
+			const std::string container = empty_container(r_stmt.value.get());
 			if (r_stmt.declared_type) {
 				type = resolve(*r_stmt.declared_type, false);
-			} else if (!r_stmt.value || r_stmt.value->kind == ExprKind::NoneLiteral) {
-				slot = untyped_slot({ Inflows::Kind::Local, r_stmt.name }, r_stmt.name_token);
+			} else if (!r_stmt.value || r_stmt.value->kind == ExprKind::NoneLiteral || !container.empty()) {
+				slot = untyped_slot({ Inflows::Kind::Local, r_stmt.name, {}, 0, 0, 0, {}, {}, container }, r_stmt.name_token);
 				type = tried(slot);
 			}
 			const bool typed = r_stmt.declared_type || slot >= 0;
 			Type value;
 			if (r_stmt.value) {
 				value = check_value(*r_stmt.value, type);
-				flow(slot, value, r_stmt.value->range);
+				flow(container.empty() ? slot : -1, value, r_stmt.value->range);
 				if (typed) {
 					expect_assignable(*r_stmt.value, value, type, "assign", r_stmt.declared_type ? &*r_stmt.declared_type : nullptr);
 				} else {
@@ -755,6 +756,10 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				r_stmt.compound_result = value;
 			}
 			flow(slot_of(target), value, r_stmt.value->range);
+			if (const int container = target.kind == ExprKind::Subscript ? container_slot(*target.base) : -1; container >= 0) {
+				flow(container, value, r_stmt.value->range, Inflows::Part::Element);
+				flow(container, target.right->type, target.right->range, Inflows::Part::Key);
+			}
 			// GDScript reads the copy before the right side, but changes a local or a
 			// member without accessors in place.
 			const Expr *copy = place && awaits(*r_stmt.value) ? written_back(target) : nullptr;

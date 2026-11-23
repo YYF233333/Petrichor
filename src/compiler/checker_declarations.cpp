@@ -457,10 +457,11 @@ void Checker::check_member_declaration(size_t p_index) {
 	}
 	member.state = VarDecl::State::Checking;
 	Type type = Type::of(TypeKind::Error);
+	const std::string container = empty_container(member.initializer.get());
 	if (member.declared_type) {
 		type = resolve(*member.declared_type, false);
-	} else if (!member.initializer || member.initializer->kind == ExprKind::NoneLiteral) {
-		member.slot = untyped_slot({ Inflows::Kind::Member, member.name }, member.name_token);
+	} else if (!member.initializer || member.initializer->kind == ExprKind::NoneLiteral || !container.empty()) {
+		member.slot = untyped_slot({ Inflows::Kind::Member, member.name, {}, 0, 0, 0, {}, {}, container }, member.name_token);
 		type = tried(member.slot);
 	}
 	const bool typed = member.declared_type || member.slot >= 0;
@@ -481,7 +482,7 @@ void Checker::check_member_declaration(size_t p_index) {
 		const Type value = check_value(*member.initializer, type);
 		initializing = -1;
 		initializing_onready = false;
-		flow(member.slot, value, member.initializer->range);
+		flow(container.empty() ? member.slot : -1, value, member.initializer->range);
 		if (typed) {
 			expect_assignable(*member.initializer, value, type, "assign", member.declared_type ? &*member.declared_type : nullptr);
 		} else {
@@ -678,8 +679,9 @@ void Checker::check_static_declaration(size_t p_index) {
 	}
 	variable.state = VarDecl::State::Checking;
 	Type type = variable.declared_type ? variable.type : Type::of(TypeKind::Error);
-	if (!variable.declared_type && (!variable.initializer || variable.initializer->kind == ExprKind::NoneLiteral)) {
-		variable.slot = untyped_slot({ Inflows::Kind::Member, variable.name }, variable.name_token);
+	const std::string container = empty_container(variable.initializer.get());
+	if (!variable.declared_type && (!variable.initializer || variable.initializer->kind == ExprKind::NoneLiteral || !container.empty())) {
+		variable.slot = untyped_slot({ Inflows::Kind::Member, variable.name, {}, 0, 0, 0, {}, {}, container }, variable.name_token);
 		type = tried(variable.slot);
 	}
 	const bool typed = variable.declared_type || variable.slot >= 0;
@@ -687,7 +689,7 @@ void Checker::check_static_declaration(size_t p_index) {
 		static_initializing = int(p_index);
 		const Type value = check_value(*variable.initializer, type);
 		static_initializing = -1;
-		flow(variable.slot, value, variable.initializer->range);
+		flow(container.empty() ? variable.slot : -1, value, variable.initializer->range);
 		if (typed) {
 			expect_assignable(*variable.initializer, value, type, "assign", variable.declared_type ? &*variable.declared_type : nullptr);
 		} else {

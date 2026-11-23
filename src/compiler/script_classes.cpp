@@ -478,6 +478,11 @@ const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_w
 		entry.with_scenes = with_scenes;
 		entry.failed = !entry.decl.declared;
 		entry.checked = !entry.failed;
+		// The inference of a migration takes them as the loop of fixes after
+		// it leaves them (architecture §6.6).
+		if (inflows) {
+			errors.erase(std::remove_if(errors.begin(), errors.end(), [](const Diagnostic &p_error) { return std::any_of(p_error.fixes.begin(), p_error.fixes.end(), [](const Fix &p_fix) { return p_fix.automatic(); }); }), errors.end());
+		}
 		mark_errors(entry.decl, errors, key, erring);
 	}
 	if (!frames.empty() && frames.back().first != file) {
