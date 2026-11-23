@@ -24,6 +24,7 @@ namespace petrichor::compiler {
 uint64_t declaration_hash(const std::optional<std::string> &p_source);
 
 class ScriptClasses;
+struct Inflows;
 
 // What a check read (architecture §2.1): other scripts, by declaration_hash(),
 // and each question asked of the project, with a test of whether a later pass
@@ -135,6 +136,8 @@ public:
 			engine(p_engine), sources(p_project), recorded(*this), project(p_record ? &recorded : p_project), declarations_only(p_declarations_only) {}
 	ScriptClasses(const ScriptClasses &) = delete;
 	ScriptClasses &operator=(const ScriptClasses &) = delete;
+
+	Inflows *inflows = nullptr; // For the checks of declarations (CompileOptions::inflows).
 
 	// The class that `p_decl` at `p_path` extends, of this language or
 	// another: by its path, by a global class_name, or, for an inner class,

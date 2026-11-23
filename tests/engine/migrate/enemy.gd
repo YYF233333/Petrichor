@@ -6,5 +6,5 @@ extends Node
 var health := 10
 
 
-func hit(amount: int) -> void:
+func hit(amount) -> void:
 	health -= amount

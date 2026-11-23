@@ -21,7 +21,11 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 41 s for tanks-of-freedom-ii with its assets. Its 661 scenes load 6,951 files one scene at a time, 944 of them distinct. Without the assets, as in the sparse corpus clone, each missing file is a failing load, and the check takes 136 to 195 s.
-  - Types inferred over the whole project and written down.
+  - Types inferred over the whole project and written down. Parameters, returns, members, locals and signal parameters are typed. Left, in order:
+    - the check that lets an `int` join a `float`;
+    - the elements of empty containers;
+    - the scene anchors: connections, values saved for exports and the nodes of `@onready var x = $Path`;
+    - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).
@@ -321,6 +325,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- Whether the migration's inference counts the `null` that GDScript gives a variable declared without a value (architecture §6.6). Counted, a member assigned in `_ready` becomes `T?`, and an `int` counter `int?`. Not counted, they become `T` and `int`. A member of type `T` must then be assigned, which the checker takes an ancestor to do (spec §6.2). The inference does not count it yet. Starter-Kit-FPS and deck_builder_tutorial have no such variable.
 - Whether a method that overrides a `pub` method of a base class is `pub` without writing it (spec §4.2). Now the override must repeat `pub`, though an exported variable and an `@rpc` function need not write it. Kotlin keeps the overridden member's visibility, as its docs state for `protected` and `internal`. The owner finds that object-oriented languages have not settled it.
 - Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.

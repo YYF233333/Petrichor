@@ -2,6 +2,59 @@
 
 namespace petrichor::compiler::checking {
 
+/* Inference of a migration (architecture §6.6) */
+
+// The slot that a declaration without a type, whose name is token
+// `p_name_token`, is in a migrated file; -1 elsewhere.
+int Checker::untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token) {
+	if (!options.inflows || !options.inflows->files.count(script_file(options.path))) {
+		return -1;
+	}
+	p_slot.key = { script_file(options.path), cls.source->tokens[p_name_token].offset };
+	p_slot.owner = p_slot.kind == Inflows::Kind::Local ? std::string() : options.path;
+	return options.inflows->slot(p_slot);
+}
+
+Inflows::Slot Checker::parameter_slot(const FuncDecl &p_function, size_t p_index) {
+	const int most = p_function.has_rest() ? INT32_MAX : int(p_function.params.size());
+	return { Inflows::Kind::Parameter, p_function.params[p_index].name, p_function.name, int(p_index), required_params(p_function), most };
+}
+
+Type Checker::tried(int p_slot) const {
+	return p_slot < 0 ? Type::of(TypeKind::Error) : options.inflows->type(p_slot);
+}
+
+void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at) {
+	if (p_slot >= 0 && options.inflows) {
+		options.inflows->flows.push_back({ p_slot, p_type, { script_file(options.path), cls.source->begin(p_at) } });
+	}
+}
+
+// The slot that an assignment to the target writes.
+int Checker::slot_of(const Expr &p_target) const {
+	if (p_target.target == Target::Local && function) {
+		return function->locals[p_target.index].slot;
+	}
+	if (p_target.target == Target::Member) {
+		return cls.all_members[p_target.index]->slot;
+	}
+	return p_target.variable && (p_target.target == Target::StaticVar || p_target.target == Target::ObjectProperty) ? p_target.variable->slot : -1;
+}
+
+// A call that GDScript makes by name, on a value whose class is not known
+// to have the method: its arguments flow into every function so named.
+void Checker::call_by_name(const Expr &p_call) {
+	if (!options.inflows) {
+		return;
+	}
+	Inflows::Call call{ p_call.text };
+	for (const std::unique_ptr<Expr> &arg : p_call.args) {
+		call.args.push_back(arg->type);
+		call.at.push_back({ script_file(options.path), cls.source->begin(arg->range) });
+	}
+	options.inflows->calls.push_back(std::move(call));
+}
+
 // At the start of the file for what was not written, such as the base
 // class of a class without extends.
 void Checker::error(const TokenRange &p_range, const std::string &p_message) {

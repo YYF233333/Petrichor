@@ -2,6 +2,7 @@
 
 #include "compiler/builtin_api.h"
 #include "compiler/checker.h"
+#include "compiler/migration.h"
 #include "compiler/navigation.h"
 #include "compiler/parser.h"
 #include "compiler/script_classes.h"
@@ -494,11 +495,13 @@ class Checker : public ClassRelation {
 		const size_t warnings;
 		const std::string call_hint;
 		const uint32_t hint_at;
+		const size_t flows;
+		const size_t calls;
 		bool ended = false;
 
 	public:
 		explicit Tentative(Checker &r_checker) :
-				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at) {}
+				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at), flows(r_checker.options.inflows ? r_checker.options.inflows->flows.size() : 0), calls(r_checker.options.inflows ? r_checker.options.inflows->calls.size() : 0) {}
 		~Tentative() { end(false); }
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
@@ -522,6 +525,10 @@ class Checker : public ClassRelation {
 				}
 				if (checker.completion) {
 					checker.completion->call_hint = call_hint;
+				}
+				if (checker.options.inflows) {
+					checker.options.inflows->flows.resize(flows);
+					checker.options.inflows->calls.resize(calls);
 				}
 				checker.hint_at = hint_at;
 			}
@@ -744,6 +751,12 @@ class Checker : public ClassRelation {
 
 	/* checker.cpp */
 
+	int untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token);
+	static Inflows::Slot parameter_slot(const FuncDecl &p_function, size_t p_index);
+	Type tried(int p_slot) const;
+	void flow(int p_slot, const Type &p_type, const TokenRange &p_at);
+	int slot_of(const Expr &p_target) const;
+	void call_by_name(const Expr &p_call);
 	void error(const TokenRange &p_range, const std::string &p_message);
 	void error_in_scene(const TokenRange &p_range, const Scene &p_scene, const std::string &p_node, const std::string &p_message);
 	void warn(const TokenRange &p_range, const char *p_warning, const std::string &p_message);

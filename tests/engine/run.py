@@ -1109,8 +1109,10 @@ def check_migrate(godot):
     run of one file names what it takes and writes nothing; through a service,
     it writes nothing while an LSP client has unsaved changes to a file it
     rewrites, and once it has none, it renames the files with their .uid
-    files, rewrites the paths naming them and applies the fixes that keep the
-    meaning. Godot then reads the project again, which checks without errors."""
+    files, rewrites the paths naming them, writes the types it infers and
+    applies the fixes that keep the meaning, leaving out the script templates
+    from the project setting. Godot then reads the project again, which checks
+    without errors."""
     with tempfile.TemporaryDirectory() as tmp:
         project = Path(tmp).resolve() / "migrate"
         shutil.copytree(HERE / "migrate", project)
@@ -1151,16 +1153,24 @@ def check_migrate(godot):
             client.request("petrichor/unknown")
             code, out, err = pet("migrate")
             after = {name: text.decode() for name, text in files().items()}
-            report = ["tool.gd: left out: it has @tool", "1 × Make it pub", "1 × Write .unwrap()", "1 × Write async func", "petrichor migrate: 4 script(s), 0 added, 2 left out, 3 fix(es), 6 path(s) renamed, 0 error(s)"]
-            renamed = [name for name in before if name.endswith((".gd", ".gd.uid")) and not name.startswith("tool")]
+            report = [
+                "tool.gd: left out: it has @tool",
+                "script_templates/Node/greet.gd: left out: a script template, from which the editor makes new scripts",
+                "1 × Write the type",
+                "1 × Make it pub",
+                "1 × Write .unwrap()",
+                "1 × Write async func",
+                "petrichor migrate: 4 script(s), 0 added, 3 left out, 1 type(s), 0 withdrawn, 3 fix(es), 6 path(s) renamed, 0 error(s)",
+            ]
+            renamed = [name for name in before if name.endswith((".gd", ".gd.uid")) and not name.startswith(("tool", "script_templates"))]
             expect(
-                "pet migrate: it renames the files with their .uid files, rewrites the paths naming them, and applies the fixes",
+                "pet migrate: it renames the files with their .uid files, rewrites the paths naming them, writes the types and applies the fixes",
                 code == 0 and all(line in out.splitlines() for line in report)
                 and all(name not in after and after[name.replace(".gd", ".pet")] for name in renamed)
                 and after["boss.pet.uid"] == before["boss.gd.uid"].decode()
                 and 'path="res://boss.pet"' in after["level.tscn"] and 'path="res://stats.pet"' in after["stats.tres"] and 'Game="*res://game.pet"' in after["project.godot"]
                 and 'preload("res://boss.pet")' in after["tool.gd"] and 'preload("res://game.pet")' in after["hud.pet"]
-                and "pub func hit" in after["enemy.pet"] and "async func roar" in after["boss.pet"] and "get_parent().unwrap()" in after["game.pet"],
+                and "pub func hit(amount: int)" in after["enemy.pet"] and "async func roar" in after["boss.pet"] and "get_parent().unwrap()" in after["game.pet"],
                 out + err,
             )
             code, out, err = pet("check")

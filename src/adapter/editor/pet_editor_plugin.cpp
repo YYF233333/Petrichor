@@ -1623,7 +1623,9 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 			paths.push_back(to_utf8(("res://" + to_godot(arg).replace("\\", "/").trim_prefix("res://")).simplify_path()));
 		}
 	}
-	const compiler::MigrationSet set = compiler::migration_set(ClassDBApi::get(), SceneIndex::get(), paths);
+	// The editor makes new scripts from the templates there (editor/file_system/editor_paths.cpp:101; ed1daf0).
+	const std::string templates = to_utf8(String(ProjectSettings::get_singleton()->get_setting("editor/script/templates_search_path", "res://script_templates")));
+	const compiler::MigrationSet set = compiler::migration_set(ClassDBApi::get(), SceneIndex::get(), paths, templates);
 	std::string output;
 	for (const std::string &path : set.unknown) {
 		output += relative(path) + ": error: No GDScript file is there.\n";
@@ -1645,6 +1647,15 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 	}
 	const SceneIndex taken(set.files);
 	const compiler::Migration migration = compiler::migrate(ClassDBApi::get(), taken, set.files, 10);
+	if (migration.typed > 0) {
+		output += std::to_string(migration.typed) + " × Write the type\n";
+	}
+	if (migration.numbers > 0) {
+		output += std::to_string(migration.numbers) + " slot(s) received both int and float.\n";
+	}
+	for (const compiler::Diagnostic &note : migration.notes) {
+		output += diagnostic_line(note) + "\n";
+	}
 	int fixes = 0;
 	for (const auto &[kind, count] : migration.fixes) {
 		output += std::to_string(count) + " × " + compiler::FIX_KINDS[size_t(kind)].name + "\n";
@@ -1711,7 +1722,7 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 			refused++;
 		}
 	}
-	output += "petrichor migrate: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(set.added.size()) + " added, " + std::to_string(set.left_out.size()) + " left out, " + std::to_string(fixes) + " fix(es), " + std::to_string(named) + " path(s) renamed, " + std::to_string(migration.errors.size()) + " error(s)";
+	output += "petrichor migrate: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(set.added.size()) + " added, " + std::to_string(set.left_out.size()) + " left out, " + std::to_string(migration.typed) + " type(s), " + std::to_string(migration.withdrawn) + " withdrawn, " + std::to_string(fixes) + " fix(es), " + std::to_string(named) + " path(s) renamed, " + std::to_string(migration.errors.size()) + " error(s)";
 	if (dry_run) {
 		return { output + ", dry run", 0 };
 	}

@@ -457,6 +457,7 @@ const ClassDecl *ScriptClasses::declarations(const std::string &p_path, bool p_w
 		options.path = file;
 		options.project = project;
 		options.mode = with_scenes ? CheckMode::ForOthersWithScenes : CheckMode::ForOthers;
+		options.inflows = inflows;
 		std::vector<Diagnostic> errors;
 		const bool recording = !frames.empty();
 		if (recording) {

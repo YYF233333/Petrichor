@@ -1082,6 +1082,10 @@ Type Checker::check_bind(Expr &r_expr, const Type &p_function) {
 	const std::vector<Type> rest(p_function.args.begin() + 1, p_function.args.end() - bound);
 	const std::vector<Type> bound_params(p_function.args.end() - bound, p_function.args.end());
 	check_arguments(r_expr, bound_params, int(bound), false);
+	const FuncDecl *callee = r_expr.base->target == Target::MethodValue || r_expr.base->target == Target::StaticValue ? r_expr.base->callee : nullptr;
+	for (size_t i = 0; callee && i < bound && param_count - bound + i < callee->params.size(); i++) {
+		flow(callee->params[param_count - bound + i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
+	}
 	// The engine's Callable keeps them as Variants.
 	for (size_t i = 0; i < bound; i++) {
 		const std::string loss = encoding_loss(bound_params[i], "the engine", false);
@@ -1908,7 +1912,9 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 	}
 	const Type base_type = check_value(base);
 	if (base_type.is_error()) {
-		return fail_call(r_expr);
+		fail_call(r_expr);
+		call_by_name(r_expr);
+		return r_expr.type;
 	}
 	if (base.target == Target::ClassScript) {
 		// An inner class reached through an object (spec §4.1), whose object
@@ -1935,7 +1941,9 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 		return check_language_method(r_expr, base_type, p_expected);
 	}
 	if (base_type.kind == TypeKind::Variant) {
-		return fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
+		fail_call(r_expr, "Cannot call \"" + name + "()\" on a Variant." + variant_hint() + " To call a method by name, convert it to Object and use call().");
+		call_by_name(r_expr);
+		return r_expr.type;
 	}
 	if (base_type.kind == TypeKind::Function && (name == "bind" || name == "call" || name == "callv")) {
 		return name == "bind" ? check_bind(r_expr, base_type) : check_function_call(r_expr, base_type);
@@ -1944,6 +1952,9 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 		// What the connected functions take (spec §4.7).
 		hint(r_expr, [&](int p_current) { return signature(name, type_names(base_type.args), false, p_current, "void"); });
 		check_arguments(r_expr, base_type.args, int(base_type.args.size()), false);
+		for (size_t i = 0; base.signal && i < r_expr.args.size() && i < base.signal->params.size(); i++) {
+			flow(base.signal->params[i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
+		}
 		r_expr.target = Target::EmitSignal;
 		refer(r_expr.name_token, engine_id("Signal", "emit"));
 		return set(r_expr, Type::of(TypeKind::Void));
@@ -1985,7 +1996,9 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 			}
 			return result;
 		}
-		return fail(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
+		fail_call(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
+		call_by_name(r_expr);
+		return r_expr.type;
 	}
 	if (base_type.kind == TypeKind::Struct) {
 		return check_struct_call(r_expr, base_type, true);

@@ -689,19 +689,25 @@ void Checker::check_stmt(Stmt &r_stmt) {
 	switch (r_stmt.kind) {
 		case StmtKind::Var: {
 			Type type = Type::of(TypeKind::Error);
+			int slot = -1;
 			if (r_stmt.declared_type) {
 				type = resolve(*r_stmt.declared_type, false);
+			} else if (!r_stmt.value || r_stmt.value->kind == ExprKind::NoneLiteral) {
+				slot = untyped_slot({ Inflows::Kind::Local, r_stmt.name }, r_stmt.name_token);
+				type = tried(slot);
 			}
+			const bool typed = r_stmt.declared_type || slot >= 0;
 			Type value;
 			if (r_stmt.value) {
 				value = check_value(*r_stmt.value, type);
-				if (r_stmt.declared_type) {
-					expect_assignable(*r_stmt.value, value, type, "assign", &*r_stmt.declared_type);
+				flow(slot, value, r_stmt.value->range);
+				if (typed) {
+					expect_assignable(*r_stmt.value, value, type, "assign", r_stmt.declared_type ? &*r_stmt.declared_type : nullptr);
 				} else {
 					type = inferred(value, r_stmt.name_token, r_stmt.name);
 					expect_scene_fits(*r_stmt.value, type);
 				}
-			} else if (!r_stmt.declared_type) {
+			} else if (!typed) {
 				error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type or an initial value.");
 			} else if (!enum_has_default(type)) {
 				error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at.");
@@ -709,6 +715,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 			}
 			declare_local(r_stmt, type);
+			function->locals[r_stmt.local].slot = slot;
 			narrow_by_value(r_stmt.local, value);
 			return;
 		}
@@ -747,6 +754,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.range);
 				r_stmt.compound_result = value;
 			}
+			flow(slot_of(target), value, r_stmt.value->range);
 			// GDScript reads the copy before the right side, but changes a local or a
 			// member without accessors in place.
 			const Expr *copy = place && awaits(*r_stmt.value) ? written_back(target) : nullptr;
@@ -827,6 +835,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				return;
 			}
 			const Type value = check_value(*r_stmt.value, expected);
+			flow(function->slot, value, r_stmt.value->range);
 			if (expected.kind == TypeKind::Void) {
 				error(r_stmt.value->range, function_label() + " returns void. Declare its return type, for example -> " + (value.is_error() ? std::string("int") : value.to_string()) + ".");
 				return;

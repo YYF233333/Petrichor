@@ -539,6 +539,7 @@ struct VarDecl {
 	// editor's default (spec §10.1).
 	ConstPtr initial;
 	bool must_assign = false; // A member without an initial value whose type has no default (spec §4.3, §6.2).
+	int slot = -1; // As ParamDecl's.
 	uint32_t hint = 0; // For the inspector: PropertyHint as the engine numbers it.
 	std::string hint_string;
 	uint32_t usage = 0; // PropertyUsageFlags as the engine numbers them, for an export.
@@ -584,6 +585,7 @@ struct ParamDecl {
 	// others as an Array (spec §4.6).
 	bool is_rest = false;
 	Type type; // Filled by the checker.
+	int slot = -1; // Filled by the checker in a migration: the untyped slot it is (Inflows).
 };
 
 struct LocalInfo {
@@ -592,6 +594,7 @@ struct LocalInfo {
 	uint32_t token = NO_TOKEN; // Of its name where declared.
 	ConstPtr constant; // A local constant's value (spec §4.5).
 	const TypeRef *written = nullptr; // Its type as declared, if written.
+	int slot = -1; // As ParamDecl's.
 };
 
 struct FuncDecl {
@@ -636,6 +639,7 @@ struct FuncDecl {
 	// Of a class's _init: the members that must be assigned which it assigns
 	// on every path that ends (spec §6.2), which other files use too.
 	std::vector<std::string> assigned;
+	int slot = -1; // As ParamDecl's, of what it returns.
 
 	bool has_rest() const { return !params.empty() && params.back().is_rest; }
 };

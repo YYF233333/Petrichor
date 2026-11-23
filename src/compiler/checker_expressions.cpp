@@ -741,6 +741,12 @@ void Checker::check_handler(const Expr &p_handler, const Type &p_signal) {
 	if (handler.is_error()) {
 		return;
 	}
+	// A method, or one with arguments bound after those the signal passes.
+	const Expr &method = p_handler.target == Target::BindArguments ? *p_handler.base : p_handler;
+	const FuncDecl *callee = method.target == Target::MethodValue || method.target == Target::StaticValue ? method.callee : nullptr;
+	for (size_t i = 0; callee && i < p_signal.args.size() && i < callee->params.size(); i++) {
+		flow(callee->params[i].slot, p_signal.args[i], p_handler.range);
+	}
 	// A Callable, checked by its declaration.
 	if (const FuncDecl *declared = rest_function(p_handler)) {
 		if (!takes(*declared, p_signal.args.size())) {
@@ -803,6 +809,13 @@ Type Checker::check_language_method(Expr &r_expr, const Type &p_base, const Type
 	if (!method) {
 		fail_call(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
 		fix_unwrap(r_expr.base, [&] { return !type_method_call(r_expr, p_expected).is_error(); });
+		// GDScript calls a method that the class does not have by name.
+		const Type inner = p_base.unwrapped();
+		const ClassDecl *decl = is_script_path(inner.script) ? script_decl(inner.script) : nullptr;
+		const bool known = inner.kind == TypeKind::Object && ((decl && find_named(decl->all_functions, name)) || engine.find_method(inner.engine_class(), name));
+		if (inner.kind == TypeKind::Variant || (inner.kind == TypeKind::Object && !known)) {
+			call_by_name(r_expr);
+		}
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	refer(r_expr.name_token, language_id(of_result ? "Result" : "Option", name));

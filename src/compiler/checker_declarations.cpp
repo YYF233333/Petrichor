@@ -459,7 +459,11 @@ void Checker::check_member_declaration(size_t p_index) {
 	Type type = Type::of(TypeKind::Error);
 	if (member.declared_type) {
 		type = resolve(*member.declared_type, false);
+	} else if (!member.initializer || member.initializer->kind == ExprKind::NoneLiteral) {
+		member.slot = untyped_slot({ Inflows::Kind::Member, member.name }, member.name_token);
+		type = tried(member.slot);
 	}
+	const bool typed = member.declared_type || member.slot >= 0;
 	if (member.is_onready) {
 		if (!cls.is_node) {
 			error(member.name_token, "@onready is for Node scripts; a " + cls.extends + " is never ready.");
@@ -477,8 +481,9 @@ void Checker::check_member_declaration(size_t p_index) {
 		const Type value = check_value(*member.initializer, type);
 		initializing = -1;
 		initializing_onready = false;
-		if (member.declared_type) {
-			expect_assignable(*member.initializer, value, type, "assign", &*member.declared_type);
+		flow(member.slot, value, member.initializer->range);
+		if (typed) {
+			expect_assignable(*member.initializer, value, type, "assign", member.declared_type ? &*member.declared_type : nullptr);
 		} else {
 			type = inferred(value, member.name_token, member.name);
 			expect_scene_fits(*member.initializer, type);
@@ -487,7 +492,7 @@ void Checker::check_member_declaration(size_t p_index) {
 		if (!member.is_onready) {
 			member.initial = reflected_initial(member.initializer.get(), type);
 		}
-	} else if (!member.declared_type) {
+	} else if (!typed) {
 		error(member.name_token, "\"" + member.name + "\" needs a type or an initial value.");
 	} else {
 		// The scene, the creator or an ancestor assigns it, which is checked
@@ -673,17 +678,23 @@ void Checker::check_static_declaration(size_t p_index) {
 	}
 	variable.state = VarDecl::State::Checking;
 	Type type = variable.declared_type ? variable.type : Type::of(TypeKind::Error);
-	if (variable.initializer && !(loading() && variable.declared_type)) {
+	if (!variable.declared_type && (!variable.initializer || variable.initializer->kind == ExprKind::NoneLiteral)) {
+		variable.slot = untyped_slot({ Inflows::Kind::Member, variable.name }, variable.name_token);
+		type = tried(variable.slot);
+	}
+	const bool typed = variable.declared_type || variable.slot >= 0;
+	if (variable.initializer && !(loading() && typed)) {
 		static_initializing = int(p_index);
 		const Type value = check_value(*variable.initializer, type);
 		static_initializing = -1;
-		if (variable.declared_type) {
-			expect_assignable(*variable.initializer, value, type, "assign", &*variable.declared_type);
+		flow(variable.slot, value, variable.initializer->range);
+		if (typed) {
+			expect_assignable(*variable.initializer, value, type, "assign", variable.declared_type ? &*variable.declared_type : nullptr);
 		} else {
 			type = inferred(value, variable.name_token, variable.name);
 			expect_scene_fits(*variable.initializer, type);
 		}
-	} else if (!variable.declared_type) {
+	} else if (!typed) {
 		error(variable.name_token, "\"" + variable.name + "\" needs a type or an initial value.");
 	} else if (!variable.initializer && !enum_has_default(type)) {
 		error(variable.name_token, "\"" + variable.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at.");
@@ -743,6 +754,17 @@ void Checker::check_accessors(VarDecl &r_member) {
 }
 
 /* Functions (spec §4.6) */
+
+// Whether the block returns a value somewhere, outside its lambdas.
+static bool returns_value(const Block &p_block) {
+	return std::any_of(p_block.begin(), p_block.end(), [](const std::unique_ptr<Stmt> &p_stmt) {
+		bool found = p_stmt->kind == StmtKind::Return ? p_stmt->value != nullptr : returns_value(p_stmt->body) || returns_value(p_stmt->else_body);
+		for (const MatchBranch &branch : p_stmt->branches) {
+			found = found || returns_value(branch.body);
+		}
+		return found;
+	});
+}
 
 // The values themselves are checked with the body (declare_params()).
 void Checker::check_defaults(const FuncDecl &p_function) {
@@ -890,6 +912,10 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 			continue; // infer_params() types it and compares.
 		} else if (param.is_rest ? p_base.has_rest() : base.has_value()) {
 			param.type = param.is_rest ? p_base.params.back().type : *base;
+			// What a call of the override passes flows into the base's slot.
+			param.slot = i < p_base.params.size() && !param.is_rest ? p_base.params[i].slot : -1;
+		} else if (!param.is_rest && (param.slot = untyped_slot(parameter_slot(r_fn, i), param.name_token)) >= 0) {
+			param.type = tried(param.slot);
 		} else {
 			untyped(param);
 		}
@@ -914,6 +940,7 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 		error(r_fn.name_token, "The override must accept every argument count of its base method.");
 	}
 	r_fn.return_type = r_fn.return_type_ref ? resolve(*r_fn.return_type_ref, true) : p_base.return_type;
+	r_fn.slot = r_fn.return_type_ref ? -1 : p_base.slot;
 	if (compared && !override_assignable(r_fn.return_type, p_base.return_type)) {
 		error(r_fn.name_token, "The override widens its base return type.");
 	}
@@ -1072,6 +1099,8 @@ void Checker::check_signature(FuncDecl &r_function) {
 			param.type = engine_types[0];
 		} else if (!r_function.accessor_of.empty()) {
 			// An inline setter takes the member's type (check_accessors()).
+		} else if (!param.is_rest && (param.slot = untyped_slot(parameter_slot(r_function, i), param.name_token)) >= 0) {
+			param.type = tried(param.slot);
 		} else {
 			untyped(param);
 		}
@@ -1105,6 +1134,8 @@ void Checker::check_signature(FuncDecl &r_function) {
 			error(r_function.name_token, "Return values of type " + r_function.return_type.to_string() + " are not supported yet.");
 			r_function.return_type = Type::of(TypeKind::Error);
 		}
+	} else if (r_function.accessor_of.empty() && r_function.name != "_init" && returns_value(r_function.body) && (r_function.slot = untyped_slot({ Inflows::Kind::Return, r_function.name }, r_function.name_token)) >= 0) {
+		r_function.return_type = tried(r_function.slot);
 	} else {
 		r_function.return_type = Type::of(TypeKind::Void);
 	}
@@ -1208,7 +1239,9 @@ void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
 		// What a syntax error left is reported; one that gives the type is
 		// checked with the signature.
 		if (p_defaults && param.default_value && param.default_value->kind != ExprKind::Error && !param.infers_type) {
-			expect_assignable(*param.default_value, check_value(*param.default_value, param.type), param.type, "use", param.declared_type ? &*param.declared_type : nullptr);
+			const Type value = check_value(*param.default_value, param.type);
+			flow(param.slot, value, param.default_value->range);
+			expect_assignable(*param.default_value, value, param.type, "use", param.declared_type ? &*param.declared_type : nullptr);
 		}
 		if (scopes.back().count(param.name)) {
 			error(param.name_token, "Parameter \"" + param.name + "\" is declared twice.");
@@ -1217,6 +1250,7 @@ void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
 		scopes.back()[param.name] = int(r_function.locals.size());
 		r_function.locals.push_back({ param.name, param.type, param.name_token });
 		r_function.locals.back().written = param.declared_type ? &*param.declared_type : nullptr;
+		r_function.locals.back().slot = param.slot;
 		refer_local(param.name_token, param.type);
 	}
 }
@@ -1881,6 +1915,11 @@ void Checker::declare_signals() {
 
 void Checker::type_signal_params(SignalDecl &r_signal) {
 	for (ParamDecl &param : r_signal.params) {
+		const int index = int(&param - r_signal.params.data());
+		if (!param.declared_type && (param.slot = untyped_slot({ Inflows::Kind::Signal, param.name, r_signal.name, index }, param.name_token)) >= 0) {
+			param.type = tried(param.slot);
+			continue;
+		}
 		if (!param.declared_type) {
 			error(param.name_token, "The argument \"" + param.name + "\" of a signal needs a type.");
 			param.type = Type::of(TypeKind::Error);

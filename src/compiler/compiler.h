@@ -72,6 +72,8 @@ enum class CheckMode {
 	Cursor,
 };
 
+struct Inflows;
+
 struct CompileOptions {
 	// The script's res:// path: to find the scenes that use it, to tell the
 	// class from others of this language, and to resolve relative paths.
@@ -81,6 +83,10 @@ struct CompileOptions {
 	const ProjectApi *project = nullptr;
 	CheckMode mode = CheckMode::Program;
 	std::string scene; // The res:// path of the scene that CheckMode::Scene checks.
+	// In a migration's inference: the untyped slots of its files take the
+	// types tried for them without errors, and what flows into them is
+	// recorded. Nothing is lowered.
+	Inflows *inflows = nullptr;
 };
 
 struct ClassDecl;

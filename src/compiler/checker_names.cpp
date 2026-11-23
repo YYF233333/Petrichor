@@ -1220,7 +1220,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		if (refuse(r_expr.range, refused(member, owner, "", p_class.name, member.name))) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
-		if (member.type.is_error()) {
+		if (member.type.is_error() && member.slot < 0) {
 			// Typed from the scenes, which are not read for another script, or
 			// not checked yet.
 			return fail(r_expr, "The type of " + p_class.name + "." + member.name + " is not known here; declare it, as in `pub var " + member.name + ": T`.");
@@ -1474,6 +1474,9 @@ Type Checker::call_declared(Expr &r_expr, const FuncDecl &p_callee, const Source
 	const bool rest = p_callee.has_rest();
 	const std::vector<Type> fixed(params.begin(), params.end() - (rest ? 1 : 0));
 	check_arguments(r_expr, fixed, required_params(p_callee), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant), &p_source == cls.source.get() ? &p_callee : nullptr);
+	for (size_t i = 0; i < r_expr.args.size() && i < fixed.size(); i++) {
+		flow(p_callee.params[i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
+	}
 	r_expr.engine_params = params;
 	r_expr.index = int(fixed.size()) - required_params(p_callee);
 	r_expr.is_vararg = rest;

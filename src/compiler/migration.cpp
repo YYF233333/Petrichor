@@ -4,11 +4,14 @@
 #include "compiler/ast.h"
 #include "compiler/compiler.h"
 #include "compiler/lexer.h"
+#include "compiler/parser.h"
 #include "compiler/script_classes.h"
 #include "compiler/workspace.h"
 
 #include <algorithm>
 #include <functional>
+#include <iterator>
+#include <tuple>
 
 namespace petrichor::compiler {
 
@@ -177,12 +180,14 @@ struct Scripts {
 
 } // namespace
 
-MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_project, const std::vector<std::string> &p_paths) {
+MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_project, const std::vector<std::string> &p_paths, const std::string &p_templates) {
 	ScriptClasses classes(p_engine, &p_project, true);
 	Scripts scripts;
+	std::set<std::string> templates;
+	const std::string folder = p_templates.empty() || p_templates.back() == '/' ? p_templates : p_templates + "/";
 	for (const std::string &path : p_project.script_paths()) {
 		if (is_gdscript(path)) {
-			scripts.files.insert(path);
+			(!folder.empty() && path.rfind(folder, 0) == 0 ? templates : scripts.files).insert(path);
 		}
 	}
 	std::map<std::string, std::pair<std::string, bool>> global;
@@ -218,10 +223,11 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 
 	MigrationSet result;
 	std::map<std::string, std::string> taken; // Each with why it was added; "" when asked for.
+	std::set<std::string> asked_templates;
 	for (const std::string &path : p_paths) {
 		const std::string directory = path.back() == '/' ? path : path + "/";
 		const auto under = [&](const std::string &p_file) { return p_file == path || p_file.rfind(directory, 0) == 0; };
-		if (std::none_of(scripts.files.begin(), scripts.files.end(), under)) {
+		if (std::none_of(scripts.files.begin(), scripts.files.end(), under) && std::none_of(templates.begin(), templates.end(), under)) {
 			result.unknown.push_back(path);
 		}
 		for (const std::string &file : scripts.files) {
@@ -229,11 +235,16 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 				taken[file];
 			}
 		}
+		std::copy_if(templates.begin(), templates.end(), std::inserter(asked_templates, asked_templates.end()), under);
 	}
 	if (p_paths.empty()) {
 		for (const std::string &file : scripts.files) {
 			taken[file];
 		}
+		asked_templates = templates;
+	}
+	for (const std::string &file : asked_templates) {
+		result.left_out.emplace_back(file, "a script template, from which the editor makes new scripts");
 	}
 	// The trees with @tool stay in GDScript, and so does what a file staying
 	// there accesses at class level.
@@ -283,6 +294,7 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 			result.left_out.emplace_back(file, left.at(file));
 		}
 	}
+	std::sort(result.left_out.begin(), result.left_out.end());
 	for (const auto &[file, why] : taken) {
 		if (left.count(file)) {
 			continue;
@@ -451,11 +463,492 @@ std::optional<ForeignClass> Migrated::foreign_class(const std::string &p_path, b
 	return foreign;
 }
 
+int Inflows::slot(const Slot &p_slot) {
+	const auto [at, added] = found.emplace(p_slot.key, int(slots.size()));
+	if (added) {
+		slots.push_back(p_slot);
+	}
+	return at->second;
+}
+
+Type Inflows::type(int p_slot) const {
+	const auto at = tried.find(slots[size_t(p_slot)].key);
+	return at == tried.end() ? Type::of(TypeKind::Error) : at->second;
+}
+
+namespace {
+
+// The fix of the error that the loop of fixes applies: the first of the
+// automatic kinds, Async or Unwrap, unless it edits a file outside those
+// migrated.
+const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
+	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap; });
+	const bool inside = fix != p_error.fixes.end() && std::all_of(fix->edits.begin(), fix->edits.end(), [&](const Fix::Edit &p_edit) { return p_project.texts.count(p_edit.file.empty() ? p_error.file : p_edit.file) > 0; });
+	return inside ? &*fix : nullptr;
+}
+
+// Each script of this language in the project checked once with the types
+// that `r_inflows` tries, recording afresh what flows into the slots; the
+// results by path, each error naming its file.
+std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, const ProjectApi &p_project, Inflows &r_inflows) {
+	r_inflows.flows.clear();
+	r_inflows.calls.clear();
+	ScriptClasses classes(p_engine, &p_project, false, true);
+	classes.inflows = &r_inflows;
+	std::map<std::string, CompileResult> results;
+	for (const std::string &path : p_project.script_paths()) {
+		const std::optional<std::string> source = is_script_path(path) ? p_project.script_source(path) : std::nullopt;
+		if (!source) {
+			continue;
+		}
+		CompileOptions options;
+		options.path = path;
+		options.project = classes.get_project();
+		options.inflows = &r_inflows;
+		ClassDecl cls;
+		classes.begin_compile(path, *source);
+		CompileResult &result = results[path] = compile(*source, p_engine, options, classes, cls);
+		classes.end_compile();
+		for (Diagnostic &error : result.errors) {
+			error.file = path;
+		}
+	}
+	return results;
+}
+
+// A value that flowed into a slot: its type, where it is, and whether a call
+// by name passed it.
+struct Received {
+	Type type;
+	Inflows::Key at;
+	bool by_name = false;
+};
+
+// What each slot received in the check, once from each place, by the slot's
+// index. A call by name passes its arguments to each function so named
+// that takes as many (architecture §6.6).
+std::vector<std::vector<Received>> received(const Inflows &p_inflows) {
+	std::vector<std::map<Inflows::Key, Received>> found(p_inflows.slots.size());
+	// A place checked twice, as an initializer is with the declarations for
+	// another file, may be known only once.
+	const auto add = [&](int p_slot, const Received &p_received) {
+		const auto [at, added] = found[size_t(p_slot)].emplace(p_received.at, p_received);
+		if (!added && at->second.type.is_error()) {
+			at->second = p_received;
+		}
+	};
+	std::multimap<std::string, int> parameters;
+	for (size_t i = 0; i < p_inflows.slots.size(); i++) {
+		if (p_inflows.slots[i].kind == Inflows::Kind::Parameter) {
+			parameters.emplace(p_inflows.slots[i].function, int(i));
+		}
+	}
+	for (const Inflows::Flow &flow : p_inflows.flows) {
+		add(flow.slot, { flow.type, flow.at });
+	}
+	for (const Inflows::Call &call : p_inflows.calls) {
+		const int count = int(call.args.size());
+		const auto [first, last] = parameters.equal_range(call.name);
+		for (auto each = first; each != last; ++each) {
+			const Inflows::Slot &slot = p_inflows.slots[size_t(each->second)];
+			if (slot.least <= count && count <= slot.most && slot.index < count) {
+				add(each->second, { call.args[size_t(slot.index)], call.at[size_t(slot.index)], true });
+			}
+		}
+	}
+	std::vector<std::vector<Received>> result(found.size());
+	for (size_t i = 0; i < found.size(); i++) {
+		for (const auto &[at, each] : found[i]) {
+			result[i].push_back(each);
+		}
+	}
+	return result;
+}
+
+std::string file_name(const std::string &p_path) {
+	return p_path.substr(p_path.find_last_of('/') + 1);
+}
+
+// The type of the objects of the class of this language at `p_path`, named
+// as the checker names it.
+Type class_type(const std::string &p_path, ScriptClasses &r_classes) {
+	const ClassDecl *file = r_classes.header(script_file(p_path));
+	std::string name = file && !file->class_name.empty() ? file->class_name : file_name(script_file(p_path));
+	for (size_t at = p_path.find("::"); at != std::string::npos;) {
+		const size_t next = p_path.find("::", at + 2);
+		name += "." + p_path.substr(at + 2, next == std::string::npos ? next : next - at - 2);
+		at = next;
+	}
+	const ClassDecl *decl = r_classes.header(p_path);
+	return Type::script_class(name, p_path, decl ? r_classes.native_base(*decl, p_path) : std::string("Object"));
+}
+
+// The classes that an object of the class is, its own first, up through the
+// engine's.
+std::vector<Type> lineage(const Type &p_class, ScriptClasses &r_classes, const EngineApi &p_engine) {
+	std::vector<Type> up = { p_class };
+	std::set<std::string> seen;
+	for (std::string path = p_class.script; is_script_path(path) && seen.insert(path).second;) {
+		const ClassDecl *header = r_classes.header(path);
+		path = header ? r_classes.base_path(*header, path) : std::string();
+		if (is_script_path(path)) {
+			up.push_back(class_type(path, r_classes));
+		}
+	}
+	for (std::string native = p_class.engine_class(); !native.empty(); native = p_engine.parent_class(native)) {
+		if (native != p_class.name || !p_class.script.empty()) {
+			up.push_back(Type::object(native));
+		}
+	}
+	return up;
+}
+
+// What the types received merge into (architecture §6.6): the one type, as
+// T? with None; the nearest common base of classes; an untyped Array or
+// Dictionary for containers of one kind; otherwise Variant. Nullopt when no
+// type is known. `r_numbers` tells int and float, which are not merged.
+std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasses &r_classes, const EngineApi &p_engine, bool &r_numbers) {
+	r_numbers = false;
+	bool none = false;
+	std::vector<Type> types;
+	for (const Received &each : p_received) {
+		Type type = each.type;
+		if (type.is_error() || type.kind == TypeKind::Void) {
+			continue;
+		}
+		if (type.is_optional() || type.kind == TypeKind::None) {
+			none = true;
+			if (type.kind == TypeKind::None) {
+				continue;
+			}
+			type = type.unwrapped();
+		}
+		if (type.kind == TypeKind::Signal) {
+			type = Type::builtin("Signal");
+		}
+		if (std::find(types.begin(), types.end(), type) == types.end()) {
+			types.push_back(type);
+		}
+	}
+	if (types.empty()) {
+		return none ? std::optional<Type>(Type::of(TypeKind::Variant)) : std::nullopt;
+	}
+	const auto all = [&](const std::function<bool(const Type &)> &p_is) { return std::all_of(types.begin(), types.end(), p_is); };
+	const auto key = [](const Type &p_class) { return p_class.script.empty() ? p_class.name : p_class.script; };
+	Type result = Type::of(TypeKind::Variant);
+	if (types.size() == 1) {
+		result = types[0];
+	} else if (all([](const Type &p_type) { return p_type.kind == TypeKind::Object && !p_type.is_interface && p_type.args.empty(); })) {
+		std::vector<Type> common = lineage(types[0], r_classes, p_engine);
+		for (size_t i = 1; i < types.size(); i++) {
+			std::set<std::string> keys;
+			for (const Type &each : lineage(types[i], r_classes, p_engine)) {
+				keys.insert(key(each));
+			}
+			common.erase(std::remove_if(common.begin(), common.end(), [&](const Type &p_each) { return !keys.count(key(p_each)); }), common.end());
+		}
+		result = common.empty() ? result : common.front();
+	} else if (all([](const Type &p_type) { return p_type.kind == TypeKind::Builtin && p_type.name == "Array"; })) {
+		result = Type::builtin("Array");
+	} else if (all([](const Type &p_type) { return p_type.kind == TypeKind::Builtin && p_type.name == "Dictionary"; })) {
+		result = Type::builtin("Dictionary");
+	} else {
+		r_numbers = types.size() == 2 && all([](const Type &p_type) { return p_type.is_numeric(); });
+	}
+	return none && result.kind != TypeKind::Variant ? optional_of(result) : result;
+}
+
+// How the file writes the type; empty when it cannot, as a class without a
+// name, which the checker calls by its file. The file's own enums and inner
+// classes go without its name.
+std::string spelled(const Type &p_type, const std::string &p_file) {
+	std::string text = p_type.to_string();
+	const std::string own = file_name(p_file) + ".";
+	for (size_t at = text.find(own); at != std::string::npos; at = text.find(own, at)) {
+		text.erase(at, own.size());
+	}
+	const bool unnamed = text.find(".pet") != std::string::npos || text.find(".gd") != std::string::npos || text.find(".cs") != std::string::npos;
+	return unnamed || text.find('<') != std::string::npos || p_type.kind == TypeKind::Unsupported ? std::string() : text;
+}
+
+// Where the type of each slot of a file is written: after its name, or
+// after the parameters of the function whose return it is; with the ranges
+// of that function's bare returns, which report a return type that does not
+// fit.
+struct Place {
+	uint32_t at = 0;
+	std::vector<std::pair<uint32_t, uint32_t>> bare;
+};
+
+void bare_returns(const Block &p_block, const SourceFile &p_source, std::vector<std::pair<uint32_t, uint32_t>> &r_found) {
+	for (const std::unique_ptr<Stmt> &stmt : p_block) {
+		if (stmt->kind == StmtKind::Return && !stmt->value) {
+			r_found.emplace_back(p_source.begin(stmt->range), p_source.end(stmt->range));
+		}
+		bare_returns(stmt->body, p_source, r_found);
+		bare_returns(stmt->else_body, p_source, r_found);
+		for (const MatchBranch &branch : stmt->branches) {
+			bare_returns(branch.body, p_source, r_found);
+		}
+	}
+}
+
+std::map<Inflows::Key, Place> places(const std::string &p_file, const std::string &p_text, const Inflows &p_inflows) {
+	std::map<Inflows::Key, Place> found;
+	for (const Inflows::Slot &slot : p_inflows.slots) {
+		if (slot.key.first == p_file && slot.kind != Inflows::Kind::Return) {
+			found[slot.key].at = slot.key.second + uint32_t(slot.name.size());
+		}
+	}
+	std::vector<Diagnostic> ignored;
+	const ClassDecl decl = parse(p_text, ignored);
+	const std::vector<Token> &tokens = decl.source->tokens;
+	const auto functions = [&](const ClassDecl &p_class, const auto &p_self) -> void {
+		for (const FuncDecl &function : p_class.functions) {
+			const Inflows::Key key = { p_file, tokens[function.name_token].offset };
+			if (!p_inflows.found.count(key)) {
+				continue;
+			}
+			Place &place = found[key];
+			int depth = 0;
+			for (size_t i = function.name_token + 1; i < tokens.size(); i++) {
+				if (tokens[i].kind == TokenKind::ParenOpen) {
+					depth++;
+				} else if (tokens[i].kind == TokenKind::ParenClose && --depth == 0) {
+					place.at = tokens[i].end();
+					break;
+				}
+			}
+			bare_returns(function.body, *decl.source, place.bare);
+		}
+		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+			p_self(*inner, p_self);
+		}
+	};
+	functions(decl, functions);
+	return found;
+}
+
+} // namespace
+
+// Stage 2 of a migration (architecture §6.6): rounds of checks that record
+// what flows into each slot without a type, trying for each what it
+// received, merged, until the types tried stay; then for those still
+// without one, Variant. The types are written into the texts, and those
+// whose written form the check then refuses are withdrawn.
+static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, Migration &r_result) {
+	Inflows inflows;
+	for (const auto &[file, text] : r_project.texts) {
+		inflows.files.insert(file);
+	}
+	ScriptClasses classes(p_engine, &r_project);
+	std::map<std::string, CompileResult> results = checked_with(p_engine, r_project, inflows);
+	// What the check reports already, which no type causes.
+	std::set<std::tuple<std::string, uint32_t, std::string>> reported;
+	for (const auto &[path, result] : results) {
+		for (const Diagnostic &error : result.errors) {
+			reported.emplace(path, error.begin, error.message);
+		}
+	}
+	const auto candidates = [&](bool p_unknown) {
+		std::map<Inflows::Key, Type> next;
+		const std::vector<std::vector<Received>> flowed = received(inflows);
+		for (size_t i = 0; i < flowed.size(); i++) {
+			bool numbers = false;
+			const std::optional<Type> type = merged(flowed[i], classes, p_engine, numbers);
+			if (type || p_unknown) {
+				next[inflows.slots[i].key] = type.value_or(Type::of(TypeKind::Variant));
+			}
+		}
+		return next;
+	};
+	bool unknown = false;
+	for (int round = 1;; round++) {
+		std::map<Inflows::Key, Type> next = candidates(unknown);
+		if (next == inflows.tried && !unknown) {
+			unknown = true;
+			next = candidates(true);
+		}
+		if (next == inflows.tried || round > p_rounds) {
+			break;
+		}
+		inflows.tried = std::move(next);
+		results = checked_with(p_engine, r_project, inflows);
+	}
+	const std::vector<std::vector<Received>> flowed = received(inflows);
+	const std::vector<Inflows::Slot> slots = inflows.slots;
+	const std::map<Inflows::Key, Type> tried = inflows.tried;
+
+	// A place in a file as the report names it, with its line.
+	const std::map<std::string, std::string> original = r_project.texts;
+	std::map<std::string, std::pair<std::string, std::vector<uint32_t>>> lines;
+	const auto where = [&](const Inflows::Key &p_at) {
+		auto found = lines.find(p_at.first);
+		if (found == lines.end()) {
+			const auto text = original.find(p_at.first);
+			std::string read = text != original.end() ? text->second : r_project.script_source(p_at.first).value_or(std::string());
+			std::vector<uint32_t> starts = line_starts_of(read);
+			found = lines.emplace(p_at.first, std::make_pair(std::move(read), std::move(starts))).first;
+		}
+		return p_at.first + ":" + std::to_string(position_in(found->second.first, found->second.second, p_at.second).line);
+	};
+	std::map<Inflows::Key, Place> place;
+	for (const auto &[file, text] : original) {
+		const std::map<Inflows::Key, Place> in_file = places(file, text, inflows);
+		place.insert(in_file.begin(), in_file.end());
+	}
+	// The slots each reference to a declaration may name.
+	std::multimap<std::pair<std::string, std::string>, Inflows::Key> named;
+	for (const Inflows::Slot &slot : slots) {
+		if (slot.kind == Inflows::Kind::Member || slot.kind == Inflows::Kind::Return) {
+			named.emplace(std::make_pair(slot.owner, slot.name), slot.key);
+		} else if (slot.kind == Inflows::Kind::Signal) {
+			named.emplace(std::make_pair(slot.owner, slot.function), slot.key);
+		}
+	}
+
+	// A hint at the slot, in the text written.
+	std::map<std::string, std::vector<std::pair<uint32_t, std::string>>> insertions; // By file, by where in its original text.
+	const auto note = [&](const Inflows::Key &p_slot, const std::string &p_message) {
+		uint32_t at = p_slot.second;
+		for (const auto &[before, text] : insertions[p_slot.first]) {
+			at += before < p_slot.second ? uint32_t(text.size()) : 0;
+		}
+		const std::string &text = r_project.texts.at(p_slot.first);
+		const SourcePosition position = position_in(text, line_starts_of(text), at);
+		Diagnostic hint{ at, at, p_message };
+		hint.severity = Severity::Hint;
+		hint.file = p_slot.first;
+		hint.line = position.line;
+		hint.column = position.column;
+		r_result.notes.push_back(std::move(hint));
+	};
+	std::map<Inflows::Key, std::string> written;
+	std::map<Inflows::Key, std::string> refusals;
+	for (const Inflows::Slot &slot : slots) {
+		const auto found = tried.find(slot.key);
+		const std::string text = found == tried.end() ? std::string() : spelled(found->second, slot.key.first);
+		if (!text.empty() && place.count(slot.key)) {
+			written[slot.key] = text;
+		} else if (found != tried.end()) {
+			refusals[slot.key] = found->second.to_string() + " has no name here";
+		}
+	}
+	Inflows check;
+	check.files = inflows.files;
+	for (int pass = 0;; pass++) {
+		insertions.clear();
+		for (const auto &[slot, text] : written) {
+			const bool returned = inflows.slots[size_t(inflows.found.at(slot))].kind == Inflows::Kind::Return;
+			insertions[slot.first].emplace_back(place.at(slot).at, (returned ? " -> " : ": ") + text);
+		}
+		for (auto &[file, text] : r_project.texts) {
+			std::vector<std::pair<uint32_t, std::string>> &in_file = insertions[file];
+			std::sort(in_file.begin(), in_file.end());
+			text = original.at(file);
+			for (auto each = in_file.rbegin(); each != in_file.rend(); ++each) {
+				text.insert(each->first, each->second);
+			}
+		}
+		if (pass == p_rounds) {
+			break;
+		}
+		// Where a byte of the text written was in the original, and the slot
+		// whose type it is part of, if any.
+		const auto original_at = [&](const std::string &p_file, uint32_t p_offset) -> std::pair<uint32_t, std::optional<Inflows::Key>> {
+			uint32_t shift = 0;
+			for (const auto &[at, text] : insertions[p_file]) {
+				if (p_offset < at + shift) {
+					break;
+				}
+				if (p_offset < at + shift + text.size()) {
+					return { at, std::find_if(written.begin(), written.end(), [&](const auto &p_each) { return p_each.first.first == p_file && place.at(p_each.first).at == at; })->first };
+				}
+				shift += uint32_t(text.size());
+			}
+			return { p_offset - shift, std::nullopt };
+		};
+		results = checked_with(p_engine, r_project, check);
+		std::set<Inflows::Key> refused;
+		for (const auto &[path, result] : results) {
+			for (const Diagnostic &error : result.errors) {
+				const auto [begin, inside] = original_at(path, error.begin);
+				if (loop_fix(error, r_project) || reported.count({ path, begin, error.message })) {
+					continue;
+				}
+				if (inside) {
+					refused.insert(*inside);
+					continue;
+				}
+				for (const Reference &reference : result.references) {
+					if (reference.begin < error.begin || reference.end > error.end) {
+						continue;
+					}
+					const DeclId &target = reference.target;
+					if (target.kind == DeclId::Kind::Local && !target.name.empty()) {
+						const Inflows::Key local = { script_file(target.scope), original_at(script_file(target.scope), uint32_t(std::stoul(target.name))).first };
+						if (written.count(local)) {
+							refused.insert(local);
+						}
+					}
+					const auto [first, last] = named.equal_range({ target.scope, target.name });
+					for (auto each = first; target.kind == DeclId::Kind::Script && each != last; ++each) {
+						refused.insert(each->second);
+					}
+				}
+				for (const auto &[slot, at] : place) {
+					for (const auto &[from, to] : written.count(slot) && slot.first == path ? at.bare : std::vector<std::pair<uint32_t, uint32_t>>()) {
+						if (from <= begin && begin < to) {
+							refused.insert(slot);
+						}
+					}
+				}
+			}
+		}
+		bool withdrew = false;
+		for (const Inflows::Key &slot : refused) {
+			if (written.erase(slot) > 0) {
+				refusals[slot] = tried.at(slot).to_string() + " does not check";
+				withdrew = true;
+			}
+		}
+		if (!withdrew) {
+			break;
+		}
+	}
+	for (const Inflows::Slot &slot : slots) {
+		const size_t index = size_t(inflows.found.at(slot.key));
+		std::string from;
+		std::string by_name;
+		for (const Received &each : flowed[index]) {
+			if (!each.type.is_error()) {
+				from += (from.empty() ? "" : ", ") + each.type.to_string() + " (" + where(each.at) + ")";
+			}
+			if (each.by_name && !each.type.is_error()) {
+				by_name += (by_name.empty() ? "" : ", ") + where(each.at);
+			}
+		}
+		const auto refusal = refusals.find(slot.key);
+		if (refusal != refusals.end()) {
+			note(slot.key, "\"" + slot.name + "\" is left without a type: " + refusal->second + "." + (from.empty() ? " Nothing flows into it." : " It receives " + from + "."));
+			r_result.withdrawn++;
+		} else if (!by_name.empty()) {
+			note(slot.key, "The type of \"" + slot.name + "\", " + written.at(slot.key) + ", rests on calls by name: " + by_name + ".");
+			r_result.by_name++;
+		}
+		bool numbers = false;
+		merged(flowed[index], classes, p_engine, numbers);
+		r_result.numbers += numbers;
+	}
+	r_result.typed = int(written.size());
+}
+
 Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const std::set<std::string> &p_files, int p_rounds) {
 	Migrated project(p_project, p_files);
+	Migration result;
+	infer(p_engine, project, p_rounds, result);
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
-	Migration result;
 	while (true) {
 		// The errors of the scripts and of the checks of the scenes, which find
 		// the fixes of connected methods too.
@@ -476,10 +969,8 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 		}
 		std::vector<std::pair<const Fix *, std::string>> fixes;
 		for (const Diagnostic &error : errors) {
-			const auto fix = std::find_if(error.fixes.begin(), error.fixes.end(), [](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap; });
-			const bool inside = fix != error.fixes.end() && std::all_of(fix->edits.begin(), fix->edits.end(), [&](const Fix::Edit &p_edit) { return project.texts.count(p_edit.file.empty() ? error.file : p_edit.file) > 0; });
-			if (inside) {
-				fixes.emplace_back(&*fix, error.file);
+			if (const Fix *fix = loop_fix(error, project)) {
+				fixes.emplace_back(fix, error.file);
 			}
 		}
 		std::vector<const Fix *> applied;

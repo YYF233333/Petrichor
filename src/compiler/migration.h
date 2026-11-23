@@ -2,6 +2,7 @@
 
 #include "compiler/diagnostic.h"
 #include "compiler/project_api.h"
+#include "compiler/types.h"
 
 #include <map>
 #include <set>
@@ -11,19 +12,71 @@
 
 namespace petrichor::compiler {
 
+// What checks record of the slots without a type in a migration's files and
+// of the values that flow into them (architecture §6.6), given the types
+// tried for the slots. A slot is known by its file and the offset of its
+// name, its function's for what that returns.
+struct Inflows {
+	enum class Kind {
+		Parameter,
+		Return,
+		Member, // Or a static variable.
+		Local,
+		Signal, // A parameter of a signal.
+	};
+	using Key = std::pair<std::string, uint32_t>;
+	struct Slot {
+		Kind kind = Kind::Local;
+		std::string name;
+		// A parameter's function or signal, its index there, and how many
+		// arguments the function takes at least and at most, which a call by
+		// name meets.
+		std::string function;
+		int index = 0;
+		int least = 0;
+		int most = 0;
+		Key key;
+		std::string owner; // The class, but of a local.
+	};
+	// A value into a slot, at an offset of a file, or the arguments of a call by
+	// name, on a value whose class is not known to have the method.
+	struct Flow {
+		int slot = -1;
+		Type type;
+		Key at;
+	};
+	struct Call {
+		std::string name;
+		std::vector<Type> args;
+		std::vector<Key> at;
+	};
+	std::set<std::string> files;
+	std::map<Key, Type> tried;
+	std::vector<Slot> slots;
+	std::map<Key, int> found;
+	std::vector<Flow> flows;
+	std::vector<Call> calls;
+
+	// The slot's index, once found.
+	int slot(const Slot &p_slot);
+	// What is tried for it; Error for nothing yet.
+	Type type(int p_slot) const;
+};
+
 // The GDScript files that migrating those under `p_paths` (res://, the whole
 // project when none) takes (architecture §6.6). Their whole inheritance trees
 // come with them (spec §11.2), and the GDScript files that make a class-level
 // access to them that GDScript cannot make to a class of this language (spec
 // §11.3). The trees with a file with @tool are left out (spec §13.4), and
-// then a file that one left out accesses so, with its tree.
+// then a file that one left out accesses so, with its tree. So are the
+// script templates, the files under `p_templates`.
 struct MigrationSet {
 	std::set<std::string> files;
 	std::vector<std::pair<std::string, std::string>> added; // Each with why.
-	std::vector<std::pair<std::string, std::string>> left_out; // Each with why.
+	std::vector<std::pair<std::string, std::string>> left_out; // Each with why, by path.
 	std::vector<std::string> unknown; // Paths given without a GDScript file there.
 };
-MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_project, const std::vector<std::string> &p_paths);
+MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_project, const std::vector<std::string> &p_paths, const std::string &p_templates = std::string());
 
 // res://a.gd once migrated: res://a.pet.
 std::string migrated_path(const std::string &p_file);
@@ -74,20 +127,31 @@ public:
 	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
 };
 
-// What the loop of quick fixes and the check after it gave (architecture
-// §6.6): the texts, how many fixes of each kind were applied, in how many
-// rounds, and the errors left in the project, each naming its file.
+// What the inference, the loop of quick fixes and the check after it gave
+// (architecture §6.6): the texts; how many slots were typed, how many left
+// without a type, how many have types that rest on calls by name, and how
+// many received int and float; how many fixes of each kind were applied, in
+// how many rounds; and the errors left in the project, each naming its file.
+// The hints at the slots say why they have no type, with what they
+// received, or what calls by name gave their types.
 struct Migration {
 	std::map<std::string, std::string> texts;
+	int typed = 0;
+	int withdrawn = 0;
+	int by_name = 0;
+	int numbers = 0;
+	std::vector<Diagnostic> notes;
 	std::map<FixKind, int> fixes;
 	int rounds = 0;
 	bool settled = false;
 	std::vector<Diagnostic> errors;
 };
-// Checks the project with `p_files` migrated, in memory, and applies in each
-// round the fixes of the automatic kinds, Async and Unwrap, as fixing all of a
-// kind does, but not one that edits a file outside them; until a round
-// applies none, or after `p_rounds` rounds.
+// Checks the project with `p_files` migrated, in memory. It infers the types
+// of their slots without one, in at most `p_rounds` rounds of checks, and
+// writes them. Then it applies in each round the fixes of the automatic
+// kinds, Async and Unwrap, as fixing all of a kind does, but not one that
+// edits a file outside them; until a round applies none, or after
+// `p_rounds` rounds.
 Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const std::set<std::string> &p_files, int p_rounds);
 
 } // namespace petrichor::compiler

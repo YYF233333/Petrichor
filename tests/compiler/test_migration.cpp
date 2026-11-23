@@ -76,6 +76,20 @@ TEST_CASE("a migration of the whole project, and of a directory, takes every GDS
 	CHECK(compiler::migration_set(fake_engine(), project, { "res://a" }).files == std::set<std::string>{ "res://a/one.gd", "res://a/two.gd" });
 }
 
+TEST_CASE("a migration leaves out the script templates, from which the editor makes new scripts") {
+	FakeProject project;
+	project.add_script("res://templates/Node/greet.gd", "extends _BASE_\n");
+	project.add_script("res://main.gd", "extends Node\n");
+	const Pairs left_out = { { "res://templates/Node/greet.gd", "a script template, from which the editor makes new scripts" } };
+	const compiler::MigrationSet whole = compiler::migration_set(fake_engine(), project, {}, "res://templates");
+	CHECK(whole.files == std::set<std::string>{ "res://main.gd" });
+	CHECK(whole.left_out == left_out);
+	const compiler::MigrationSet asked = compiler::migration_set(fake_engine(), project, { "res://templates" }, "res://templates");
+	CHECK(asked.files.empty());
+	CHECK(asked.left_out == left_out);
+	CHECK(asked.unknown.empty());
+}
+
 TEST_CASE("the paths of files migrated are renamed in scripts and in scenes") {
 	const std::map<std::string, std::string> renamed = { { "res://lib/a.gd", "res://lib/a.pet" } };
 	int count = 0;
@@ -131,6 +145,66 @@ TEST_CASE("the loop of fixes applies the meaning-keeping ones until none is left
 	REQUIRE(migration.errors.size() == 1);
 	CHECK(migration.errors[0].file == "res://user.pet");
 	CHECK(contains(migration.errors[0].message, "help"));
+}
+
+TEST_CASE("a migration types each slot without a type by the values that flow into it") {
+	FakeProject project;
+	project.add_script("res://unit.gd", "class_name Unit\nextends Node\nsignal hit(amount)\nvar label = null\n\n\nfunc heal(amount, times = 2):\n\treturn amount * times\n\n\nfunc _ready() -> void:\n\tvar count\n\tcount = heal(3)\n\thit.emit(count)\n\tlabel = Label.new()\n", "Unit");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://unit.gd" }, 10);
+	CHECK(migration.texts.at("res://unit.pet") == "class_name Unit\nextends Node\nsignal hit(amount: int)\nvar label: Label? = null\n\n\nfunc heal(amount: int, times: int = 2) -> int:\n\treturn amount * times\n\n\nfunc _ready() -> void:\n\tvar count: int\n\tcount = heal(3)\n\thit.emit(count)\n\tlabel = Label.new()\n");
+	CHECK(migration.typed == 6);
+	CHECK(migration.errors.empty());
+}
+
+TEST_CASE("a migration merges what flows into a slot: classes to their nearest common base, None to T?, and the rest to Variant") {
+	FakeProject project;
+	project.add_script("res://ui.gd", "extends Node\n\n\nfunc show_it(control, tag, value):\n\tprint(control, tag, value)\n\n\nfunc _ready() -> void:\n\tshow_it(Label.new(), null, 1)\n\tshow_it(TextureRect.new(), \"b\", 2.5)\n\tvar named\n\tnamed = \"x\"\n\tnamed = &\"y\"\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://ui.gd" }, 10);
+	CHECK(migration.texts.at("res://ui.pet") == "extends Node\n\n\nfunc show_it(control: Control, tag: String?, value: Variant):\n\tprint(control, tag, value)\n\n\nfunc _ready() -> void:\n\tshow_it(Label.new(), null, 1)\n\tshow_it(TextureRect.new(), \"b\", 2.5)\n\tvar named: Variant\n\tnamed = \"x\"\n\tnamed = &\"y\"\n");
+	CHECK(migration.numbers == 1);
+	CHECK(migration.errors.empty());
+}
+
+TEST_CASE("a value of one slot flows into another, and a slot that nothing flows into tries Variant") {
+	FakeProject project;
+	project.add_script("res://a.gd", "class_name A\nextends Node\n\n\nfunc first(x):\n\treturn B.second(x)\n\n\nfunc _ready() -> void:\n\tfirst(Vector2.ZERO)\n\tprint(B.unused(null))\n", "A");
+	project.add_script("res://b.gd", "class_name B\nextends Node\n\n\nstatic func second(y):\n\treturn y\n\n\nstatic func unused(z):\n\treturn z\n", "B");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://a.gd", "res://b.gd" }, 10);
+	CHECK(migration.texts.at("res://a.pet") == "class_name A\nextends Node\n\n\nfunc first(x: Vector2) -> Vector2:\n\treturn B.second(x)\n\n\nfunc _ready() -> void:\n\tfirst(Vector2.ZERO)\n\tprint(B.unused(null))\n");
+	CHECK(migration.texts.at("res://b.pet") == "class_name B\nextends Node\n\n\npub static func second(y: Vector2) -> Vector2:\n\treturn y\n\n\npub static func unused(z: Variant) -> Variant:\n\treturn z\n");
+	CHECK(migration.errors.empty());
+}
+
+TEST_CASE("a type that the check refuses is withdrawn, and the slot stays an error with what it received") {
+	FakeProject project;
+	project.add_script("res://c.gd", "extends Node\n\n\nfunc twice(x):\n\treturn x + x\n\n\nfunc _ready() -> void:\n\tprint(twice(1), twice(\"a\"))\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://c.gd" }, 10);
+	CHECK(migration.texts.at("res://c.pet") == "extends Node\n\n\nfunc twice(x) -> Variant:\n\treturn x + x\n\n\nfunc _ready() -> void:\n\tprint(twice(1), twice(\"a\"))\n");
+	CHECK(migration.withdrawn == 1);
+	REQUIRE(migration.notes.size() == 1);
+	CHECK(migration.notes[0].line == 4);
+	CHECK(migration.notes[0].message == "\"x\" is left without a type: Variant does not check. It receives int (res://c.pet:9), String (res://c.pet:9).");
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(contains(migration.errors[0].message, "\"x\" needs a type"));
+}
+
+TEST_CASE("a call by name flows into every function so named, and the report marks the type it gives") {
+	FakeProject project;
+	project.add_script("res://enemy.gd", "extends Node\n\n\nfunc take_damage(amount):\n\tprint(amount)\n");
+	project.add_script("res://bullet.gd", "extends Node\n\n\nfunc hit(body: Node) -> void:\n\tbody.take_damage(5)\n\n\nfunc graze(body: Node?) -> void:\n\tbody.take_damage(1)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://enemy.gd", "res://bullet.gd" }, 10);
+	CHECK(migration.texts.at("res://enemy.pet") == "extends Node\n\n\nfunc take_damage(amount: int):\n\tprint(amount)\n");
+	CHECK(migration.by_name == 1);
+	REQUIRE(migration.notes.size() == 1);
+	CHECK(migration.notes[0].message == "The type of \"amount\", int, rests on calls by name: res://bullet.pet:5, res://bullet.pet:9.");
+}
+
+TEST_CASE("a signal connected to a method flows into its parameters, as do the arguments bound to it") {
+	FakeProject project;
+	project.add_script("res://score.gd", "extends Node\nsignal scored(points: int)\n\n\nfunc _ready() -> void:\n\tscored.connect(_on_scored)\n\tscored.connect(_on_scored_by.bind(\"me\"))\n\n\nfunc _on_scored(points):\n\tprint(points)\n\n\nfunc _on_scored_by(points, who):\n\tprint(points, who)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://score.gd" }, 10);
+	CHECK(migration.texts.at("res://score.pet") == "extends Node\nsignal scored(points: int)\n\n\nfunc _ready() -> void:\n\tscored.connect(_on_scored)\n\tscored.connect(_on_scored_by.bind(\"me\"))\n\n\nfunc _on_scored(points: int):\n\tprint(points)\n\n\nfunc _on_scored_by(points: int, who: String):\n\tprint(points, who)\n");
+	CHECK(migration.errors.empty());
 }
 
 TEST_CASE("the loop of fixes stops after its rounds") {
