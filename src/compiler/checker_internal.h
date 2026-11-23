@@ -498,11 +498,12 @@ class Checker : public ClassRelation {
 		const size_t flows;
 		const size_t calls;
 		const size_t unfit;
+		const size_t kept;
 		bool ended = false;
 
 	public:
 		explicit Tentative(Checker &r_checker) :
-				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at), flows(r_checker.options.inflows ? r_checker.options.inflows->flows.size() : 0), calls(r_checker.options.inflows ? r_checker.options.inflows->calls.size() : 0), unfit(r_checker.options.inflows ? r_checker.options.inflows->unfit.size() : 0) {}
+				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at), flows(r_checker.options.inflows ? r_checker.options.inflows->flows.size() : 0), calls(r_checker.options.inflows ? r_checker.options.inflows->calls.size() : 0), unfit(r_checker.options.inflows ? r_checker.options.inflows->unfit.size() : 0), kept(r_checker.options.inflows ? r_checker.options.inflows->kept.size() : 0) {}
 		~Tentative() { end(false); }
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
@@ -531,6 +532,7 @@ class Checker : public ClassRelation {
 					checker.options.inflows->flows.resize(flows);
 					checker.options.inflows->calls.resize(calls);
 					checker.options.inflows->unfit.resize(unfit);
+					checker.options.inflows->kept.resize(kept);
 				}
 				checker.hint_at = hint_at;
 			}
@@ -755,6 +757,8 @@ class Checker : public ClassRelation {
 
 	int untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token);
 	int found_slot(uint32_t p_name_token) const;
+	void keep(const Expr &p_value);
+	void keep_numbers(TokenKind p_op, const Expr &p_left, const Type &p_left_type, const Expr &p_right, const Type &p_right_type);
 	static Inflows::Slot parameter_slot(const FuncDecl &p_function, size_t p_index);
 	Type tried(int p_slot) const;
 	void flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflows::Part p_part = Inflows::Part::Whole);

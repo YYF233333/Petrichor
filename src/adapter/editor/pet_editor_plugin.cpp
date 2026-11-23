@@ -1651,7 +1651,7 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 		output += std::to_string(migration.typed) + " × Write the type\n";
 	}
 	if (migration.numbers > 0) {
-		output += std::to_string(migration.numbers) + " slot(s) received both int and float.\n";
+		output += std::to_string(migration.numbers) + " slot(s) received both int and float, which a use tells apart.\n";
 	}
 	for (const compiler::Diagnostic &note : migration.notes) {
 		output += diagnostic_line(note) + "\n";

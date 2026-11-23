@@ -54,6 +54,7 @@ struct Inflows {
 		Type type;
 		Key at;
 		Part part = Part::Whole;
+		uint32_t last = 0; // Where the value's last token is.
 	};
 	struct Call {
 		std::string name;
@@ -81,6 +82,10 @@ struct Inflows {
 	// Members typed from the scenes that another file read without their
 	// types, which the next round takes as slots.
 	std::vector<Slot> unknown;
+	// The reads of variables that give for an int what the same float
+	// gives: beside a float in arithmetic, compared, or where a float is
+	// expected. Each by where its name is, with where it begins.
+	std::vector<std::pair<Key, uint32_t>> kept;
 
 	// The slot's index, once found.
 	int slot(const Slot &p_slot);
@@ -155,8 +160,9 @@ public:
 // What the inference, the loop of quick fixes and the check after it gave
 // (architecture §6.6): the texts; how many slots were typed, how many left
 // without a type, how many have types that rest on calls by name, and how
-// many received int and float; how many fixes of each kind were applied, in
-// how many rounds; and the errors left in the project, each naming its file.
+// many received int and float, which a use tells apart; how many fixes of
+// each kind were applied, in how many rounds; and the errors left in the
+// project, each naming its file.
 // The hints at the slots say why they have no type, with what they
 // received, or what calls by name gave their types.
 struct Migration {

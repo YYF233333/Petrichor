@@ -609,8 +609,9 @@ std::vector<Type> lineage(const Type &p_class, ScriptClasses &r_classes, const E
 // What the types received merge into (architecture §6.6): the one type, as
 // T? with None; the nearest common base of classes; an untyped Array or
 // Dictionary for containers of one kind; otherwise Variant. Nullopt when no
-// type is known. `r_numbers` tells int and float, which are not merged.
-std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasses &r_classes, const EngineApi &p_engine, bool &r_numbers) {
+// type is known. `r_numbers` tells int and float, which merge into float
+// only with `p_floats`.
+std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasses &r_classes, const EngineApi &p_engine, bool &r_numbers, bool p_floats = false) {
 	r_numbers = false;
 	bool none = false;
 	std::vector<Type> types;
@@ -657,6 +658,7 @@ std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasse
 		result = Type::builtin("Dictionary");
 	} else {
 		r_numbers = types.size() == 2 && all([](const Type &p_type) { return p_type.is_numeric(); });
+		result = r_numbers && p_floats ? Type::of(TypeKind::Float) : result;
 	}
 	return none && result.kind != TypeKind::Variant ? optional_of(result) : result;
 }
@@ -720,16 +722,25 @@ struct Place {
 	std::vector<std::pair<uint32_t, uint32_t>> bare;
 };
 
-void bare_returns(const Block &p_block, const SourceFile &p_source, std::vector<std::pair<uint32_t, uint32_t>> &r_found) {
+// Each statement of the block, and of the blocks in it.
+void each_statement(const Block &p_block, const std::function<void(const Stmt &)> &p_visit) {
 	for (const std::unique_ptr<Stmt> &stmt : p_block) {
-		if (stmt->kind == StmtKind::Return && !stmt->value) {
-			r_found.emplace_back(p_source.begin(stmt->range), p_source.end(stmt->range));
-		}
-		bare_returns(stmt->body, p_source, r_found);
-		bare_returns(stmt->else_body, p_source, r_found);
+		p_visit(*stmt);
+		each_statement(stmt->body, p_visit);
+		each_statement(stmt->else_body, p_visit);
 		for (const MatchBranch &branch : stmt->branches) {
-			bare_returns(branch.body, p_source, r_found);
+			each_statement(branch.body, p_visit);
 		}
+	}
+}
+
+// Each statement of the functions of the class and of its inner classes.
+void each_statement(const ClassDecl &p_class, const std::function<void(const Stmt &)> &p_visit) {
+	for (const FuncDecl &function : p_class.functions) {
+		each_statement(function.body, p_visit);
+	}
+	for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+		each_statement(*inner, p_visit);
 	}
 }
 
@@ -767,7 +778,11 @@ std::map<Inflows::Key, Place> places(const std::string &p_file, const std::strin
 					break;
 				}
 			}
-			bare_returns(function.body, *decl.source, place.bare);
+			each_statement(function.body, [&](const Stmt &p_stmt) {
+				if (p_stmt.kind == StmtKind::Return && !p_stmt.value) {
+					place.bare.emplace_back(decl.source->begin(p_stmt.range), decl.source->end(p_stmt.range));
+				}
+			});
 		}
 		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
 			p_self(*inner, p_self);
@@ -775,6 +790,82 @@ std::map<Inflows::Key, Place> places(const std::string &p_file, const std::strin
 	};
 	functions(decl, functions);
 	return found;
+}
+
+// The reads of locals and members that a check found, each by where its name
+// is, to tell whether an int joins a float (architecture §6.6).
+struct Uses {
+	std::set<Inflows::Key> kept; // Of those that give for an int what the same float gives.
+	std::set<Inflows::Key> written; // As the targets of assignments with =.
+	std::map<Inflows::Key, Inflows::Key> initializes; // The whole initializer of a local without a type, to it.
+	std::map<Inflows::Key, std::vector<Inflows::Key>> of_local;
+	std::map<std::pair<std::string, std::string>, std::vector<Inflows::Key>> of_member; // By class and name.
+};
+
+Uses uses_of(const std::map<std::string, CompileResult> &p_results, const Inflows &p_inflows, const ProjectApi &p_project) {
+	Uses found;
+	// A read that flows into a slot whose type the check tried keeps nothing.
+	std::set<std::tuple<std::string, uint32_t, uint32_t>> flowed;
+	for (const Inflows::Flow &flow : p_inflows.flows) {
+		flowed.emplace(flow.at.first, flow.at.second, flow.last);
+	}
+	for (const auto &[name, begin] : p_inflows.kept) {
+		if (!flowed.count({ name.first, begin, name.second })) {
+			found.kept.insert(name);
+		}
+	}
+	for (const auto &[path, result] : p_results) {
+		std::vector<Diagnostic> ignored;
+		const ClassDecl decl = parse(p_project.script_source(path).value_or(std::string()), ignored);
+		const auto at = [&](uint32_t p_token) { return Inflows::Key(path, decl.source->tokens[p_token].offset); };
+		each_statement(decl, [&](const Stmt &p_stmt) {
+			const Expr *read = p_stmt.kind == StmtKind::Assign ? p_stmt.target.get() : p_stmt.value.get();
+			if (!read || (read->kind != ExprKind::Name && read->kind != ExprKind::Member)) {
+				return;
+			}
+			if (p_stmt.kind == StmtKind::Assign && p_stmt.assign_op == TokenKind::Equal) {
+				found.written.insert(at(read->name_token));
+			} else if (p_stmt.kind == StmtKind::Var && !p_stmt.declared_type) {
+				found.initializes[at(read->name_token)] = at(p_stmt.name_token);
+			}
+		});
+		for (const Reference &reference : result.references) {
+			const DeclId &target = reference.target;
+			if (reference.declares || !reference.scene.empty()) {
+				continue;
+			}
+			if (target.kind == DeclId::Kind::Local && !target.name.empty()) {
+				const Inflows::Key local = { script_file(target.scope), uint32_t(std::stoul(target.name)) };
+				const auto base = p_inflows.shared.find(local);
+				found.of_local[base == p_inflows.shared.end() ? local : base->second].emplace_back(path, reference.begin);
+			} else if (target.kind == DeclId::Kind::Script) {
+				found.of_member[{ target.scope, target.name }].emplace_back(path, reference.begin);
+			}
+		}
+	}
+	return found;
+}
+
+// Whether an int joins a float in the slot (architecture §6.6): each read of
+// it gives for an int what the same float gives, or initializes a local whose
+// reads do. Those of a parameter or a local are in its function; those of a
+// member, in every file.
+bool joins(const Inflows::Slot &p_slot, Uses &r_uses) {
+	const bool followed = p_slot.kind == Inflows::Kind::Parameter || p_slot.kind == Inflows::Kind::Local || p_slot.kind == Inflows::Kind::Member;
+	if (!followed || !p_slot.container.empty()) {
+		return false;
+	}
+	std::set<Inflows::Key> seen;
+	const auto kept = [&](const std::vector<Inflows::Key> &p_reads, const auto &p_self) -> bool {
+		return std::all_of(p_reads.begin(), p_reads.end(), [&](const Inflows::Key &p_read) {
+			const auto local = r_uses.initializes.find(p_read);
+			if (r_uses.kept.count(p_read) || r_uses.written.count(p_read)) {
+				return true;
+			}
+			return local != r_uses.initializes.end() && (!seen.insert(local->second).second || p_self(r_uses.of_local[local->second], p_self));
+		});
+	};
+	return kept(p_slot.kind == Inflows::Kind::Member ? r_uses.of_member[{ p_slot.owner, p_slot.name }] : r_uses.of_local[p_slot.key], kept);
 }
 
 } // namespace
@@ -792,7 +883,8 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	ScriptClasses classes(p_engine, &r_project);
 	// What the check reports already, which no type causes.
 	std::set<std::tuple<std::string, uint32_t, std::string>> reported;
-	for (const auto &[path, result] : checked_with(p_engine, r_project, inflows)) {
+	std::map<std::string, CompileResult> results = checked_with(p_engine, r_project, inflows);
+	for (const auto &[path, result] : results) {
 		for (const Diagnostic &error : result.errors) {
 			reported.emplace(path, error.begin, error.message);
 		}
@@ -829,12 +921,27 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 				break;
 			}
 			inflows.tried = std::move(next);
-			checked_with(p_engine, r_project, inflows);
+			results = checked_with(p_engine, r_project, inflows);
 		}
 	}
 	const std::vector<std::vector<Received>> flowed = received(inflows);
 	const std::vector<Inflows::Slot> slots = inflows.slots;
-	const std::map<Inflows::Key, Type> tried = inflows.tried;
+	std::map<Inflows::Key, Type> tried = inflows.tried;
+	// The slots that received int and float tried Variant, so the reads beside
+	// a float that the last check found are beside floats in GDScript too.
+	std::optional<Uses> uses;
+	for (size_t i = 0; i < slots.size(); i++) {
+		bool numbers = false;
+		merge(slots[i], flowed[i], numbers);
+		if (numbers && !uses) {
+			uses = uses_of(results, inflows, r_project);
+		}
+		if (numbers && joins(slots[i], *uses)) {
+			tried[slots[i].key] = *merged(flowed[i], classes, p_engine, numbers, true);
+		} else {
+			r_result.numbers += numbers;
+		}
+	}
 
 	// A place in a file as the report names it, with its line.
 	const std::map<std::string, std::string> original = r_project.texts;
@@ -938,37 +1045,20 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			}
 			return { uint32_t(p_offset - shift), std::nullopt };
 		};
-		const std::map<std::string, CompileResult> results = checked_with(p_engine, r_project, check);
+		const std::map<std::string, CompileResult> checked = checked_with(p_engine, r_project, check);
 		// The locals typed by a value, by where each is declared in the text
 		// written, with where the value is.
 		using Range = Inflows::Range;
 		std::map<Inflows::Key, Range> typed_by;
-		for (const auto &[path, result] : results) {
+		for (const auto &[path, result] : checked) {
 			std::vector<Diagnostic> ignored;
 			const ClassDecl decl = parse(r_project.script_source(path).value_or(std::string()), ignored);
 			const SourceFile &source = *decl.source;
-			const auto range = [&](const Expr &p_expr) { return Range(source.begin(p_expr.range), source.end(p_expr.range)); };
-			const auto block = [&](const Block &p_block, const auto &p_self) -> void {
-				for (const std::unique_ptr<Stmt> &stmt : p_block) {
-					if ((stmt->kind == StmtKind::Var || stmt->kind == StmtKind::For) && !stmt->declared_type && stmt->value) {
-						typed_by[{ path, source.tokens[stmt->name_token].offset }] = range(*stmt->value);
-					}
-					p_self(stmt->body, p_self);
-					p_self(stmt->else_body, p_self);
-					for (const MatchBranch &branch : stmt->branches) {
-						p_self(branch.body, p_self);
-					}
+			each_statement(decl, [&](const Stmt &p_stmt) {
+				if ((p_stmt.kind == StmtKind::Var || p_stmt.kind == StmtKind::For) && !p_stmt.declared_type && p_stmt.value) {
+					typed_by[{ path, source.tokens[p_stmt.name_token].offset }] = Range(source.begin(p_stmt.value->range), source.end(p_stmt.value->range));
 				}
-			};
-			const auto functions = [&](const ClassDecl &p_class, const auto &p_self) -> void {
-				for (const FuncDecl &function : p_class.functions) {
-					block(function.body, block);
-				}
-				for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
-					p_self(*inner, p_self);
-				}
-			};
-			functions(decl, functions);
+			});
 		}
 		// The slots whose types an error between the offsets is about: those
 		// it names, and those that the values of the locals it names do.
@@ -997,7 +1087,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			}
 		};
 		std::set<Inflows::Key> refused;
-		for (const auto &[path, result] : results) {
+		for (const auto &[path, result] : checked) {
 			for (const Diagnostic &error : result.errors) {
 				const auto [begin, inside] = original_at(path, error.begin);
 				if (loop_fix(error, r_project) || reported.count({ path, begin, error.message })) {
@@ -1055,9 +1145,6 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			note(slot.key, "The type of \"" + slot.name + "\", " + written.at(slot.key) + ", rests on calls by name: " + by_name + ".");
 			r_result.by_name++;
 		}
-		bool numbers = false;
-		merge(slot, flowed[index], numbers);
-		r_result.numbers += numbers;
 	}
 	r_result.typed = int(written.size());
 }

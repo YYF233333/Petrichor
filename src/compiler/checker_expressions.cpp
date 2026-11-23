@@ -355,6 +355,7 @@ Type Checker::check_binary(Expr &r_expr) {
 		// with (spec §3.5).
 		right = check_value(*r_expr.right, left.is_result() ? left : Type::of(TypeKind::Error));
 	}
+	keep_numbers(r_expr.op, *r_expr.left, left, *r_expr.right, right);
 	Type compared = Type::of(TypeKind::Error);
 	const Type type = binary_type(r_expr.op, left, right, r_expr.range, &compared);
 	const bool variant = compared.kind == TypeKind::Variant;
@@ -1849,6 +1850,9 @@ std::string Checker::callable_refusal(const Type &p_function) const {
 // `p_written` is the type of where the value goes, as written in this file
 // for a variable or a parameter.
 void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written) {
+	if (p_to.kind == TypeKind::Float) {
+		keep(p_value);
+	}
 	if (assignable(p_from, p_to)) {
 		expect_implemented(p_value, p_from, p_to);
 		expect_scene_fits(p_value, p_to);

@@ -21,9 +21,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 41 s for tanks-of-freedom-ii with its assets. Its 661 scenes load 6,951 files one scene at a time, 944 of them distinct. Without the assets, as in the sparse corpus clone, each missing file is a failing load, and the check takes 136 to 195 s.
-  - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left, in order:
-    - the check that lets an `int` join a `float`;
-    - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
+  - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left: the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).
@@ -151,7 +149,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Enums and members are listed on their class's page.
 - The two-way migration tool (spec §1.2, §13.4), planned for 0.3.
   - Its design is in architecture §6.6. It infers missing types over the whole project, from what flows into each slot.
-    - The check that lets an `int` join a `float` is its own batch after the inference. An engine test runs each operation of its list with `3` and `3.0` and compares the results. The tool counts the slots that the check leaves.
     - Measure the inferred share on the corpus as each step lands.
     - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
     - The inference types 1347 of tanks-of-freedom-ii's 2266 slots, and its errors fall from 5971 to 3461. Of the slots left without a type, 769 got types that do not check, mostly `Variant`.

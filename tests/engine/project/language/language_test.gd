@@ -961,6 +961,8 @@ func _ready() -> void:
 	Resource.new().set_script(action_script)
 	_check_errors(["Cannot set object script. Script 'res://language/abstract_action.pet' should not be abstract."], "the engine gives no object an abstract script")
 
+	_check(var_to_str(_number_uses(3)) == var_to_str(_number_uses(3.0)), "the uses after which a migration lets an int join a float give for 3 what they give for 3.0 (architecture §6.6)")
+
 	_gdscript_static_view()
 	_struct_exports()
 
@@ -1007,6 +1009,34 @@ g.free()"""), "a typed use of the class compiles, and awaits an async method, wh
 	# typed String fails.
 	_check(not _compiles("var r = await TypedGreeter.new().greet()"), "awaiting a typed result is a redundant await")
 	_check_errors(["Parse Error: \"await\" keyword is unnecessary because the expression isn't a coroutine nor a signal. (Warning treated as error.)"], "GDScript reports the redundant await")
+
+
+# Architecture §6.6: the uses of a value that GDScript holds as an int or a
+# float, after which a migration writes its slot float.
+func _number_uses(x) -> Array:
+	var sum := 0.5
+	sum += x
+	var difference := 0.5
+	difference -= x
+	var product := 0.5
+	product *= x
+	var quotient := 0.5
+	quotient /= x
+	var typed: float = x
+	return [
+		x + 0.5, 0.5 + x, x - 0.5, 0.5 - x, x * 0.5, 0.5 * x, x / 0.5, 0.5 / x, x ** 0.5, 0.5 ** x,
+		sum, difference, product, quotient,
+		x == 3, x != 3, x < 4, x > 2, x <= 3, x >= 3, x == 3.0, x < 3.5, 3 == x, 2.5 < x,
+		_float_of(x), sin(x), Vector2(x, 0), typed, _returned(x),
+	]
+
+
+func _float_of(value: float) -> float:
+	return value
+
+
+func _returned(value) -> float:
+	return value
 
 
 func _compiles(body: String) -> bool:

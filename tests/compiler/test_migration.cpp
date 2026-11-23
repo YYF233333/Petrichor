@@ -175,6 +175,24 @@ TEST_CASE("a value of one slot flows into another, and a slot that nothing flows
 	CHECK(migration.errors.empty());
 }
 
+TEST_CASE("an int joins a float where each read of the slot gives for an int what the same float gives") {
+	FakeProject project;
+	project.add_script("res://h.gd", "extends Node\nvar total := 0.0\n\n\nfunc add(amount, times):\n\ttotal += amount\n\tvar scaled = amount\n\tif scaled > 1:\n\t\ttotal -= scaled * 0.5\n\tmatch times:\n\t\t2:\n\t\t\ttotal += 1\n\n\nfunc _ready() -> void:\n\tadd(1, 2)\n\tadd(1.5, 2.5)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://h.gd" }, 10);
+	CHECK(migration.texts.at("res://h.pet") == "extends Node\nvar total := 0.0\n\n\nfunc add(amount: float, times: Variant):\n\ttotal += amount\n\tvar scaled = amount\n\tif scaled > 1:\n\t\ttotal -= scaled * 0.5\n\tmatch times:\n\t\t2:\n\t\t\ttotal += 1\n\n\nfunc _ready() -> void:\n\tadd(1, 2)\n\tadd(1.5, 2.5)\n");
+	CHECK(migration.numbers == 1);
+}
+
+TEST_CASE("an int joins a float in a member by its reads in every file, but not one that flows on into a slot") {
+	FakeProject project;
+	project.add_script("res://meter.gd", "class_name Meter\nextends Node\nvar level\nvar peak\n\n\nfunc _ready() -> void:\n\tlevel = 1\n\tlevel = 0.5\n\tpeak = 2\n\tpeak = 2.5\n\tshow_it(peak)\n\n\nfunc show_it(value):\n\tprint(value)\n", "Meter");
+	project.add_script("res://gauge.gd", "extends Node\n\n\nfunc read(meter: Meter) -> float:\n\treturn meter.level * 2.0\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://meter.gd", "res://gauge.gd" }, 10);
+	CHECK(migration.texts.at("res://meter.pet") == "class_name Meter\nextends Node\npub var level: float\nvar peak: Variant\n\n\nfunc _ready() -> void:\n\tlevel = 1\n\tlevel = 0.5\n\tpeak = 2\n\tpeak = 2.5\n\tshow_it(peak)\n\n\nfunc show_it(value: Variant):\n\tprint(value)\n");
+	CHECK(migration.numbers == 1);
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a type that the check refuses is withdrawn, and the slot stays an error with what it received") {
 	FakeProject project;
 	project.add_script("res://c.gd", "extends Node\n\n\nfunc twice(x):\n\treturn x + x\n\n\nfunc _ready() -> void:\n\tprint(twice(1), twice(\"a\"))\n");

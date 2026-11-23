@@ -36,7 +36,29 @@ Type Checker::tried(int p_slot) const {
 
 void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflows::Part p_part) {
 	if (p_slot >= 0 && options.inflows) {
-		options.inflows->flows.push_back({ p_slot, p_type, { script_file(options.path), cls.source->begin(p_at) }, p_part });
+		options.inflows->flows.push_back({ p_slot, p_type, { script_file(options.path), cls.source->begin(p_at) }, p_part, cls.source->tokens[p_at.last].offset });
+	}
+}
+
+// A use of the value that gives for an int what the same float gives
+// (architecture §6.6), when the value reads a variable named in the source.
+void Checker::keep(const Expr &p_value) {
+	const bool read = p_value.kind == ExprKind::Name || p_value.kind == ExprKind::Member;
+	if (options.inflows && read && p_value.name_token < cls.source->tokens.size()) {
+		options.inflows->kept.push_back({ { script_file(options.path), cls.source->tokens[p_value.name_token].offset }, cls.source->begin(p_value.range) });
+	}
+}
+
+// Of the operands of a binary operation: both of a comparison, and one
+// beside a float in arithmetic.
+void Checker::keep_numbers(TokenKind p_op, const Expr &p_left, const Type &p_left_type, const Expr &p_right, const Type &p_right_type) {
+	const bool compared = p_op == TokenKind::EqualEqual || p_op == TokenKind::BangEqual || p_op == TokenKind::Less || p_op == TokenKind::LessEqual || p_op == TokenKind::Greater || p_op == TokenKind::GreaterEqual;
+	const bool arithmetic = p_op == TokenKind::Plus || p_op == TokenKind::Minus || p_op == TokenKind::Star || p_op == TokenKind::Slash || p_op == TokenKind::StarStar;
+	if (compared || (arithmetic && p_right_type.kind == TypeKind::Float)) {
+		keep(p_left);
+	}
+	if (compared || (arithmetic && p_left_type.kind == TypeKind::Float)) {
+		keep(p_right);
 	}
 }
 

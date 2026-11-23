@@ -752,6 +752,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			Type value = check_value(*r_stmt.value, formats ? Type::builtin("Array") : (compound ? Type::of(TypeKind::Error) : target_type));
 			const bool place = !target_type.is_error() && check_place(target);
 			if (compound && place) {
+				keep_numbers(compound_operator(r_stmt.assign_op), target, read_type, *r_stmt.value, value);
 				value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.range);
 				r_stmt.compound_result = value;
 			}
