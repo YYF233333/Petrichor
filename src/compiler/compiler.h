@@ -7,7 +7,9 @@
 #include "compiler/references.h"
 
 #include <algorithm>
+#include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace petrichor::compiler {
@@ -95,9 +97,16 @@ CompileResult compile(const std::string &p_source, const EngineApi &p_engine, co
 // §2.4).
 uint64_t compiler_id();
 
+// The edits of the fixes of `p_fixes` that apply together, by file, each
+// fix's edits without one in the file given with it: each fix unless an edit
+// of it overlaps or starts where one of a fix before it does, which fixing
+// again finds. A fix that another offered already is applied once.
+// `r_applied` gets those applied.
+std::map<std::string, std::vector<CheckedEdit>> fixed_together(const std::vector<std::pair<const Fix *, std::string>> &p_fixes, std::vector<const Fix *> &r_applied);
+
 // The edits that fix all of an automatic kind in the file compiled
 // (architecture §2.1), in order: of each fix of the kind that edits only
-// that file, unless it overlaps one before it, which fixing again finds.
+// that file, applied together (fixed_together()).
 std::vector<CheckedEdit> fix_all(const CompileResult &p_result, FixKind p_kind);
 
 } // namespace petrichor::compiler
