@@ -832,6 +832,8 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			written[slot.key] = text;
 		} else if (found != tried.end()) {
 			refusals[slot.key] = found->second.to_string() + " has no name here";
+		} else {
+			refusals[slot.key] = "the types tried still changed after " + std::to_string(p_rounds) + " rounds";
 		}
 	}
 	Inflows check;
@@ -932,7 +934,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		if (refusal != refusals.end()) {
 			note(slot.key, "\"" + slot.name + "\" is left without a type: " + refusal->second + "." + (from.empty() ? " Nothing flows into it." : " It receives " + from + "."));
 			r_result.withdrawn++;
-		} else if (!by_name.empty()) {
+		} else if (!by_name.empty() && written.count(slot.key)) {
 			note(slot.key, "The type of \"" + slot.name + "\", " + written.at(slot.key) + ", rests on calls by name: " + by_name + ".");
 			r_result.by_name++;
 		}

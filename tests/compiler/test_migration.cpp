@@ -207,11 +207,14 @@ TEST_CASE("a signal connected to a method flows into its parameters, as do the a
 	CHECK(migration.errors.empty());
 }
 
-TEST_CASE("the loop of fixes stops after its rounds") {
+TEST_CASE("the inference and the loop of fixes stop after their rounds") {
 	FakeProject project;
-	project.add_script("res://unit.gd", "extends Node\n\n\nfunc wait() -> void:\n\tawait ready\n");
+	project.add_script("res://unit.gd", "extends Node\n\n\nfunc wait() -> void:\n\tawait ready\n\n\nfunc take(amount):\n\tprint(amount)\n\n\nfunc hit(body: Node) -> void:\n\tbody.take(1)\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://unit.gd" }, 0);
 	CHECK(!migration.settled);
 	CHECK(migration.rounds == 0);
-	CHECK(migration.errors.size() == 1);
+	CHECK(migration.typed == 0);
+	REQUIRE(migration.notes.size() == 1);
+	CHECK(migration.notes[0].message == "\"amount\" is left without a type: the types tried still changed after 0 rounds. It receives int (res://unit.pet:13).");
+	CHECK(migration.errors.size() == 3);
 }
