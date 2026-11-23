@@ -174,6 +174,15 @@ TEST_CASE("an override with an await is made async with the method it overrides,
 	CHECK(migration.errors[0].message == "await requires an async function and cannot appear in an initializer.");
 }
 
+TEST_CASE("a function with an await is made async though its parameter is left without a type") {
+	FakeProject project;
+	project.add_script("res://w.gd", "extends Node\n\n\nfunc later(x):\n\tawait ready\n\tprint(x + x)\n\n\nfunc _ready() -> void:\n\tlater(1)\n\tlater(\"a\")\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://w.gd" }, 10);
+	CHECK(migration.texts.at("res://w.pet") == "extends Node\n\n\nasync func later(x):\n\tawait ready\n\tprint(x + x)\n\n\nfunc _ready() -> void:\n\tlater(1).detach()\n\tlater(\"a\").detach()\n");
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].message == "Parameter \"x\" needs a type.");
+}
+
 TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null") {
 	FakeProject project;
 	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\nvar holder: RefCounted\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");
