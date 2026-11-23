@@ -1112,6 +1112,9 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
 - 检查之前，单引号和双引号中跨行的字符串改写为三引号，本语言只接受后者（规范 §2.2）。
   - GDScript 读出的值相同：两种写法走同一段代码，原文中也没有未转义的同种引号（`modules/gdscript/gdscript_tokenizer.cpp:873-878, 1064-1098`，`ed1daf0`）。
   - 反向转换保留三引号。
+- 给 String 的字符赋值（规范 §5.1）不改写，留作编译错误，其报错写明改法。
+  - GDScript 只取所赋值的第一个字符。下标越界时，它在调试构建中停止函数（`core/variant/variant_setget.cpp:785-809`，`modules/gdscript/gdscript_vm.cpp:1084-1098`，`ed1daf0`）。
+  - 改用 `erase` 和 `insert` 的写法在越界时照常运行，结果不同。corpus v1 只有一处这样赋值。
 - 集合：
   - 请求的路径，加上必须一起迁移的文件。它们是整棵继承树，和对它做类级访问的 GDScript 文件（规范 §11.2、§11.3）。
   - 继承树是 `extends` 连起来的所有文件。基类须先迁移，GDScript 子类又须一起迁移。
