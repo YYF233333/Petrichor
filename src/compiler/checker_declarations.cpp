@@ -904,7 +904,8 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 		// On the side that lacks it, as the base's other overrides then must.
 		fix(r_fn.is_pub ? pub_fix(declaring(*cls.base, p_base, &ClassDecl::functions).path, p_base.name_token) : pub_fix(options.path, r_fn.name_token));
 	}
-	if (compared && (r_fn.is_static != p_base.is_static || r_fn.is_async != p_base.is_async)) {
+	const bool base_async = p_base.is_async || (trying_async && r_fn.is_async);
+	if (compared && (r_fn.is_static != p_base.is_static || r_fn.is_async != base_async)) {
 		error(r_fn.name_token, "An override must preserve static and async.");
 		if (p_base.is_async && !r_fn.is_async && r_fn.is_static == p_base.is_static) {
 			fix_async(r_fn);

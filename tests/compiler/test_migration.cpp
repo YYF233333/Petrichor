@@ -156,6 +156,24 @@ TEST_CASE("the loop of fixes applies the meaning-keeping ones until none is left
 	CHECK(contains(migration.errors[0].message, "help"));
 }
 
+TEST_CASE("an override with an await is made async with the method it overrides, and so are the other overrides") {
+	FakeProject project;
+	project.add_script("res://state.gd", "class_name CardState\nextends Node\n\n\nfunc enter() -> void:\n\tpass\n\n\nfunc change() -> void:\n\tenter()\n", "CardState");
+	project.add_script("res://base_state.gd", "extends CardState\n\n\nfunc enter() -> void:\n\tawait ready\n");
+	project.add_script("res://drag_state.gd", "extends CardState\n\n\nfunc enter() -> void:\n\tprint(\"drag\")\n");
+	// An engine virtual method that returns a value cannot be async.
+	project.add_script("res://store.gd", "extends Node\n\n\nfunc _get(property):\n\treturn null\n");
+	project.add_script("res://slow_store.gd", "extends \"store.gd\"\n\n\nfunc _get(property):\n\tawait ready\n\treturn null\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://state.gd", "res://base_state.gd", "res://drag_state.gd", "res://store.gd", "res://slow_store.gd" }, 10);
+	CHECK(migration.texts.at("res://state.pet") == "class_name CardState\nextends Node\n\n\nasync func enter() -> void:\n\tpass\n\n\nfunc change() -> void:\n\tenter().detach()\n");
+	CHECK(migration.texts.at("res://base_state.pet") == "extends CardState\n\n\nasync func enter() -> void:\n\tawait ready\n");
+	CHECK(migration.texts.at("res://drag_state.pet") == "extends CardState\n\n\nasync func enter() -> void:\n\tprint(\"drag\")\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Detach, 1 }, { compiler::FixKind::Async, 2 } });
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].file == "res://slow_store.pet");
+	CHECK(migration.errors[0].message == "await requires an async function and cannot appear in an initializer.");
+}
+
 TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null") {
 	FakeProject project;
 	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\nvar holder: RefCounted\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");

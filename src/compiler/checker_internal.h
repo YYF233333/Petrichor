@@ -175,6 +175,9 @@ class Checker : public ClassRelation {
 	int loop_depth = 0;
 	bool in_predelete = false;
 	bool in_assert = false;
+	// fix_async() is checking a signature again, as async with the methods it
+	// overrides, which its fix makes async too.
+	bool trying_async = false;
 	// The interfaces this class's own `implements` names, with where.
 	std::vector<std::pair<Type, const TypeRef *>> own_interfaces;
 	// The member whose initializer is being checked: it and the members after

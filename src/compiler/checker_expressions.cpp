@@ -1362,30 +1362,58 @@ Type Checker::check_task_join(Expr &r_expr) {
 }
 
 // Gives the error reported last the fix that makes `r_function` async (spec
-// §9.1), as GDScript's with an await is a coroutine, where its signature
-// checks as async: as a method, or where the lambda goes. An accessor
-// cannot be async, and a stray block has no `func` to write it before.
+// §9.1), as GDScript's with an await is a coroutine: where the lambda goes,
+// or as a method whose signature then has no more errors than it has. An
+// override is made async with the methods it overrides, and the other
+// overrides then need the fix too (architecture §6.6). An accessor cannot be
+// async, and a stray block has no `func` to write it before.
 void Checker::fix_async(FuncDecl &r_function) {
 	const uint32_t keyword = r_function.is_lambda && r_function.name.empty() ? r_function.name_token : r_function.name_token - 1;
-	if (completion || !r_function.accessor_of.empty() || keyword >= cls.source->tokens.size() || cls.source->tokens[keyword].kind != TokenKind::Func) {
+	if (completion || trying_async || !r_function.accessor_of.empty() || keyword >= cls.source->tokens.size() || cls.source->tokens[keyword].kind != TokenKind::Func) {
 		return;
 	}
-	bool fits = false;
 	if (r_function.is_lambda) {
 		const Type &to = enclosing.back().expected;
-		fits = to.kind != TypeKind::Function || to.is_async;
-	} else {
-		const ClassScope scope(*this);
+		if (to.kind != TypeKind::Function || to.is_async) {
+			fix({ { { keyword, keyword }, "async func" } }, FixKind::Async);
+		}
+		return;
+	}
+	Fix async = writing({ { { keyword, keyword }, "async func" } }, FixKind::Async);
+	for (const ClassDecl *owner = r_function.name == "_init" ? nullptr : cls.base; owner;) {
+		const auto base = std::find_if(owner->all_functions.begin(), owner->all_functions.end(), [&](const FuncDecl *p_function) { return p_function->name == r_function.name; });
+		if (base == owner->all_functions.end()) {
+			break;
+		}
+		// An engine virtual method that returns a value cannot be async.
+		if ((*base)->is_override && (*base)->return_type.kind != TypeKind::Void) {
+			return;
+		}
+		const ClassDecl &declarer = declaring(*owner, **base, &ClassDecl::functions);
+		const Token &word = declarer.source->tokens[(*base)->name_token - 1];
+		if (!(*base)->is_async) {
+			if (word.kind != TokenKind::Func) {
+				return;
+			}
+			const std::string path = script_file(declarer.path);
+			async.edits.push_back({ in_this_file(path) ? std::string() : path, { word.offset, word.end(), word.text, "async func" } });
+		}
+		owner = declarer.base;
+	}
+	const ClassScope scope(*this);
+	trying_async = true;
+	const auto reported = [&](bool p_async) {
 		const Tentative tried(*this);
-		r_function.is_async = true;
+		const size_t before = errors.size();
+		r_function.is_async = p_async;
 		check_signature(r_function);
 		r_function.is_async = false;
-		fits = tried.clean() && std::none_of(cls.interface_methods.begin(), cls.interface_methods.end(), [&](const FuncDecl *p_method) {
-			return p_method->name == r_function.name && !p_method->is_async;
-		});
-	}
-	if (fits) {
-		fix({ { { keyword, keyword }, "async func" } }, FixKind::Async);
+		return errors.size() - before;
+	};
+	const bool fits = reported(true) <= reported(false);
+	trying_async = false;
+	if (fits && std::none_of(cls.interface_methods.begin(), cls.interface_methods.end(), [&](const FuncDecl *p_method) { return p_method->name == r_function.name && !p_method->is_async; })) {
+		fix(std::move(async));
 	}
 }
 
