@@ -166,6 +166,13 @@ Refactorings that remove code, taken in this order. The line counts are estimate
     - The inference solves the whole project at once. The tool runs once and writes the types down, so errors that move with distant code do no harm here. A design proposal comes first.
     - A slot's type comes from what flows into it: arguments, assigned values, returned values, defaults and what scenes store. How the slot is used does not choose the type. The compiler checks the written type, and a slot that fails stays without one, with its evidence.
     - A call by name, as `collider.damage(5)` on an Object, counts for every function of that name in the project. The report marks the types that rest on such calls.
+    - A slot that receives both `int` and `float` becomes `float` only when every use gives the same result for the int values. Otherwise it stays an error that offers both types.
+      - The uses that keep the result are a list: arithmetic with a float, a float parameter, a typed variable, a comparison. An operation not on the list counts as changing it.
+      - The first version follows the value through local variables of one function. A value that leaves it, as a result or into another untyped slot, counts as changed. The tool counts the slots this leaves.
+      - A member's reads are checked in every file.
+      - An engine test runs each listed operation with `3` and `3.0` and compares the results.
+      - Ints beyond 2^53 lose precision as floats, as when GDScript passes an int to a float parameter.
+    - It comes as its own batch after the inference itself.
     - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
   - Rewrites that those games need:
     - `$"/root/Name"` of an autoload becomes its name (102 uses);
