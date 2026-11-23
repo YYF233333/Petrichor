@@ -59,7 +59,7 @@ public:
 // The instance of this language on an object, for method values (runtime/method_callable.h).
 bool resolve_instance(GDExtensionObjectPtr p_object, ScriptedObject &r_instance);
 // The image of a script of this language, for static methods (runtime/method_callable.h).
-std::shared_ptr<const ClassImage> resolve_script(const godot::String &p_path);
+std::shared_ptr<const ClassImage> resolve_script(const godot::Variant &p_script);
 // The script of an inner class in a script, and the path of a script, for
 // classes named by their paths (runtime/values.h).
 godot::Variant resolve_inner_script(const godot::Variant &p_script, const godot::String &p_name);

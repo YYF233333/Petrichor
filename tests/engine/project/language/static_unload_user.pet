@@ -1,0 +1,11 @@
+extends RefCounted
+
+# Uses StaticUnload, which language_test.gd loads only through this script
+# (spec §4.8).
+
+
+pub func bump() -> String:
+	StaticUnload.count += 1
+	StaticUnload.label += "b"
+	StaticUnload.made()
+	return str(StaticUnload.count) + StaticUnload.label
