@@ -93,7 +93,7 @@ Variant PetResourceLoader::_load(const String &p_path, const String &p_original_
 		begin_loading(image);
 		vm::initialize_statics(image);
 		end_loading();
-		if (has_statics(*image) && !image->module.static_unload) {
+		if (has_statics(*image)) {
 			PetLanguage::get_singleton()->keep_loaded(script);
 		}
 	}

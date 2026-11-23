@@ -837,6 +837,9 @@ func _ready() -> void:
 	_check_errors(["static_cycle_b.pet:2: Static initialization cycle: StaticCycleA.x → StaticCycleB.y → StaticCycleA.x.", "static_cycle_a.pet:3: StaticCycleB.y cannot be used: the static initialization of StaticCycleB failed."], "a cycle between static initializations is a program error that lists it")
 	load("res://language/static_order.pet")
 	_check_errors(["static_order.pet:8: static_order.pet.b is used before its initializer runs: static variables are initialized in declaration order."], "a static variable used before its initializer runs is a program error")
+	var unload_user = load("res://language/static_unload_user.pet").new()
+	var bumps := [unload_user.bump(), unload_user.bump(), unload_user.bump()]
+	_check(bumps == ["1ab", "2abb", "3abbb"], "a class marked @static_unload stays loaded, with its static variables (spec §4.8): %s" % [bumps])
 
 	# Variant (spec §3.13), untyped containers (§3.8).
 	var variants := VariantCheck.new()

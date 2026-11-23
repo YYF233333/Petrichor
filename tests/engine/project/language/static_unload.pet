@@ -1,0 +1,8 @@
+@static_unload
+class_name StaticUnload extends RefCounted
+
+# Stays loaded with its static variables, as every class with them does
+# (spec §4.8). Only static_unload_user.pet names it.
+
+pub static var count := 0
+pub static var label := "a"

@@ -24,7 +24,7 @@ public:
 	bool reloads_refused = false;
 
 	// The scripts of classes with static variables stay loaded for the run,
-	// and the variables with them, unless @static_unload (spec §4.8).
+	// and the variables with them, also with @static_unload (spec §4.8).
 	void keep_loaded(const godot::Ref<godot::Script> &p_script);
 
 private:

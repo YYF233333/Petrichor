@@ -64,9 +64,8 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Runtime
 
-- Reading or writing a static variable of another class can touch freed storage. `static_variable()` returns a pointer into the image's `Statics`, while `owner`, the only reference to that image, ends with the call (`src/runtime/vm.cpp`). A `@static_unload` class that nothing else holds is freed before the copy and loaded again at each use. GDScript keeps a named class as a constant of the functions that use it (`modules/gdscript/gdscript_compiler.cpp:436-467`, `ed1daf0`). The spec does not say when such a class unloads.
 - A struct method taken as a value binds the class image of its creation (`src/runtime/method_callable.h`, `StructMethodCallable`). After a hot reload it still runs the old body, unlike spec §12.4.
-- An inner class that extends the class around it makes their images hold each other, through `base` and `inner_classes` (`src/runtime/class_image.h`). So the images are never freed, nor their static variables, even after the script unloads. Only the classes they hold are let go of at exit (`ClassImage::release_held_classes()`).
+- An inner class that extends the class around it makes their images hold each other, through `base` and `inner_classes` (`src/runtime/class_image.h`). So the images are never freed, nor their static variables, even after the script unloads.
 - Comparing and hashing a struct, a payload enum or `T??` uses the raw object id of a nested `T?` field. A freed object there does not compare equal to `None`, though it does at the top level (`src/runtime/values.cpp`).
 - A Task of another result type is described by its class alone, as in "expected CoroutineTask, found CoroutineTask".
 - Messages name an inner class by its path, as `res://a.pet::Plain`, where the script writes `A.Plain`.
