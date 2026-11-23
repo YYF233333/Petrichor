@@ -2197,7 +2197,7 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 	const bool check = std::find(p_args.begin(), p_args.end(), "--check") != p_args.end();
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
 	const PackedStringArray unsaved = EditorInterface::get_singleton()->get_script_editor()->get_unsaved_files();
-	int changed = 0;
+	int unformatted = 0;
 	int failed = 0;
 	std::set<std::string> written;
 	for (const String &path : paths) {
@@ -2211,8 +2211,8 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 		if (result && *result == source) {
 			continue;
 		}
-		changed += result.has_value();
 		if (result && check) {
+			unformatted++;
 			output += relative(file) + " is not formatted.\n";
 			continue;
 		}
@@ -2239,8 +2239,8 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 		reload_written(written);
 		scripts_saved(written);
 	}
-	output += to_utf8(vformat("petrichor format: %d script(s), %d %s, %d with errors", int(paths.size()), changed, check ? "not formatted" : "formatted", failed));
-	return std::make_pair(output, failed > 0 || (check && changed > 0) ? 1 : 0);
+	output += to_utf8(vformat("petrichor format: %d script(s), %d %s, %d with errors", int(paths.size()), check ? unformatted : int(written.size()), check ? "not formatted" : "formatted", failed));
+	return std::make_pair(output, failed > 0 || unformatted > 0 ? 1 : 0);
 }
 
 } // namespace petrichor

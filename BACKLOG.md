@@ -191,7 +191,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface (architecture §5, 0.9).
 - Before 0.9, function times in Godot's profiler. The `_profiling_*` methods of `PetLanguage` are empty, so the profiler shows no function of this language. Deeper integration comes after 1.0 (spec §14.2).
   - Before it, one entry into functions of this language. Now `vm::call`, `call_function`, `call_directly`, `construct_directly`, `call_value` and `start_task` each find the callee's image, index and `self_image`. Spec §8.1's chain or engine entry becomes a field of the callee, not a thread-local protocol.
-- `pet format` counts a script it refused to write over unsaved changes as formatted, as in "1 formatted, 1 with errors" (`PetEditorPlugin::run_command`). Without `--check`, count the scripts written.
 
 ## Tests
 

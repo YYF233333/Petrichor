@@ -968,18 +968,23 @@ def run_lsp_group(godot):
 PET = Path("bin", {"win32": "pet.windows.x86_64.exe", "linux": "pet.linux.x86_64", "darwin": "pet.macos.universal"}[sys.platform])
 
 
-def lsp_reply(stream):
-    """The body of the next message on the stream, read on a thread; None if
-    the stream ends first or no message comes within TIMEOUT."""
+def lsp_reply(stream, id):
+    """The reply to the request `id` on the stream, past other messages, read
+    on a thread; None if the stream ends first or no reply comes within
+    TIMEOUT."""
     body = []
 
     def read():
-        header = b""
-        while not header.endswith(b"\r\n\r\n") and (byte := stream.read(1)):
-            header += byte
-        found = re.search(rb"Content-Length: (\d+)", header)
-        if found:
-            body.append(json.loads(stream.read(int(found.group(1)))))
+        while not body:
+            header = b""
+            while not header.endswith(b"\r\n\r\n") and (byte := stream.read(1)):
+                header += byte
+            found = re.search(rb"Content-Length: (\d+)", header)
+            if not found:
+                return
+            message = json.loads(stream.read(int(found.group(1))))
+            if message.get("id") == id and "method" not in message:
+                body.append(message)
 
     reader = threading.Thread(target=read, daemon=True)
     reader.start()
@@ -1060,10 +1065,25 @@ def run_pet_group(godot):
             code, out, err = pet("check")
             expect("pet: a project without errors gives 0", (code, out.splitlines()) == (0, [summary.format(0)]), out + err)
             bridge = subprocess.Popen([addon / PET, "lsp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-            body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}}).encode()
-            bridge.stdin.write(b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
-            bridge.stdin.flush()
-            reply = lsp_reply(bridge.stdout)
+
+            def send(message):
+                body = json.dumps({"jsonrpc": "2.0", **message}).encode()
+                bridge.stdin.write(b"Content-Length: %d\r\n\r\n%s" % (len(body), body))
+                bridge.stdin.flush()
+
+            send({"id": 1, "method": "initialize", "params": {"capabilities": {}}})
+            reply = lsp_reply(bridge.stdout, 1)
+            # The client has unsaved changes to a script not formatted, which
+            # format leaves, counting it with the errors.
+            messy = "extends Node\n\n\nfunc _ready() -> void:\n\tvar x: int=2\n"
+            script.write_text(messy, encoding="utf-8")
+            send({"method": "initialized", "params": {}})
+            send({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": file_uri(script), "languageId": "petrichor", "version": 1, "text": messy + "# Unsaved.\n"}}})
+            send({"id": 2, "method": "petrichor/unknown"})
+            opened = reply and lsp_reply(bridge.stdout, 2)
+            code, out, err = pet("format")
+            refused = ["broken.pet: error: Another editor has unsaved changes to it. Save them there first.", "petrichor format: 1 script(s), 0 formatted, 1 with errors"]
+            expect("pet: format leaves a script that a client has unsaved changes to, as an error", opened and (code, out.splitlines()) == (1, refused) and script.read_text(encoding="utf-8") == messy, out + err)
             bridge.stdin.close()
             expect("pet: lsp bridges a client to the service until stdin closes", reply and "capabilities" in reply.get("result", {}) and bridge.wait(timeout=10) == 0, str(reply))
         finally:
