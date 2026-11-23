@@ -11,8 +11,9 @@ def git(*args):
 
 
 def main():
-    record = RECORD.search(open(TRANSLATION, encoding="utf-8").read())
-    current = git("hash-object", SOURCE).strip()
+    # From the index, which is what the commit holds.
+    record = RECORD.search(git("show", f":{TRANSLATION}"))
+    current = git("rev-parse", f":{SOURCE}").strip()
     if not record:
         error = f"{TRANSLATION} records no blob of {SOURCE}; regenerate it (tools/spec_translation.md)."
     elif record[1] != current:

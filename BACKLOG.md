@@ -214,7 +214,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - a scene-saved value triggering a pre-ready setter error, and `if is_node_ready():` guarding it (§6.5);
   - GDScript assigning a cancelled `Transform3D` coroutine result (§9.8);
   - a lambda created before a body-only hot reload running its old body (§12.4).
-- The spec translation check reads the working tree, not the commit (`tools/check_spec_translation.py`). So committing the Chinese spec by path without the regenerated English one passes. Read both from the index, as `git show :docs/language-spec.md`.
 - "inheritance scene connections belong to their attached class" compiles in Program mode, which checks no connections (`tests/compiler/test_inheritance.cpp`). It passes with any method name. Check the scenes through `check_scenes_in`, or delete it.
 
 ## Performance

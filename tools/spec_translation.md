@@ -68,7 +68,7 @@ With no previous output, translate every section in order, in one session, and b
 ## Checks
 
 - `python tools/check_doc_style.py --all docs/language-spec.md tools/spec_translation.md` reports nothing.
-- `python tools/check_spec_translation.py` exits with zero.
+- Once both editions are staged, `python tools/check_spec_translation.py` exits with zero.
 - These counts are equal in the two editions:
   - lines, apart from the two lines of the recorded source;
   - headings, per level;
