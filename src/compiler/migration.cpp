@@ -790,10 +790,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		inflows.files.insert(file);
 	}
 	ScriptClasses classes(p_engine, &r_project);
-	std::map<std::string, CompileResult> results = checked_with(p_engine, r_project, inflows);
 	// What the check reports already, which no type causes.
 	std::set<std::tuple<std::string, uint32_t, std::string>> reported;
-	for (const auto &[path, result] : results) {
+	for (const auto &[path, result] : checked_with(p_engine, r_project, inflows)) {
 		for (const Diagnostic &error : result.errors) {
 			reported.emplace(path, error.begin, error.message);
 		}
@@ -828,7 +827,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			break;
 		}
 		inflows.tried = std::move(next);
-		results = checked_with(p_engine, r_project, inflows);
+		checked_with(p_engine, r_project, inflows);
 	}
 	const std::vector<std::vector<Received>> flowed = received(inflows);
 	const std::vector<Inflows::Slot> slots = inflows.slots;
@@ -936,7 +935,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			}
 			return { uint32_t(p_offset - shift), std::nullopt };
 		};
-		results = checked_with(p_engine, r_project, check);
+		const std::map<std::string, CompileResult> results = checked_with(p_engine, r_project, check);
 		// The locals typed by a value, by where each is declared in the text
 		// written, with where the value is; and the targets of assignments, by
 		// where the value is, which the value must fit.
@@ -1016,10 +1015,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 					}
 				}
 				for (const auto &[slot, at] : place) {
-					for (const auto &[from, to] : written.count(slot) && slot.first == path ? at.bare : std::vector<std::pair<uint32_t, uint32_t>>()) {
-						if (from <= begin && begin < to) {
-							refused.insert(slot);
-						}
+					const bool bare = slot.first == path && std::any_of(at.bare.begin(), at.bare.end(), [&](const std::pair<uint32_t, uint32_t> &p_return) { return p_return.first <= begin && begin < p_return.second; });
+					if (bare && written.count(slot)) {
+						refused.insert(slot);
 					}
 				}
 			}
