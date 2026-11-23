@@ -40,15 +40,12 @@ godot::Variant construct(const std::shared_ptr<const ClassImage> &p_image, const
 // Likewise with `p_init` calling _init() on the instance; null when it fails.
 godot::Variant construct(const std::shared_ptr<const ClassImage> &p_image, const godot::Variant &p_script, const std::function<bool(const ScriptedObject &)> &p_init);
 
-// Likewise the current image of a script of this language, which a static
-// method is called on (spec §4.8); null when it has none.
-using ScriptResolver = std::shared_ptr<const ClassImage> (*)(const godot::Variant &p_script);
+// Likewise the current image of a script of this language by its path, which
+// a static method is called on (spec §4.8); null when it has none.
+using ScriptResolver = std::shared_ptr<const ClassImage> (*)(const godot::String &p_path);
 void set_script_resolver(ScriptResolver p_resolver);
-std::shared_ptr<const ClassImage> image_of(const godot::Variant &p_script);
-// The script of a class of this language by its path, and its current image.
-godot::Variant script_of(const godot::String &p_path);
 std::shared_ptr<const ClassImage> script_image(const godot::String &p_path);
-// A file whose script is loading on this thread, which script_of() finds
+// A file whose script is loading on this thread, which script_image() finds
 // before the loader hands the script to the engine: its static
 // initialization runs then (spec §4.8). Nested loads end in reverse order.
 void begin_loading(const std::shared_ptr<const ClassImage> &p_image);

@@ -64,6 +64,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Runtime
 
+- Reading or writing a static variable of another class can touch freed storage. `static_variable()` returns a pointer into the image's `Statics`, while `owner`, the only reference to that image, ends with the call (`src/runtime/vm.cpp`). A `@static_unload` class that nothing else holds is freed before the copy and loaded again at each use. GDScript keeps a named class as a constant of the functions that use it (`modules/gdscript/gdscript_compiler.cpp:436-467`, `ed1daf0`). The spec does not say when such a class unloads.
 - A struct method taken as a value binds the class image of its creation (`src/runtime/method_callable.h`, `StructMethodCallable`). After a hot reload it still runs the old body, unlike spec §12.4.
 - An inner class that extends the class around it makes their images hold each other, through `base` and `inner_classes` (`src/runtime/class_image.h`). So the images are never freed, nor their static variables, even after the script unloads. Only the classes they hold are let go of at exit (`ClassImage::release_held_classes()`).
 - Comparing and hashing a struct, a payload enum or `T??` uses the raw object id of a nested `T?` field. A freed object there does not compare equal to `None`, though it does at the top level (`src/runtime/values.cpp`).
@@ -225,8 +226,10 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 - Engine singletons and autoloads resolved once. Now GET_SINGLETON looks the name up at every run, and GET_AUTOLOAD calls get_node_or_null. A singleton's pointer can be kept, and an autoload's ObjectID with a liveness check.
 - Engine callbacks such as `_process(delta)`: no entry check of value-type arguments, whose types the engine guarantees.
-- Calls between classes of this language: the method found by name once per call site. A run keeps one version of each class, which allows this (spec §12.4).
-- Classes of the same file resolved once. Code that uses another class of its file loads it through ResourceLoader at every use, as an inner class reading a static variable of the class around it (`ClassImage::class_script()`).
+- Calls between classes of this language: the method found by name once per call site. A run keeps one version of each class, which allows this (spec §12.4). Now these are loaded through ResourceLoader at every use:
+  - a static method's script;
+  - the script `Class.new()` sets;
+  - the class of a static variable that another class or an inner class uses (spec §4.8).
 - Calls within a class: since inheritance, they pass arguments the general way of calls between classes. They also repeat checks that loading made. The calls benchmark went from 18 to 22 ms (architecture §4).
 - Function values that still go through the engine, with Variant arguments: struct method values and `async` functions. A struct is encoded and decoded on the way.
 - Calls by name: every object result is asked whether it is a `GDScriptFunctionState`, by a call into the engine. Only methods of GDScript classes return one (spec §9.8).

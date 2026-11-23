@@ -13,7 +13,6 @@
 #include <deque>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -173,16 +172,6 @@ public:
 	// Whether a live object is of the class at `p_index`: its engine class,
 	// and its script or the interface it implements.
 	bool fits_class(const godot::Object *p_object, uint32_t p_index) const;
-	// The script of the class at `p_index`, one of this language; NIL when it
-	// cannot be loaded. A class of another file is held from its first use on,
-	// so that it stays loaded while this image does (spec §4.8). A class of
-	// its own file is not, or the file would never unload.
-	godot::Variant class_script(uint32_t p_index) const;
-	// That class's current image (spec §12.4); null when it has none.
-	std::shared_ptr<const ClassImage> class_image(uint32_t p_index) const;
-	// Every image lets go of the classes it holds, which may hold it in turn,
-	// so that the scripts go at exit.
-	static void release_held_classes();
 
 	// Of a member that tracks whether it has been assigned, in an instance's
 	// storage (bytecode/module.h).
@@ -205,8 +194,7 @@ public:
 	int find_member(const godot::StringName &p_name) const;
 	int find_static(const godot::StringName &p_name) const;
 	// This image and its inner classes take the static variables of
-	// `p_previous`, an image of the same class with the same declarations,
-	// and the classes it holds that they use.
+	// `p_previous`, an image of the same class with the same declarations.
 	void adopt_statics(const ClassImage &p_previous) const;
 
 	// Whether the two differ only in function bodies, so that instances of
@@ -215,12 +203,6 @@ public:
 
 private:
 	static std::shared_ptr<ClassImage> load_class(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error, const std::shared_ptr<const ClassImage> &p_base);
-
-	// By class index (class_script()).
-	std::vector<bool> of_own_file;
-	mutable std::mutex held_mutex;
-	mutable std::vector<godot::Variant> held_classes;
-	mutable bool holds = false; // Listed for release_held_classes().
 };
 
 // The value of a constant of the image's module, computed now, containers

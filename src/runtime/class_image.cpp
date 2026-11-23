@@ -278,14 +278,11 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 		const bool special = entry.container && (entry.container->needs_element || entry.container->replaced != ClassImage::Replaced::None || entry.container->key_role != ClassImage::KeyRole::None);
 		entry.plain = !call.is_vararg && !entry.calls_callable && !call.checks_elements && !special && call.return_type != ValueType::Variant && call.return_type != ValueType::Object;
 	}
-	const std::string file = script_file(to_utf8(p_path));
 	for (const bytecode::ClassRef &ref : module.classes) {
 		image->classes.push_back(to_godot(ref.name));
 		image->class_scripts.push_back(to_godot(ref.script));
 		image->class_interfaces.push_back(ref.interface_name.empty() ? String() : to_godot(ref.script + "::" + ref.interface_name));
-		image->of_own_file.push_back(script_file(ref.script) == file);
 	}
-	image->held_classes.resize(module.classes.size());
 	for (const bytecode::MethodCall &call : module.method_calls) {
 		image->method_names.push_back(to_godot(call.method));
 		image->call_signatures.push_back(signature_id(module.types, call.params, call.defaults, call.result, call.is_async, call.is_vararg));
@@ -646,60 +643,6 @@ bool ClassImage::fits_class(const Object *p_object, uint32_t p_index) const {
 	return has_script(p_object->get_script(), class_scripts[p_index]);
 }
 
-// The images that hold classes, listed for release at exit: two may hold each
-// other's scripts, and an image may outlive its script, as one that an inner
-// class extends does.
-static std::mutex holders_mutex;
-static std::vector<std::weak_ptr<const ClassImage>> holders;
-
-Variant ClassImage::class_script(uint32_t p_index) const {
-	const String &script = class_scripts[p_index];
-	if (of_own_file[p_index]) {
-		const Variant own = script == path ? held_script(*this) : Variant();
-		return is_none(own) ? script_of(script) : own;
-	}
-	{
-		std::lock_guard<std::mutex> lock(held_mutex);
-		if (!is_none(held_classes[p_index])) {
-			return held_classes[p_index];
-		}
-	}
-	// Loading it may run code that uses this image.
-	const Variant loaded = script_of(script);
-	std::lock_guard<std::mutex> lock(held_mutex);
-	if (is_none(held_classes[p_index])) {
-		held_classes[p_index] = loaded;
-		if (!holds) {
-			holds = true;
-			std::lock_guard<std::mutex> holders_lock(holders_mutex);
-			if (holders.size() == holders.capacity()) {
-				holders.erase(std::remove_if(holders.begin(), holders.end(), [](const std::weak_ptr<const ClassImage> &p_image) { return p_image.expired(); }), holders.end());
-			}
-			holders.push_back(weak_from_this());
-		}
-	}
-	return held_classes[p_index];
-}
-
-std::shared_ptr<const ClassImage> ClassImage::class_image(uint32_t p_index) const {
-	return image_of(class_script(p_index));
-}
-
-void ClassImage::release_held_classes() {
-	std::vector<std::weak_ptr<const ClassImage>> images;
-	{
-		std::lock_guard<std::mutex> lock(holders_mutex);
-		images.swap(holders);
-	}
-	for (const std::weak_ptr<const ClassImage> &listed : images) {
-		if (const std::shared_ptr<const ClassImage> image = listed.lock()) {
-			std::vector<Variant> held(image->held_classes.size());
-			std::lock_guard<std::mutex> lock(image->held_mutex);
-			held.swap(image->held_classes);
-		}
-	}
-}
-
 void ClassImage::resolve_function(std::shared_ptr<const ClassImage> &r_image, int &r_index) {
 	const FunctionOrigin origin = r_image->function_origins[r_index];
 	if (origin.image) {
@@ -736,17 +679,6 @@ int ClassImage::find_static(const StringName &p_name) const {
 
 void ClassImage::adopt_statics(const ClassImage &p_previous) const {
 	statics = p_previous.statics;
-	{
-		// Classes only the previous image held would unload with it.
-		std::scoped_lock lock(held_mutex, p_previous.held_mutex);
-		for (size_t i = 0; i < held_classes.size(); i++) {
-			for (size_t j = 0; j < p_previous.held_classes.size() && is_none(held_classes[i]); j++) {
-				if (class_scripts[i] == p_previous.class_scripts[j]) {
-					held_classes[i] = p_previous.held_classes[j];
-				}
-			}
-		}
-	}
 	for (const std::shared_ptr<const ClassImage> &inner : inner_classes) {
 		if (const std::shared_ptr<const ClassImage> previous = p_previous.find_class(inner->path)) {
 			inner->adopt_statics(*previous);

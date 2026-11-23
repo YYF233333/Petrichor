@@ -203,8 +203,8 @@ bool resolve_instance(GDExtensionObjectPtr p_object, ScriptedObject &r_instance)
 	return true;
 }
 
-std::shared_ptr<const ClassImage> resolve_script(const Variant &p_script) {
-	const Ref<PetScript> script = p_script;
+std::shared_ptr<const ClassImage> resolve_script(const String &p_path) {
+	const Ref<PetScript> script = load_resource(p_path);
 	return script.is_valid() ? script->get_image() : nullptr;
 }
 

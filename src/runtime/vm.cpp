@@ -874,7 +874,7 @@ PETRICHOR_NOINLINE bool new_object(const ClassImage &p_image, uint32_t p_class, 
 	if (!p_image.class_scripts[p_class].is_empty()) {
 		Object *made = object.get_validated_object();
 		ScriptedObject instance;
-		if (!attach_script(made, p_image.class_script(p_class), p_without_init, instance, r_initialized)) {
+		if (!attach_script(made, load_resource(p_image.class_scripts[p_class]), p_without_init, instance, r_initialized)) {
 			if (!Object::cast_to<RefCounted>(made)) {
 				memdelete(made);
 			}
@@ -1202,11 +1202,9 @@ class Execution {
 		return &r_view.get();
 	}
 
-	// A static variable of the class at `p_class`, or of this one (spec §4.8),
-	// which `r_owner` keeps while it is used: a class of this file may be
-	// loaded only for the use (ClassImage::class_script()). Null with the
-	// reason after a program error.
-	uint8_t *static_variable(uint32_t p_class, uint32_t p_variable, uint32_t p_type, std::shared_ptr<const ClassImage> &r_owner, String &r_error) {
+	// A static variable of the class at `p_class`, or of this one (spec §4.8);
+	// null with the reason after a program error.
+	uint8_t *static_variable(uint32_t p_class, uint32_t p_variable, uint32_t p_type, String &r_error) {
 		if (p_class == NO_SLOT) {
 			Statics &statics = *image.statics;
 			if (statics.state.load(std::memory_order_acquire) != Statics::State::Initialized && !static_ready(image, p_variable, r_error)) {
@@ -1215,24 +1213,24 @@ class Execution {
 			return statics.at(image.module.statics[p_variable].offset);
 		}
 		const String &path = image.class_scripts[p_class];
-		r_owner = image.base;
-		while (r_owner && r_owner->path != path) {
-			r_owner = r_owner->base;
+		std::shared_ptr<const ClassImage> owner = image.base;
+		while (owner && owner->path != path) {
+			owner = owner->base;
 		}
-		if (!r_owner) {
-			r_owner = image.class_image(p_class);
+		if (!owner) {
+			owner = script_image(path);
 		}
-		if (!r_owner) {
+		if (!owner) {
 			r_error = vformat("%s cannot be loaded.", path);
 			return nullptr;
 		}
-		const std::vector<bytecode::Member> &variables = r_owner->module.statics;
-		if (p_variable >= variables.size() || r_owner->types[variables[p_variable].type].type_id != image.types[p_type].type_id) {
+		const std::vector<bytecode::Member> &variables = owner->module.statics;
+		if (p_variable >= variables.size() || owner->types[variables[p_variable].type].type_id != image.types[p_type].type_id) {
 			r_error = vformat("A static variable of %s is not the one this script was compiled against. Build the project again.", path);
 			return nullptr;
 		}
-		Statics &statics = *r_owner->statics;
-		if (statics.state.load(std::memory_order_acquire) != Statics::State::Initialized && !static_ready(*r_owner, p_variable, r_error)) {
+		Statics &statics = *owner->statics;
+		if (statics.state.load(std::memory_order_acquire) != Statics::State::Initialized && !static_ready(*owner, p_variable, r_error)) {
 			return nullptr;
 		}
 		return statics.at(variables[p_variable].offset);
@@ -1318,8 +1316,7 @@ class Execution {
 
 	PETRICHOR_NOINLINE bool op_load_static(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		String error;
-		std::shared_ptr<const ClassImage> owner;
-		const uint8_t *variable = static_variable(p_op[3], p_op[4], p_op[1], owner, error);
+		const uint8_t *variable = static_variable(p_op[3], p_op[4], p_op[1], error);
 		if (!variable) {
 			return fail(p_fn, p_line, error);
 		}
@@ -1329,8 +1326,7 @@ class Execution {
 
 	PETRICHOR_NOINLINE bool op_store_static(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		String error;
-		std::shared_ptr<const ClassImage> owner;
-		uint8_t *variable = static_variable(p_op[2], p_op[3], p_op[1], owner, error);
+		uint8_t *variable = static_variable(p_op[2], p_op[3], p_op[1], error);
 		if (!variable) {
 			return fail(p_fn, p_line, error);
 		}
@@ -1465,7 +1461,7 @@ class Execution {
 	}
 
 	PETRICHOR_NOINLINE bool op_get_script(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
-		const Variant script = image.class_script(p_op[1]);
+		const Variant script = load_resource(image.class_scripts[p_op[1]]);
 		if (script.get_type() != Variant::OBJECT || !script.booleanize()) {
 			return fail(p_fn, p_line, vformat("Cannot load the script of %s.", image.class_scripts[p_op[1]]));
 		}
@@ -1543,7 +1539,7 @@ class Execution {
 	PETRICHOR_NOINLINE bool op_struct_method_value(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const uint32_t target = p_op[1];
 		const StringName &name = image.method_names[target];
-		std::shared_ptr<const ClassImage> owner = image.class_image(image.module.method_calls[target].static_class);
+		std::shared_ptr<const ClassImage> owner = script_image(image.class_scripts[image.module.method_calls[target].static_class]);
 		const int index = owner ? owner->find_function(name) : -1;
 		// Its struct is copied in the layout this script was compiled against.
 		if (index < 0 || !owner->has_signature(name, image.call_signatures[target])) {
@@ -1817,7 +1813,7 @@ class Execution {
 			callee = { image.base, context };
 		} else if (static_class >= 0) {
 			// The class's current image, without an instance (spec §4.8).
-			callee.image = image.class_image(static_class);
+			callee.image = script_image(image.class_scripts[static_class]);
 		} else {
 			ObjectView view(nullptr);
 			Variant *receiver = resolve_object(p_frame, p_op[3], p_freed, view, p_fn, p_line);

@@ -53,11 +53,8 @@ String PetLanguage::_get_extension() const {
 
 void PetLanguage::_finish() {
 	debugger::set_language(nullptr);
-	{
-		std::lock_guard<std::mutex> lock(kept_mutex);
-		kept_scripts.clear();
-	}
-	ClassImage::release_held_classes();
+	std::lock_guard<std::mutex> lock(kept_mutex);
+	kept_scripts.clear();
 }
 
 void PetLanguage::keep_loaded(const Ref<Script> &p_script) {
