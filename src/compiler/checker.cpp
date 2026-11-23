@@ -1227,17 +1227,18 @@ Checker::Assigned Checker::joined(const Assigned &p_a, const Assigned &p_b) {
 	return both;
 }
 
-Checker::Assigned Checker::init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported) {
+Checker::Assigned Checker::init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported, Assigned &r_returned) {
 	for (const auto &stmt : p_block) {
-		p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported);
+		p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported, r_returned);
 	}
 	return p_assigned;
 }
 
 // The scene and the creator assign only after _init, so _init reading one
 // it has not assigned itself is an error. A read through a call is left to
-// the program error: methods may be overridden in other files.
-Checker::Assigned Checker::init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported) {
+// the program error: methods may be overridden in other files. What each
+// `return` has assigned joins `r_returned`.
+Checker::Assigned Checker::init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported, Assigned &r_returned) {
 	if (!p_assigned) {
 		return std::nullopt;
 	}
@@ -1261,24 +1262,25 @@ Checker::Assigned Checker::init_stmt(const Stmt &p_stmt, Assigned p_assigned, st
 		}
 		case StmtKind::If:
 			reads(p_stmt.condition);
-			return joined(init_block(p_stmt.body, p_assigned, r_reported), init_block(p_stmt.else_body, p_assigned, r_reported));
+			return joined(init_block(p_stmt.body, p_assigned, r_reported, r_returned), init_block(p_stmt.else_body, p_assigned, r_reported, r_returned));
 		case StmtKind::While:
 		case StmtKind::For:
 			reads(p_stmt.condition);
 			reads(p_stmt.value);
-			init_block(p_stmt.body, p_assigned, r_reported);
+			init_block(p_stmt.body, p_assigned, r_reported, r_returned);
 			return p_assigned;
 		case StmtKind::Match: {
 			reads(p_stmt.value);
 			Assigned after = p_stmt.exhaustive ? Assigned() : p_assigned;
 			for (const MatchBranch &branch : p_stmt.branches) {
 				reads(branch.guard);
-				after = joined(after, init_block(branch.body, p_assigned, r_reported));
+				after = joined(after, init_block(branch.body, p_assigned, r_reported, r_returned));
 			}
 			return after;
 		}
 		case StmtKind::Return:
 			reads(p_stmt.value);
+			r_returned = joined(r_returned, p_assigned);
 			return std::nullopt;
 		case StmtKind::Break:
 		case StmtKind::Continue:

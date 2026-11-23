@@ -1148,7 +1148,9 @@ void Checker::check_body(FuncDecl &r_function) {
 	}
 	if (init) {
 		std::set<int> reported;
-		for (const int member : init_block(r_function.body, std::set<int>(), reported).value_or(std::set<int>())) {
+		Assigned returned;
+		const Assigned at_end = init_block(r_function.body, std::set<int>(), reported, returned);
+		for (const int member : joined(at_end, returned).value_or(std::set<int>())) {
 			r_function.assigned.push_back(cls.all_members[member]->name);
 		}
 	}

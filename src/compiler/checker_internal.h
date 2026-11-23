@@ -794,8 +794,8 @@ class Checker : public ClassRelation {
 	int capture(const std::string &p_name);
 	static bool init_assigns(const ClassDecl &p_class, const std::string &p_member);
 	static Assigned joined(const Assigned &p_a, const Assigned &p_b);
-	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported);
-	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported);
+	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported, Assigned &r_returned);
+	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported, Assigned &r_returned);
 	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported);
 	bool extends_back(const std::string &p_file, std::vector<std::string> &r_files, std::unordered_set<std::string> &r_seen);
 	bool declare_class();

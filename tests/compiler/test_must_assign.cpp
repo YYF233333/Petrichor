@@ -99,6 +99,16 @@ TEST_CASE("instantiate(...) and the scene leave out what the _init of the root's
 	CHECK(check_scenes_in("extends Node\n@export pub var wave: PackedScene[Node3D]\n", project).errors.empty());
 }
 
+TEST_CASE("_init assigns what every path that leaves it has assigned, those that return too (spec §6.2)") {
+	FakeProject project;
+	const std::string head = "extends Node3D\n\npub var target: Node3D\n\nfunc _init():\n";
+	project.add_script("res://early.pet", "class_name Early\n" + head + "\tif randi() > 0:\n\t\treturn\n\ttarget = Node3D.new()\n", "Early");
+	project.add_script("res://last.pet", "class_name Last\n" + head + "\ttarget = Node3D.new()\n\treturn\n", "Last");
+	const std::string errors = messages(compile_in("extends Node\n\nfunc f(e: PackedScene[Early], l: PackedScene[Last]) -> void:\n\tadd_child(e.instantiate())\n\tadd_child(l.instantiate())\n", project));
+	CHECK(contains(errors, "instantiate() needs target = ..., a member of Early"));
+	CHECK_FALSE(contains(errors, "Last"));
+}
+
 TEST_CASE("an export that the _init of a base in another file assigns needs no value from the scene (spec §6.2, §7.5)") {
 	FakeProject project;
 	project.add_script("res://archer.pet", "class_name Archer\nextends Node3D\n\n@export pub var bow: Node3D\n\nfunc _init():\n\tbow = Node3D.new()\n", "Archer");
