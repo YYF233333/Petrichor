@@ -2,7 +2,7 @@
 
 Petrichor is a statically typed scripting language for Godot 4 that keeps GDScript's syntax. Apart from a few differences that the spec names, code written as in GDScript either behaves the same or fails at compile time with a suggested fix. It ships as a GDExtension for the official editor. Exports use the official templates, with no custom engine build.
 
-0.2 has been released. Semantics may still change before 1.0; see [Status and Limitations](#status-and-limitations).
+0.2.1 has been released. Semantics may still change before 1.0; see [Status and Limitations](#status-and-limitations).
 
 中文：[README.zh.md](README.zh.md)
 
