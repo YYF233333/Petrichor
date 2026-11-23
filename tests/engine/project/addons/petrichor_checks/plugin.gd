@@ -924,7 +924,7 @@ func _check_rename_unseen() -> void:
 	apply.pressed.emit()
 	await get_tree().process_frame
 	var told := _toasts().filter(func(t): return t.contains(unit))
-	_check(code.text == text and FileAccess.get_file_as_string(unit) == changed and FileAccess.get_file_as_string(user) == user_text and told == ["Godot has unsaved changes to %s, which changed on disk, so nothing was changed." % unit], "a rename does not save a tab over a change on disk it has not seen, and says so: %s" % [told])
+	_check(code.text == text and FileAccess.get_file_as_string(unit) == changed and FileAccess.get_file_as_string(user) == user_text and told == ["Godot has unsaved changes to %s, which changed on disk. Nothing was changed." % unit], "a rename does not save a tab over a change on disk it has not seen, and says so: %s" % [told])
 	_check_errors([], "it reports nothing else")
 	EditorInterface.get_script_editor().close_file(unit)
 	for file in DirAccess.get_files_at(dir):

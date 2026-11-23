@@ -497,6 +497,30 @@ bool write_file(const String &p_path, const std::string &p_bytes) {
 	return written;
 }
 
+// Gives each file its bytes, or removes it for none: all of them or none, as
+// once one cannot be written, each gets back what it had (architecture §2.3).
+// The one that failed, or "".
+std::string write_all(const std::map<std::string, std::optional<std::string>> &p_files) {
+	std::map<std::string, std::optional<std::string>> had;
+	for (const auto &[file, bytes] : p_files) {
+		const String path = to_godot(file);
+		had[file] = FileAccess::file_exists(path) ? std::optional<std::string>(file_bytes(path)) : std::nullopt;
+		if (bytes ? write_file(path, *bytes) : DirAccess::remove_absolute(path) == OK) {
+			continue;
+		}
+		for (const auto &[each, before] : had) {
+			const String undone = to_godot(each);
+			if (before && (!FileAccess::file_exists(undone) || file_bytes(undone) != *before)) {
+				write_file(undone, *before);
+			} else if (!before && FileAccess::file_exists(undone)) {
+				DirAccess::remove_absolute(undone);
+			}
+		}
+		return file;
+	}
+	return std::string();
+}
+
 // A byte order mark is no text, as the build reads a script
 // (core/string/ustring.cpp:1756-1759, ed1daf0), and is written back.
 std::string byte_order_mark(const std::string &p_bytes) {
@@ -926,28 +950,25 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 // Changes all files or none, and fails when a text is not what an edit
 // replaces or a file cannot be written (architecture §2.3). Edits all in one
 // open script are one step to undo in its tab, unsaved. Otherwise each file is
-// written as bytes, a script's with its byte order mark, and the first ones
-// written back if one cannot be. A tab then takes its edits as one step to
-// undo, and is saved. Nothing is written over a change the editor has not
-// taken in: the file of a tab that is not as the editor last read or wrote
-// it, or a script an LSP client has unsaved changes to. A tab's file is looked
-// at first: changed on disk, it is why an LSP client's text differs from the
-// tab, and a conflict if the tab has unsaved changes (architecture §6.5). An
-// undo whose text is what the tab had before its last step, a refactoring's,
-// takes that step off instead (architecture §2.3). The open scenes that show
-// the nodes of a file written are reloaded, which clears their undo histories
-// (editor/editor_node.cpp:7124-7160; ed1daf0).
+// written as bytes, a script's with its byte order mark (write_all()). A tab
+// then takes its edits as one step to undo, and is saved, as its own unsaved
+// changes are written with them. Nothing is written over a change the editor
+// has not taken in, which Held tells. A tab's file is looked at first:
+// changed on disk, it is why an LSP client's text differs from the tab
+// (architecture §6.5). An undo whose text is what the tab had before its last
+// step, a refactoring's, takes that step off instead (architecture §2.3). The
+// open scenes that show the nodes of a file written are reloaded, which clears
+// their undo histories (editor/editor_node.cpp:7124-7160; ed1daf0).
 bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 	const bool one_tab = p_changes.size() == 1 && open_code_edit(p_changes.begin()->first);
-	PackedStringArray unseen;
-	PackedStringArray conflicting;
+	std::set<std::string> changed;
 	for (const auto &[file, edits] : p_changes) {
-		if (const CodeEdit *code_edit = one_tab ? nullptr : open_code_edit(file); code_edit && !file_unchanged(file)) {
-			(code_edit->get_version() == code_edit->get_saved_version() ? unseen : conflicting).push_back(to_godot(file));
-		}
+		changed.insert(file);
 	}
-	if (!unseen.is_empty() || !conflicting.is_empty()) {
-		toast(conflicting.is_empty() ? vformat("%s changed on disk since Godot last read or wrote it, so nothing was changed.", String(", ").join(unseen)) : vformat("Godot has unsaved changes to %s, which changed on disk, so nothing was changed.", String(", ").join(conflicting)), EditorToaster::SEVERITY_WARNING);
+	Held held = one_tab ? Held() : Held::of(changed);
+	held.drop(Held::Unsaved);
+	if (!held.empty()) {
+		toast(held.reason() + " Nothing was changed.", EditorToaster::SEVERITY_WARNING);
 		return false;
 	}
 	std::map<std::string, std::pair<std::string, std::string>> texts; // Before and after, by file.
@@ -969,30 +990,15 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 		texts[file] = { *text, result + text->substr(done) };
 	}
 	if (!one_tab) {
-		PackedStringArray unsaved;
+		std::map<std::string, std::optional<std::string>> bytes;
 		for (const auto &[file, text] : texts) {
-			if (client_unsaved(file)) {
-				unsaved.push_back(to_godot(file));
-			}
+			bytes[file] = is_script(file) ? byte_order_mark(file_bytes(to_godot(file))) + text.second : text.second;
 		}
-		if (!unsaved.is_empty()) {
-			toast(vformat("An LSP client has unsaved changes to %s, so nothing was changed. Save them there first.", String(", ").join(unsaved)), EditorToaster::SEVERITY_WARNING);
+		if (const std::string failed = write_all(bytes); !failed.empty()) {
+			toast(vformat("Cannot write %s, so nothing was changed.", to_godot(failed)), EditorToaster::SEVERITY_WARNING);
 			return false;
 		}
-		std::map<std::string, std::string> written; // The bytes they had.
 		for (const auto &[file, text] : texts) {
-			const String path = to_godot(file);
-			const std::string had = file_bytes(path);
-			if (!write_file(path, is_script(file) ? byte_order_mark(had) + text.second : text.second)) {
-				for (const auto &[each, bytes] : written) {
-					write_file(to_godot(each), bytes);
-				}
-				toast(vformat("Cannot write %s, so nothing was changed.", path), EditorToaster::SEVERITY_WARNING);
-				return false;
-			}
-			written[file] = had;
-		}
-		for (const auto &[file, had] : written) {
 			file_seen(file);
 			client_reloads(file);
 		}
@@ -1620,7 +1626,6 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 	}
 	const bool check = std::find(p_args.begin(), p_args.end(), "--check") != p_args.end();
 	const PackedStringArray paths = project_files(PackedStringArray({ "pet" }));
-	const PackedStringArray unsaved = EditorInterface::get_singleton()->get_script_editor()->get_unsaved_files();
 	int unformatted = 0;
 	int failed = 0;
 	std::set<std::string> written;
@@ -1641,10 +1646,12 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 			continue;
 		}
 		if (result) {
-			if (unsaved.has(path)) {
-				error = "Godot has unsaved changes to it. Save them in Godot first.";
-			} else if (client_unsaved(file)) {
-				error = "Another editor has unsaved changes to it. Save them there first.";
+			// It is formatted from its file, so a tab that has not seen the file
+			// takes it as it reloads.
+			Held held = Held::of({ file });
+			held.drop(Held::Unseen);
+			if (!held.empty()) {
+				error = to_utf8(held.about(file));
 			} else if (!write_file(path, bom + *result)) {
 				error = "It cannot be written.";
 			} else {

@@ -1819,7 +1819,7 @@ def check_conflicts(client, project, editor, port):
     client.notify("textDocument/didClose", {"textDocument": {"uri": file_uri(note)}})
     expect(
         "lsp: a refactoring of a script whose unsaved tab conflicts with its file is refused as a conflict, though the client's text differs from the tab",
-        "Godot has unsaved changes to res://note.pet, which changed on disk, so nothing was changed." in refused and "note.pet: its text in the LSP client" not in refused and (project / "hud.pet").read_bytes() == hud,
+        "Godot has unsaved changes to res://note.pet, which changed on disk. Nothing was changed." in refused and "note.pet: its text in the LSP client" not in refused and (project / "hud.pet").read_bytes() == hud,
         refused,
     )
 

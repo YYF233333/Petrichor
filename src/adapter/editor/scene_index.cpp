@@ -1153,4 +1153,68 @@ bool file_unchanged(const std::string &p_path) {
 	return found != seen.end() && found->second == to_utf8(FileAccess::get_md5(to_godot(p_path)));
 }
 
+bool edited_resource(const std::string &p_path) {
+	const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path));
+	return loaded.is_valid() && !loaded->is_class("Script") && !loaded->is_class("PackedScene") && EditorInterface::get_singleton()->is_object_edited(loaded.ptr());
+}
+
+Held Held::of(const std::set<std::string> &p_files, const std::set<std::string> &p_own, bool p_clients) {
+	const PackedStringArray scenes = EditorInterface::get_singleton()->get_unsaved_scenes();
+	Held held;
+	for (const std::string &file : p_files) {
+		if (p_own.count(file)) {
+			continue;
+		}
+		const CodeEdit *tab = open_code_edit(file);
+		const bool unsaved = tab ? tab->get_version() != tab->get_saved_version() : scenes.has(to_godot(file)) || edited_resource(file);
+		const bool changed = tab && !file_unchanged(file);
+		if (changed) {
+			held.files[file] = unsaved ? Conflicting : Unseen;
+		} else if (unsaved) {
+			held.files[file] = Unsaved;
+		} else if (p_clients && client_unsaved(file)) {
+			held.files[file] = Elsewhere;
+		}
+	}
+	return held;
+}
+
+void Held::drop(Kind p_kind) {
+	for (auto file = files.begin(); file != files.end();) {
+		file = file->second == p_kind ? files.erase(file) : std::next(file);
+	}
+}
+
+namespace {
+
+const char *const HELD_BECAUSE[] = {
+	"Godot has unsaved changes to %s. Save them in Godot first.",
+	"Godot has unsaved changes to %s, which changed on disk.",
+	"%s changed on disk since Godot last read or wrote it.",
+	"Another editor has unsaved changes to %s. Save them there first.",
+};
+
+} // namespace
+
+String Held::reason() const {
+	PackedStringArray told;
+	for (const Kind kind : { Unsaved, Conflicting, Unseen, Elsewhere }) {
+		PackedStringArray named;
+		for (const auto &[file, why] : files) {
+			if (why == kind) {
+				named.push_back(to_godot(file));
+			}
+		}
+		if (!named.is_empty()) {
+			told.push_back(vformat(HELD_BECAUSE[kind], String(", ").join(named)));
+		}
+	}
+	return String(" ").join(told);
+}
+
+String Held::about(const std::string &p_file) const {
+	const String said = vformat(HELD_BECAUSE[files.at(p_file)], "it");
+	return said.left(1).to_upper() + said.substr(1);
+}
+
 } // namespace petrichor

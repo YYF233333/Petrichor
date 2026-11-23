@@ -27,6 +27,7 @@ namespace petrichor {
 namespace compiler {
 class ProjectApi;
 }
+struct Held;
 
 // The language server in the editor (architecture §2.4): JSON-RPC with
 // Content-Length headers over TCP on 127.0.0.1, at the port the system gives,
@@ -137,8 +138,7 @@ private:
 
 	godot::String uri_of(const std::string &p_path) const;
 	godot::Dictionary location(const std::string &p_path, const std::string &p_text, uint32_t p_begin, uint32_t p_end) const;
-	struct Unsaved;
-	godot::Dictionary edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, Unsaved &r_unsaved, const std::set<std::pair<std::string, uint32_t>> &p_confirm = {}) const;
+	godot::Dictionary edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, Held &r_held, const std::set<std::pair<std::string, uint32_t>> &p_confirm = {}) const;
 	godot::Variant on_completion(const godot::Dictionary &p_params);
 	godot::Variant on_signature_help(const godot::Dictionary &p_params);
 	godot::Variant on_hover(const godot::Dictionary &p_params);

@@ -23,8 +23,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 41 s for tanks-of-freedom-ii with its assets. Its 661 scenes load 6,951 files one scene at a time, 944 of them distinct. Without the assets, as in the sparse corpus clone, each missing file is a failing load, and the check takes 136 to 195 s.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
     - Its writing refuses files with unsaved changes, as refactorings do (architecture §6.5).
-    - Three places check that today, each its own way and with its own messages: `LspServer::edit_of`, `PetEditorPlugin::change_files` and `pet format` in `run_command`.
-    - They become one check, which `pet migrate` uses too. Writing all files or none is shared as well.
+    - It uses the one check of the files held and the one writing of all files or none (`Held`, `write_all()`).
   - Types inferred over the whole project and written down.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).

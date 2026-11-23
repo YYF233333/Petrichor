@@ -126,5 +126,32 @@ std::optional<std::string> file_text(const std::string &p_path);
 void file_seen(const std::string &p_path);
 // Whether the file is as the editor last wrote or read it.
 bool file_unchanged(const std::string &p_path);
+// An external resource edited in Godot, which it saves with the next scene
+// (editor/editor_node.cpp:2374-2408, editor/editor_interface.cpp:719-722;
+// ed1daf0). A script's or a scene's unsaved changes are its tab's or the open
+// scene's.
+bool edited_resource(const std::string &p_path);
+
+// The files not to be written over now, each with why (architecture §2.3,
+// §6.5). Each writer refuses some of the kinds.
+struct Held {
+	enum Kind {
+		Unsaved, // In Godot: a tab of the script editor, an open scene or an edited resource.
+		Conflicting, // So, and the file changed on disk since Godot last read or wrote it.
+		Unseen, // A tab without unsaved changes shows it, and the file changed so.
+		Elsewhere, // An LSP session on the human's view has unsaved changes to it.
+	};
+	std::map<std::string, Kind> files;
+
+	// Of `p_files`, but those of `p_own`, an LSP session's own documents; the
+	// sessions' texts only with `p_clients`.
+	static Held of(const std::set<std::string> &p_files, const std::set<std::string> &p_own = {}, bool p_clients = true);
+	void drop(Kind p_kind);
+	bool empty() const { return files.empty(); }
+	// A sentence for each kind, naming its files.
+	godot::String reason() const;
+	// Why the file is held, without naming it.
+	godot::String about(const std::string &p_file) const;
+};
 
 } // namespace petrichor

@@ -518,46 +518,24 @@ std::set<std::string> godot_unsaved() {
 	return files;
 }
 
-// An external resource edited in Godot, which it saves with the next scene
-// (editor/editor_node.cpp:2374-2408, editor/editor_interface.cpp:719-722; ed1daf0).
-// A script's or a scene's unsaved changes are its tab's or the open scene's.
-bool edited_resource(const std::string &p_path) {
-	const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path));
-	return loaded.is_valid() && !loaded->is_class("Script") && !loaded->is_class("PackedScene") && EditorInterface::get_singleton()->is_object_edited(loaded.ptr());
+// For the title of a quick fix refused for the files held.
+String held_note(const Held &p_held) {
+	PackedStringArray godot;
+	PackedStringArray elsewhere;
+	for (const auto &[file, why] : p_held.files) {
+		(why == Held::Elsewhere ? elsewhere : godot).push_back(to_godot(file));
+	}
+	PackedStringArray told;
+	if (!godot.is_empty()) {
+		told.push_back(vformat("save %s in Godot first", names_of(godot)));
+	}
+	if (!elsewhere.is_empty()) {
+		told.push_back(vformat("save %s in the other editor first", names_of(elsewhere)));
+	}
+	return String("; ").join(told);
 }
 
 } // namespace
-
-// The files that an edit is refused for: those with content in Godot that is
-// not saved, and those that another session on the human's view has unsaved
-// changes to (architecture §2.4).
-struct LspServer::Unsaved {
-	PackedStringArray godot;
-	PackedStringArray elsewhere;
-
-	bool empty() const { return godot.is_empty() && elsewhere.is_empty(); }
-	String reason() const {
-		PackedStringArray told;
-		if (!godot.is_empty()) {
-			told.push_back(vformat("Godot has unsaved changes to %s. Save them in Godot first.", String(", ").join(godot)));
-		}
-		if (!elsewhere.is_empty()) {
-			told.push_back(vformat("Another editor has unsaved changes to %s. Save them there first.", String(", ").join(elsewhere)));
-		}
-		return String(" ").join(told);
-	}
-	// For the title of a quick fix.
-	String note() const {
-		PackedStringArray told;
-		if (!godot.is_empty()) {
-			told.push_back(vformat("save %s in Godot first", names_of(godot)));
-		}
-		if (!elsewhere.is_empty()) {
-			told.push_back(vformat("save %s in the other editor first", names_of(elsewhere)));
-		}
-		return String("; ").join(told);
-	}
-};
 
 LspServer::LspServer(Ref<EditorDebuggerPlugin> p_debugger, std::function<void()> p_changed, std::function<void(const std::set<std::string> &)> p_written, Run p_run) :
 		debugger(std::move(p_debugger)), editor_changed(std::move(p_changed)), editor_written(std::move(p_written)), run(std::move(p_run)) {
@@ -1364,23 +1342,23 @@ Dictionary LspServer::location(const std::string &p_path, const std::string &p_t
 
 // Against the texts the session sees, the edits in `p_confirm`, by file and
 // start, annotated to need confirmation. None where a file that the session
-// does not have open has unsaved content, which `r_unsaved` lists: the client
-// edits the file (architecture §2.4). That is content in Godot, a tab's or an
-// open scene's, and on the human's view also another session's text. A text,
-// without carriage returns, is compared with its file's without them; the
-// positions are the same in both.
-Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, Unsaved &r_unsaved, const std::set<std::pair<std::string, uint32_t>> &p_confirm) const {
-	const PackedStringArray scenes = EditorInterface::get_singleton()->get_unsaved_scenes();
+// does not have open is held, which `r_held` lists: the client edits the file
+// (architecture §2.4). That is anything Godot holds unsaved or has not seen of
+// it, and on the human's view also another session's text.
+Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::CheckedEdit>> &p_edits, Held &r_held, const std::set<std::pair<std::string, uint32_t>> &p_confirm) const {
+	std::set<std::string> files;
+	std::set<std::string> own;
+	for (const auto &[file, in_file] : p_edits) {
+		files.insert(file);
+	}
+	for (const auto &[file, document] : session->documents) {
+		own.insert(file);
+	}
+	r_held = Held::of(files, own, !session->disk);
 	Array changes;
 	for (const auto &[file, in_file] : p_edits) {
 		const std::string text = view->script_source(file).value_or(std::string());
 		const auto open = session->documents.find(file);
-		const CodeEdit *tab = open == session->documents.end() ? open_code_edit(file) : nullptr;
-		if (scenes.has(to_godot(file)) || (tab && without_cr(to_utf8(tab->get_text())) != without_cr(SceneIndex::get().script_source(file).value_or(std::string())))) {
-			r_unsaved.godot.push_back(to_godot(file));
-		} else if (open == session->documents.end() && !session->disk && client_unsaved(file)) {
-			r_unsaved.elsewhere.push_back(to_godot(file));
-		}
 		std::vector<compiler::CheckedEdit> ordered = in_file;
 		std::stable_sort(ordered.begin(), ordered.end(), [](const compiler::CheckedEdit &p_a, const compiler::CheckedEdit &p_b) { return p_a.begin < p_b.begin; });
 		Array text_edits;
@@ -1399,7 +1377,7 @@ Dictionary LspServer::edit_of(const std::map<std::string, std::vector<compiler::
 		change["edits"] = text_edits;
 		changes.push_back(change);
 	}
-	if (!r_unsaved.empty()) {
+	if (!r_held.empty()) {
 		return Dictionary();
 	}
 	Dictionary result;
@@ -1792,10 +1770,10 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 	// says so in its title and has no edit: VS Code does not show a disabled
 	// action among the quick fixes, nor its reason.
 	const auto add = [&](const String &p_title, const FileEdits &p_edits, const compiler::Diagnostic *p_error, bool p_preferred, Dictionary p_data) {
-		Unsaved unsaved;
-		const Dictionary edit = edit_of(p_edits, unsaved);
+		Held held;
+		const Dictionary edit = edit_of(p_edits, held);
 		Dictionary action;
-		action["title"] = unsaved.empty() ? p_title : vformat("%s (%s)", p_title, unsaved.note());
+		action["title"] = held.empty() ? p_title : vformat("%s (%s)", p_title, held_note(held));
 		action["kind"] = "quickfix";
 		if (p_error) {
 			action["diagnostics"] = Array::make(diagnostic(*p_error, range_of(at->text, p_error->begin, p_error->end)));
@@ -1811,7 +1789,7 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 		p_data["revision"] = int64_t(revision);
 		p_data["files"] = files;
 		action["data"] = p_data;
-		if (unsaved.empty() && !session->resolves_edits) {
+		if (held.empty() && !session->resolves_edits) {
 			action["edit"] = edit;
 		}
 		actions.push_back(action);
@@ -1882,10 +1860,10 @@ Variant LspServer::on_resolve_action(const Dictionary &p_params) {
 		show_message("The project changed. Ask for the quick fixes again.");
 		return action;
 	}
-	Unsaved unsaved;
-	const Dictionary edit = edit_of(changes, unsaved);
-	if (!unsaved.empty()) {
-		show_message(unsaved.reason());
+	Held held;
+	const Dictionary edit = edit_of(changes, held);
+	if (!held.empty()) {
+		show_message(held.reason());
 		return action;
 	}
 	action["edit"] = edit;
@@ -1936,9 +1914,9 @@ Variant LspServer::on_rename(const Dictionary &p_params) {
 		}
 		changes[each.occurrence.file].push_back(each.edit);
 	}
-	Unsaved unsaved;
-	const Dictionary edit = edit_of(changes, unsaved, candidates);
-	failure = unsaved.reason();
+	Held held;
+	const Dictionary edit = edit_of(changes, held, candidates);
+	failure = held.reason();
 	return edit;
 }
 
