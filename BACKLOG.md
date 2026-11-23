@@ -18,7 +18,14 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
 
-- The migration tool, forward, entered through the executable (Editor).
+- The migration tool, forward, entered through the executable (Editor). Its steps, in order:
+  - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
+  - The GDScript that the parser refuses (Language), with parameters written `name := default` (spec §4.6).
+  - A subclass's bodies checked although its base has errors.
+  - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project, 303 s for tanks-of-freedom-ii.
+  - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
+  - Types inferred over the whole project and written down.
+  - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
@@ -26,6 +33,14 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Language
 
+- GDScript that the parser refuses, in the files of corpus v1 without `@tool`. Of 2,474 files, 260 do not parse, 213 of them for a parameter written `name := default` (spec §4.6). The others, each from real code:
+  - `when` and `match` as names, as `var when: Label` and `func match(...)` (godot-tiny-mmo `guild_menu.gd:901`, gdUnit4 `GdUnitSignalCollector.gd:110`);
+  - named accessors on the lines after the variable, as `set = set_priority,` (phantom-camera `phantom_camera_2d.gd:134`);
+  - a member without a type before its accessor block, as `var map:` (godot-open-rts `Match.gd:14`). It should parse and then need a type;
+  - `as` before a comparison, as `arg["usage"] as int == X` (gdUnit4 `CmdCommandHandler.gd:131`);
+  - a named lambda's parameters continued on the next line (godot-open-rpg `ui_combat.gd:96`);
+  - about 30 files more, unread.
+- `f.bind("Deck")` is refused with two errors when `f` has a trailing parameter with a default, as `func f(title: String, randomized: bool = false)` connected to a signal without arguments (deck_builder_tutorial `scenes/run/run.gd:148`). Read from the check's output, not from the engine.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
 - `Array[PackedScene[T]]` cannot be written, though `[preload(...)]` infers it and spec §7.4 lists container elements.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
@@ -158,6 +173,13 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Enums and members are listed on their class's page.
 - The two-way migration tool (spec §1.2, §13.4), planned for 0.3.
   - It infers missing types from call sites and from scene connections, saved values and node paths. Bounds that would change `int` and `float` arithmetic are not merged. Measure the inferred share on the corpus first.
+    - The inference solves the whole project at once. The tool runs once and writes the types down, so errors that move with distant code do no harm here. A design proposal comes first.
+    - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
+  - Rewrites that those games need:
+    - `$"/root/Name"` of an autoload becomes its name (102 uses);
+    - a typed loop variable over wider elements, as `for player: AudioStreamPlayer in get_children()` (51 uses);
+    - members read on a value typed `Node`, as after `instantiate()` (99 uses);
+    - a string in single or double quotes that spans lines is written in triple quotes (spec §2.2).
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
