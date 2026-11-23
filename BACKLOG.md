@@ -177,7 +177,9 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Rewrites that those games need:
     - `$"/root/Name"` of an autoload becomes its name (102 uses);
     - a typed loop variable over wider elements, as `for player: AudioStreamPlayer in get_children()` (51 uses);
-    - members read on a value typed `Node`, as after `instantiate()` (99 uses);
+    - a member that the value's static type lacks (99 uses):
+      - on an `Object`, as after `get_collider()`, a call whose result is unused and a property write become `call("name", ...)` and `set("name", v)`. Every function of that name gets `pub`, and the report lists the line. A property read or a used result stays an error, as its `Variant` needs a type;
+      - on a class that lacks it, as the `Node` of `instantiate()` or `get_parent()`, the scene first gives the type: `PackedScene[T]` from the saved value, `@parent(T)` where the scenes agree. What remains stays an error offering access by name and a cast;
     - a string in single or double quotes that spans lines is written in triple quotes (spec §2.2).
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
