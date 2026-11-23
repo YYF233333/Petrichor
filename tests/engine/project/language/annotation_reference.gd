@@ -25,6 +25,9 @@ extends Node
 @export_storage var saved := 3
 @export_custom(PROPERTY_HINT_LINK, "suffix:m/s") var speed := Vector2.ONE
 @export_custom(PROPERTY_HINT_NONE, "suffix:s", PROPERTY_USAGE_EDITOR) var delay := 0.5
+@export var foe: AnnotationCheck
+@export var foes: Array[AnnotationCheck]
+@export var foes_by_name: Dictionary[String, AnnotationCheck]
 
 
 @rpc("any_peer", "call_local", "unreliable_ordered", 2)

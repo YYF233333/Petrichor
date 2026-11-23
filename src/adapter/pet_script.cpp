@@ -130,8 +130,9 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	return method;
 }
 
-// How the inspector picks an object of the class, as for GDScript's exports:
-// from resources or from nodes.
+// How the inspector picks an object of the engine class, as for GDScript's
+// exports: from resources or from nodes
+// (modules/gdscript/gdscript_parser.cpp:4811-4819; ed1daf0).
 static PropertyHint picker_of(const String &p_class) {
 	ClassDBSingleton *db = ClassDBSingleton::get_singleton();
 	if (p_class == "Resource" || db->is_parent_class(p_class, "Resource")) {
@@ -165,8 +166,8 @@ Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_me
 		return script.is_valid() && !script->get_global_name().is_empty() ? String(script->get_global_name()) : String(p_class);
 	};
 	// An exported element: "type/hint:class", as GDScript writes it.
-	const auto exported = [](ValueType p_element, const String &p_class) {
-		return p_element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(p_class), p_class) : vformat("%d:", variant_type(p_element));
+	const auto exported = [&](ValueType p_element, const StringName &p_class, const String &p_script) {
+		return p_element == ValueType::Object ? vformat("%d/%d:%s", Variant::OBJECT, picker_of(p_class), global_name(p_class, p_script)) : vformat("%d:", variant_type(p_element));
 	};
 	const ValueType element = type.check.element;
 	if (p_member.hint != 0 || !p_member.hint_string.empty()) {
@@ -179,14 +180,13 @@ Dictionary property_info(const ClassImage &p_image, const bytecode::Member &p_me
 		dict["hint"] = PROPERTY_HINT_TYPE_STRING;
 		dict["hint_string"] = vformat("%d/%d:%s", Variant::INT, PROPERTY_HINT_ENUM, enum_hint(*type.item));
 	} else if (p_member.is_export && type.storage == ValueType::Object) {
-		const String class_name = global_name(type.check.class_name, type.check.script);
-		dict["hint"] = picker_of(class_name);
-		dict["hint_string"] = class_name;
+		dict["hint"] = picker_of(type.check.class_name);
+		dict["hint_string"] = global_name(type.check.class_name, type.check.script);
 	} else if (p_member.is_export && element != ValueType::Void) {
 		// A typed array, or a typed Dictionary with its key first.
 		dict["hint"] = PROPERTY_HINT_TYPE_STRING;
-		const String elements = exported(element, global_name(type.check.class_name, type.check.script));
-		dict["hint_string"] = type.check.key == ValueType::Void ? elements : exported(type.check.key, global_name(type.check.key_class_name, type.check.key_script)) + ";" + elements;
+		const String elements = exported(element, type.check.class_name, type.check.script);
+		dict["hint_string"] = type.check.key == ValueType::Void ? elements : exported(type.check.key, type.check.key_class_name, type.check.key_script) + ";" + elements;
 	} else {
 		dict = typed(dict, type);
 	}

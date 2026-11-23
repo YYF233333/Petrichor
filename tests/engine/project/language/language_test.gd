@@ -906,7 +906,7 @@ func _ready() -> void:
 		var own: Dictionary = annotated_properties.get(property.name, {})
 		if property.usage & PROPERTY_USAGE_SCRIPT_VARIABLE and ["type", "hint", "hint_string", "usage"].any(func(key): return own.get(key) != property[key]):
 			mismatched.append("%s: %s, not %s" % [property.name, own, property])
-	_check(mismatched.is_empty(), "the @export family describes members as in GDScript%s" % ("" if mismatched.is_empty() else ": %s" % mismatched))
+	_check(mismatched.is_empty(), "the @export family describes members as in GDScript%s" % ("" if mismatched.is_empty() else ": %s" % [mismatched]))
 	var rpc_defaults := { "rpc_mode": MultiplayerAPI.RPC_MODE_DISABLED, "transfer_mode": MultiplayerPeer.TRANSFER_MODE_RELIABLE, "call_local": false, "channel": 0 }
 	var own_rpc: Dictionary = annotated.get_script().get_rpc_config()
 	var reference_rpc: Dictionary = reference.get_script().get_rpc_config()
