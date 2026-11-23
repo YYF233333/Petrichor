@@ -184,7 +184,7 @@ TEST_CASE("a literal path from the root to an autoload becomes its name, whose c
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://audio.gd", "res://hud.gd" }, 10);
 	CHECK(migration.texts.at("res://audio.pet") == "extends Node\n\n\npub func play(sound: String):\n\tprint(sound)\n");
 	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n@onready var audio = Audio\n\n\nfunc _ready() -> void:\n\taudio.play(\"click\")\n");
-	CHECK(migration.by_name == 0);
+	CHECK(migration.partial == 0);
 	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Pub, 1 }, { compiler::FixKind::Autoload, 1 } });
 	CHECK(migration.errors.empty());
 }
@@ -351,9 +351,23 @@ TEST_CASE("a call by name flows into every function so named, and the report mar
 	project.add_script("res://bullet.gd", "extends Node\n\n\nfunc hit(body: Node) -> void:\n\tbody.take_damage(5)\n\n\nfunc graze(body: Node?) -> void:\n\tbody.take_damage(1)\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://enemy.gd", "res://bullet.gd" }, 10);
 	CHECK(migration.texts.at("res://enemy.pet") == "extends Node\n\n\nfunc take_damage(amount: int):\n\tprint(amount)\n");
-	CHECK(migration.by_name == 1);
+	CHECK(migration.partial == 1);
 	REQUIRE(migration.notes.size() == 1);
 	CHECK(migration.notes[0].message == "The type of \"amount\", int, rests on calls by name: res://bullet.pet:5, res://bullet.pet:9.");
+}
+
+TEST_CASE("a Variant says nothing of a slot's type, and one that does not fit is an error where it flows in") {
+	FakeProject project;
+	project.add_script("res://audio.gd", "extends Node\nvar data: Dictionary = {}\n\n\nfunc play(sample_name, extra):\n\tprint(sample_name, extra)\n\n\nfunc _ready() -> void:\n\tplay(\"click\", data[\"a\"])\n\tplay(data[\"k\"], data[\"b\"])\n\tvar label\n\tlabel = \"a\"\n\tlabel = data[\"k\"]\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://audio.gd" }, 10);
+	CHECK(migration.texts.at("res://audio.pet") == "extends Node\nvar data: Dictionary = {}\n\n\nfunc play(sample_name: String, extra: Variant):\n\tprint(sample_name, extra)\n\n\nfunc _ready() -> void:\n\tplay(\"click\", data[\"a\"])\n\tplay(data[\"k\"], data[\"b\"])\n\tvar label: String\n\tlabel = \"a\"\n\tlabel = data[\"k\"]\n");
+	CHECK(migration.partial == 2);
+	REQUIRE(migration.notes.size() == 2);
+	CHECK(migration.notes[0].message == "The type of \"sample_name\", String, leaves out the Variant values at res://audio.pet:11.");
+	CHECK(migration.notes[1].message == "The type of \"label\", String, leaves out the Variant values at res://audio.pet:14.");
+	REQUIRE(migration.errors.size() == 2);
+	CHECK(contains(migration.errors[0].message, "Cannot pass a value of type Variant as String."));
+	CHECK(contains(migration.errors[1].message, "Cannot assign a value of type Variant as String."));
 }
 
 TEST_CASE("a signal connected to a method flows into its parameters, as do the arguments bound to it") {

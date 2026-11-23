@@ -647,16 +647,16 @@ std::vector<Type> lineage(const Type &p_class, ScriptClasses &r_classes, const E
 
 // What the types received merge into (architecture §6.6): the one type, as
 // T? with None; the nearest common base of classes; an untyped Array or
-// Dictionary for containers of one kind; otherwise Variant. Nullopt when no
-// type is known. `r_numbers` tells int and float, which merge into float
-// only with `p_floats`.
+// Dictionary for containers of one kind; otherwise Variant. A Variant says
+// nothing of the type. Nullopt when no type is known. `r_numbers` tells int
+// and float, which merge into float only with `p_floats`.
 std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasses &r_classes, const EngineApi &p_engine, bool &r_numbers, bool p_floats = false) {
 	r_numbers = false;
 	bool none = false;
 	std::vector<Type> types;
 	for (const Received &each : p_received) {
 		Type type = each.type;
-		if (type.is_error() || type.kind == TypeKind::Void) {
+		if (type.is_error() || type.kind == TypeKind::Void || type.kind == TypeKind::Variant) {
 			continue;
 		}
 		if (type.is_optional() || type.kind == TypeKind::None) {
@@ -712,14 +712,17 @@ std::optional<Type> merged_container(const std::string &p_kind, const std::vecto
 	bool known = false;
 	bool untyped = false;
 	for (const Received &each : p_received) {
-		known = known || !each.type.is_error();
+		if (each.type.is_error() || each.type.kind == TypeKind::Variant) {
+			continue;
+		}
+		known = true;
 		if (each.part != Inflows::Part::Whole) {
 			(each.part == Inflows::Part::Key ? keys : elements).push_back(each);
 		} else if (each.type.kind == TypeKind::Builtin && each.type.name == p_kind && !each.type.args.empty()) {
 			elements.push_back({ each.type.args.back(), each.at });
 			keys.push_back({ each.type.args.front(), each.at });
 		} else {
-			untyped = untyped || !each.type.is_error();
+			untyped = true;
 		}
 	}
 	if (!known) {
@@ -941,12 +944,12 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			reported.emplace(path, error.begin, error.message);
 		}
 	}
-	// What a slot's types merge into, and the type it tries without any.
+	// The type a slot tries without any known, and what its types merge into.
+	const auto without = [](const Inflows::Slot &p_slot) {
+		return p_slot.container.empty() ? Type::of(TypeKind::Variant) : Type::builtin(p_slot.container);
+	};
 	const auto merge = [&](const Inflows::Slot &p_slot, const std::vector<Received> &p_received, bool &r_numbers) {
-		if (p_slot.container.empty()) {
-			return std::make_pair(merged(p_received, classes, p_engine, r_numbers), Type::of(TypeKind::Variant));
-		}
-		return std::make_pair(merged_container(p_slot.container, p_received, classes, p_engine, r_numbers), Type::builtin(p_slot.container));
+		return p_slot.container.empty() ? merged(p_received, classes, p_engine, r_numbers) : merged_container(p_slot.container, p_received, classes, p_engine, r_numbers);
 	};
 	const auto candidates = [&](bool p_unknown) {
 		for (const Inflows::Slot &each : inflows.unknown) {
@@ -956,9 +959,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		const std::vector<std::vector<Received>> flowed = received(inflows);
 		for (size_t i = 0; i < flowed.size(); i++) {
 			bool numbers = false;
-			const auto [type, otherwise] = merge(inflows.slots[i], flowed[i], numbers);
+			const std::optional<Type> type = merge(inflows.slots[i], flowed[i], numbers);
 			if (type || p_unknown) {
-				next[inflows.slots[i].key] = type.value_or(otherwise);
+				next[inflows.slots[i].key] = type.value_or(without(inflows.slots[i]));
 			}
 		}
 		return next;
@@ -1177,12 +1180,16 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		const size_t index = size_t(inflows.found.at(slot.key));
 		std::string from;
 		std::string by_name;
+		std::string variants;
 		for (const Received &each : flowed[index]) {
 			const char *const PARTS[] = { "", "an element ", "a key " };
-			if (!each.type.is_error()) {
-				from += std::string(from.empty() ? "" : ", ") + PARTS[size_t(each.part)] + each.type.to_string() + " (" + where(each.at) + ")";
+			if (each.type.is_error()) {
+				continue;
 			}
-			if (each.by_name && !each.type.is_error()) {
+			from += std::string(from.empty() ? "" : ", ") + PARTS[size_t(each.part)] + each.type.to_string() + " (" + where(each.at) + ")";
+			if (each.type.kind == TypeKind::Variant) {
+				variants += (variants.empty() ? "" : ", ") + where(each.at);
+			} else if (each.by_name) {
 				by_name += (by_name.empty() ? "" : ", ") + where(each.at);
 			}
 		}
@@ -1190,9 +1197,22 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		if (refusal != refusals.end()) {
 			note(slot.key, "\"" + slot.name + "\" is left without a type: " + refusal->second + "." + (from.empty() ? " Nothing flows into it." : " It receives " + from + "."));
 			r_result.withdrawn++;
-		} else if (!by_name.empty() && written.count(slot.key)) {
-			note(slot.key, "The type of \"" + slot.name + "\", " + written.at(slot.key) + ", rests on calls by name: " + by_name + ".");
-			r_result.by_name++;
+			continue;
+		}
+		if (!written.count(slot.key)) {
+			continue;
+		}
+		std::vector<std::string> rests;
+		if (!by_name.empty()) {
+			rests.push_back("rests on calls by name: " + by_name);
+		}
+		// Unless no other value gave the type either.
+		if (!variants.empty() && tried.at(slot.key) != without(slot)) {
+			rests.push_back("leaves out the Variant values at " + variants);
+		}
+		if (!rests.empty()) {
+			note(slot.key, "The type of \"" + slot.name + "\", " + written.at(slot.key) + ", " + rests[0] + (rests.size() > 1 ? "; it " + rests[1] : std::string()) + ".");
+			r_result.partial++;
 		}
 	}
 	r_result.typed = int(written.size());
