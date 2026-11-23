@@ -16,17 +16,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Next release
 
-0.2.1, due 2026-11-26, with only the project service. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
-
-- Its acceptance is a hand-try in the GUI editor, with VS Code connected and an agent writing files and running `pet`. The engine tests already run each part headless.
-  - The check answers for the disk as the agent left it.
-  - VS Code's diagnostics and Godot's clean tabs follow within about a second, with Godot in the background.
-  - After a rename in Godot, the scripts and scenes on disk agree.
-  - A conflict is reported to the agent and to the human.
-
-## The release after
-
-0.3, due 2026-12-13. The list is in order:
+0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
 
 - The migration tool, forward, entered through the executable (Editor).
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
