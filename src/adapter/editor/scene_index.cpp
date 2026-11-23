@@ -694,15 +694,17 @@ std::string SceneIndex::uid_path(const std::string &p_uid) const {
 
 std::vector<std::string> SceneIndex::dependencies(const std::string &p_path) const {
 	std::vector<std::string> paths;
-	// A path, or "uid::::path" with the path as it was saved, which the uid
-	// overrides when the file moved (doc/classes/ResourceLoader.xml, get_dependencies).
+	// A path, or "uid::::path" with the path as it was saved, which the engine
+	// loads only when the uid resolves to no file
+	// (scene/resources/resource_format_text.cpp:491-496, 946-977; ed1daf0).
 	const PackedStringArray listed = file_empty(p_path) ? PackedStringArray() : ResourceLoader::get_singleton()->get_dependencies(to_godot(p_path));
+	ResourceUID *uids = ResourceUID::get_singleton();
 	for (int64_t i = 0; i < listed.size(); i++) {
 		const String &dependency = listed[i];
-		const bool with_uid = dependency.contains("::");
-		String path = with_uid ? dependency.get_slice("::", 2) : dependency;
-		if (with_uid && !FileAccess::file_exists(path)) {
-			path = ResourceUID::uid_to_path(dependency.get_slice("::", 0));
+		String path = dependency;
+		if (dependency.contains("::")) {
+			const int64_t id = uids->text_to_id(dependency.get_slice("::", 0));
+			path = id != ResourceUID::INVALID_ID && uids->has_id(id) ? uids->get_id_path(id) : dependency.get_slice("::", 2);
 		}
 		paths.push_back(to_utf8(path));
 	}
