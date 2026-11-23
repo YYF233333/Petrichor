@@ -262,7 +262,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 	NamedMember out;
 	const auto from_function = [&](const FuncDecl &p_function, const std::string &p_owner) {
 		out.found = true;
-		out.hidden = !p_function.is_pub && !p_function.is_override;
+		out.hidden = !p_function.is_pub;
 		out.id = script_id(p_owner, p_function.name);
 		out.name_token = p_function.name_token;
 		out.function = &p_function;

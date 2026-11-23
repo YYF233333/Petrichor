@@ -20,7 +20,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
-  - The GDScript that the parser refuses (Language). The checker still asks for `pub` on exported variables and `@rpc` functions, which spec §4.2 now treats as pub.
+  - The GDScript that the parser refuses (Language).
   - A subclass's bodies checked although its base has errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project, 303 s for tanks-of-freedom-ii.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.

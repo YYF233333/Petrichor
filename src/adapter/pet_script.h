@@ -97,7 +97,7 @@ public:
 	// §10.5): pub members, but no container that keeps boxes; pub functions
 	// and engine overrides.
 	static bool is_visible(const ClassImage &p_image, const bytecode::Member &p_member);
-	static bool is_visible(const bytecode::Function &p_function) { return p_function.is_pub || p_function.is_override; }
+	static bool is_visible(const bytecode::Function &p_function) { return p_function.is_pub; }
 	static int find_visible_function(const ClassImage &p_image, const godot::StringName &p_name);
 
 	// GDScript constructs scripts of other languages through a bound `new`, and

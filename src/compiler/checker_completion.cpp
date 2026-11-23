@@ -777,7 +777,7 @@ void Checker::complete_string(const EngineMethod *p_method, size_t p_index, bool
 	} else if (string_name && p_on_self && (name == "method" || name == "signal")) {
 		if (name == "method") {
 			for (const FuncDecl *function : cls.all_functions) {
-				if (!function->of_struct && (function->is_pub || function->is_override)) {
+				if (!function->of_struct && function->is_pub) {
 					add(function->name, CompletionKind::Function, CompletionItem::Place::Member);
 				}
 			}

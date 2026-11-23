@@ -270,8 +270,7 @@ void Checker::check_export_custom(VarDecl &r_member, const Annotation &p_annotat
 // The inspector's view of an export (spec §2.3): @export alone shows it as
 // its type, an annotation of the family adds a hint, @export_storage stores
 // it without showing it. PropertyUsageFlags as the engine numbers them
-// (core/object/property_info.h:90-91, 120). The editor and scenes set an
-// export by name, so it must be pub (spec §10.5).
+// (core/object/property_info.h:90-91, 120).
 void Checker::check_annotations(VarDecl &r_member) {
 	const Annotation *exported = nullptr;
 	if (r_member.is_export) {
@@ -289,10 +288,6 @@ void Checker::check_annotations(VarDecl &r_member) {
 			continue;
 		}
 		exported = &annotation;
-		if (!r_member.is_pub) {
-			error(annotation.range, "An exported variable must be pub: the editor and scenes set it by name.");
-			fix(pub_fix(options.path, r_member.name_token));
-		}
 		if (const HintAnnotation *hint = hint_annotation(annotation.name)) {
 			check_hint(r_member, annotation, *hint);
 		} else if (annotation.name == "export_custom") {
@@ -307,16 +302,11 @@ void Checker::check_annotations(VarDecl &r_member) {
 
 // @rpc(mode, sync, transfer_mode, channel): the strings in any order, the
 // channel fourth, as in GDScript (modules/gdscript/gdscript_parser.cpp:187,
-// 5238-5298). The peers call the method by name, so it must be pub (spec
-// §10.5).
+// 5238-5298).
 void Checker::check_rpc(FuncDecl &r_function, const Annotation &p_annotation) {
 	if (r_function.rpc.mode != 0) {
 		error(p_annotation.range, "A function takes @rpc once.");
 		return;
-	}
-	if (!r_function.is_pub) {
-		error(p_annotation.range, "An @rpc function must be pub: other peers call it by name.");
-		fix(pub_fix(options.path, r_function.name_token));
 	}
 	if (p_annotation.args.size() > 4) {
 		error(p_annotation.range, "@rpc takes at most four arguments.");
@@ -870,6 +860,7 @@ bool Checker::override_assignable(const Type &p_from, const Type &p_to) const {
 
 void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 	r_fn.is_override = p_base.is_override;
+	r_fn.is_pub = r_fn.is_pub || r_fn.is_override;
 	if (r_fn.is_pub != p_base.is_pub) {
 		error(r_fn.name_token, "An override must preserve its base method's visibility.");
 		// On the side that lacks it, as the base's other overrides then must.
@@ -1036,6 +1027,8 @@ void Checker::check_signature(FuncDecl &r_function) {
 		error(r_function.name_token, "\"" + r_function.name + "()\" is a method of " + cls.extends + " that cannot be overridden.");
 	}
 	r_function.is_override = engine_method && engine_method->is_virtual;
+	// The engine calls it by name, so it is pub unwritten (spec §4.2).
+	r_function.is_pub = r_function.is_pub || r_function.is_override;
 	if (r_function.is_async) {
 		if (r_function.name == "_init") {
 			error(r_function.name_token, "_init() cannot be async: construction does not wait for it.");
@@ -1843,7 +1836,7 @@ void Checker::check_engine_options() {
 		}
 	}
 	for (const FuncDecl &function : cls.functions) {
-		if (function.is_pub || function.is_override || function.is_async) {
+		if (function.is_pub || function.is_async) {
 			check(function.name_token, "\"" + function.name + "()\" returns", function.return_type);
 		}
 		for (size_t i = 0; function.is_pub && i < function.params.size(); i++) {

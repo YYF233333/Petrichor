@@ -85,8 +85,6 @@ TEST_CASE("@rpc configures how other peers call a method, which they find by nam
 	CHECK(contains(rpc_errors("@rpc(\"any_peer\", \"authority\")"), "@rpc takes one of \"any_peer\" and \"authority\"."));
 	CHECK(contains(rpc_errors("@rpc(\"any_peer\", \"call_local\", \"reliable\", \"x\")"), "the channel, an int"));
 	CHECK(contains(rpc_errors("@rpc\n@rpc"), "A function takes @rpc once."));
-	CHECK(contains(rpc_errors("@rpc"), "An @rpc function must be pub: other peers call it by name."));
-	CHECK(fixed("extends Node\n@rpc\nfunc f():\n\tpass\n") == "extends Node\n@rpc\npub func f():\n\tpass\n");
 	CHECK(contains(joined(errors_of("extends Node\n@rpc\nvar x := 1\n")), "@rpc applies to functions."));
 	CHECK(contains(rpc_errors("@export"), "@export applies to variables."));
 }
@@ -193,9 +191,8 @@ TEST_CASE("fixing all of a kind applies each of its fixes in the file, and leave
 	CHECK(all(FixKind::InstanceValid, "if target == null:\n\treturn\nvar alive := (target != null)") == indented("if not is_instance_valid(target):\n\treturn\nvar alive := (is_instance_valid(target))"));
 	CHECK(all(FixKind::Detach, "load_level()\nfor k in 3:\n\tload_level()") == indented("load_level().detach()\nfor k in 3:\n\tload_level().detach()"));
 	CHECK(all(FixKind::MemberItself, "emit_signal(\"hit\", 1)\ncall_deferred(\"reset\", 2)\nconnect(\"hit\", reset)") == indented("hit.emit(1)\nreset.call_deferred(2)\nhit.connect(reset)"));
-	// Not where pub would show a type that is not.
-	CHECK(fixed_all("extends Node\n\nenum Mode { WALK, RUN }\n\n@export var speed := 1.0\n@export var mode := Mode.WALK\n\n\n@rpc\nfunc sync() -> void:\n\tpass\n", FixKind::Pub) ==
-			"extends Node\n\nenum Mode { WALK, RUN }\n\n@export pub var speed := 1.0\n@export var mode := Mode.WALK\n\n\n@rpc\npub func sync() -> void:\n\tpass\n");
+	CHECK(fixed_all("extends Node\n\nenum Mode { WALK, RUN }\nstruct Hit:\n\tvar damage := 1\n\n@export var mode := Mode.WALK\n\n\npub func hit() -> Hit:\n\treturn Hit(damage = 1)\n", FixKind::Pub) ==
+			"extends Node\n\npub enum Mode { WALK, RUN }\npub struct Hit:\n\tvar damage := 1\n\n@export var mode := Mode.WALK\n\n\npub func hit() -> Hit:\n\treturn Hit(damage = 1)\n");
 	// The test of the condition comes first; the one inside it, next time.
 	const std::string once = all(FixKind::TruthTest, "if count if i else ratio:\n\tpass");
 	CHECK(once == indented("if (count if i else ratio) != 0:\n\tpass"));

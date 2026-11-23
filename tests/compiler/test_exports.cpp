@@ -15,9 +15,12 @@ std::string exports_errors(const std::string &p_members) {
 
 } // namespace
 
-TEST_CASE("an export is pub, since the editor and scenes set it by name (spec §10.5)") {
-	CHECK(exports_errors("@export_range(0, 10) var speed := 2.0") == "2:1: An exported variable must be pub: the editor and scenes set it by name.\n");
-	CHECK(fixed("extends Resource\n@export_range(0, 10) var speed := 2.0\n") == "extends Resource\n@export_range(0, 10) pub var speed := 2.0\n");
+// The engine reaches them by name (spec §4.2, §10.5).
+TEST_CASE("an export, an @rpc function and an override of an engine virtual are pub without writing it") {
+	FakeProject project;
+	project.add_script("res://weapon.pet", "class_name Weapon\nextends Node\n@export_range(0, 10) var speed := 2.0\n@rpc\nfunc fire() -> void:\n\tpass\nfunc _ready() -> void:\n\tpass\n", "Weapon");
+	const auto result = compile_in("extends Weapon\npub func _ready() -> void:\n\tpass\nfunc aim(other: Weapon) -> void:\n\tother.speed = 3.0\n\tother.fire()\n\tother._ready()\n", project);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
 }
 
 TEST_CASE("@export_range gives the inspector GDScript's range hint") {

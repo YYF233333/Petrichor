@@ -1829,7 +1829,8 @@ class Parser {
 			const Token &name = declared_name("a variable name");
 			decl.name = name.text;
 			decl.name_token = index(name);
-			decl.is_pub = is_pub;
+			// The engine sets an export by name, so it is pub unwritten (spec §4.2).
+			decl.is_pub = is_pub || is_export;
 			decl.is_export = is_export;
 			decl.is_onready = is_onready;
 			decl.is_static = is_static;
@@ -1910,19 +1911,22 @@ class Parser {
 
 		if (check(TokenKind::Func)) {
 			bool is_abstract = false;
+			bool is_rpc = false;
 			for (const Annotation &annotation : annotations) {
 				if (annotation.name != "rpc" && annotation.name != "abstract") {
 					fail(peek(), "@" + annotation.name + " applies to variables.");
 					return;
 				}
 				is_abstract = is_abstract || annotation.name == "abstract";
+				is_rpc = is_rpc || annotation.name == "rpc";
 			}
 			advance();
 			FuncDecl decl;
 			const Token &name = declared_name("a function name");
 			decl.name = name.text;
 			decl.name_token = index(name);
-			decl.is_pub = is_pub;
+			// Other peers call it by name, so it is pub unwritten (spec §4.2).
+			decl.is_pub = is_pub || is_rpc;
 			decl.is_static = is_static;
 			decl.is_async = is_async;
 			decl.annotations = std::move(annotations);
