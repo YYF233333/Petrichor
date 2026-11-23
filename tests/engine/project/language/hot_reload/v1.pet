@@ -5,6 +5,8 @@ pub var count := 0
 # Not a literal: run by the init function, which records its line.
 var origin := Vector3(1, 2, 3)
 pub static var hits := 0
+# Compared by its bits, as NAN equals nothing (spec §12.4).
+pub const LIMIT := NAN
 static var inits := 0
 
 static func _static_init() -> void:

@@ -775,8 +775,9 @@ struct ModulePair {
 
 	bool same_type(uint32_t p_a, uint32_t p_b) const { return ::petrichor::same_type(a, p_a, b, p_b); }
 
+	// Floats by their bits: NAN is no change, and -0.0 is one.
 	bool same_constant(const bytecode::Constant &p_a, const bytecode::Constant &p_b) const {
-		return same_type(p_a.type, p_b.type) && p_a.b == p_b.b && p_a.i == p_b.i && p_a.f == p_b.f && p_a.s == p_b.s && p_a.builtin == p_b.builtin &&
+		return same_type(p_a.type, p_b.type) && p_a.b == p_b.b && p_a.i == p_b.i && std::memcmp(&p_a.f, &p_b.f, sizeof(p_a.f)) == 0 && p_a.s == p_b.s && p_a.builtin == p_b.builtin &&
 				p_a.constructor == p_b.constructor && p_a.op == p_b.op && p_a.field == p_b.field && p_a.load == p_b.load && (p_a.utility < 0) == (p_b.utility < 0) &&
 				(p_a.utility < 0 || (a.utility_calls[p_a.utility].function == b.utility_calls[p_b.utility].function && a.utility_calls[p_a.utility].params == b.utility_calls[p_b.utility].params)) &&
 				std::equal(p_a.args.begin(), p_a.args.end(), p_b.args.begin(), p_b.args.end(), [&](const auto &x, const auto &y) { return same_constant(x, y); });
