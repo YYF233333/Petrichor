@@ -68,7 +68,9 @@ TEST_CASE("an indentation that matches no outer block is an error") {
 
 TEST_CASE("numbers") {
 	std::vector<Diagnostic> errors;
-	const auto file = tokenize("1_000 0xFF 0b101 2.5 1e3 7", errors);
+	// A point is a decimal point unless another follows it
+	// (modules/gdscript/gdscript_tokenizer.cpp:726-749, 1496-1498; ed1daf0).
+	const auto file = tokenize("1_000 0xFF 0b101 2.5 1e3 7 .5 1. 1.e2 [1..]", errors);
 	const std::vector<Token> &tokens = file->tokens;
 	CHECK(errors.empty());
 	CHECK(tokens[0].int_value == 1000);
@@ -79,6 +81,12 @@ TEST_CASE("numbers") {
 	CHECK(tokens[4].kind == TokenKind::Float);
 	CHECK(tokens[4].float_value == 1000.0);
 	CHECK(tokens[5].kind == TokenKind::Int);
+	CHECK(tokens[6].float_value == 0.5);
+	CHECK(tokens[7].kind == TokenKind::Float);
+	CHECK(tokens[7].float_value == 1.0);
+	CHECK(tokens[8].float_value == 100.0);
+	CHECK(tokens[10].kind == TokenKind::Int);
+	CHECK(tokens[11].kind == TokenKind::Period);
 }
 
 // core/string/ustring.cpp:2551-2565 (ed1daf0).
@@ -90,14 +98,14 @@ TEST_CASE("a float literal out of range is infinity or zero, whatever the host's
 	CHECK(file->tokens[1].float_value == 0.0);
 }
 
-TEST_CASE("a digit the base lacks, or a letter after a number, is an error") {
-	for (const char *source : { "0b102", "0b2", "0xFG", "12px" }) {
+TEST_CASE("a digit the base lacks, a letter after a number, or a second decimal point is an error") {
+	for (const char *source : { "0b102", "0b2", "0xFG", "12px", "1.x", "1.5.floor()", ".5.3", "0x1.0" }) {
 		std::vector<Diagnostic> errors;
 		tokenize(source, errors);
 		CHECK_MESSAGE(errors.size() == 1, source);
 	}
 	std::vector<Diagnostic> errors;
-	const auto file = tokenize("0b1_01 1.5.floor()", errors);
+	const auto file = tokenize("0b1_01", errors);
 	const std::vector<Token> &tokens = file->tokens;
 	CHECK(errors.empty());
 	CHECK(tokens[0].int_value == 5);

@@ -699,12 +699,19 @@ class Lexer {
 		}
 	}
 
+	// As in GDScript, a point not followed by another is a decimal point: `.5`
+	// and `1.` are floats, and `1.x` is an error
+	// (modules/gdscript/gdscript_tokenizer.cpp:683-684, 726-749, 818-827, 1496-1498; ed1daf0).
 	void number() {
 		const uint32_t start = at;
 		std::string digits;
-		bool is_float = false;
+		bool point = peek() == '.';
+		bool is_float = point;
 		int base = 10;
-		if (peek() == '0' && (peek(1) == 'x' || peek(1) == 'X' || peek(1) == 'b' || peek(1) == 'B')) {
+		if (point) {
+			digits.push_back('.');
+			advance();
+		} else if (peek() == '0' && (peek(1) == 'x' || peek(1) == 'X' || peek(1) == 'b' || peek(1) == 'B')) {
 			base = (peek(1) == 'x' || peek(1) == 'X') ? 16 : 2;
 			advance();
 			advance();
@@ -724,11 +731,15 @@ class Lexer {
 			}
 		};
 		take_digits();
-		if (base == 10 && peek() == '.' && is_digit(peek(1))) {
-			is_float = true;
-			digits.push_back('.');
-			advance();
-			take_digits();
+		if (peek() == '.' && peek(1) != '.' && !point) {
+			if (base == 10) {
+				point = is_float = true;
+				digits.push_back('.');
+				advance();
+				take_digits();
+			} else {
+				error(at, at + 1, std::string("Cannot use a decimal point in a ") + (base == 16 ? "hexadecimal" : "binary") + " number.");
+			}
 		}
 		if (base == 10 && (peek() == 'e' || peek() == 'E')) {
 			const size_t sign = (peek(1) == '+' || peek(1) == '-') ? 1 : 0;
@@ -743,9 +754,11 @@ class Lexer {
 				take_digits();
 			}
 		}
+		if (point && peek() == '.' && peek(1) != '.') {
+			error(at, at + 1, "Cannot use a decimal point twice in a number.");
+		}
 		// A digit the base does not have, or a letter, ends the number in an
-		// error: 0b102, 0xFG, 12px, as in GDScript
-		// (modules/gdscript/gdscript_tokenizer.cpp:824-827).
+		// error: 0b102, 0xFG, 12px.
 		const bool trailing = is_identifier_char(peek());
 		while (is_identifier_char(peek())) {
 			advance();
@@ -968,7 +981,11 @@ class Lexer {
 				one(TokenKind::Comma);
 				return;
 			case '.':
-				next == '.' && peek(2) == '.' ? three(TokenKind::Ellipsis) : one(TokenKind::Period);
+				if (is_digit(next)) {
+					number();
+				} else {
+					next == '.' && peek(2) == '.' ? three(TokenKind::Ellipsis) : one(TokenKind::Period);
+				}
 				return;
 			case '(':
 				open_bracket();
