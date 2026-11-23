@@ -146,27 +146,26 @@ TEST_CASE("inheritance rejects cycles foreign bases and missing super implementa
 	CHECK(contains(messages(compile_in("extends Base\nstatic func bad():\n\tsuper.secret()\n", p)), "belongs to an instance"));
 }
 
+// A connection is checked against the class its scene attaches, which has
+// its base's methods but not its subclasses' (spec §7.7).
 TEST_CASE("inheritance scene connections belong to their attached class") {
-	FakeProject p;
-	p.add_script("res://base.pet", "class_name Base\nextends Node\npub signal tick\npub func base_connected():\n\tpass\n", "Base");
-	p.add_script("res://child.pet", "extends Base\npub func child_connected():\n\tpass\n");
-	compiler::Scene base;
-	base.path = "res://base.tscn";
-	base.nodes = { { ".", "Node", "res://base.pet" } };
-	base.connections = { { "tick", ".", ".", "base_connected" } };
-	compiler::Scene child;
-	child.path = "res://child.tscn";
-	child.nodes = { { ".", "Node", "res://child.pet" } };
-	child.connections = { { "tick", ".", ".", "child_connected" } };
-	p.scenes = { base, child };
-	for (const std::string path : { "res://base.pet", "res://child.pet" }) {
-		compiler::CompileOptions options;
-		options.path = path;
-		options.project = &p;
-		const auto r = compiler::compile(p.sources.at(path), fake_engine(), options);
-		INFO(messages(r));
-		CHECK(r.ok());
-	}
+	const auto connected = [](const std::string &p_in_base, const std::string &p_in_child) {
+		FakeProject p;
+		p.add_script("res://base.pet", "class_name Base\nextends Node\npub signal tick\npub func base_connected():\n\tpass\n", "Base");
+		compiler::Scene base;
+		base.path = "res://base.tscn";
+		base.nodes = { { ".", "Node", "res://base.pet" } };
+		base.connections = { { "tick", ".", ".", p_in_base } };
+		compiler::Scene child;
+		child.path = "res://child.tscn";
+		child.nodes = { { ".", "Node", "res://test.pet" } };
+		child.connections = { { "tick", ".", ".", p_in_child } };
+		p.scenes = { base, child };
+		return messages(check_scenes_in("extends Base\npub func child_connected():\n\tpass\n", p));
+	};
+	CHECK(connected("base_connected", "child_connected").empty());
+	CHECK(connected("base_connected", "base_connected").empty());
+	CHECK(contains(connected("child_connected", "child_connected"), "res://base.tscn: the signal \"tick\" of . is connected to child_connected(), which this class does not declare."));
 }
 
 // Spec §4.1, as GDScript checks it (modules/gdscript/gdscript_analyzer.cpp:1532-1556,
