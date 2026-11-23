@@ -53,6 +53,7 @@ public:
 //   godot --headless -e --path <project> -- --petrichor-check
 //   godot --headless -e --path <project> -- --petrichor-build
 //   godot --headless -e --path <project> -- --petrichor-format [--check]
+//   godot --headless -e --path <project> -- --petrichor-migrate [--dry-run] [<path>...]
 // has the nodes ask again for their errors when a file or an open scene
 // changes, shows the references found in its panel, offers quick fixes and
 // renames (spec §13.2, §13.3). It runs the language server, headless only
@@ -164,6 +165,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	godot::String rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates, bool p_undo, bool p_apply);
 	void scripts_saved(const std::set<std::string> &p_files);
 	void run_headless(const godot::String &p_command);
+	std::pair<std::string, int> migrate(const std::vector<std::string> &p_args);
 	std::optional<std::pair<std::string, int>> run_command(const std::string &p_command, const std::vector<std::string> &p_args, const std::set<std::string> &p_conflicts);
 	void files_changed();
 	void scene_saved(const godot::String &p_path);

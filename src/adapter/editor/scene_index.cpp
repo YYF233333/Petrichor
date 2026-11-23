@@ -163,7 +163,13 @@ compiler::SceneValue scene_value(const Variant &p_value) {
 	return value;
 }
 
-compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene, std::set<std::string> &r_files, std::vector<compiler::Scene> &r_embedded);
+// A script of this language, or one of `p_taken`, which a migration reads as
+// such (architecture §6.6).
+bool is_ours(const std::string &p_script, const std::set<std::string> &p_taken) {
+	return to_godot(p_script).get_extension() == "pet" || p_taken.count(p_script);
+}
+
+compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene, const std::set<std::string> &p_taken, std::set<std::string> &r_files, std::vector<compiler::Scene> &r_embedded);
 
 // The resources of the file at `p_file` that `p_value` holds at any depth: its
 // own and its sub-resources, but not those of other files, which are checked
@@ -174,11 +180,11 @@ compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene
 // 1955-1994; ed1daf0); a placeholder keeps them so. A scene among them, as a
 // scene file embeds one, goes to `r_embedded`, read as a scene of its own;
 // `p_file` may be such a scene's path.
-void read_resources(const String &p_file, const Variant &p_value, compiler::Scene &r_scene, std::set<std::string> &r_files, std::set<uint64_t> &r_seen, std::vector<compiler::Scene> &r_embedded) {
+void read_resources(const String &p_file, const Variant &p_value, const std::set<std::string> &p_taken, compiler::Scene &r_scene, std::set<std::string> &r_files, std::set<uint64_t> &r_seen, std::vector<compiler::Scene> &r_embedded) {
 	if (p_value.get_type() == Variant::ARRAY) {
 		const Array array = p_value;
 		for (int64_t i = 0; i < array.size(); i++) {
-			read_resources(p_file, array[i], r_scene, r_files, r_seen, r_embedded);
+			read_resources(p_file, array[i], p_taken, r_scene, r_files, r_seen, r_embedded);
 		}
 		return;
 	}
@@ -186,8 +192,8 @@ void read_resources(const String &p_file, const Variant &p_value, compiler::Scen
 		const Dictionary dictionary = p_value;
 		const Array keys = dictionary.keys();
 		for (int64_t i = 0; i < keys.size(); i++) {
-			read_resources(p_file, keys[i], r_scene, r_files, r_seen, r_embedded);
-			read_resources(p_file, dictionary[keys[i]], r_scene, r_files, r_seen, r_embedded);
+			read_resources(p_file, keys[i], p_taken, r_scene, r_files, r_seen, r_embedded);
+			read_resources(p_file, dictionary[keys[i]], p_taken, r_scene, r_files, r_seen, r_embedded);
 		}
 		return;
 	}
@@ -199,7 +205,7 @@ void read_resources(const String &p_file, const Variant &p_value, compiler::Scen
 	}
 	if (const Ref<PackedScene> scene = Ref<PackedScene>(Object::cast_to<PackedScene>(resource)); scene.is_valid()) {
 		if (scene->get_state().is_valid()) {
-			r_embedded.push_back(read_scene(path, scene, r_files, r_embedded));
+			r_embedded.push_back(read_scene(path, scene, p_taken, r_files, r_embedded));
 		}
 		return;
 	}
@@ -207,7 +213,7 @@ void read_resources(const String &p_file, const Variant &p_value, compiler::Scen
 	compiler::SceneResource read;
 	read.path = to_utf8(path);
 	read.script = script.is_valid() ? to_utf8(script->get_path()) : std::string();
-	const bool ours = to_godot(read.script).get_extension() == "pet";
+	const bool ours = is_ours(read.script, p_taken);
 	if (ours) {
 		r_files.insert(read.script);
 	}
@@ -223,11 +229,12 @@ void read_resources(const String &p_file, const Variant &p_value, compiler::Scen
 			continue;
 		}
 		const Variant value = resource->get(name);
-		// A placeholder gives a property's default, which the file does not store.
-		if (pet && PetPlaceholder::at_default(*pet, name, value)) {
+		// A placeholder gives a property's default, which the file does not
+		// store; so does GDScript's (core/object/script_language.cpp:709-727; ed1daf0).
+		if (pet ? PetPlaceholder::at_default(*pet, name, value) : ours && script->get_property_default_value(name) == value) {
 			continue;
 		}
-		read_resources(p_file, value, r_scene, r_files, r_seen, r_embedded);
+		read_resources(p_file, value, p_taken, r_scene, r_files, r_seen, r_embedded);
 		compiler::SceneValue stored = scene_value(value);
 		std::vector<std::string> scenes;
 		stored.add_scenes(scenes);
@@ -396,11 +403,11 @@ void instanced_scenes(const Ref<SceneState> &p_state, std::set<std::string> &r_p
 // An inherited scene stores only the nodes it adds or changes and the
 // connections it adds; the rest are in its base (scene/resources/packed_scene.cpp:1483-1490,
 // 1888-1894, 1912-1928; ed1daf0). The scenes it embeds go to `r_embedded`.
-compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene, std::set<std::string> &r_files, std::vector<compiler::Scene> &r_embedded) {
+compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene, const std::set<std::string> &p_taken, std::set<std::string> &r_files, std::vector<compiler::Scene> &r_embedded) {
 	const Ref<SceneState> state = p_scene->get_state();
 	const Ref<PackedScene> base = state->get_base_scene_state().is_valid() ? state->get_node_instance(0) : Ref<PackedScene>();
 	std::vector<compiler::Scene> based; // The base's own.
-	compiler::Scene scene = base.is_valid() ? read_scene(base->get_path(), base, r_files, based) : compiler::Scene();
+	compiler::Scene scene = base.is_valid() ? read_scene(base->get_path(), base, p_taken, r_files, based) : compiler::Scene();
 	scene.base = base.is_valid() ? scene.path : std::string();
 	scene.path = to_utf8(p_path);
 	// The base stores them, and the check reads them there.
@@ -412,7 +419,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene
 	const std::vector<std::vector<bool>> references = node_references(p_scene);
 	for (int32_t i = 0; i < state->get_node_count(); i++) {
 		for (int32_t p = 0; p < state->get_node_property_count(i); p++) {
-			read_resources(p_path, state->get_node_property_value(i, p), scene, r_files, seen, r_embedded);
+			read_resources(p_path, state->get_node_property_value(i, p), p_taken, scene, r_files, seen, r_embedded);
 		}
 		read_named_members(state, i, scene, r_files);
 		const std::string path = node_path(state->get_node_path(i));
@@ -425,7 +432,7 @@ compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene
 			const std::string &attached = r_node.script.empty() ? r_node.instance_script : r_node.script;
 			const bool change = r_node.type.empty() && !r_node.is_instance;
 			r_node.properties = stored_properties(state, i, references[i]);
-			if (!change && to_godot(attached).get_extension() != "pet") {
+			if (!change && !is_ours(attached, p_taken)) {
 				r_node.properties.erase(std::remove_if(r_node.properties.begin(), r_node.properties.end(), [](const auto &p_property) {
 					std::vector<std::string> scenes;
 					p_property.second.add_scenes(scenes);
@@ -581,7 +588,7 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	} else if (extension == "tscn" || extension == "scn") {
 		const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
 		if (packed.is_valid() && packed->get_state().is_valid()) {
-			entry->scene = read_scene(path, packed, files, entry->embedded);
+			entry->scene = read_scene(path, packed, taken, files, entry->embedded);
 			instanced_scenes(packed->get_state(), files);
 		}
 	} else {
@@ -589,13 +596,13 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 		// scripts and the scenes it holds are external resources, which the
 		// engine lists without loading it.
 		const std::vector<std::string> dependencies = this->dependencies(p_path);
-		if (std::any_of(dependencies.begin(), dependencies.end(), [](const std::string &p_dependency) {
+		if (std::any_of(dependencies.begin(), dependencies.end(), [&](const std::string &p_dependency) {
 				const String extension = to_godot(p_dependency).get_extension();
-				return extension == "pet" || extension == "tscn" || extension == "scn";
+				return is_ours(p_dependency, taken) || extension == "tscn" || extension == "scn";
 			})) {
 			std::set<uint64_t> seen;
 			entry->scene.path = p_path;
-			read_resources(path, ResourceLoader::get_singleton()->load(path, "", ResourceLoader::CACHE_MODE_IGNORE), entry->scene, files, seen, entry->embedded);
+			read_resources(path, ResourceLoader::get_singleton()->load(path, "", ResourceLoader::CACHE_MODE_IGNORE), taken, entry->scene, files, seen, entry->embedded);
 		}
 	}
 	stamp(*entry, files);
@@ -1044,7 +1051,7 @@ void pack_open_scenes() {
 	for (const auto &[path, scene] : unsaved_scenes()) {
 		std::set<std::string> files;
 		std::vector<compiler::Scene> embedded;
-		open.set_scene(path, read_scene(to_godot(path), scene, files, embedded));
+		open.set_scene(path, read_scene(to_godot(path), scene, {}, files, embedded));
 		packed.insert(path);
 		for (const compiler::Scene &each : embedded) {
 			packed.insert(each.path);

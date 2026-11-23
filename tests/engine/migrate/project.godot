@@ -1,0 +1,13 @@
+; The GDScript project that pet migrate converts (tests/engine/run.py, group pet).
+
+config_version=5
+
+[application]
+
+config/name="Petrichor migration checks"
+run/main_scene="res://level.tscn"
+config/features=PackedStringArray("4.7")
+
+[autoload]
+
+Game="*res://game.gd"

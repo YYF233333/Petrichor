@@ -1101,6 +1101,81 @@ def run_pet_group(godot):
                 except OSError:
                     time.sleep(0.1)
         expect("pet: the service reports no errors", "ERROR" not in output, output)
+    check_migrate(godot)
+
+
+def check_migrate(godot):
+    """pet migrate (architecture §6.6) on a copy of tests/engine/migrate: a dry
+    run of one file names what it takes and writes nothing; through a service,
+    it writes nothing while an LSP client has unsaved changes to a file it
+    rewrites, and once it has none, it renames the files with their .uid
+    files, rewrites the paths naming them and applies the fixes that keep the
+    meaning. Godot then reads the project again, which checks without errors."""
+    with tempfile.TemporaryDirectory() as tmp:
+        project = Path(tmp).resolve() / "migrate"
+        shutil.copytree(HERE / "migrate", project)
+        addon = project / "addons" / "petrichor"
+        (addon / "bin").mkdir(parents=True)
+        for name in ("petrichor.gdextension", host_library("editor"), PET):
+            shutil.copy(PROJECT / name, addon / name)
+        (addon / PET).chmod(0o755)
+        # The import gives the scripts their .uid files.
+        import_project(godot, project)
+
+        def pet(*args):
+            ran = subprocess.run([addon / PET, *args], capture_output=True, timeout=TIMEOUT)
+            return ran.returncode, ran.stdout.decode("utf-8", "replace"), ran.stderr.decode("utf-8", "replace")
+
+        def files():
+            return {path.relative_to(project).as_posix(): path.read_bytes() for path in project.rglob("*") if path.is_file() and not {".godot", "addons"} & set(path.relative_to(project).parts)}
+
+        before = files()
+        code, out, err = pet("migrate", "--dry-run", "boss.gd", "--godot", godot)
+        named = ["boss.gd → boss.pet", "enemy.gd → enemy.pet, added: in the inheritance tree of res://boss.gd"]
+        expect("pet migrate: a dry run names the files it takes, and writes nothing", code == 0 and out.splitlines()[:2] == named and out.rstrip().endswith(", dry run") and files() == before, out + err)
+
+        info = project / ".godot" / "petrichor" / "lsp.json"
+        editor = Running(godot, "-e", "--path", str(project), "--", "--petrichor-lsp")
+        try:
+            while not info.exists() and not editor.ended and editor._remaining() > 0:
+                time.sleep(0.05)
+            client = LspClient(json.loads(info.read_text(encoding="utf-8"))["port"])
+            client.initialize()
+            hud = file_uri(project / "hud.pet")
+            client.open(hud, before["hud.pet"].decode() + "# Unsaved.\n")
+            client.request("petrichor/unknown")
+            code, out, err = pet("migrate")
+            refused = "hud.pet: error: Another editor has unsaved changes to it. Save them there first."
+            expect("pet migrate: nothing is written while an LSP client has unsaved changes to a file it rewrites", code == 1 and refused in out.splitlines() and out.rstrip().endswith("; nothing was written") and files() == before, out + err)
+            client.notify("textDocument/didClose", {"textDocument": {"uri": hud}})
+            client.request("petrichor/unknown")
+            code, out, err = pet("migrate")
+            after = {name: text.decode() for name, text in files().items()}
+            report = ["tool.gd: left out: it has @tool", "1 × Make it pub", "1 × Write .unwrap()", "1 × Write async func", "petrichor migrate: 4 script(s), 0 added, 2 left out, 3 fix(es), 6 path(s) renamed, 0 with errors"]
+            renamed = [name for name in before if name.endswith((".gd", ".gd.uid")) and not name.startswith("tool")]
+            expect(
+                "pet migrate: it renames the files with their .uid files, rewrites the paths naming them, and applies the fixes",
+                code == 0 and all(line in out.splitlines() for line in report)
+                and all(name not in after and after[name.replace(".gd", ".pet")] for name in renamed)
+                and after["boss.pet.uid"] == before["boss.gd.uid"].decode()
+                and 'path="res://boss.pet"' in after["level.tscn"] and 'path="res://stats.pet"' in after["stats.tres"] and 'Game="*res://game.pet"' in after["project.godot"]
+                and 'preload("res://boss.pet")' in after["tool.gd"] and 'preload("res://game.pet")' in after["hud.pet"]
+                and "pub func hit" in after["enemy.pet"] and "async func roar" in after["boss.pet"] and "get_parent().unwrap()" in after["game.pet"],
+                out + err,
+            )
+            code, out, err = pet("check")
+            expect("pet migrate: Godot reads the project again, which then checks without errors", code == 0 and out.rstrip().endswith(", 0 with errors"), out + err)
+        finally:
+            editor.process.kill()
+            code, output = editor.finish()
+            copy = addon / "bin" / ("~" + Path(host_library("editor")).name)
+            deadline = time.monotonic() + 10
+            while copy.exists() and time.monotonic() < deadline:
+                try:
+                    copy.unlink()
+                except OSError:
+                    time.sleep(0.1)
+        expect("pet migrate: the service reports no errors", "ERROR" not in output, output)
 
 
 FOLDS_CASE = sys.platform in ("win32", "darwin")

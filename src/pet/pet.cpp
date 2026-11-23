@@ -1,5 +1,5 @@
 // pet, the command line's client of the project service (architecture §6.5).
-// It runs check, build and format in the Godot editor that the project's
+// It runs check, build, format and migrate in the Godot editor that the project's
 // .godot/petrichor/lsp.json names, else in a headless editor, and bridges a
 // language client on stdio to the service. It does not depend on Godot.
 
@@ -59,11 +59,15 @@ const char *const USAGE =
 		"  check             checks the project on disk, writing nothing\n"
 		"  build             checks it and writes the bytecode\n"
 		"  format [--check]  formats the scripts, or lists those not formatted\n"
+		"  migrate [--dry-run] [<path>...]\n"
+		"                    migrates the GDScript files under the paths, from the\n"
+		"                    project's root, or all; with --dry-run, only reports\n"
 		"  lsp               bridges a language client on stdio to the service\n"
 		"\n"
 		"The command runs in the Godot editor open on the project, else in a\n"
 		"headless one. --godot names its executable where no editor has\n"
-		"recorded one. Exit codes: 0 no errors, 1 errors, 2 not run.\n";
+		"recorded one. Exit codes: 0 no errors, 1 errors, 2 not run; migrate\n"
+		"gives 1 only when it wrote nothing.\n";
 
 // Platform layer: text and files, processes, sockets.
 
@@ -731,13 +735,13 @@ int run(const std::vector<std::string> &p_args) {
 	for (size_t i = 1; i < p_args.size(); i++) {
 		if (p_args[i] == "--godot" && i + 1 < p_args.size()) {
 			godot = p_args[++i];
-		} else if (command == "format" && p_args[i] == "--check") {
+		} else if ((command == "format" && p_args[i] == "--check") || (command == "migrate" && (p_args[i] == "--dry-run" || p_args[i].rfind("-", 0) != 0))) {
 			passed.push_back(p_args[i]);
 		} else {
 			fail("unknown argument " + p_args[i] + ".\n\n" + USAGE);
 		}
 	}
-	if (command != "check" && command != "build" && command != "format" && command != "lsp") {
+	if (command != "check" && command != "build" && command != "format" && command != "migrate" && command != "lsp") {
 		fail("unknown command " + command + ".\n\n" + USAGE);
 	}
 	// This copy is the project's own: <root>/addons/petrichor/bin/pet.

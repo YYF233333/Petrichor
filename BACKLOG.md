@@ -21,9 +21,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 41 s for tanks-of-freedom-ii with its assets. Its 661 scenes load 6,951 files one scene at a time, 944 of them distinct. Without the assets, as in the sparse corpus clone, each missing file is a failing load, and the check takes 136 to 195 s.
-  - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
-    - Its writing refuses files with unsaved changes, as refactorings do (architecture §6.5).
-    - It uses the one check of the files held and the one writing of all files or none (`Held`, `write_all()`).
   - Types inferred over the whole project and written down.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
@@ -164,7 +161,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
   - A two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null`, which mean the same in both languages (spec §3.4).
-  - Migrating a class offers to migrate its GDScript users that GDScript could not keep (spec §11.3). They call its static methods or use its enums in types. [`class_level_access.py`](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts/class_level_access.py) in petrichor-corpus finds them by spelling.
+  - A file that stays in GDScript, as one with `@tool`, keeps the files it accesses at class level in GDScript, with their trees (architecture §6.6). Should the migration instead take them, and report the GDScript file that then breaks?
   - It rewrites assignments to a character of a String, a compile error here (spec §5.1).
     - `s[i] = c` becomes `s = s.erase(i).insert(i, c)`, and `s[i] = ""` becomes `s = s.erase(i)`.
     - A negative literal index `-k` becomes `s.length() - k`, since `erase` refuses negative positions (`core/string/ustring.cpp:2881-2884`, `ed1daf0`).

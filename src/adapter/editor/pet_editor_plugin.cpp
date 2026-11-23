@@ -1,5 +1,6 @@
 #include "adapter/editor/pet_editor_plugin.h"
 
+#include "adapter/editor/class_db_api.h"
 #include "adapter/editor/project_files.h"
 #include "adapter/editor/scene_index.h"
 #include "adapter/editor/script_compiler.h"
@@ -8,6 +9,7 @@
 #include "compiler/compiler.h"
 #include "compiler/formatter.h"
 #include "compiler/lexer.h"
+#include "compiler/migration.h"
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
@@ -249,7 +251,7 @@ void PetEditorPlugin::_enter_tree() {
 	add_debugger_plugin(sessions);
 	const PackedStringArray args = OS::get_singleton()->get_cmdline_user_args();
 	const bool headless = DisplayServer::get_singleton()->get_name() == "headless";
-	for (const char *command : { "check", "build", "format" }) {
+	for (const char *command : { "check", "build", "format", "migrate" }) {
 		if (args.has(String("--petrichor-") + command)) {
 			callable_mp(this, &PetEditorPlugin::run_headless).call_deferred(String(command));
 			return;
@@ -1602,6 +1604,156 @@ std::string diagnostic_line(const compiler::Diagnostic &p_diagnostic) {
 
 } // namespace
 
+// pet migrate (architecture §6.6): the files the paths in `p_args` take, the
+// loop of fixes and the check after it, in memory. Unless `--dry-run` is
+// among `p_args`, it then renames them with their .uid files and rewrites the
+// paths naming them, all or none, as a refactoring writes (§2.3): not over
+// what Godot or an LSP client holds unsaved, nor a file migrated that Godot's
+// script editor has open. Godot reads the project again, and project.godot's
+// settings in memory take the paths it was written with
+// (core/config/project_settings.cpp:359-369; ed1daf0). It exits with 1 when
+// nothing was written for that or a failure.
+std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::string> &p_args) {
+	bool dry_run = false;
+	std::vector<std::string> paths;
+	for (const std::string &arg : p_args) {
+		if (arg == "--dry-run") {
+			dry_run = true;
+		} else if (arg.rfind("--petrichor-", 0) != 0) {
+			paths.push_back(to_utf8(("res://" + to_godot(arg).replace("\\", "/").trim_prefix("res://")).simplify_path()));
+		}
+	}
+	const compiler::MigrationSet set = compiler::migration_set(ClassDBApi::get(), SceneIndex::get(), paths);
+	std::string output;
+	for (const std::string &path : set.unknown) {
+		output += relative(path) + ": error: No GDScript file is there.\n";
+	}
+	if (!set.unknown.empty()) {
+		return { output + "petrichor migrate: nothing was written", 1 };
+	}
+	std::map<std::string, std::string> renamed;
+	for (const std::string &file : set.files) {
+		renamed[file] = compiler::migrated_path(file);
+	}
+	const std::map<std::string, std::string> added(set.added.begin(), set.added.end());
+	for (const auto &[file, migrated] : renamed) {
+		const auto why = added.find(file);
+		output += relative(file) + " → " + relative(migrated) + (why == added.end() ? "" : ", added: " + why->second) + "\n";
+	}
+	for (const auto &[file, why] : set.left_out) {
+		output += relative(file) + ": left out: " + why + "\n";
+	}
+	const SceneIndex taken(set.files);
+	const compiler::Migration migration = compiler::migrate(ClassDBApi::get(), taken, set.files, 10);
+	int fixes = 0;
+	for (const auto &[kind, count] : migration.fixes) {
+		output += std::to_string(count) + " × " + compiler::FIX_KINDS[size_t(kind)].name + "\n";
+		fixes += count;
+	}
+	if (!migration.settled) {
+		output += "warning: The fixes still change the files after " + std::to_string(migration.rounds) + " rounds.\n";
+	}
+	std::set<std::string> erring;
+	for (const compiler::Diagnostic &error : migration.errors) {
+		output += diagnostic_line(error) + "\n";
+		erring.insert(error.file);
+	}
+
+	// What is written: each file migrated under its new name, with its .uid
+	// file, and each text file naming one.
+	std::map<std::string, std::optional<std::string>> bytes;
+	int named = 0;
+	for (const auto &[file, migrated] : renamed) {
+		const std::string had = file_bytes(to_godot(file));
+		compiler::renamed_in_script(had, file, renamed, named);
+		bytes[file] = std::nullopt;
+		bytes[migrated] = byte_order_mark(had) + migration.texts.at(migrated);
+		if (FileAccess::file_exists(to_godot(file + ".uid"))) {
+			bytes[file + ".uid"] = std::nullopt;
+			bytes[migrated + ".uid"] = file_bytes(to_godot(file + ".uid"));
+		}
+	}
+	PackedStringArray naming = project_files(PackedStringArray({ "pet", "gd", "tscn", "tres" }));
+	naming.push_back("res://project.godot");
+	for (const String &path : naming) {
+		const std::string file = to_utf8(path);
+		if (renamed.count(file)) {
+			continue;
+		}
+		const std::string had = file_bytes(path);
+		int count = 0;
+		const std::string text = is_script(file) ? compiler::renamed_in_script(had, file, renamed, count) : compiler::renamed_in_resource(had, renamed, count);
+		if (count > 0) {
+			bytes[file] = text;
+			named += count;
+		}
+	}
+	for (const String &path : project_files(PackedStringArray({ "scn", "res" }))) {
+		for (const std::string &dependency : SceneIndex::get().dependencies(to_utf8(path))) {
+			if (renamed.count(dependency)) {
+				output += relative(to_utf8(path)) + ": warning: It is binary, so it keeps naming " + dependency + " by its path, beside its uid.\n";
+			}
+		}
+	}
+	std::set<std::string> written;
+	for (const auto &[file, each] : bytes) {
+		if (!to_godot(file).ends_with(".uid") && file != "res://project.godot") {
+			written.insert(file);
+		}
+	}
+	// Written from its file, a tab that has not seen the file takes it as it
+	// reloads.
+	Held held = Held::of(written);
+	held.drop(Held::Unseen);
+	int refused = 0;
+	for (const std::string &file : written) {
+		const bool open = renamed.count(file) && open_code_edit(file);
+		if (held.files.count(file) || open) {
+			output += relative(file) + ": error: " + (held.files.count(file) ? to_utf8(held.about(file)) : std::string("It is open in Godot's script editor. Close it there first.")) + "\n";
+			refused++;
+		}
+	}
+	output += "petrichor migrate: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(set.added.size()) + " added, " + std::to_string(set.left_out.size()) + " left out, " + std::to_string(fixes) + " fix(es), " + std::to_string(named) + " path(s) renamed, " + std::to_string(erring.size()) + " with errors";
+	if (dry_run) {
+		return { output + ", dry run", 0 };
+	}
+	const std::string failed = refused > 0 ? std::string() : write_all(bytes);
+	if (!failed.empty()) {
+		output = relative(failed) + ": error: It cannot be written.\n" + output;
+	}
+	if (refused > 0 || !failed.empty()) {
+		return { output + "; nothing was written", 1 };
+	}
+	ProjectSettings *settings = ProjectSettings::get_singleton();
+	const TypedArray<Dictionary> properties = settings->get_property_list();
+	for (int64_t i = 0; i < properties.size(); i++) {
+		const String name = Dictionary(properties[i]).get("name", String());
+		const Variant value = settings->get_setting(name);
+		const String path = value.get_type() == Variant::STRING ? String(value).trim_prefix("*") : String();
+		if (const auto found = renamed.find(to_utf8(path)); found != renamed.end()) {
+			settings->set_setting(name, String(value).trim_suffix(path) + to_godot(found->second));
+		}
+	}
+	std::set<std::string> reread;
+	for (const std::string &file : written) {
+		if (!renamed.count(file)) {
+			file_seen(file);
+			client_reloads(file);
+			reread.insert(file);
+		}
+	}
+	if (lsp) {
+		// The old files first, which drops their uids, which the new ones then
+		// take (editor/file_system/editor_file_system.cpp:2415-2423, 2450, 2496-2501; ed1daf0).
+		for (const auto &[file, migrated] : renamed) {
+			EditorInterface::get_singleton()->get_resource_filesystem()->update_file(to_godot(file));
+		}
+		reload_written(reread);
+		scripts_saved(reread);
+	}
+	return { output, 0 };
+}
+
 // The output and the exit code of a command of pet (architecture §6.5), which
 // the headless editor and the service give alike: the files with errors and
 // what they are, then a count. Each of `p_conflicts` is warned of first. A
@@ -1609,12 +1761,16 @@ std::string diagnostic_line(const compiler::Diagnostic &p_diagnostic) {
 // finds a script not formatted. Formatting writes as a refactoring does
 // (change_files()), but not over unsaved changes. Nullopt for no command.
 std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const std::string &p_command, const std::vector<std::string> &p_args, const std::set<std::string> &p_conflicts) {
-	if (p_command != "check" && p_command != "build" && p_command != "format") {
+	if (p_command != "check" && p_command != "build" && p_command != "format" && p_command != "migrate") {
 		return std::nullopt;
 	}
 	std::string output;
 	for (const std::string &file : p_conflicts) {
 		output += "warning: " + relative(file) + (FileAccess::file_exists(to_godot(file)) ? " changed" : " was deleted") + " on disk while Godot has unsaved changes to it.\n";
+	}
+	if (p_command == "migrate") {
+		const std::pair<std::string, int> migrated = migrate(p_args);
+		return std::make_pair(output + migrated.first, migrated.second);
 	}
 	if (p_command != "format") {
 		const ProjectReport report = build_project(p_command == "build", true);

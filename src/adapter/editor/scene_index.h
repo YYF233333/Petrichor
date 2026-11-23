@@ -51,6 +51,9 @@ class SceneIndex : public compiler::ProjectApi {
 	// were read from, which the editor replaces when they change.
 	mutable std::shared_ptr<const std::map<std::string, std::string>> global_classes;
 	mutable std::optional<godot::Array> global_list;
+	// GDScript files read as of this language, as a migration reads them
+	// (architecture §6.6): what scenes and resources store for their exports.
+	const std::set<std::string> taken;
 
 	// The scene, read again unless it is up to date.
 	std::shared_ptr<const Entry> read(const std::string &p_path) const;
@@ -60,6 +63,9 @@ class SceneIndex : public compiler::ProjectApi {
 	std::shared_ptr<const std::map<std::string, std::string>> listed_classes() const;
 
 public:
+	explicit SceneIndex(std::set<std::string> p_taken = {}) :
+			taken(std::move(p_taken)) {}
+
 	std::vector<std::string> scene_paths() const override;
 	std::optional<compiler::Scene> scene(const std::string &p_path) const override;
 	std::string main_scene() const override;
