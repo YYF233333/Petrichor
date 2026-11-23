@@ -147,6 +147,26 @@ TEST_CASE("the loop of fixes applies the meaning-keeping ones until none is left
 	CHECK(contains(migration.errors[0].message, "help"));
 }
 
+TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null") {
+	FakeProject project;
+	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\nvar holder: RefCounted\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");
+	project.add_script("res://hud.gd", "extends Node\n@export var icon: Texture2D\n");
+	compiler::Scene hero;
+	hero.path = "res://hero.tres";
+	hero.resources = { { hero.path, "res://stats.gd", {} } };
+	compiler::Scene main;
+	main.path = "res://main.tscn";
+	main.nodes = { { ".", "Node", "res://hud.gd" } };
+	project.scenes = { hero, main };
+	project.main = main.path;
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://stats.gd", "res://hud.gd" }, 10);
+	CHECK(migration.texts.at("res://stats.pet") == "extends Resource\n@export var portrait: Texture2D?\nvar holder: RefCounted\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.unwrap().duplicate()\n");
+	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n@export var icon: Texture2D?\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 1 }, { compiler::FixKind::Optional, 2 } });
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].message == "res://hero.tres: the resource has no value for \"holder\", which must be assigned and is not exported.");
+}
+
 TEST_CASE("a migration types each slot without a type by the values that flow into it") {
 	FakeProject project;
 	project.add_script("res://unit.gd", "class_name Unit\nextends Node\nsignal hit(amount)\nvar label = null\n\n\nfunc heal(amount, times = 2):\n\treturn amount * times\n\n\nfunc _ready() -> void:\n\tvar count\n\tcount = heal(3)\n\thit.emit(count)\n\tlabel = Label.new()\n", "Unit");

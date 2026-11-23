@@ -1091,6 +1091,9 @@ void Checker::check_resource_values() {
 				const std::string why = member.is_export ? ", an export that must be assigned." : ", which must be assigned and is not exported.";
 				error_in_scene(TokenRange{ member.name_token, member.name_token }, scenes[0], std::string(), scenes[0].path + ": " + resource.shown() + " has no value for \"" + member.name + "\"" + why);
 				errors.back().runs = true;
+				if (member.is_export && member.declared_type) {
+					fix_optional(*member.declared_type);
+				}
 			}
 		}
 	}
@@ -1120,6 +1123,9 @@ void Checker::check_scene_exports() {
 			if (member.is_export && member.must_assign && !init_assigns(*placed, member.name) && !stored_value(scene, node.path, member.name).value_or(false)) {
 				error_in_scene(TokenRange{ member.name_token, member.name_token }, scene, node.path, scene.path + ": " + (node.path == "." ? std::string("the root") : node.path) + " has no value for \"" + member.name + "\", an export that must be assigned.");
 				errors.back().runs = true;
+				if (member.declared_type) {
+					fix_optional(*member.declared_type);
+				}
 			}
 		}
 	}

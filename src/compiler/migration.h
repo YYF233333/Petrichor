@@ -181,9 +181,9 @@ struct Migration {
 // Checks the project with `p_files` migrated, in memory. It infers the types
 // of their slots without one, in at most `p_rounds` rounds of checks, and
 // writes them. Then it applies in each round the fixes of the automatic
-// kinds, Async and Unwrap, as fixing all of a kind does, but not one that
-// edits a file outside them; until a round applies none, or after
-// `p_rounds` rounds.
+// kinds, Async and Unwrap, and Optional for a value that a scene lacks, as
+// fixing all of a kind does, but not one that edits a file outside them;
+// until a round applies none, or after `p_rounds` rounds.
 Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const std::set<std::string> &p_files, int p_rounds);
 
 } // namespace petrichor::compiler
