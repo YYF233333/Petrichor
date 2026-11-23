@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob ea4c8a53475f6e7bbeb5252090aa742a7b011f18. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob bfcf08e2ad237ebe7aa5adc82506ce440ef0f04f. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -500,7 +500,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 4.8 Static members
 
 - No static initialization is done inside the editor. When classes load, the base class comes before the derived class. Each `static var` is initialized in declaration order, without going through its setter. Then `static func _static_init()`, which has no parameters and no return value, is called. After that the inner classes are initialized in order.
-- A `static var` is shared by the class that declares it and its subclasses, and may have accessors. It cannot be marked `@export` or `@onready`. Without an initializer, it takes a default value by the rules of member variables. A type with no default value, such as a non-null object type, is a compile error. Unless marked `@static_unload`, a class with static variables stays loaded during the run. A class so marked unloads once no instance of it and no loaded script that uses it remains, and its static variables are lost with it.
+- A `static var` is shared by the class that declares it and its subclasses, and may have accessors. It cannot be marked `@export` or `@onready`. Without an initializer, it takes a default value by the rules of member variables. A type with no default value, such as a non-null object type, is a compile error. Unless marked `@static_unload`, a class with static variables stays loaded during the run. A class so marked stays loaded too, for now.
 - Static variables and static methods are used by bare name in their class, in subclasses and in inner classes. Other classes write `Registry.count` and `Base.label()`. They can also be accessed through an instance or a value:
   - GDScript can read and write a `pub` static variable by name, through the class and through objects;
   - objects of classes of this language and of GDScript go by their dynamic type. The static method of that name is looked up from that type upward;
@@ -1062,6 +1062,7 @@ The following features can be added compatibly after the first version:
   - always-on assertions;
   - debug text that shows values as written in this language;
   - cleanup code that runs when a task is cancelled, such as `finally` or `defer`;
+  - `@static_unload` unloading a class no longer used, with its static variables, for the reasons in the [design notes](design-notes.md);
   - reentrancy annotations for coroutines and `Signal` with parameters.
 - **Cross-language and tools**:
   - an optional runtime library with the compiler;

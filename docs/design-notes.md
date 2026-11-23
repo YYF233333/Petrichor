@@ -160,6 +160,9 @@
 - **函数与剩余参数（§4.6）**：[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中，引擎虚函数覆盖省略参数标注 6 处。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 78 个剩余参数有 76 个在 `gdUnit4` 断言接口中。缺少调用处展开写法时，容易把数组整个当作单个实参传出。例如 Pixelorama 的 `_debug_msg` 调 `_prefix_print`（`src/Classes/ObjParse.gd:59-66`）。
   - 带剩余参数的方法值暂为 `Callable`，与引擎的变参方法作值时相同。GDScript 的 Callable 都没有签名。若函数类型加入剩余参数，须先定 `func(...Array[int])` 能否当作 `func(int, int)`。
 - **静态成员（§4.8）**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `static var` 188 处，其中无初始化式的类类型 29 个（如 `static var instance: DMPlugin`）。`_static_init` 有 4 个。GDScript 静态初始化顺序与环的相关问题见 [godotengine/godot#104161](https://github.com/godotengine/godot/issues/104161)、[#82141](https://github.com/godotengine/godot/issues/82141)、[#104588](https://github.com/godotengine/godot/issues/104588)。
+  - `@static_unload` 照收，但类不卸载。GDScript 4.7 也从不释放脚本：脚本缓存持有每个加载过的脚本，直到退出（`modules/gdscript/gdscript_cache.h:90`）。它的文档把这注明为缺陷（`modules/gdscript/doc_classes/@GDScript.xml:818`）。
+  - 真实代码几乎不用它：语料 v1 和 v2 的 28,162 个 `.gd` 文件中，只有 gdUnit4 的 `GdUnit4CSharpApiLoader.gd` 用到，复制在 7 个仓库里。
+  - 要卸载，先要定类何时算不再被用，包括内部类和热重载。需要它的项目请开 issue。
 
 ### §5–§7 表达式、生命周期与场景模型
 
