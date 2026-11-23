@@ -969,12 +969,22 @@ PET = Path("bin", {"win32": "pet.windows.x86_64.exe", "linux": "pet.linux.x86_64
 
 
 def lsp_reply(stream):
-    """The body of the next message on the stream."""
-    header = b""
-    while not header.endswith(b"\r\n\r\n") and (byte := stream.read(1)):
-        header += byte
-    found = re.search(rb"Content-Length: (\d+)", header)
-    return json.loads(stream.read(int(found.group(1)))) if found else None
+    """The body of the next message on the stream, read on a thread; None if
+    the stream ends first or no message comes within TIMEOUT."""
+    body = []
+
+    def read():
+        header = b""
+        while not header.endswith(b"\r\n\r\n") and (byte := stream.read(1)):
+            header += byte
+        found = re.search(rb"Content-Length: (\d+)", header)
+        if found:
+            body.append(json.loads(stream.read(int(found.group(1)))))
+
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    reader.join(TIMEOUT)
+    return body[0] if body else None
 
 
 def run_pet_group(godot):
@@ -1033,6 +1043,7 @@ def run_pet_group(godot):
 
         info = project / ".godot" / "petrichor" / "lsp.json"
         editor = Running(godot, "-e", "--path", str(project), "--", "--petrichor-lsp")
+        bridge = None
         try:
             while not info.exists() and not editor.ended and editor._remaining() > 0:
                 time.sleep(0.05)
@@ -1056,6 +1067,8 @@ def run_pet_group(godot):
             bridge.stdin.close()
             expect("pet: lsp bridges a client to the service until stdin closes", reply and "capabilities" in reply.get("result", {}) and bridge.wait(timeout=10) == 0, str(reply))
         finally:
+            if bridge:
+                bridge.kill()
             editor.process.kill()
             code, output = editor.finish()
             # On Windows the editor holds its copy of the library until the
