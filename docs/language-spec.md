@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 9beca98746341380129c632df2c25cdd1bdf1529. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob ea4c8a53475f6e7bbeb5252090aa742a7b011f18. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -420,7 +420,10 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 - A member without `pub` is visible in its declaring file and in subclasses, and not visible to other classes. The same applies to structs, enums, interfaces and inner classes. The declaring file includes the inner classes in it. A subclass can read, write, call and override these members. A member with `pub` is visible to all code.
 - An override must keep the visibility unchanged. A non-`pub` type in the signature of a `pub` member is a compile error.
-- A method that overrides an engine virtual function is treated as `pub`, with or without `pub` written, because the engine calls it by name.
+- The following members are treated as `pub`, with or without `pub` written, because the engine accesses them by name:
+  - a method that overrides an engine virtual function;
+  - an exported variable;
+  - an `@rpc` function.
 - The parent interfaces of a `pub` interface must be `pub`, or it is a compile error.
 - The visibility of `new(...)` is that of the nearest `_init` on the inheritance chain. With no `_init`, `new()` can be called anywhere. When `_init` is without `pub`, only its file and subclasses can call `new(...)`.
 - A member that must be assigned and is without `pub` can be assigned only by its file and by subclasses. The section "Members exposed through reflection" says which members reflection by name can see.
@@ -431,7 +434,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - A member without an initializer:
   - numbers, `bool`, strings, core value types, containers, `Callable` and `Signal` take their own default values. So does an enum without payloads that has the value 0. `T?` takes `None`, and `Variant` takes NIL;
   - a struct takes its default value when all its fields have default values. Otherwise it is a member that must be assigned. Non-null object references, enums with payloads, enums without 0 and function types are members that must be assigned too.
-- `@export` follows GDScript, with three differences. An exported variable must have `pub`. An exported scene is written `PackedScene[T]`. A non-null object export must be assigned.
+- `@export` follows GDScript, with two differences. An exported scene is written `PackedScene[T]`. A non-null object export must be assigned. By the rules of visibility, an exported variable is treated as `pub`.
 - Structs and enums with payloads can be exported, and are stored encoded by the rules of the engine boundary.
   - When a field contains `Node` at any level, the export is a compile error.
   - **[Known limitation]** For now the Inspector edits them with the generic Dictionary editor.
@@ -918,9 +921,8 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 10.5 Members exposed through reflection
 
-- Through reflection by name, the engine, GDScript and C# can access only `pub` members. Reflection by name means `get_property_list`, `has_method`, `call`, `get`, `set` and `connect`. By the rules of visibility, a method that overrides an engine virtual function is a `pub` member too. Other members are invisible to access by name, as if they did not exist. In GDScript, writing them is a compile error. In a dynamic access, `call` reports an error, `get` gives null, `set` has no effect and `in` gives false.
+- Through reflection by name, the engine, GDScript and C# can access only `pub` members. Reflection by name means `get_property_list`, `has_method`, `call`, `get`, `set` and `connect`. By the rules of visibility, methods that override engine virtual functions, exported variables and `@rpc` functions are `pub` members too. Other members are invisible to access by name, as if they did not exist. In GDScript, writing them is a compile error. In a dynamic access, `call` reports an error, `get` gives null, `set` has no effect and `in` gives false.
 - The following members, which the engine accesses by name, must have `pub`. Otherwise it is a compile error, and the quick fix adds `pub`:
-  - exported variables and `@rpc` functions;
   - the signals and methods of signal connections in scenes;
   - the members that animation property tracks and method tracks refer to, and the properties that `MultiplayerSynchronizer` synchronizes.
 - A signal without `pub` is registered with the engine under the rewritten name `@name`. In this language the original name is written as usual, and `get_name()` of the `Signal` value returns the rewritten name. **[Known limitation]** Another language that spells out the rewritten name can still access such a signal by name.
@@ -1047,7 +1049,6 @@ The following features can be added compatibly after the first version:
   - aliases/`import`, and access to `preload` classes across classes;
   - two files each extending a class of the other;
   - a stricter `private`;
-  - exported variables and `@rpc` functions implying `pub`;
   - positional construction, mutating methods, operator redefinition and indirect recursion for structs;
   - `Node` fields in exported structs and enums with payloads;
   - methods of enums with payloads;

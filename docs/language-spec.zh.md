@@ -418,7 +418,10 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 - 不带 `pub` 的成员在声明文件内和子类中可见，其他类不可见。struct、enum、interface 和内部类同样适用。声明文件包括其中的内部类。子类可以读写、调用和覆盖这些成员。带 `pub` 的成员对所有代码可见。
 - 覆盖须保持可见性不变；`pub` 成员签名中出现非 `pub` 类型报编译错误。
-- 覆盖引擎虚函数的方法视为 `pub`，写不写 `pub` 都一样，因为引擎按名字调用它。
+- 以下成员视为 `pub`，写不写 `pub` 都一样，因为引擎按名字访问它们：
+  - 覆盖引擎虚函数的方法；
+  - 导出的变量；
+  - `@rpc` 函数。
 - `pub` 接口的父接口须为 `pub`，否则报编译错误。
 - `new(...)` 的可见性取继承链上最近的 `_init`。无 `_init` 时随处可 `new()`。`_init` 不带 `pub` 时，仅本文件和子类可调用 `new(...)`。
 - 不带 `pub` 的必须赋值成员只能由本文件和子类赋值。按名字反射能看到哪些成员，见“反射暴露的成员”一节。
@@ -429,7 +432,7 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 - 无初始化式的成员：
   - 数值、`bool`、字符串、core 值类型、容器、`Callable`、`Signal` 和含值 0 的无载荷 enum 取各自默认值。`T?` 取 `None`，`Variant` 取 NIL；
   - struct 在所有字段均有默认值时取默认值，否则属于必须赋值的成员。非空对象引用、带载荷 enum、不含 0 的 enum 和函数类型也是必须赋值的成员。
-- `@export` 沿用 GDScript，但有三点不同。导出的变量须带 `pub`。导出场景写 `PackedScene[T]`。非空对象导出必须赋值。
+- `@export` 沿用 GDScript，但有两点不同。导出场景写 `PackedScene[T]`。非空对象导出必须赋值。按可见性的规则，导出的变量视为 `pub`。
 - struct 和带载荷 enum 可以导出，存储时按引擎边界的规则编码。
   - 字段中任何一层含 `Node` 时，导出报编译错误。
   - 【已知限制】检查器暂以通用的 Dictionary 编辑器编辑它们。
@@ -916,9 +919,8 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
 
 ### 10.5 反射暴露的成员
 
-- 引擎、GDScript 和 C# 经按名反射（`get_property_list`、`has_method`、`call`、`get`、`set`、`connect`）只能访问 `pub` 成员。按可见性的规则，覆盖引擎虚函数的方法也是 `pub` 成员。其余成员对按名访问不可见，如同不存在：GDScript 中写出它们报编译错误。动态访问时 `call` 报错，`get` 得 null，`set` 不起作用，`in` 得 false。
+- 引擎、GDScript 和 C# 经按名反射（`get_property_list`、`has_method`、`call`、`get`、`set`、`connect`）只能访问 `pub` 成员。按可见性的规则，覆盖引擎虚函数的方法、导出的变量和 `@rpc` 函数也是 `pub` 成员。其余成员对按名访问不可见，如同不存在：GDScript 中写出它们报编译错误。动态访问时 `call` 报错，`get` 得 null，`set` 不起作用，`in` 得 false。
 - 引擎按名字访问的以下成员须带 `pub`，否则报编译错误，快速修复补上 `pub`：
-  - 导出的变量和 `@rpc` 函数；
   - 场景中信号连接的信号和方法；
   - 动画的属性轨道和方法轨道所指的成员，`MultiplayerSynchronizer` 同步的属性。
 - 不带 `pub` 的信号以改写的名字 `@名字` 注册到引擎。本语言中照常写原名，`Signal` 值的 `get_name()` 返回改写的名字。【已知限制】其他语言拼出改写的名字，仍能按名访问这类信号。
@@ -1045,7 +1047,6 @@ Petrichor 是一门 Godot 4 的全静态类型脚本语言，以 GDExtension 的
   - 别名/`import` 与跨类访问 `preload` 类；
   - 两个文件互相继承对方的类；
   - 更严的 `private`；
-  - 导出变量和 `@rpc` 函数隐含 `pub`；
   - struct 位置构造、可变方法、运算符重定义与间接递归；
   - 导出的 struct 和带载荷 enum 中的 `Node` 字段；
   - 带载荷 enum 的方法；
