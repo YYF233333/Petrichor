@@ -160,24 +160,14 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Structs, interfaces and inner classes have documentation classes of their own, which the whole project searches (`editor/doc/editor_help_search.cpp:113`).
   - Enums and members are listed on their class's page.
 - The two-way migration tool (spec §1.2, §13.4), planned for 0.3.
-  - It infers missing types from call sites and from scene connections, saved values and node paths. Bounds that would change `int` and `float` arithmetic are not merged. Measure the inferred share on the corpus first.
-    - The inference solves the whole project at once. The tool runs once and writes the types down, so errors that move with distant code do no harm here. A design proposal comes first.
-    - A slot's type comes from what flows into it: arguments, assigned values, returned values, defaults and what scenes store. How the slot is used does not choose the type. The compiler checks the written type, and a slot that fails stays without one, with its evidence.
-    - A call by name, as `collider.damage(5)` on an Object, counts for every function of that name in the project. The report marks the types that rest on such calls.
-    - A slot that receives both `int` and `float` becomes `float` only when every use gives the same result for the int values. Otherwise it stays an error that offers both types.
-      - The uses that keep the result are a list: arithmetic with a float, a float parameter, a typed variable, a comparison. An operation not on the list counts as changing it.
-      - The first version follows the value through local variables of one function. A value that leaves it, as a result or into another untyped slot, counts as changed. The tool counts the slots this leaves.
-      - A member's reads are checked in every file.
-      - An engine test runs each listed operation with `3` and `3.0` and compares the results.
-      - Ints beyond 2^53 lose precision as floats, as when GDScript passes an int to a float parameter.
-    - It comes as its own batch after the inference itself.
+  - Its design is in architecture §6.6. It infers missing types over the whole project, from what flows into each slot.
+    - The check that lets an `int` join a `float` is its own batch after the inference. An engine test runs each operation of its list with `3` and `3.0` and compares the results. The tool counts the slots that the check leaves.
+    - Measure the inferred share on the corpus as each step lands.
     - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
   - Rewrites that those games need:
     - `$"/root/Name"` of an autoload becomes its name (102 uses);
     - a typed loop variable over wider elements, as `for player: AudioStreamPlayer in get_children()` (51 uses);
-    - a member that the value's static type lacks (99 uses):
-      - on an `Object`, as after `get_collider()`, a call whose result is unused and a property write become `call("name", ...)` and `set("name", v)`. Every function of that name gets `pub`, and the report lists the line. A property read or a used result stays an error, as its `Variant` needs a type;
-      - on a class that lacks it, as the `Node` of `instantiate()` or `get_parent()`, the scene first gives the type: `PackedScene[T]` from the saved value, `@parent(T)` where the scenes agree. What remains stays an error offering access by name and a cast;
+    - a member that the value's static type lacks, as after `get_collider()` or `instantiate()` (99 uses; architecture §6.6);
     - a string in single or double quotes that spans lines is written in triple quotes (spec §2.2).
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
