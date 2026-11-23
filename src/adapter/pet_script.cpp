@@ -112,7 +112,8 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 		const bytecode::Slot &param = function.params[i];
 		args.push_back(typed(value_dict(p_image.types[param.type], to_godot(param.name), PROPERTY_USAGE_DEFAULT), p_image.types[param.type]));
 	}
-	const Dictionary result = function.is_async ? property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NIL_IS_VARIANT, StringName()) : value_dict(p_image.types[function.result.type], StringName(), PROPERTY_USAGE_DEFAULT);
+	const TypeImage &returned = p_image.types[function.result.type];
+	const Dictionary result = function.is_async ? property_dict(Variant::NIL, StringName(), PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NIL_IS_VARIANT, StringName()) : typed(value_dict(returned, StringName(), PROPERTY_USAGE_DEFAULT), returned);
 	// An abstract method as GDScript reports one (modules/gdscript/gdscript_compiler.cpp:2327-2329).
 	const uint32_t flags = METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0) | (function.is_abstract ? METHOD_FLAG_VIRTUAL_REQUIRED : 0) | (function.is_vararg ? METHOD_FLAG_VARARG : 0);
 	Dictionary method = method_dict(p_image.function_names[p_index], args, result, flags);
@@ -737,9 +738,11 @@ Dictionary PetScript::_get_method_info(const StringName &p_method) const {
 			return Dictionary();
 		}
 		const StringName type_name = current->global_name == StringName() ? current->base_class : current->global_name;
-		Dictionary method = current->user_init >= 0 ? function_info(*current, current->user_init) : method_dict(init_name(), Array(), Dictionary(), 0);
+		Dictionary method = current->user_init >= 0 ? function_info(*current, current->user_init) : method_dict(init_name(), Array(), Dictionary(), METHOD_FLAGS_DEFAULT);
 		method["return"] = property_dict(Variant::OBJECT, StringName(), PROPERTY_USAGE_DEFAULT, type_name);
-		method["flags"] = METHOD_FLAGS_DEFAULT | METHOD_FLAG_STATIC;
+		// A rest parameter keeps METHOD_FLAG_VARARG, by which GDScript lets
+		// more arguments through (modules/gdscript/gdscript_analyzer.cpp:6070, 6078; ed1daf0).
+		method["flags"] = uint32_t(method["flags"]) | METHOD_FLAG_STATIC;
 		return method;
 	}
 	const int index = find_visible_function(*current, p_method);

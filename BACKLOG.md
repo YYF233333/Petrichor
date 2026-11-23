@@ -95,8 +95,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - opcodes are numbered by their position in the X macro, so inserting one renumbers the rest;
   - `Function::params` repeats a prefix of `slots`, and `CALL_AWAIT_BUILTIN` is recognized by its method name;
   - hot reload compares declarations by a list kept by hand beside the serializer's fields. Driven by those fields, a new field would count by default.
-- A pub method's typed container result is untyped in its reflected signature, unlike its parameters (`function_info` in `src/adapter/pet_script.cpp`). Pass the result through `typed()`.
-- GDScript cannot pass arguments to an `_init` with a rest parameter: `new`'s reflected flags drop `METHOD_FLAG_VARARG` (`PetScript::_get_method_info`). Keep the flag.
 
 ## Editor
 

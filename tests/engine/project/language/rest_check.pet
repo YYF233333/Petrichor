@@ -72,3 +72,11 @@ struct Tally:
 		for m in more:
 			total += m
 		return total
+
+
+# GDScript's new() takes rest arguments too, which language_test.gd checks.
+pub var given: Array = []
+
+
+pub func _init(...args: Array) -> void:
+	given = args

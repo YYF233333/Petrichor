@@ -977,6 +977,9 @@ g.free()"""), "a typed use of the class compiles, and awaits an async method, wh
 	_check_errors(["Parse Error: Too few arguments for \"echo_later()\" call. Expected at least 2 but received 1."], "GDScript reports the argument count")
 	_check(not _compiles("TypedGreeter.new(1)"), "new() checks its arguments")
 	_check_errors(["Parse Error: Too many arguments for \"new()\" call. Expected at most 0 but received 1."], "GDScript reports the arguments of new()")
+	_check(_compiles("RestCheck.new(1, \"x\").free()"), "new() takes the arguments of an _init with a rest parameter")
+	_check(not _compiles("var s: Array[String] = TypedGreeter.new().scores()"), "a method's typed array result is checked")
+	_check_errors(["Parse Error: Cannot assign a value of type Array[int] to variable \"s\" with specified type Array[String]."], "GDScript reports the typed array result")
 	_check(not _compiles("var n: Node2D = TypedGreeter.new()"), "new() has the type of the class")
 	_check_errors(["Parse Error: Cannot assign a value of type res://language/typed_greeter.pet to variable \"n\" with specified type Node2D."], "GDScript reports the type of new()")
 	# With redundant_await raised to an error in this project, awaiting a call
