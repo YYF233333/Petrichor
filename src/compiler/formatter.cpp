@@ -88,6 +88,9 @@ class Formatter {
 	std::vector<int> token_line; // Of each syntax token other than layout.
 	std::vector<bool> prefix; // A unary operator.
 	std::vector<bool> joined; // Joined to the token before in a node path.
+	// Ends an operand: ends_operand(), but not `match` where it begins a
+	// statement (parser.cpp, statement()).
+	std::vector<bool> operand;
 	std::vector<std::pair<size_t, int>> defs; // Lines of functions and classes, with the blank lines around them.
 
 	// The walk over the tokens, which indents each line from those before it.
@@ -194,6 +197,7 @@ class Formatter {
 	void read_operators() {
 		prefix.assign(tokens.size(), false);
 		joined.assign(tokens.size(), false);
+		operand.assign(tokens.size(), false);
 		int previous = -1;
 		for (size_t t = 0; t < tokens.size(); t++) {
 			const TokenKind kind = tokens[t].kind;
@@ -203,7 +207,8 @@ class Formatter {
 			if (is_layout(kind)) {
 				continue;
 			}
-			const bool after_operand = previous >= 0 && (ends_operand(tokens[previous].kind) || joined[previous]);
+			operand[t] = ends_operand(kind) && !(previous < 0 && is_word(tokens[t], "match"));
+			const bool after_operand = previous >= 0 && (operand[previous] || joined[previous]);
 			prefix[t] = is_unary(kind) && !after_operand;
 			// A keyword after "." names a member, as in `o.or(x)`.
 			joined[t] = joined[t] || (previous >= 0 && tokens[previous].kind == TokenKind::Period && is_node_name(kind));
@@ -454,7 +459,7 @@ class Formatter {
 		if (left == TokenKind::Colon && right == TokenKind::Equal) {
 			return 0;
 		}
-		if ((right == TokenKind::ParenOpen || right == TokenKind::BracketOpen) && (ends_operand(left) || joined[ta] || left == TokenKind::Func || left == TokenKind::Assert)) {
+		if ((right == TokenKind::ParenOpen || right == TokenKind::BracketOpen) && (operand[ta] || joined[ta] || left == TokenKind::Func || left == TokenKind::Assert)) {
 			return 0;
 		}
 		return 1;

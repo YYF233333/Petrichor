@@ -73,8 +73,6 @@ const char *token_name(TokenKind p_kind) {
 			return "\"in\"";
 		case TokenKind::Is:
 			return "\"is\"";
-		case TokenKind::Match:
-			return "\"match\"";
 		case TokenKind::Null:
 			return "\"null\"";
 		case TokenKind::Not:
@@ -97,8 +95,6 @@ const char *token_name(TokenKind p_kind) {
 			return "\"true\"";
 		case TokenKind::Var:
 			return "\"var\"";
-		case TokenKind::When:
-			return "\"when\"";
 		case TokenKind::While:
 			return "\"while\"";
 		case TokenKind::At:
@@ -357,7 +353,6 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "if", TokenKind::If },
 		{ "in", TokenKind::In },
 		{ "is", TokenKind::Is },
-		{ "match", TokenKind::Match },
 		{ "null", TokenKind::Null },
 		{ "not", TokenKind::Not },
 		{ "or", TokenKind::Or },
@@ -369,7 +364,6 @@ const std::unordered_map<std::string, TokenKind> &keywords() {
 		{ "static", TokenKind::Static },
 		{ "true", TokenKind::True },
 		{ "var", TokenKind::Var },
-		{ "when", TokenKind::When },
 		{ "while", TokenKind::While },
 	};
 	return table;
@@ -404,7 +398,8 @@ class Lexer {
 	// The block of a lambda inside brackets (spec §3.11): its lines are
 	// statements, with line breaks and indentation of their own, until a line
 	// indented no deeper than the one its header ends on, a bracket opened
-	// before it closes, or a comma ends a line, as in `[func(): ..., func(): ...]`.
+	// before it closes, or a comma ends a line, as in `[func(): ..., func(): ...]`,
+	// or follows a statement of its first level.
 	// GDScript's parser has its tokenizer do the same
 	// (modules/gdscript/gdscript_parser.cpp:3735-3745, 3788-3794).
 	struct LambdaBlock {
@@ -426,6 +421,7 @@ class Lexer {
 	std::vector<LambdaBlock> lambda_blocks;
 	std::optional<LambdaHeader> header;
 	bool block_opens = false; // A lambda's header ended its line, and its block begins on the next.
+	bool block_starts = false; // The next line is the first of a lambda's block.
 
 	// Line breaks count outside brackets, or in a lambda's block outside those
 	// opened in it.
@@ -498,6 +494,7 @@ class Lexer {
 	// At the line break after a lambda's header.
 	void open_lambda_block() {
 		block_opens = false;
+		block_starts = true;
 		lambda_blocks.push_back({ brackets.size(), indents });
 		indents = { line_indent(at) };
 	}
@@ -667,6 +664,14 @@ class Lexer {
 			}
 			if (mixed) {
 				error(start, at, "Indentation mixes tabs and spaces.");
+			}
+			// A block no deeper than the line its header ends on, as when the
+			// parameters go on to the next lines, need only be deeper than the
+			// statement around it. GDScript measures it from there
+			// (modules/gdscript/gdscript_parser.cpp:3741-3742,
+			// gdscript_tokenizer.cpp:289-291; ed1daf0).
+			if (std::exchange(block_starts, false) && width <= indents.front() && width > lambda_blocks.back().indents.back()) {
+				indents.front() = lambda_blocks.back().indents.back();
 			}
 			if (!lambda_blocks.empty() && width <= indents.front()) {
 				// The lambda's block ends, and the expression around it goes on.
@@ -975,7 +980,10 @@ class Lexer {
 				one(TokenKind::Semicolon);
 				return;
 			case ',':
-				if (!lambda_blocks.empty() && at_statement() && rest_of_line_empty(at + 1)) {
+				// Also after a statement of the block's first level, where no
+				// pattern of a match can be, as GDScript ends a lambda at what
+				// follows a statement (modules/gdscript/gdscript_parser.cpp:673-690; ed1daf0).
+				if (!lambda_blocks.empty() && at_statement() && (rest_of_line_empty(at + 1) || indents.size() <= 2)) {
 					close_lambda_block();
 				}
 				one(TokenKind::Comma);
@@ -1103,7 +1111,9 @@ public:
 			} else if (c == '#') {
 				comment();
 			} else if (c == '\\' && (peek(1) == '\n' || (peek(1) == '\r' && peek(2) == '\n'))) {
-				// A backslash at the end of a line continues it, as in GDScript.
+				// A backslash at the end of a line continues it, past blank and
+				// comment lines, as in GDScript
+				// (modules/gdscript/gdscript_tokenizer.cpp:1409-1412; ed1daf0).
 				const uint32_t start = at;
 				advance();
 				trivia(TokenKind::LineContinuation, start);
@@ -1111,6 +1121,20 @@ public:
 					advance();
 				}
 				advance();
+				while (!at_end() && rest_of_line_empty(at)) {
+					while (peek() == ' ' || peek() == '\t' || peek() == '\r') {
+						advance();
+					}
+					if (peek() == '#') {
+						comment();
+					}
+					if (peek() == '\r') {
+						advance();
+					}
+					if (peek() == '\n') {
+						advance();
+					}
+				}
 			} else if (c == '\n') {
 				if (block_opens) {
 					open_lambda_block();

@@ -50,6 +50,10 @@ TEST_CASE("&& and || spell and and or, and a backslash continues a line, as in G
 	CHECK(kinds("x = a && b || c\n") == expected);
 	CHECK(kinds("x = a && \\\n\t\tb || c\n") == expected);
 	CHECK(kinds("x = a && \\\r\n\t\tb || c\r\n") == expected);
+	// Past blank and comment lines, as godot_dialogue_manager's
+	// dialogue_responses_menu.gd continues a condition.
+	CHECK(kinds("x = a && \\\n\t# why\n\n\t\tb || c\n") == expected);
+	CHECK(kinds("x = a && \\\r\n\t# why\r\n\r\n\t\tb || c\r\n") == expected);
 }
 
 TEST_CASE("mixing tabs and spaces is an error") {

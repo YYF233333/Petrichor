@@ -350,6 +350,24 @@ TEST_CASE("! is not, and ; separates statements, as in GDScript") {
 	CHECK(joined(errors_of("extends Node\n\nfunc f() -> int: print(1); return 0\n")) == "");
 }
 
+// Each as a script of corpus v1 writes it.
+TEST_CASE("the parser takes GDScript's names match and when, accessors and lambdas over lines, and casts before operators") {
+	// godot-tiny-mmo guild_menu.gd; gdUnit4 GdUnitSignalCollector.gd and GdUnitCsiMessageWriter.gd.
+	CHECK(errors_of("extends Node\nvar when: Label?\nfunc match(m: Array) -> int:\n\tvar start := m.size()\n\tfor match in m:\n\t\tstart += 1\n\tmatch start:\n\t\t0 when when != None:\n\t\t\tpass\n\treturn start\n").empty());
+	// phantom-camera phantom_camera_2d.gd; Pixelorama AudioLayer.gd.
+	CHECK(errors_of("extends Node\n@export var priority: int = 0:\n\tset = set_priority,\n\tget = get_priority\nvar position_x := 0.0:\n\tget():\n\t\treturn position_x\nfunc set_priority(value: int) -> void:\n\tpriority = value\nfunc get_priority() -> int:\n\treturn priority\n").empty());
+	// godot-open-rts Match.gd: it parses, and needs a type as any member does.
+	CHECK(errors_of("extends Node\nvar map:\n\tset = _set_map\nfunc _set_map(value: Node) -> void:\n\tpass\n") == std::vector<std::string>{ "2:5: \"map\" needs a type or an initial value." });
+	// gdUnit4 CmdCommandHandler.gd: `(x as int) == y`, which spec §5.3 then refuses.
+	CHECK(errors_of(in_function("var arg := {\"usage\": 0}\nif arg[\"usage\"] as int == PROPERTY_USAGE_NIL_IS_VARIANT:\n\tpass")) == std::vector<std::string>{ "5:5: as only converts objects; convert to int with int(x) or int.try_from(x)." });
+	CHECK(type_of("Node.new() as Node2D == null") == "bool");
+	// godot-open-rpg ui_combat.gd; godot-demo-projects 2d/tween/main.gd.
+	CHECK(errors_of(in_function("var add := (func named(a: int,\n\t\tb: int) -> void:\n\tprint(a + b))\nadd.call(1, 2)")).empty());
+	CHECK(errors_of("extends Node\nfunc run(f: Callable, a: float, b: float) -> void:\n\tpass\nfunc go() -> void:\n\trun(\n\t\t\tfunc(v: float) -> void:\n\t\t\t\tprint(v), 0.0, 1.0\n\t\t)\n").empty());
+	// gdUnit4 GdUnitConsoleTestReporterTest.gd.
+	CHECK(errors_of("@warning_ignore(\"unused_variable\")\nclass_name Reporter\nextends Node\n").empty());
+}
+
 // Spec §5.5.
 TEST_CASE("conditional expressions") {
 	CHECK(type_of("-1 if randi() % 2 == 0 else 1") == "int");

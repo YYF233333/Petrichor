@@ -125,6 +125,9 @@ TEST_CASE("formatting spaces binary operators but not unary ones, calls, subscri
 			"\tsuper.g(x)\n"
 			"\tvar o := r.or(1)? + 1\n"
 			"\treturn x % 2 + b[\"k\"][0] if not x else g(-x) ** -2 - -x\n");
+	// `match` begins a statement, and elsewhere is a name.
+	CHECK(formatted("func g(x: int) -> void:\n\tmatch [x,-x]:\n\t\t_:\n\t\t\tpass\n\tmatch -x:\n\t\t_:\n\t\t\tprint(match (x))\n") ==
+			"func g(x: int) -> void:\n\tmatch [x, -x]:\n\t\t_:\n\t\t\tpass\n\tmatch -x:\n\t\t_:\n\t\t\tprint(match(x))\n");
 }
 
 TEST_CASE("top-level functions and classes have two blank lines around them, those in inner classes one") {

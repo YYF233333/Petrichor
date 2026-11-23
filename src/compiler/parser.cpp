@@ -316,7 +316,9 @@ class Parser {
 	}
 
 	// `as` binds loosest, then `a if c else b`, as in GDScript
-	// (gdscript_parser.h:1435-1436).
+	// (gdscript_parser.h:1435-1436). The cast is then the left operand of
+	// what follows, as `x as int == 1` is `(x as int) == 1`
+	// (modules/gdscript/gdscript_parser.cpp:2793-2810; ed1daf0).
 	std::unique_ptr<Expr> expression() {
 		const bool was_awaiting = awaiting;
 		awaiting = false;
@@ -326,14 +328,14 @@ class Parser {
 			cast->cast_type = type_ref();
 			cast->range = span(expr->range.first);
 			cast->left = std::move(expr);
-			expr = std::move(cast);
+			expr = conditional(std::move(cast));
 		}
 		awaiting = was_awaiting;
 		return expr;
 	}
 
-	std::unique_ptr<Expr> conditional() {
-		auto expr = operators(OR);
+	std::unique_ptr<Expr> conditional(std::unique_ptr<Expr> p_first = nullptr) {
+		auto expr = operators(OR, std::move(p_first));
 		if (!check(TokenKind::If)) {
 			return expr;
 		}
@@ -420,16 +422,17 @@ class Parser {
 	// Operators that bind at least as tightly as `p_level`, each binary one
 	// left-associative, `**` too. `x not in c` is `not (x in c)`
 	// (modules/gdscript/gdscript_parser.cpp:2942, 2981-2993, 3001; ed1daf0).
-	std::unique_ptr<Expr> operators(int p_level) {
-		std::unique_ptr<Expr> left;
-		if (p_level <= NOT && (check(TokenKind::Not) || check(TokenKind::Bang))) {
+	// With `p_first`, the operand already parsed is the left of what follows.
+	std::unique_ptr<Expr> operators(int p_level, std::unique_ptr<Expr> p_first = nullptr) {
+		std::unique_ptr<Expr> left = std::move(p_first);
+		if (!left && p_level <= NOT && (check(TokenKind::Not) || check(TokenKind::Bang))) {
 			// `!` is `not`, as in GDScript.
 			const Token &op = advance();
 			left = unary_op(op, TokenKind::Not, operators(NOT), index(op));
-		} else if (p_level <= SIGN || check(TokenKind::Minus) || check(TokenKind::Tilde)) {
+		} else if (!left && (p_level <= SIGN || check(TokenKind::Minus) || check(TokenKind::Tilde))) {
 			// The right side of `**` may start with a sign, as in `2 ** -1`.
 			left = unary();
-		} else {
+		} else if (!left) {
 			left = type_test();
 		}
 		for (int level = binary_level(); level >= p_level; level = binary_level()) {
@@ -942,7 +945,7 @@ class Parser {
 				if (check(TokenKind::Indent)) {
 					// A branch without patterns, for the statements of the block.
 					branch.body = stray_block();
-				} else if (begins_statement_only(peek().kind)) {
+				} else if (begins_statement_only(peek())) {
 					// So is a statement where a pattern should be.
 					report(peek(), std::string("Expected a pattern, found ") + token_name(peek().kind) + ".");
 					branch.body.push_back(statement());
@@ -950,7 +953,7 @@ class Parser {
 					do {
 						branch.patterns.push_back(pattern());
 					} while (match(TokenKind::Comma));
-					if (match(TokenKind::When)) {
+					if (match_word("when")) {
 						branch.guard = expression();
 					}
 					// A value on a line without a colon is a statement where a
@@ -980,10 +983,11 @@ class Parser {
 		return stmt;
 	}
 
-	static bool begins_statement_only(TokenKind p_kind) {
-		return p_kind == TokenKind::Return || p_kind == TokenKind::If || p_kind == TokenKind::While || p_kind == TokenKind::For ||
-				p_kind == TokenKind::Match || p_kind == TokenKind::Pass || p_kind == TokenKind::Break || p_kind == TokenKind::Breakpoint || p_kind == TokenKind::Continue || p_kind == TokenKind::Const ||
-				p_kind == TokenKind::Assert;
+	static bool begins_statement_only(const Token &p_token) {
+		const TokenKind kind = p_token.kind;
+		return kind == TokenKind::Return || kind == TokenKind::If || kind == TokenKind::While || kind == TokenKind::For ||
+				is_word(p_token, "match") || kind == TokenKind::Pass || kind == TokenKind::Break || kind == TokenKind::Breakpoint || kind == TokenKind::Continue || kind == TokenKind::Const ||
+				kind == TokenKind::Assert;
 	}
 
 	Pattern pattern() {
@@ -1088,10 +1092,12 @@ class Parser {
 
 	std::unique_ptr<Stmt> statement() {
 		const Token &token = peek();
+		// Elsewhere a name, as in GDScript (modules/gdscript/gdscript_parser.cpp:2079).
+		if (is_word(token, "match")) {
+			advance();
+			return match_statement(token);
+		}
 		switch (token.kind) {
-			case TokenKind::Match:
-				advance();
-				return match_statement(token);
 			case TokenKind::Var:
 			case TokenKind::Const: {
 				advance();
@@ -1561,7 +1567,7 @@ class Parser {
 	void accessors(VarDecl &r_decl, ClassDecl &r_class) {
 		r_decl.accessor_token = uint32_t(at);
 		if (!check(TokenKind::Newline)) {
-			named_accessors(r_decl);
+			named_accessors(r_decl, false);
 			end_of_statement();
 			return;
 		}
@@ -1574,7 +1580,7 @@ class Parser {
 				continue;
 			}
 			if (peek(1).kind == TokenKind::Equal) {
-				named_accessors(r_decl);
+				named_accessors(r_decl, true);
 				end_of_statement();
 				continue;
 			}
@@ -1601,6 +1607,10 @@ class Parser {
 				function.params.push_back(std::move(value));
 				function.name = "@set_" + r_decl.name;
 			} else {
+				// `get():` too, as in GDScript (modules/gdscript/gdscript_parser.cpp:1437-1439).
+				if (match(TokenKind::ParenOpen)) {
+					expect(TokenKind::ParenClose, "\")\"");
+				}
 				function.name = "@get_" + r_decl.name;
 			}
 			if (!take_accessor(keyword.text == "set" ? r_decl.setter : r_decl.getter, function.name, keyword)) {
@@ -1615,9 +1625,13 @@ class Parser {
 		match(TokenKind::Dedent);
 	}
 
-	// `set = f` or `get = g`, separated by commas.
-	void named_accessors(VarDecl &r_decl) {
+	// `set = f` or `get = g`, separated by commas, which in a block may end
+	// a line, as in GDScript (modules/gdscript/gdscript_parser.cpp:1353-1360).
+	void named_accessors(VarDecl &r_decl, bool p_in_block) {
 		do {
+			if (p_in_block) {
+				match(TokenKind::Newline);
+			}
 			const Token &keyword = expect(TokenKind::Identifier, "set or get");
 			if (!failed && keyword.text != "set" && keyword.text != "get") {
 				fail(keyword, "Expected set or get.");
@@ -1835,7 +1849,10 @@ class Parser {
 			decl.is_onready = is_onready;
 			decl.is_static = is_static;
 			decl.annotations = std::move(annotations);
-			if (match(TokenKind::Colon) && !check(TokenKind::Equal)) {
+			// Without a type, the accessors may follow the colon, as in GDScript
+			// (modules/gdscript/gdscript_parser.cpp:1249-1270).
+			const bool untyped = check(TokenKind::Colon) && (peek(1).kind == TokenKind::Newline || is_word(peek(1), "set") || is_word(peek(1), "get"));
+			if (!untyped && match(TokenKind::Colon) && !check(TokenKind::Equal)) {
 				decl.declared_type = type_ref();
 			}
 			if (match(TokenKind::Equal)) {
@@ -2002,8 +2019,9 @@ public:
 				continue;
 			}
 			// A region of ignored warnings also opens or closes in the header,
-			// as in GDScript (modules/gdscript/gdscript_parser.cpp:741-743).
-			if (check(TokenKind::At) && is_warning_region(peek(1).text)) {
+			// as in GDScript (modules/gdscript/gdscript_parser.cpp:741-743), and
+			// @warning_ignore comes before it too (182, 719-722, 776).
+			if (check(TokenKind::At) && (is_warning_region(peek(1).text) || (!seen_member && peek(1).text == "warning_ignore"))) {
 				statement_annotation();
 				continue;
 			}

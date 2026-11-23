@@ -20,7 +20,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
-  - The GDScript that the parser refuses (Language).
   - A subclass's bodies checked although its base has errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project, 303 s for tanks-of-freedom-ii.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
@@ -36,13 +35,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Language
 
-- GDScript that the parser refuses, in the files of corpus v1 without `@tool`. Of 2,474 files, 41 do not parse. Each of these from real code:
-  - `when` and `match` as names, as `var when: Label` and `func match(...)` (godot-tiny-mmo `guild_menu.gd:901`, gdUnit4 `GdUnitSignalCollector.gd:110`);
-  - named accessors on the lines after the variable, as `set = set_priority,` (phantom-camera `phantom_camera_2d.gd:134`);
-  - a member without a type before its accessor block, as `var map:` (godot-open-rts `Match.gd:14`). It should parse and then need a type;
-  - `as` before a comparison, as `arg["usage"] as int == X` (gdUnit4 `CmdCommandHandler.gd:131`);
-  - a named lambda's parameters continued on the next line (godot-open-rpg `ui_combat.gd:96`);
-  - about 30 files more, unread.
 - `f.bind("Deck")` is refused with two errors when `f` has a trailing parameter with a default, as `func f(title: String, randomized: bool = false)` connected to a signal without arguments (deck_builder_tutorial `scenes/run/run.gd:148`). Read from the check's output, not from the engine.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
 - `Array[PackedScene[T]]` cannot be written, though `[preload(...)]` infers it and spec §7.4 lists container elements.

@@ -23,7 +23,8 @@ enum class TokenKind {
 	StringName, // `&"…"`
 	NodePath, // `^"…"`
 
-	// Keywords. Those this language adds are identifiers (is_word()).
+	// Keywords. Those this language adds, and `match` and `when`, are
+	// identifiers (is_word()).
 	Await,
 	And,
 	As,
@@ -44,7 +45,6 @@ enum class TokenKind {
 	If,
 	In,
 	Is,
-	Match,
 	Not,
 	Null,
 	Or,
@@ -56,7 +56,6 @@ enum class TokenKind {
 	Static,
 	True,
 	Var,
-	When,
 	While,
 
 	// Punctuation and operators.
@@ -141,7 +140,9 @@ struct Token {
 };
 
 // `pub`, `struct`, `interface`, `implements`, `async` and `None` are keywords
-// only where their syntax begins, and names elsewhere (spec §2.2).
+// only where their syntax begins, and names elsewhere (spec §2.2). So are
+// `match` and `when`, which GDScript lets name things
+// (modules/gdscript/gdscript_tokenizer.cpp:195-208; ed1daf0).
 inline bool is_word(const Token &p_token, const char *p_word) {
 	return p_token.kind == TokenKind::Identifier && p_token.text == p_word;
 }
