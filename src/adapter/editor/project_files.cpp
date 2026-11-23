@@ -164,4 +164,9 @@ std::optional<FileStat> file_stat(const std::string &p_path) {
 #endif
 }
 
+bool file_empty(const std::string &p_path) {
+	const std::optional<FileStat> stat = file_stat(p_path);
+	return stat && stat->size == 0;
+}
+
 } // namespace petrichor

@@ -1668,7 +1668,9 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 	for (const std::string &file : p_files) {
 		const String path = to_godot(file);
 		if (!is_script(file)) {
-			written(path);
+			if (!file_empty(file)) {
+				written(path);
+			}
 			others.insert(file);
 			continue;
 		}
@@ -1718,18 +1720,31 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 		SceneIndex::get().files_changed(reloaded);
 		disk_changed();
 	}
+	// One that cannot be read, as one a writer has emptied to write it again,
+	// keeps what is loaded, and the open scenes showing it stay: reloading closes
+	// a scene before it loads it, and leaves it closed when that fails
+	// (editor/editor_node.cpp:7143-7146; ed1daf0). Once written, it is read again.
+	std::set<std::string> read;
+	std::set<std::string> unread;
 	for (const std::string &file : others) {
 		const String path = to_godot(file);
 		const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(path);
-		if (loaded.is_valid()) {
-			loaded->copy_from_resource(ResourceLoader::get_singleton()->load(path, loaded->get_class(), ResourceLoader::CACHE_MODE_IGNORE));
+		bool readable = !file_empty(file);
+		if (readable && loaded.is_valid()) {
+			const Ref<Resource> again = ResourceLoader::get_singleton()->load(path, loaded->get_class(), ResourceLoader::CACHE_MODE_IGNORE);
+			readable = again.is_valid();
+			if (readable) {
+				loaded->copy_from_resource(again);
+			}
 		}
+		(readable ? read : unread).insert(file);
 	}
 	// Reloading a scene clears its history, which is no step of its own.
 	const PackedStringArray unsaved = editor->get_unsaved_scenes();
 	const uint64_t steps = elsewhere;
-	for (const std::string &scene : others.empty() ? std::vector<std::string>() : open_scenes_showing(others)) {
-		if (!unsaved.has(to_godot(scene))) {
+	const std::vector<std::string> kept = unread.empty() ? std::vector<std::string>() : open_scenes_showing(unread);
+	for (const std::string &scene : read.empty() ? std::vector<std::string>() : open_scenes_showing(read)) {
+		if (!unsaved.has(to_godot(scene)) && std::find(kept.begin(), kept.end(), scene) == kept.end()) {
 			editor->reload_scene_from_path(to_godot(scene));
 		}
 	}

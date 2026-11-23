@@ -28,5 +28,11 @@ std::string project_directory();
 godot::PackedStringArray project_files(const godot::PackedStringArray &p_extensions);
 // Of the file at a path of the engine's; nullopt if there is none.
 std::optional<FileStat> file_stat(const std::string &p_path);
+// Whether the file is there and empty, as a writer that truncates it first
+// leaves it until it writes. Such a resource file is not loaded: the engine's
+// loader reports an empty one as a parse error
+// (core/variant/variant_parser.cpp:1879-1880, scene/resources/resource_format_text.cpp:1143-1147;
+// ed1daf0).
+bool file_empty(const std::string &p_path);
 
 } // namespace petrichor

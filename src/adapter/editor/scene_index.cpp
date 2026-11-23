@@ -576,7 +576,9 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	// scene/resources/packed_scene.h:256).
 	std::set<std::string> files{ p_path };
 	const String extension = path.get_extension().to_lower();
-	if (extension == "tscn" || extension == "scn") {
+	if (file_empty(p_path)) {
+		// Read again once its stats change.
+	} else if (extension == "tscn" || extension == "scn") {
 		const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
 		if (packed.is_valid() && packed->get_state().is_valid()) {
 			entry->scene = read_scene(path, packed, files, entry->embedded);
@@ -694,7 +696,7 @@ std::vector<std::string> SceneIndex::dependencies(const std::string &p_path) con
 	std::vector<std::string> paths;
 	// A path, or "uid::::path" with the path as it was saved, which the uid
 	// overrides when the file moved (doc/classes/ResourceLoader.xml, get_dependencies).
-	const PackedStringArray listed = ResourceLoader::get_singleton()->get_dependencies(to_godot(p_path));
+	const PackedStringArray listed = file_empty(p_path) ? PackedStringArray() : ResourceLoader::get_singleton()->get_dependencies(to_godot(p_path));
 	for (int64_t i = 0; i < listed.size(); i++) {
 		const String &dependency = listed[i];
 		const bool with_uid = dependency.contains("::");
