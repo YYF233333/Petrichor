@@ -151,11 +151,11 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Its design is in architecture §6.6. It infers missing types over the whole project, from what flows into each slot.
     - Measure the inferred share on the corpus as each step lands.
     - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
-    - The inference types 1428 of tanks-of-freedom-ii's 2266 slots, and its errors fall from 5971 to 3347. Of the slots left without a type, 688 got types that do not check, mostly `Variant`.
-    - A class without `class_name` has no name to write as a type. In tanks-of-freedom-ii that leaves 150 slots, 31 of them its board. A rewrite could give such files a name.
+    - The inference types 1427 of tanks-of-freedom-ii's 2266 slots, and its errors fall from 5971 to 3478. Of the slots left without a type, 680 got types that do not check, mostly `Variant`.
+    - A class without `class_name` has no name to write as a type. In tanks-of-freedom-ii that leaves 159 slots, 31 of them its board. A rewrite could give such files a name.
       - Among them are members that the scenes type and other files read, such as `map.camera` (72 reads), `ui.picker` (43) and `ui.radial` (33).
   - Rewrites that those games need:
-    - a typed loop variable over wider elements, as `for player: AudioStreamPlayer in get_children()` (51 uses);
+    - a typed loop variable over wider elements, as `for player: AudioStreamPlayer in get_children()` (53 uses);
     - a member that the value's static type lacks, as after `get_collider()` or `instantiate()` (99 uses; architecture §6.6).
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
