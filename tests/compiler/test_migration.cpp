@@ -191,6 +191,10 @@ TEST_CASE("an int joins a float in a member by its reads in every file, but not 
 	CHECK(migration.texts.at("res://meter.pet") == "class_name Meter\nextends Node\npub var level: float\nvar peak: Variant\n\n\nfunc _ready() -> void:\n\tlevel = 1\n\tlevel = 0.5\n\tpeak = 2\n\tpeak = 2.5\n\tshow_it(peak)\n\n\nfunc show_it(value: Variant):\n\tprint(value)\n");
 	CHECK(migration.numbers == 1);
 	CHECK(migration.errors.empty());
+
+	// No check sees how a GDScript file left out uses what it reads.
+	project.add_script("res://legacy.gd", "extends Node\n\n\nfunc report(meter: Meter) -> void:\n\tprint(meter.level)\n");
+	CHECK(compiler::migrate(fake_engine(), project, { "res://meter.gd", "res://gauge.gd" }, 10).numbers == 2);
 }
 
 TEST_CASE("a type that the check refuses is withdrawn, and the slot stays an error with what it received") {

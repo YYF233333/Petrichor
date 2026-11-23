@@ -800,6 +800,7 @@ struct Uses {
 	std::map<Inflows::Key, Inflows::Key> initializes; // The whole initializer of a local without a type, to it.
 	std::map<Inflows::Key, std::vector<Inflows::Key>> of_local;
 	std::map<std::pair<std::string, std::string>, std::vector<Inflows::Key>> of_member; // By class and name.
+	std::set<std::string> outside; // The names read after a dot in the GDScript files left out, which no check sees.
 };
 
 Uses uses_of(const std::map<std::string, CompileResult> &p_results, const Inflows &p_inflows, const ProjectApi &p_project) {
@@ -843,15 +844,27 @@ Uses uses_of(const std::map<std::string, CompileResult> &p_results, const Inflow
 			}
 		}
 	}
+	for (const std::string &path : p_project.script_paths()) {
+		if (!is_gdscript(path)) {
+			continue;
+		}
+		std::vector<Diagnostic> ignored;
+		const std::shared_ptr<const SourceFile> source = tokenize(p_project.script_source(path).value_or(std::string()), ignored);
+		for (size_t i = 1; i < source->tokens.size(); i++) {
+			if (source->tokens[i - 1].kind == TokenKind::Period && source->tokens[i].kind == TokenKind::Identifier) {
+				found.outside.insert(source->tokens[i].text);
+			}
+		}
+	}
 	return found;
 }
 
 // Whether an int joins a float in the slot (architecture §6.6): each read of
 // it gives for an int what the same float gives, or initializes a local whose
 // reads do. Those of a parameter or a local are in its function; those of a
-// member, in every file.
+// member, in every file, so none joins that a GDScript file left out reads.
 bool joins(const Inflows::Slot &p_slot, Uses &r_uses) {
-	const bool followed = p_slot.kind == Inflows::Kind::Parameter || p_slot.kind == Inflows::Kind::Local || p_slot.kind == Inflows::Kind::Member;
+	const bool followed = p_slot.kind == Inflows::Kind::Parameter || p_slot.kind == Inflows::Kind::Local || (p_slot.kind == Inflows::Kind::Member && !r_uses.outside.count(p_slot.name));
 	if (!followed || !p_slot.container.empty()) {
 		return false;
 	}
