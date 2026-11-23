@@ -1773,6 +1773,9 @@ class Lowerer {
 				return result;
 			}
 			case Target::NewObject: {
+				if (p_call.static_on_value) {
+					lower_expr(*p_call.base);
+				}
 				if (!p_call.engine_params.empty()) {
 					return new_with_arguments(p_call);
 				}
@@ -1880,9 +1883,9 @@ class Lowerer {
 		ir::Instr i;
 		std::unique_ptr<Place> written_back;
 		// The base before the arguments, as it reads in the source.
-		if (p_call.is_static) {
+		if (p_call.is_static || p_call.target == Target::ScriptFunction) {
 			// The base names the class or type, or is a value whose static
-			// method this is (spec §4.8).
+			// method this is (spec §4.8) or that reaches its class (§4.1).
 			if (p_call.static_on_value) {
 				lower_expr(*p_call.base);
 			}
@@ -2183,6 +2186,9 @@ class Lowerer {
 					return result;
 				}
 				if (p_expr.target == Target::ClassScript) {
+					if (p_expr.static_on_value) {
+						lower_expr(*p_expr.base);
+					}
 					const uint32_t result = temp(p_expr.type);
 					instr(Op::GET_SCRIPT, result, NO_REG, NO_REG, script_index(p_expr.owner));
 					return result;

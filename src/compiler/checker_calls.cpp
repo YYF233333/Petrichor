@@ -1908,7 +1908,11 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 		return fail_call(r_expr);
 	}
 	if (base.target == Target::ClassScript) {
-		return check_class_call(r_expr, base.owner); // An inner class reached through an object (spec §4.1).
+		// An inner class reached through an object (spec §4.1), whose object
+		// is computed as for the class alone.
+		const Type type = check_class_call(r_expr, base.owner);
+		r_expr.static_on_value = base.static_on_value;
+		return type;
 	}
 	if (base_type.kind == TypeKind::Task && !base_type.nullable && (name == "cancel" || name == "detach")) {
 		check_arguments(r_expr, {}, 0, false);

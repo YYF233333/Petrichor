@@ -705,6 +705,7 @@ func _ready() -> void:
 	take.call()
 	k.step.emit()
 	_check(pending is Signal and awaited == [8] and k.made == 5, "a constant read through an await suspends there (spec §1.2)")
+	_check(k.through_class() == [6, 2, 4, 3, 1, 10], "an inner class reached through a call keeps the call, also for its constants, static members and new() (spec §4.1)")
 
 	var statics := StaticChild.new()
 	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")

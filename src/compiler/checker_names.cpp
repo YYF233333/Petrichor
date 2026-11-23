@@ -726,8 +726,8 @@ std::optional<Type> Checker::named_class(Expr &r_base) {
 		return r_base.constant ? r_base.constant->script_class : Type::of(TypeKind::Error);
 	}
 	if (r_base.kind == ExprKind::Member && r_base.base) {
-		// `Outer.Inner`, through the class or an object of it, which is not
-		// evaluated (spec §4.1).
+		// `Outer.Inner`, through the class or the name of an autoload, which
+		// is not evaluated.
 		const std::string path = class_path_of(r_base);
 		if (path.empty()) {
 			return std::nullopt;
@@ -1164,8 +1164,11 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		r_expr.owner = p_class.engine_class();
 		return member->property->type;
 	}
+	// A constant or an inner class needs no object, but a value that takes
+	// more than a name is computed for it (spec §4.5).
+	const bool computed = !r_expr.base->constant && r_expr.base->kind != ExprKind::Name;
 	if (const std::optional<Type> constant = class_constant(r_expr, p_class.script, p_class.name)) {
-		if (!r_expr.base->constant && r_expr.base->kind != ExprKind::Name) {
+		if (computed) {
 			r_expr.read_through = std::move(r_expr.constant);
 		}
 		return constant;
@@ -1173,6 +1176,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 	// An inner class, reached through an object as constants are (spec §4.1).
 	const std::string inner = inner_class_path(p_class.script, r_expr.text);
 	if (!inner.empty()) {
+		r_expr.static_on_value = computed;
 		return class_value(r_expr, inner);
 	}
 	// A static variable, through an object as in GDScript, which is
@@ -1553,8 +1557,14 @@ Type Checker::check_member_access(Expr &r_expr) {
 		return set(r_expr, base_type);
 	}
 	if (base.target == Target::ClassScript) {
-		// An inner class reached through an object (spec §4.1).
-		return class_member_value(r_expr, base.owner, display_name(*script_header(base.owner), base.owner));
+		// An inner class reached through an object (spec §4.1), whose object
+		// is computed as for the class alone.
+		const Type type = class_member_value(r_expr, base.owner, display_name(*script_header(base.owner), base.owner));
+		if (base.static_on_value) {
+			r_expr.static_on_value = true;
+			r_expr.read_through = std::move(r_expr.constant);
+		}
+		return type;
 	}
 	if (base_type.is_optional()) {
 		fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");

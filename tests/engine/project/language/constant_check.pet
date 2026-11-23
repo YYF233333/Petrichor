@@ -171,3 +171,21 @@ pub func through_call() -> Array[int]:
 
 pub async func through_await() -> int:
 	return (await later()).SECRET + 1
+
+
+class Inner:
+	const N = 5
+	static var count := 4
+
+	static func f() -> int:
+		return 2
+
+	func g() -> int:
+		return 3
+
+
+# The same for an inner class reached through the value (spec §4.1).
+pub func through_class() -> Array[int]:
+	var inner: Script = make().Inner
+	var made_inner := make().Inner.new()
+	return [make().Inner.N + 1, make().Inner.f(), make().Inner.count, made_inner.g(), int(inner == Inner), made]

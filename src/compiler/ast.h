@@ -159,7 +159,9 @@ enum class Target {
 	Constant, // A constant of a class (spec §4.5), whose value is `constant`.
 	EnumFromInt, // `State(x)`: the int, checked to be one of the values of the call's type (spec §3.7).
 	ConstructFromVariant, // `T(v)` of a Variant: the engine's construction of the call's type (spec §3.13).
-	ClassScript, // The script of the class of this language at `owner`, as a value (spec §2.1, §4.1).
+	// The script of the class of this language at `owner`, as a value (spec
+	// §2.1, §4.1); `base`, when `static_on_value`, is an object evaluated first.
+	ClassScript,
 	// A static variable, `variable`, of the class of this language at `owner`,
 	// the `index`th it declares; `base`, when `static_on_value`, is an object
 	// evaluated first (spec §4.8).
@@ -308,7 +310,8 @@ struct Expr {
 	// a script's path for a class of this language, with `base` naming it.
 	bool is_static = false;
 	// A static method of an engine class or a built-in type called on a value,
-	// which is evaluated first and not used (spec §4.8).
+	// which is evaluated first and not used (spec §4.8); likewise an inner
+	// class reached through a value, and what is reached through it (§4.1).
 	bool static_on_value = false;
 	bool is_foreign = false;
 	bool awaited = false;
