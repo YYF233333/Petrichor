@@ -697,11 +697,8 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				value = check_value(*r_stmt.value, type);
 				if (r_stmt.declared_type) {
 					expect_assignable(*r_stmt.value, value, type, "assign", &*r_stmt.declared_type);
-				} else if (value.kind == TypeKind::None) {
-					error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type: None does not say which T? it is.");
-					type = Type::of(TypeKind::Error);
 				} else {
-					type = value;
+					type = inferred(value, r_stmt.name_token, r_stmt.name);
 					expect_scene_fits(*r_stmt.value, type);
 				}
 			} else if (!r_stmt.declared_type) {
@@ -717,7 +714,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 		}
 		case StmtKind::Const: {
 			Type type;
-			const ConstPtr value = constant_value(*r_stmt.value, r_stmt.declared_type, type);
+			const ConstPtr value = constant_value(*r_stmt.value, r_stmt.declared_type, r_stmt.name_token, r_stmt.name, type);
 			declare_local(r_stmt, type);
 			function->locals[r_stmt.local].constant = value;
 			return;

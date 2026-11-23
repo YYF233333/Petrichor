@@ -106,6 +106,8 @@ TEST_CASE("a compound assignment reads a narrowed local as narrowed") {
 TEST_CASE("None goes where a T? is expected") {
 	CHECK(narrowing("var q: Node? = None\nvar n: int? = null\np = None").empty());
 	CHECK(contains(narrowing("var q = None"), "None does not say which T? it is"));
+	// So for members and static variables (spec §4.3).
+	CHECK(errors_of("extends Node\nvar target = None\nstatic var last = null\n") == std::vector<std::string>{ "2:5: \"target\" needs a type: None does not say which T? it is.", "3:12: \"last\" needs a type: None does not say which T? it is." });
 	CHECK(contains(narrowing("var q: Node = None"), "Cannot assign a value of type None as Node"));
 	CHECK(contains(narrowing("var q := 1 == None"), "A value of type int is never None."));
 	CHECK(contains(narrowing("if e == None:\n\tpass"), "A value of type InputEvent is never None. Check whether it is alive with is_instance_valid(x)"));

@@ -159,7 +159,7 @@ func f() -> float:
 	CHECK(named(result.module, "LIMIT").i == 3);
 	CHECK(named(result.module, "RATE").f == 2.0);
 	find_instruction(function_named(result.module, "f"), bytecode::Op::SOME);
-	CHECK(errors_of("const N = None\n") == Errors{ "1:11: The constant needs a type: None does not say which T? it is." });
+	CHECK(errors_of("const N = None\n") == Errors{ "1:7: \"N\" needs a type: None does not say which T? it is." });
 }
 
 TEST_CASE("constants are read-only") {

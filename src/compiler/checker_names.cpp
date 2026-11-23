@@ -38,9 +38,19 @@ ConstPtr Checker::loading_value(const Expr &p_expr) {
 	return value;
 }
 
+// The type of a variable, constant or field that declares none, from its
+// initializer's (spec §4.3, §4.5); an error for None alone.
+Type Checker::inferred(const Type &p_value, uint32_t p_name_token, const std::string &p_name) {
+	if (p_value.kind != TypeKind::None) {
+		return p_value;
+	}
+	error(p_name_token, "\"" + p_name + "\" needs a type: None does not say which T? it is.");
+	return Type::of(TypeKind::Error);
+}
+
 // A value whose type is `p_type`, from the initializer as written: the
 // type is inferred from it when not declared (spec §4.3, §4.5).
-ConstPtr Checker::constant_value(Expr &r_initializer, const std::optional<TypeRef> &p_declared, Type &r_type) {
+ConstPtr Checker::constant_value(Expr &r_initializer, const std::optional<TypeRef> &p_declared, uint32_t p_name_token, const std::string &p_name, Type &r_type) {
 	r_type = Type::of(TypeKind::Error);
 	if (p_declared) {
 		r_type = resolve(*p_declared, false);
@@ -62,12 +72,11 @@ ConstPtr Checker::constant_value(Expr &r_initializer, const std::optional<TypeRe
 			return nullptr;
 		}
 		expect_implemented(r_initializer, value, r_type);
-	} else if (value.kind == TypeKind::None) {
-		error(r_initializer.range, "The constant needs a type: None does not say which T? it is.");
-		r_type = Type::of(TypeKind::Error);
-		return nullptr;
 	} else {
-		r_type = value;
+		r_type = inferred(value, p_name_token, p_name);
+		if (r_type.is_error()) {
+			return nullptr;
+		}
 	}
 	if (!r_initializer.constant) {
 		require_constant(r_initializer);
@@ -97,7 +106,7 @@ void Checker::check_constant(ConstDecl &r_decl) {
 			r_decl.type = payload->type;
 			r_decl.value = alias;
 		} else {
-			r_decl.value = constant_value(*r_decl.initializer, r_decl.declared_type, r_decl.type);
+			r_decl.value = constant_value(*r_decl.initializer, r_decl.declared_type, r_decl.name_token, r_decl.name, r_decl.type);
 		}
 		in_constant = was_in_constant;
 	}

@@ -804,7 +804,8 @@ class Checker : public ClassRelation {
 
 	void declare_constants();
 	static ConstPtr loading_value(const Expr &p_expr);
-	ConstPtr constant_value(Expr &r_initializer, const std::optional<TypeRef> &p_declared, Type &r_type);
+	Type inferred(const Type &p_value, uint32_t p_name_token, const std::string &p_name);
+	ConstPtr constant_value(Expr &r_initializer, const std::optional<TypeRef> &p_declared, uint32_t p_name_token, const std::string &p_name, Type &r_type);
 	void check_constant(ConstDecl &r_decl);
 	Type use_constant(Expr &r_expr, const ConstDecl &p_decl, const std::string &p_path);
 	const EnumDecl *initializer_payload_enum(Expr &r_initializer);

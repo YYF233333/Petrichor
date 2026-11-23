@@ -69,7 +69,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - `v[i]` on vectors, `Color`, `Basis` and the like is refused (`check_subscript`). The spec takes the core value types from GDScript and forbids only iterating vectors. `tests/compiler/test_types.cpp` expects the error now. Type it by the engine's indexing;
   - a String constant's subscript, as `NAME[0]`, is refused in constants (`fold_subscript` in `src/compiler/constant.cpp`). Fold it by code point.
 - `<`, `<=`, `>` and `>=` on two Strings or two bools are refused (`primitive_binary_type`), though the engine's operator table has them. `sort_custom(func(a, b): return a.name < b.name)` is common. Lowering's primitive path has int and float only, so these go through `EVALUATE`.
-- A member or static variable initialized with `None` alone, as `var target = None`, takes the type `None` instead of a compile error (`src/compiler/checker_declarations.cpp`). Locals, constants and struct fields refuse it. One check would serve all five.
 
 ## Runtime
 

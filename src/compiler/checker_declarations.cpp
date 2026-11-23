@@ -482,7 +482,7 @@ void Checker::check_member_declaration(size_t p_index) {
 		if (member.declared_type) {
 			expect_assignable(*member.initializer, value, type, "assign", &*member.declared_type);
 		} else {
-			type = value;
+			type = inferred(value, member.name_token, member.name);
 			expect_scene_fits(*member.initializer, type);
 		}
 		// An @onready member gets even a constant when the node is ready.
@@ -680,7 +680,7 @@ void Checker::check_static_declaration(size_t p_index) {
 		if (variable.declared_type) {
 			expect_assignable(*variable.initializer, value, type, "assign", &*variable.declared_type);
 		} else {
-			type = value;
+			type = inferred(value, variable.name_token, variable.name);
 			expect_scene_fits(*variable.initializer, type);
 		}
 	} else if (!variable.declared_type) {
@@ -1536,10 +1536,8 @@ void Checker::check_field_defaults() {
 			field_default = nullptr;
 			if (field.declared_type) {
 				expect_assignable(*field.initializer, value, field.type, "assign");
-			} else if (value.kind == TypeKind::None) {
-				error(field.name_token, "\"" + field.name + "\" needs a type: None does not say which T? it is.");
 			} else {
-				field.type = value;
+				field.type = inferred(value, field.name_token, field.name);
 			}
 		}
 	}
