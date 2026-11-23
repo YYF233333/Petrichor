@@ -871,6 +871,59 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			return { p_offset - shift, std::nullopt };
 		};
 		results = checked_with(p_engine, r_project, check);
+		// The locals typed by a value, by where each is declared in the text
+		// written, with where the value is.
+		std::map<Inflows::Key, std::pair<uint32_t, uint32_t>> typed_by;
+		for (const auto &[path, result] : results) {
+			std::vector<Diagnostic> ignored;
+			const ClassDecl decl = parse(r_project.script_source(path).value_or(std::string()), ignored);
+			const SourceFile &source = *decl.source;
+			const auto block = [&](const Block &p_block, const auto &p_self) -> void {
+				for (const std::unique_ptr<Stmt> &stmt : p_block) {
+					if ((stmt->kind == StmtKind::Var || stmt->kind == StmtKind::For) && !stmt->declared_type && stmt->value) {
+						typed_by[{ path, source.tokens[stmt->name_token].offset }] = { source.begin(stmt->value->range), source.end(stmt->value->range) };
+					}
+					p_self(stmt->body, p_self);
+					p_self(stmt->else_body, p_self);
+					for (const MatchBranch &branch : stmt->branches) {
+						p_self(branch.body, p_self);
+					}
+				}
+			};
+			const auto functions = [&](const ClassDecl &p_class, const auto &p_self) -> void {
+				for (const FuncDecl &function : p_class.functions) {
+					block(function.body, block);
+				}
+				for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+					p_self(*inner, p_self);
+				}
+			};
+			functions(decl, functions);
+		}
+		// The slots whose types an error between the offsets is about: those
+		// it names, and those that the values of the locals it names do.
+		const auto involved = [&](const CompileResult &p_result, uint32_t p_begin, uint32_t p_end, std::set<Inflows::Key> &r_seen, std::set<Inflows::Key> &r_slots, const auto &p_self) -> void {
+			for (const Reference &reference : p_result.references) {
+				const DeclId &target = reference.target;
+				if (reference.begin < p_begin || reference.end > p_end) {
+					continue;
+				}
+				if (target.kind == DeclId::Kind::Local && !target.name.empty()) {
+					const Inflows::Key at = { script_file(target.scope), uint32_t(std::stoul(target.name)) };
+					const Inflows::Key local = { at.first, original_at(at.first, at.second).first };
+					const auto value = typed_by.find(at);
+					if (written.count(local)) {
+						r_slots.insert(local);
+					} else if (value != typed_by.end() && r_seen.insert(at).second) {
+						p_self(p_result, value->second.first, value->second.second, r_seen, r_slots, p_self);
+					}
+				}
+				const auto [first, last] = named.equal_range({ target.scope, target.name });
+				for (auto each = first; target.kind == DeclId::Kind::Script && each != last; ++each) {
+					r_slots.insert(each->second);
+				}
+			}
+		};
 		std::set<Inflows::Key> refused;
 		for (const auto &[path, result] : results) {
 			for (const Diagnostic &error : result.errors) {
@@ -882,22 +935,8 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 					refused.insert(*inside);
 					continue;
 				}
-				for (const Reference &reference : result.references) {
-					if (reference.begin < error.begin || reference.end > error.end) {
-						continue;
-					}
-					const DeclId &target = reference.target;
-					if (target.kind == DeclId::Kind::Local && !target.name.empty()) {
-						const Inflows::Key local = { script_file(target.scope), original_at(script_file(target.scope), uint32_t(std::stoul(target.name))).first };
-						if (written.count(local)) {
-							refused.insert(local);
-						}
-					}
-					const auto [first, last] = named.equal_range({ target.scope, target.name });
-					for (auto each = first; target.kind == DeclId::Kind::Script && each != last; ++each) {
-						refused.insert(each->second);
-					}
-				}
+				std::set<Inflows::Key> seen;
+				involved(result, error.begin, error.end, seen, refused, involved);
 				for (const auto &[slot, at] : place) {
 					for (const auto &[from, to] : written.count(slot) && slot.first == path ? at.bare : std::vector<std::pair<uint32_t, uint32_t>>()) {
 						if (from <= begin && begin < to) {

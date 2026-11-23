@@ -188,6 +188,14 @@ TEST_CASE("a type that the check refuses is withdrawn, and the slot stays an err
 	CHECK(contains(migration.errors[0].message, "\"x\" needs a type"));
 }
 
+TEST_CASE("a type is withdrawn for an error that reaches it through the locals and loops it types") {
+	FakeProject project;
+	project.add_script("res://d.gd", "extends Node\n\n\nfunc first(values):\n\tfor each in values:\n\t\tvar copy = each\n\t\tprint(copy + 1)\n\n\nfunc _ready() -> void:\n\tfirst([1])\n\tfirst([\"a\"])\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://d.gd" }, 10);
+	CHECK(migration.texts.at("res://d.pet") == "extends Node\n\n\nfunc first(values):\n\tfor each in values:\n\t\tvar copy = each\n\t\tprint(copy + 1)\n\n\nfunc _ready() -> void:\n\tfirst([1])\n\tfirst([\"a\"])\n");
+	CHECK(migration.withdrawn == 1);
+}
+
 TEST_CASE("a call by name flows into every function so named, and the report marks the type it gives") {
 	FakeProject project;
 	project.add_script("res://enemy.gd", "extends Node\n\n\nfunc take_damage(amount):\n\tprint(amount)\n");
