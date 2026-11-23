@@ -816,18 +816,17 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		}
 		return next;
 	};
-	bool unknown = false;
-	for (int round = 1;; round++) {
-		std::map<Inflows::Key, Type> next = candidates(unknown);
-		if (next == inflows.tried && !unknown) {
-			unknown = true;
-			next = candidates(true);
+	// The slots with values of known types first, then with Variant for the
+	// others, each part in at most `p_rounds` rounds.
+	for (const bool unknown : { false, true }) {
+		for (int round = 0; round < p_rounds; round++) {
+			std::map<Inflows::Key, Type> next = candidates(unknown);
+			if (next == inflows.tried) {
+				break;
+			}
+			inflows.tried = std::move(next);
+			checked_with(p_engine, r_project, inflows);
 		}
-		if (next == inflows.tried || round > p_rounds) {
-			break;
-		}
-		inflows.tried = std::move(next);
-		checked_with(p_engine, r_project, inflows);
 	}
 	const std::vector<std::vector<Received>> flowed = received(inflows);
 	const std::vector<Inflows::Slot> slots = inflows.slots;
@@ -898,7 +897,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		} else if (found != tried.end()) {
 			refusals[slot.key] = found->second.to_string() + " has no name here";
 		} else {
-			refusals[slot.key] = "the types tried still changed after " + std::to_string(p_rounds) + " rounds";
+			refusals[slot.key] = "no type was tried for it in " + std::to_string(p_rounds) + " rounds";
 		}
 	}
 	Inflows check;

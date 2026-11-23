@@ -278,6 +278,6 @@ TEST_CASE("the inference and the loop of fixes stop after their rounds") {
 	CHECK(migration.rounds == 0);
 	CHECK(migration.typed == 0);
 	REQUIRE(migration.notes.size() == 1);
-	CHECK(migration.notes[0].message == "\"amount\" is left without a type: the types tried still changed after 0 rounds. It receives int (res://unit.pet:13).");
+	CHECK(migration.notes[0].message == "\"amount\" is left without a type: no type was tried for it in 0 rounds. It receives int (res://unit.pet:13).");
 	CHECK(migration.errors.size() == 3);
 }
