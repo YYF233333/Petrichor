@@ -1216,13 +1216,17 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 	}
 	if (const VarDecl *entry = find_named(decl->all_members, r_expr.text)) {
 		const VarDecl &member = *entry;
-		const std::string &owner = declaring(*decl, member, &ClassDecl::members).path;
+		const ClassDecl &declared = declaring(*decl, member, &ClassDecl::members);
+		const std::string &owner = declared.path;
 		if (refuse(r_expr.range, refused(member, owner, "", p_class.name, member.name))) {
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
 		if (member.type.is_error() && member.slot < 0) {
 			// Typed from the scenes, which are not read for another script, or
-			// not checked yet.
+			// not checked yet. A migration writes its type (architecture §6.6).
+			if (options.inflows && options.inflows->files.count(script_file(owner))) {
+				options.inflows->unknown.push_back({ Inflows::Kind::Member, member.name, {}, 0, 0, 0, { script_file(owner), declared.source->tokens[member.name_token].offset }, owner });
+			}
 			return fail(r_expr, "The type of " + p_class.name + "." + member.name + " is not known here; declare it, as in `pub var " + member.name + ": T`.");
 		}
 		r_expr.target = Target::ObjectProperty;

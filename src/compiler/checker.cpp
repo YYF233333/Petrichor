@@ -15,6 +15,16 @@ int Checker::untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token) {
 	return options.inflows->slot(p_slot);
 }
 
+// The slot found already at the declaration whose name is token
+// `p_name_token`, or -1.
+int Checker::found_slot(uint32_t p_name_token) const {
+	if (!options.inflows) {
+		return -1;
+	}
+	const auto found = options.inflows->found.find({ script_file(options.path), cls.source->tokens[p_name_token].offset });
+	return found == options.inflows->found.end() ? -1 : found->second;
+}
+
 Inflows::Slot Checker::parameter_slot(const FuncDecl &p_function, size_t p_index) {
 	const int most = p_function.has_rest() ? INT32_MAX : int(p_function.params.size());
 	return { Inflows::Kind::Parameter, p_function.params[p_index].name, p_function.name, int(p_index), required_params(p_function), most };

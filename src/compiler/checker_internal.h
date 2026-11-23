@@ -754,6 +754,7 @@ class Checker : public ClassRelation {
 	/* checker.cpp */
 
 	int untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token);
+	int found_slot(uint32_t p_name_token) const;
 	static Inflows::Slot parameter_slot(const FuncDecl &p_function, size_t p_index);
 	Type tried(int p_slot) const;
 	void flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflows::Part p_part = Inflows::Part::Whole);

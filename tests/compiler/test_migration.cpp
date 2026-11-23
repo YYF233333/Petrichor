@@ -233,6 +233,19 @@ TEST_CASE("a value saved in a scene flows into the exported member") {
 	CHECK(migration.errors.empty());
 }
 
+TEST_CASE("a member that a scene types gets its type written when another file reads it") {
+	FakeProject project;
+	project.add_script("res://map.gd", "class_name Map\nextends Node\n@onready var title = $Title\n@onready var unread = $Unread\n", "Map");
+	project.add_script("res://hud.gd", "extends Node\n\n\nfunc show_on(map: Map) -> void:\n\tmap.title.text = \"a\"\n");
+	compiler::Scene scene;
+	scene.path = "res://map.tscn";
+	scene.nodes = { { ".", "Node", "res://map.gd" }, { "Title", "Label" }, { "Unread", "Label" } };
+	project.scenes.push_back(scene);
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://map.gd", "res://hud.gd" }, 10);
+	CHECK(migration.texts.at("res://map.pet") == "class_name Map\nextends Node\n@onready pub var title: Label = $Title\n@onready var unread = $Unread\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("the inference reads a declaration through an error that the loop of fixes then fixes") {
 	FakeProject project;
 	project.add_script("res://state.gd", "class_name CardState\nextends Node\nenum State { BASE, CLICKED }\n@export var state: State\n", "CardState");

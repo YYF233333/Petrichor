@@ -78,6 +78,9 @@ struct Inflows {
 	std::vector<Flow> flows;
 	std::vector<Call> calls;
 	std::vector<Unfit> unfit;
+	// Members typed from the scenes that another file read without their
+	// types, which the next round takes as slots.
+	std::vector<Slot> unknown;
 
 	// The slot's index, once found.
 	int slot(const Slot &p_slot);

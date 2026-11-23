@@ -488,6 +488,12 @@ void Checker::check_member_declaration(size_t p_index) {
 		} else {
 			type = inferred(value, member.name_token, member.name);
 			expect_scene_fits(*member.initializer, type);
+			// Another file read it without its type from the scenes, so a
+			// migration took it as a slot (architecture §6.6), which takes the
+			// type it has here.
+			member.slot = found_slot(member.name_token);
+			flow(member.slot, value, member.initializer->range);
+			type = member.slot >= 0 && type.is_error() ? tried(member.slot) : type;
 		}
 		// An @onready member gets even a constant when the node is ready.
 		if (!member.is_onready) {

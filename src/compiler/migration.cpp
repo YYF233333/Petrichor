@@ -495,6 +495,7 @@ std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, con
 	r_inflows.flows.clear();
 	r_inflows.calls.clear();
 	r_inflows.unfit.clear();
+	r_inflows.unknown.clear();
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
 	analysis.inflows = &r_inflows;
@@ -804,6 +805,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		return std::make_pair(merged_container(p_slot.container, p_received, classes, p_engine, r_numbers), Type::builtin(p_slot.container));
 	};
 	const auto candidates = [&](bool p_unknown) {
+		for (const Inflows::Slot &each : inflows.unknown) {
+			inflows.slot(each);
+		}
 		std::map<Inflows::Key, Type> next;
 		const std::vector<std::vector<Received>> flowed = received(inflows);
 		for (size_t i = 0; i < flowed.size(); i++) {
@@ -816,11 +820,12 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		return next;
 	};
 	// The slots with values of known types first, then with Variant for the
-	// others, each part in at most `p_rounds` rounds.
+	// others, each part in at most `p_rounds` rounds. The members that a round
+	// found read elsewhere without their types are slots from the next one.
 	for (const bool unknown : { false, true }) {
 		for (int round = 0; round < p_rounds; round++) {
 			std::map<Inflows::Key, Type> next = candidates(unknown);
-			if (next == inflows.tried) {
+			if (next == inflows.tried && inflows.unknown.empty()) {
 				break;
 			}
 			inflows.tried = std::move(next);
