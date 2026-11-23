@@ -251,6 +251,15 @@ TEST_CASE("a type is withdrawn for an error that reaches it through the locals a
 	CHECK(migration.withdrawn == 1);
 }
 
+TEST_CASE("an error about an override's parameter withdraws the type of its base's") {
+	FakeProject project;
+	project.add_script("res://base.gd", "class_name Base\nextends Node\n\n\nfunc act(target):\n\tprint(target)\n\n\nfunc _ready() -> void:\n\tact(5)\n", "Base");
+	project.add_script("res://derived.gd", "extends Base\n\n\nfunc act(target):\n\tprint(target.size())\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://base.gd", "res://derived.gd" }, 10);
+	CHECK(migration.texts.at("res://base.pet") == "class_name Base\nextends Node\n\n\nfunc act(target):\n\tprint(target)\n\n\nfunc _ready() -> void:\n\tact(5)\n");
+	CHECK(migration.withdrawn == 1);
+}
+
 TEST_CASE("a call by name flows into every function so named, and the report marks the type it gives") {
 	FakeProject project;
 	project.add_script("res://enemy.gd", "extends Node\n\n\nfunc take_damage(amount):\n\tprint(amount)\n");

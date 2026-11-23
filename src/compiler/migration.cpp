@@ -981,7 +981,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 				}
 				if (target.kind == DeclId::Kind::Local && !target.name.empty()) {
 					const Inflows::Key at = { script_file(target.scope), uint32_t(std::stoul(target.name)) };
-					const Inflows::Key local = { at.first, original_at(at.first, at.second).first };
+					Inflows::Key local = { at.first, original_at(at.first, at.second).first };
+					const auto base = inflows.shared.find(local);
+					local = base == inflows.shared.end() ? local : base->second;
 					const auto value = typed_by.find(at);
 					if (written.count(local)) {
 						r_slots.insert(local);

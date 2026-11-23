@@ -916,6 +916,9 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 			param.type = param.is_rest ? p_base.params.back().type : *base;
 			// What a call of the override passes flows into the base's slot.
 			param.slot = i < p_base.params.size() && !param.is_rest ? p_base.params[i].slot : -1;
+			if (param.slot >= 0) {
+				options.inflows->shared[{ script_file(options.path), cls.source->tokens[param.name_token].offset }] = options.inflows->slots[size_t(param.slot)].key;
+			}
 		} else if (!param.is_rest && (param.slot = untyped_slot(parameter_slot(r_fn, i), param.name_token)) >= 0) {
 			param.type = tried(param.slot);
 		} else {

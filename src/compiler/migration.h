@@ -64,6 +64,9 @@ struct Inflows {
 	std::map<Key, Type> tried;
 	std::vector<Slot> slots;
 	std::map<Key, int> found;
+	// An override's parameter without a type, by where its name is, to the
+	// slot of its base's, whose type it takes.
+	std::map<Key, Key> shared;
 	std::vector<Flow> flows;
 	std::vector<Call> calls;
 
