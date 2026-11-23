@@ -419,3 +419,25 @@ pub func maybe_sum(values: Array[int]?) -> int:
 		for v in values:
 			total += v
 	return total
+
+
+# A Variant field holding a container, in a key and in a deep copy (spec §3.8).
+struct Loose:
+	var data: Variant
+
+
+pub func variant_keys() -> String:
+	var data: Array = [1]
+	var keyed: Dictionary[Loose, int] = {}
+	keyed[Loose(data = data)] = 1
+	var copied: Array[Loose] = [Loose(data = data)]
+	copied = copied.duplicate(true)
+	data.append(2)
+	var held := keyed.keys()[0].data
+	var frozen := false
+	if held is Array:
+		frozen = held.is_read_only()
+	var resource := Resource.new()
+	var resources: Array[Loose] = [Loose(data = resource)]
+	var duplicated := resources.duplicate_deep(Resource.DEEP_DUPLICATE_ALL)
+	return str(keyed.has(Loose(data = [1]))) + " " + str(frozen) + " " + str(copied[0].data) + " " + str(is_same(duplicated[0].data, resource))

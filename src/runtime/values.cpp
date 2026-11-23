@@ -262,7 +262,7 @@ bool holds_containers(const TypeImage &p_type) {
 	if (!p_type.fields.empty()) {
 		return std::any_of(p_type.fields.begin(), p_type.fields.end(), [](const FieldImage &p_field) { return holds_containers(*p_field.type); });
 	}
-	return p_type.storage == ValueType::Array || p_type.storage == ValueType::Dictionary;
+	return p_type.storage == ValueType::Array || p_type.storage == ValueType::Dictionary || p_type.storage == ValueType::Variant;
 }
 
 const BoxType *box_type(const std::vector<bytecode::TypeDesc> &p_types, uint32_t p_type) {
@@ -1431,6 +1431,13 @@ static Variant copy_containers(const Variant &p_value, int64_t p_mode, bool p_fr
 		}
 		ValueBuffer copy(type);
 		copy_value(type, copy.data, box->value());
+		// An object as duplicate_deep() takes an element.
+		const auto duplicated = [&](const Variant &p_object) {
+			Array wrapped;
+			wrapped.push_back(p_object);
+			return wrapped.duplicate_deep(p_mode)[0];
+		};
+		// A Variant by what it holds.
 		for_each_active_leaf(type, copy.data, [&](ValueType p_storage, uint8_t *p_leaf) {
 			if (p_storage == ValueType::Array) {
 				Array &array = *reinterpret_cast<Array *>(p_leaf);
@@ -1438,11 +1445,13 @@ static Variant copy_containers(const Variant &p_value, int64_t p_mode, bool p_fr
 			} else if (p_storage == ValueType::Dictionary) {
 				Dictionary &dictionary = *reinterpret_cast<Dictionary *>(p_leaf);
 				dictionary = copy_containers(dictionary, p_mode, p_freeze, r_copies);
+			} else if (p_storage == ValueType::Variant && type_of(variant_at(p_leaf)) != Variant::OBJECT) {
+				variant_at(p_leaf) = copy_containers(variant_at(p_leaf), p_mode, p_freeze, r_copies);
+			} else if (p_storage == ValueType::Variant && p_mode >= 0) {
+				variant_at(p_leaf) = duplicated(variant_at(p_leaf));
 			} else if (p_storage == ValueType::Object && p_mode >= 0 && !is_none_object(p_leaf)) {
 				ObjectView view(p_leaf);
-				Array wrapped;
-				wrapped.push_back(view.get());
-				set_object(p_leaf, wrapped.duplicate_deep(p_mode)[0]);
+				set_object(p_leaf, duplicated(view.get()));
 			}
 		});
 		return make_box(type, copy.data, p_freeze || box->is_key);
@@ -1880,7 +1889,7 @@ Variant frozen_copy(const Variant &p_key) {
 static void freeze(const Variant &p_key, std::optional<std::unordered_set<uint64_t>> &r_frozen) {
 	if (const Box *box = as_box(p_key)) {
 		for_each_active_leaf(box->type->type(), box->value(), [&](ValueType p_storage, const uint8_t *p_leaf) {
-			if (p_storage == ValueType::Array || p_storage == ValueType::Dictionary) {
+			if (p_storage == ValueType::Array || p_storage == ValueType::Dictionary || p_storage == ValueType::Variant) {
 				freeze(to_variant(p_storage, p_leaf), r_frozen);
 			}
 		});

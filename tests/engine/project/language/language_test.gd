@@ -561,6 +561,7 @@ func _ready() -> void:
 	_check(containers.struct_keys() == "true false true", "a struct key is a frozen copy")
 	containers.change_struct_key()
 	_check_errors(["container_check.pet:116: The Array is read-only, as Dictionary keys and the containers of constants are; change a duplicate() of it instead."], "changing an Array in a struct key is a program error")
+	_check(containers.variant_keys() == "true true [1] false", "a Variant field of a struct key freezes a container in the key's copy, and a deep copy copies what it holds (spec §3.8)")
 	_check(containers.nested() == "[[1, 2], [3, 4], [5]] true", "a container of containers keeps their types, and resize() fills in typed ones")
 	_check(containers.grid_row(0) == 1, "an inner container of its type is read")
 	containers.grid.append([2, 3])
