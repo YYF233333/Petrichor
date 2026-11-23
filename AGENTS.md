@@ -57,6 +57,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
   - Remove checks for states that cannot occur. Replace a rare, hard-to-test fallback path with a definite error where one would do.
   - Restructure only to remove code or to make it easier to find. Moving code without either is not progress.
   - Let the engine compute what it defines. When this language repeats engine behavior, keep both in step by construction or by a check that catches drift.
+  - Before writing a general-purpose helper, look for one in the repository, the standard library and the existing dependencies.
   - Write no comment that the code is understood without.
 
 ## Commits
