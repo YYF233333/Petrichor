@@ -682,8 +682,6 @@ std::optional<Type> merged_container(const std::string &p_kind, const std::vecto
 	if (!known) {
 		return std::nullopt;
 	}
-	for (const Received &each : p_received) {
-	}
 	bool numbers[2] = {};
 	const std::optional<Type> element = merged(elements, r_classes, p_engine, numbers[0]);
 	const std::optional<Type> key = p_kind == "Dictionary" ? merged(keys, r_classes, p_engine, numbers[1]) : Type::of(TypeKind::Int);
