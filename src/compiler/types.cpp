@@ -299,6 +299,22 @@ bool is_shared(const Type &p_type) {
 	return (p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary")) || p_type.kind == TypeKind::Signal;
 }
 
+// The type of what a slot of the value type holds; nullopt for Void.
+static std::optional<Type> slot_type(bytecode::ValueType p_type) {
+	switch (p_type) {
+		case bytecode::ValueType::Void:
+			return std::nullopt;
+		case bytecode::ValueType::Int:
+			return Type::of(TypeKind::Int);
+		case bytecode::ValueType::Float:
+			return Type::of(TypeKind::Float);
+		case bytecode::ValueType::String:
+			return Type::of(TypeKind::String);
+		default:
+			return Type::builtin(bytecode::value_type_name(p_type));
+	}
+}
+
 std::optional<Type> element_of(const Type &p_type) {
 	if (p_type.kind != TypeKind::Builtin) {
 		return std::nullopt;
@@ -306,11 +322,11 @@ std::optional<Type> element_of(const Type &p_type) {
 	if (p_type.name == "Array") {
 		return p_type.args.empty() ? Type::of(TypeKind::Variant) : p_type.args[0];
 	}
-	const bytecode::ValueType elem = bytecode::packed_element(bytecode::value_type_from_name(p_type.name));
-	if (elem == bytecode::ValueType::Void) {
-		return std::nullopt;
-	}
-	return elem == bytecode::ValueType::Int ? Type::of(TypeKind::Int) : (elem == bytecode::ValueType::Float ? Type::of(TypeKind::Float) : (elem == bytecode::ValueType::String ? Type::of(TypeKind::String) : Type::builtin(bytecode::value_type_name(elem))));
+	return slot_type(bytecode::packed_element(bytecode::value_type_from_name(p_type.name)));
+}
+
+std::optional<Type> part_of(const Type &p_type) {
+	return p_type.kind == TypeKind::Builtin ? slot_type(bytecode::fixed_element(bytecode::value_type_from_name(p_type.name))) : std::nullopt;
 }
 
 std::optional<std::pair<Type, Type>> entries_of(const Type &p_type) {

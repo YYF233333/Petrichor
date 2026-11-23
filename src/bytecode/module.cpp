@@ -73,6 +73,10 @@ ValueType packed_element(ValueType p_type) {
 	return p_type < ValueType::Count ? TYPES[uint32_t(p_type)].packed_element : ValueType::Void;
 }
 
+ValueType fixed_element(ValueType p_type) {
+	return p_type < ValueType::Count ? TYPES[uint32_t(p_type)].fixed_element : ValueType::Void;
+}
+
 // core/variant/variant_destruct.cpp:40-58, variant_construct.h:115-116 and
 // variant_op.h:50-83 (ed1daf0).
 bool owns_nothing(ValueType p_type) {

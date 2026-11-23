@@ -95,6 +95,7 @@ struct TypeOps {
 	GDExtensionPtrOperatorEvaluator equal = nullptr; // With a value of the same type.
 	GDExtensionPtrIndexedGetter get_indexed = nullptr;
 	GDExtensionPtrIndexedSetter set_indexed = nullptr;
+	int64_t fixed_size = 0;
 	uint32_t size = 0;
 	bool zero_default = true; // The default value is all zero bytes.
 };
@@ -453,6 +454,19 @@ void init_values() {
 		entry.construct(probe, nullptr);
 		for (uint32_t b = 0; b < entry.size; b++) {
 			entry.zero_default = entry.zero_default && probe[b] == 0;
+		}
+		// The bounds that the pointer getter and setter check only in debug
+		// builds (core/variant/variant_setget.cpp:484-656; ed1daf0).
+		if (bytecode::fixed_element(type) != ValueType::Void) {
+			Variant value;
+			entry.to_variant(value._native_ptr(), probe);
+			GDExtensionBool valid = true;
+			GDExtensionBool oob = false;
+			while (!oob) {
+				Variant part;
+				gdextension_interface::variant_get_indexed(value._native_ptr(), entry.fixed_size, part._native_ptr(), &valid, &oob);
+				entry.fixed_size += oob ? 0 : 1;
+			}
 		}
 		if (entry.destroy) {
 			entry.destroy(probe);
@@ -1678,6 +1692,10 @@ void get_packed_element(ValueType p_type, const uint8_t *p_array, int64_t p_inde
 
 void set_packed_element(ValueType p_type, uint8_t *p_array, int64_t p_index, const uint8_t *p_element) {
 	ops(p_type).set_indexed(p_array, p_index, p_element);
+}
+
+int64_t fixed_size(ValueType p_type) {
+	return ops(p_type).fixed_size;
 }
 
 // A value of a built-in type, by its one return as the named Variant.

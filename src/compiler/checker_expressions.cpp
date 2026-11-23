@@ -1055,7 +1055,10 @@ Type Checker::check_subscript(Expr &r_expr) {
 		return set(r_expr, entries->second);
 	}
 	// A String's elements are its characters, each a String.
-	const std::optional<Type> element = base.kind == TypeKind::String ? Type::of(TypeKind::String) : element_of(base);
+	std::optional<Type> element = base.kind == TypeKind::String ? Type::of(TypeKind::String) : element_of(base);
+	if (!element) {
+		element = part_of(base);
+	}
 	if (!element) {
 		return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed.");
 	}

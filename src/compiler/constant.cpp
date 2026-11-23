@@ -696,20 +696,35 @@ ConstPtr fold_dictionary(Expr &r_expr) {
 ConstPtr fold_subscript(Expr &r_expr) {
 	const ConstPtr &base = r_expr.base->constant;
 	const ConstPtr &index = r_expr.right->constant;
-	if (!base || !index || !base->is_container()) {
+	const bool text = base && base->kind == Kind::String && base->type.kind == TypeKind::String;
+	if (!base || !index || !(base->is_container() || text)) {
 		return nullptr;
 	}
 	if (!index->is_known()) {
 		return fail(r_expr, "The index of a constant must be known at compile time.");
 	}
-	if (base->kind == Kind::Array) {
-		const int64_t size = int64_t(base->items.size());
+	if (base->kind == Kind::Array || text) {
+		// A String's characters, each a code point, as the engine indexes it
+		// (core/variant/variant_setget.cpp:763-784; ed1daf0).
+		std::vector<std::string> characters;
+		for (const char byte : text ? base->text : std::string()) {
+			if (characters.empty() || (static_cast<unsigned char>(byte) & 0xC0) != 0x80) {
+				characters.emplace_back();
+			}
+			characters.back() += byte;
+		}
+		const int64_t size = int64_t(text ? characters.size() : base->items.size());
 		// A negative index counts from the end, as at run time.
 		const int64_t at = index->i < 0 ? index->i + size : index->i;
 		if (index->kind != Kind::Int || at < 0 || at >= size) {
 			return fail(r_expr, "Index " + std::to_string(index->i) + " is out of bounds (size " + std::to_string(size) + ").");
 		}
-		return base->items[size_t(at)];
+		if (!text) {
+			return base->items[size_t(at)];
+		}
+		auto character = make(Kind::String, r_expr.type);
+		character->text = characters[size_t(at)];
+		return character;
 	}
 	const std::optional<std::pair<Type, Type>> entries = entries_of(base->type);
 	const ConstPtr key = converted(index, entries ? entries->first : index->type);

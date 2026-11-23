@@ -31,15 +31,21 @@ bool is_element(ValueType p_type) {
 	return p_type == ValueType::Object || p_type == ValueType::Task || is_native(p_type);
 }
 
-// What GET_INDEX reads from and SET_INDEX writes to.
-bool is_indexable(ValueType p_type) {
-	return p_type == ValueType::Array || p_type == ValueType::Dictionary || packed_element(p_type) != ValueType::Void;
+// The element that SET_INDEX writes, besides a container's: a packed array's,
+// or a part of a value of a fixed size; Void for other values.
+ValueType written_element(ValueType p_type) {
+	return packed_element(p_type) != ValueType::Void ? packed_element(p_type) : fixed_element(p_type);
 }
 
-// The elements that GET_INDEX and ITERATE read, besides an Array's: a packed
-// array's, or a String's characters, each a String; Void for other values.
+// What SET_INDEX writes to.
+bool is_indexable(ValueType p_type) {
+	return p_type == ValueType::Array || p_type == ValueType::Dictionary || written_element(p_type) != ValueType::Void;
+}
+
+// The elements that GET_INDEX reads, besides a container's: those SET_INDEX
+// writes, or a String's characters, each a String; Void for other values.
 ValueType read_element(ValueType p_type) {
-	return p_type == ValueType::String ? ValueType::String : packed_element(p_type);
+	return p_type == ValueType::String ? ValueType::String : written_element(p_type);
 }
 
 // Laid out as Result[T, E] is: two variants of one field each.
@@ -855,7 +861,7 @@ class Verifier {
 				}
 				return element_operand(o[0], o[1], o[2]) && slot(o[3], storage(o[0])) && index_operand(o[0], o[4]);
 			case Op::ITERATE:
-				if (o[0] >= module.types.size() || storage(o[0]) == ValueType::Dictionary || (!is_indexable(storage(o[0])) && storage(o[0]) != ValueType::String)) {
+				if (o[0] >= module.types.size() || storage(o[0]) == ValueType::Dictionary || fixed_element(storage(o[0])) != ValueType::Void || (!is_indexable(storage(o[0])) && storage(o[0]) != ValueType::String)) {
 					return fail("iterating over a value that has no elements");
 				}
 				return element_operand(o[0], o[1], o[2]) && slot(o[3], storage(o[0]));
@@ -870,7 +876,7 @@ class Verifier {
 				if (base.kind == TypeKind::Array || base.kind == TypeKind::Dictionary) {
 					return kept_operand(o[3], base.element);
 				}
-				const ValueType element = packed_element(storage(o[0]));
+				const ValueType element = written_element(storage(o[0]));
 				return slot(o[3], element == ValueType::Void ? ValueType::Variant : element);
 			}
 			case Op::IS_NONE:

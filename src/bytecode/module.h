@@ -77,6 +77,9 @@ const char *value_type_name(ValueType p_type);
 ValueType value_type_from_name(const std::string &p_name);
 // The elements of a packed array, as a slot holds them, or Void.
 ValueType packed_element(ValueType p_type);
+// What the engine's index gives of a value of a fixed size, such as a float
+// of a Vector3 or a Vector3 of a Basis, as a slot holds it; Void for others.
+ValueType fixed_element(ValueType p_type);
 // Whether a value of the type owns nothing, and so has no destructor. The
 // engine's constructors and operators compute such a value whole before they
 // store it, so it may go over one of their operands.

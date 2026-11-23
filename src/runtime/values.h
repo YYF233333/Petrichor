@@ -84,11 +84,15 @@ inline bool scalar_from_variant(bytecode::ValueType p_type, const godot::Variant
 
 void copy_value(bytecode::ValueType p_type, uint8_t *p_dst, const uint8_t *p_src);
 godot::Variant to_variant(bytecode::ValueType p_type, const uint8_t *p_slot);
-// An element of a packed array, by an index within its size, in the layout of
-// the element's slot, as the engine's pointer getter and setter take it
-// (core/variant/variant_setget.cpp:348-354, 387-394, 421-428, 465-472).
+// An element of a packed array, or a part of a value of a fixed size, by an
+// index within its size, in the layout of the element's slot, as the engine's
+// pointer getter and setter take it
+// (core/variant/variant_setget.cpp:348-354, 387-394, 421-428, 465-472, 495-500, 529-534).
 void get_packed_element(bytecode::ValueType p_type, const uint8_t *p_array, int64_t p_index, uint8_t *p_element);
 void set_packed_element(bytecode::ValueType p_type, uint8_t *p_array, int64_t p_index, const uint8_t *p_element);
+// How many parts the engine indexes in a value of a fixed size, such as 3 of
+// a Vector3; 0 for other types.
+int64_t fixed_size(bytecode::ValueType p_type);
 
 // What an entry check asks of a value beyond how its slot holds it (spec §10.1).
 struct ValueCheck {

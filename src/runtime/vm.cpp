@@ -620,7 +620,8 @@ int64_t packed_size(const uint8_t *p_slot) {
 	return reinterpret_cast<const T *>(p_slot)->size();
 }
 
-// Of an Array, a packed array or a String, whose elements are its characters.
+// Of an Array, a packed array, a String, whose elements are its characters, or
+// a value of a fixed size.
 int64_t array_size(ValueType p_type, const uint8_t *p_slot) {
 	switch (p_type) {
 		case ValueType::Array:
@@ -648,8 +649,14 @@ int64_t array_size(ValueType p_type, const uint8_t *p_slot) {
 		case ValueType::PackedVector4Array:
 			return packed_size<PackedVector4Array>(p_slot);
 		default:
-			return 0;
+			return fixed_size(p_type);
 	}
+}
+
+// A negative index counts from the end, as in GDScript, except in a value of a
+// fixed size, which the engine refuses (core/variant/variant_setget.cpp:487; ed1daf0).
+int64_t index_at(ValueType p_type, const uint8_t *p_slot, int64_t p_index) {
+	return p_index < 0 && !fixed_size(p_type) ? p_index + array_size(p_type, p_slot) : p_index;
 }
 
 // The engine only reports an error when a read-only container is changed, or
@@ -1693,10 +1700,9 @@ class Execution {
 			}
 			return within_depth(p_fn, p_line);
 		}
-		// A negative index counts from the end, as in GDScript.
 		const uint8_t *container = p_frame + p_op[4];
 		const int64_t raw = *reinterpret_cast<const int64_t *>(p_frame + p_op[5]);
-		const int64_t at = raw < 0 ? raw + array_size(base.storage, container) : raw;
+		const int64_t at = index_at(base.storage, container, raw);
 		switch (at < 0 ? ElementRead::Past : read_element(base, element, container, at, p_frame + p_op[3])) {
 			case ElementRead::Done:
 				return within_depth(p_fn, p_line);
@@ -1746,9 +1752,8 @@ class Execution {
 			dictionary.set(key, kept(base.item, src));
 			return within_depth(p_fn, p_line);
 		}
-		// A negative index counts from the end, as in GDScript.
 		const int64_t raw = *reinterpret_cast<const int64_t *>(index);
-		const int64_t at = raw < 0 ? raw + array_size(base.storage, container) : raw;
+		const int64_t at = index_at(base.storage, container, raw);
 		if (base.kind == bytecode::TypeKind::Array && is_scalar(base.item->storage)) {
 			// The typed Array's element is a Variant of the scalar's type, which
 			// owns nothing (core/variant/variant.h:268-272): the value replaces

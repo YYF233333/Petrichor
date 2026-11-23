@@ -216,6 +216,9 @@ bool is_shared(const Type &p_type);
 // The elements of a value that can be indexed and iterated (spec §3.8, §5.7);
 // Variant for an untyped Array.
 std::optional<Type> element_of(const Type &p_type);
+// What indexing a value of a fixed size gives, as the engine indexes it: a
+// float of a Vector3, a Vector3 of a Basis. It is not iterated (spec §5.7).
+std::optional<Type> part_of(const Type &p_type);
 
 // The key and value types of a Dictionary (spec §3.8); Variant for an untyped
 // one.

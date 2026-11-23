@@ -345,6 +345,14 @@ func _ready() -> void:
 		var b: String = pair[1]
 		orders.append(v.ordered(a, b, a == b, true) == [a < b, a <= b, a > b, a >= b, (a == b) < true, (a == b) > true])
 	_check(orders == [true, true, true], "Strings, and bools by < and >, are ordered as the engine orders them (spec §5.2)")
+	var vector := Vector3(1, 2, 3)
+	vector[1] = 5
+	var basis := Basis()
+	basis[1][0] += 1
+	_check(v.parts(Vector3(1, 2, 3), Basis(), 1) == [vector, basis, 5.0, 4, 0.5], "a value of a fixed size is indexed as the engine indexes it (spec §3.1)")
+	var past := [v.part_at(Vector3.ONE, 3), v.part_at(Vector3.ONE, -1)]
+	_check_errors(["values_check.pet:462: Index 3 is out of bounds (size 3).", "values_check.pet:462: Index -1 is out of bounds (size 3)."], "an index out of a value of a fixed size is a program error, a negative one too, as the engine refuses it")
+	_check(past == [0.0, 0.0], "the program errors end the callers")
 	_check(v.damageable == null, "a member of an interface refuses an object that does not implement it")
 	v.damageable = target
 	_check(v.damageable == target, "a member of an interface takes an object that implements it")

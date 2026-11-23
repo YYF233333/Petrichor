@@ -57,6 +57,8 @@ const DOWN = 2 * 3 + 1 << 4 & 255 ^ 7 | 8
 const LEFTWARD = 100 - 10 - 1 + 64 / 4 / 2 + (1 << 2 << 3)
 const LOGIC = true or false and false
 const TESTS = not 1 == 2 and 1 | 2 == 3
+const NAME = "né\U01F327"
+const LETTERS = NAME[1] + NAME[-1]
 )");
 	CHECK(named(module, "DAY_MS").i == 86400000);
 	CHECK(named(module, "MASK").i == 9);
@@ -81,6 +83,8 @@ const TESTS = not 1 == 2 and 1 | 2 == 3
 	CHECK(named(module, "LEFTWARD").i == 89 + 8 + 32);
 	CHECK(named(module, "LOGIC").b);
 	CHECK(named(module, "TESTS").b);
+	// A String by code point, as the engine indexes it (core/variant/variant_setget.cpp:763-784; ed1daf0).
+	CHECK(named(module, "LETTERS").s == "\xC3\xA9\xF0\x9F\x8C\xA7");
 	CHECK(storage(module, named(module, "LIMITS").type) == ValueType::Array);
 	CHECK(named(module, "LIMITS").args.size() == 3);
 }
@@ -126,6 +130,7 @@ TEST_CASE("what loading could fail on is a compile error, where it is") {
 	CHECK(errors_of("const N = Vector2i(4, 2).x ** 2\n") == Errors{ "1:28: Both sides of ** of two ints must be known at compile time." });
 	CHECK(errors_of("const N = int(1e300)\n") == Errors{ "1:11: Cannot convert 1.0000000000000001e+300 to int: out of range." });
 	CHECK(errors_of("const L = [1, 2]\nconst E = L[5]\n") == Errors{ "2:11: Index 5 is out of bounds (size 2)." });
+	CHECK(errors_of("const S = \"n\\u00e9\"\nconst E = S[-3]\n") == Errors{ "2:11: Index -3 is out of bounds (size 2)." });
 	CHECK(errors_of("const D = {\"a\": 1, \"a\": 2}\n") == Errors{ "1:20: The key \"a\" is already in this dictionary." });
 	// A String and a StringName of one text are one key, as in the engine.
 	CHECK(errors_of("const D: Dictionary = {jump = 1}\nconst V = D[\"jump\"]\nconst E: Dictionary = {\"run\": 2}\nconst W = E[&\"run\"]\n").empty());

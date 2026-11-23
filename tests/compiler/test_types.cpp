@@ -327,7 +327,14 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec ย
 	CHECK(has_error(in_function("var a = []"), "An empty array needs a declared type"));
 	CHECK(contains(type_of("a[\"x\"]", ints), "An index must be int, found String"));
 	CHECK(type_of("u[0]", "var u: Array = []") == "Variant");
-	CHECK(contains(type_of("v[0]", "var v := Vector3()"), "Vector3 cannot be indexed"));
+	// A value of a fixed size, by the engine's indexing type, though not iterated
+	// (core/variant/variant_setget.cpp:847-858; ed1daf0).
+	CHECK(type_of("v[0] + c[3]", "var v := Vector3()\nvar c := Color()") == "float");
+	CHECK(type_of("v[i]", "var v := Vector2i()\nvar i := 1") == "int");
+	CHECK(type_of("b[2]", "var b := Basis()") == "Vector3");
+	CHECK(type_of("t[2]", "var t := Transform2D()") == "Vector2");
+	CHECK(contains(type_of("v[\"x\"]", "var v := Vector3()"), "An index must be int, found String"));
+	CHECK(contains(type_of("r[0]", "var r := Rect2()"), "Rect2 cannot be indexed"));
 	// Spec ยง5.1: as the engine and GDScript type it, alike arrays add up typed.
 	CHECK(type_of("a + a", ints) == "Array[int]");
 	CHECK(type_of("a + f", std::string(ints) + "\nvar f: Array[float] = []") == "Array");
@@ -353,6 +360,7 @@ TEST_CASE("elements are assigned in place, packed arrays written back") {
 	const char *ints = "var a: Array[int] = [1, 2]";
 	CHECK(errors_of(in_function(std::string(ints) + "\na[0] = 2\na[1] += 3\nvar p := PackedInt32Array()\np[0] = 4\nvar u: Array = [1]\nu[0] = \"x\"")).empty());
 	CHECK(errors_of(in_function("var v: Array[Vector2] = [Vector2()]\nv[0].x = 1\nvar q := PackedVector3Array()\nq[0].y = 2")).empty());
+	CHECK(errors_of(in_function("var v := Vector3()\nv[1] = 2\nvar b := Basis()\nb[0][2] += 1.5")).empty());
 	CHECK(has_error(in_function(std::string(ints) + "\na[0] = \"x\""), "Cannot assign a value of type String as int"));
 	CHECK(has_error(in_function("PackedInt32Array()[0] = 2"), "Cannot assign to an element of a temporary value."));
 	CHECK(has_error(in_function("var u: Array = [1]\nu[0] += 1"), "Cannot use \"+\" on a Variant."));

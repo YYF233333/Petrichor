@@ -450,3 +450,13 @@ pub func objects_found() -> Array[bool]:
 # Strings, and bools by < and >, are ordered by the engine's operators (spec §5.2).
 pub func ordered(a: String, b: String, x: bool, y: bool) -> Array[bool]:
 	return [a < b, a <= b, a > b, a >= b, x < y, x > y]
+
+
+# A value of a fixed size is indexed as the engine indexes it (spec §3.1).
+pub func parts(v: Vector3, b: Basis, i: int) -> Array:
+	v[i] = 5
+	b[i][0] += 1
+	return [v, b, v[i], Vector2i(3, 4)[1], Color(0.5, 0, 0)[0]]
+
+pub func part_at(v: Vector3, i: int) -> float:
+	return v[i]

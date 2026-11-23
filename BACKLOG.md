@@ -64,9 +64,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - A constant read through a call, as `make().N + 1`, drops the call when an enclosing expression folds (`lowered_as_constant`, `fold_binary`). Alone, `make().N` runs it. GDScript drops both. Lower the receiver's call inside a folded expression too.
 - A resource file's dependencies take the saved path over a valid UID (`SceneIndex::dependencies`). The engine loads by the UID first (`scene/resources/resource_format_text.cpp:491-496`, `ed1daf0`). After a file moves outside Godot, a new file at its old path misleads the preload cycle check. Take the saved path only when the UID resolves to none.
 - Typed Dictionaries of GDScript members, parameters and results are seen untyped (`type_of` in `src/adapter/editor/class_db_api.cpp`). Decode `PROPERTY_HINT_DICTIONARY_TYPE` as the typed Array hint is.
-- Subscripts of values that are not containers:
-  - `v[i]` on vectors, `Color`, `Basis` and the like is refused (`check_subscript`). The spec takes the core value types from GDScript and forbids only iterating vectors. `tests/compiler/test_types.cpp` expects the error now. Type it by the engine's indexing;
-  - a String constant's subscript, as `NAME[0]`, is refused in constants (`fold_subscript` in `src/compiler/constant.cpp`). Fold it by code point.
+- An index of a vector constant, as `V[0]` of `const V := Vector3(1, 2, 3)`, is refused in a constant expression, though spec §4.5 lists indexes of constants. The engine computes the vector when the class loads, and a stored constant has no index to apply then (`fold_subscript` in `src/compiler/constant.cpp`). The same holds for `Color`, `Basis` and the other values the engine indexes.
 
 ## Runtime
 
