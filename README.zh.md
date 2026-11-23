@@ -88,7 +88,7 @@ xattr -dr com.apple.quarantine addons/petrichor
 在项目的根目录下，命令行工具 `pet` 检查、构建和格式化整个项目：
 
 ```sh
-addons/petrichor/pet check            # 检查磁盘上的文件，不写入任何文件
+addons/petrichor/pet check            # 检查磁盘上的文件，不写字节码
 addons/petrichor/pet build            # 检查并写出字节码
 addons/petrichor/pet format --check   # 列出未格式化的脚本，不带 --check 时格式化它们
 addons/petrichor/pet lsp              # 经 stdio 为 Neovim、Helix 等 LSP 客户端转接

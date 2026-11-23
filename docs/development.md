@@ -94,7 +94,7 @@
   - 端口在副本的 `.godot/petrichor/lsp.json` 中。编辑器正常退出时删掉它，被杀掉时留下。
   - 手动收发用 `tests/engine/run.py` 的 `LspClient`：`LspClient(port).initialize()`，再 `open()`、`notify()` 和 `take()`。
   - 不要在 `tests/engine/project` 上开有界面的编辑器调试它。测试同时运行时，后开的进程加载不了扩展。
-  - 无界面编辑器不会重获焦点，所以不扫描磁盘。改了磁盘上的文件，要发 `didSave` 或 `didChangeWatchedFiles`。
+  - 无界面编辑器不会重获焦点，引擎自己不扫描磁盘。服务器每秒比较一次项目的文件，读回改动。发 `didSave` 或 `didChangeWatchedFiles` 让它立即比较。
   - 诊断在工作区停止变化 `idle_parse_delay` 秒后才发，默认 1.5 秒。刚打开的文件立即发。
 
 ## 发布包

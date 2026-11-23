@@ -82,7 +82,7 @@
 | owner 被释放时，它拥有的节点的 owner 被置为 null | `scene/main/node.cpp:299-302` | §7.3 |
 | 节点在 PREDELETE 中从最后一个子节点起逐个删除子节点 | `scene/main/node.cpp:308-312` | §9.7 |
 | 节点入树时，就绪同步传播完毕 | `scene/main/node.cpp:3368-3372` | §6.2 |
-| 子节点先于父节点就绪；节点重新入树时不再执行 `_ready` | `scene/main/node.cpp:326-337, 454` | §6.4 |
+| 子节点先于父节点就绪；节点重新入树时，未调用 `request_ready()` 就不再执行 `_ready` | `scene/main/node.cpp:326-337, 454, 3559-3562` | §6.4 |
 | `queue_free` 把节点放入删除队列，在每个物理步和处理帧的末尾删除 | `scene/main/node.cpp:3461-3471`；`scene/main/scene_tree.cpp:666, 735, 1626-1643` | §3.3、§9.7 |
 | Area3D 的 `body_shape_entered` 在物体的节点不在树中时以 null 作为节点参数 | `scene/3d/physics/area_3d.cpp:233-234` | §10.2 |
 | 没有设为局部于场景的子资源，由场景的所有实例共用 | `scene/resources/packed_scene.cpp:705-706` | §7.6 |

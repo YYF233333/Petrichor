@@ -88,7 +88,7 @@ CI tests each release with the official editor and the official export templates
 From the project's root, the command-line tool `pet` checks, builds and formats the whole project:
 
 ```sh
-addons/petrichor/pet check            # checks the files on disk, writing nothing
+addons/petrichor/pet check            # checks the files on disk, writing no bytecode
 addons/petrichor/pet build            # checks them and writes the bytecode
 addons/petrichor/pet format --check   # lists the scripts not formatted; without --check, formats them
 addons/petrichor/pet lsp              # bridges LSP clients such as Neovim and Helix over stdio
