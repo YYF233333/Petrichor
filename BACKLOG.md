@@ -20,7 +20,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
-  - The GDScript that the parser refuses (Language), with parameters written `name := default` (spec §4.6). The checker still asks for `pub` on exported variables, `@rpc` functions and the members an interface requires, which spec §4.2 now treats as pub.
+  - The GDScript that the parser refuses (Language), with parameters written `name := default` (spec §4.6). The checker still asks for `pub` on exported variables and `@rpc` functions, which spec §4.2 now treats as pub.
   - A subclass's bodies checked although its base has errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project, 303 s for tanks-of-freedom-ii.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
@@ -167,6 +167,8 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The two-way migration tool (spec §1.2, §13.4), planned for 0.3.
   - It infers missing types from call sites and from scene connections, saved values and node paths. Bounds that would change `int` and `float` arithmetic are not merged. Measure the inferred share on the corpus first.
     - The inference solves the whole project at once. The tool runs once and writes the types down, so errors that move with distant code do no harm here. A design proposal comes first.
+    - A slot's type comes from what flows into it: arguments, assigned values, returned values, defaults and what scenes store. How the slot is used does not choose the type. The compiler checks the written type, and a slot that fails stays without one, with its evidence.
+    - A call by name, as `collider.damage(5)` on an Object, counts for every function of that name in the project. The report marks the types that rest on such calls.
     - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
   - Rewrites that those games need:
     - `$"/root/Name"` of an autoload becomes its name (102 uses);
@@ -339,7 +341,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
-- Whether a method that overrides a `pub` method of a base class is `pub` without writing it (spec §4.2). Now the override must repeat `pub`, though the members that an annotation or an interface makes pub need not write it. Kotlin keeps the overridden member's visibility, as its docs state for `protected` and `internal`. The owner finds that object-oriented languages have not settled it.
+- Whether a method that overrides a `pub` method of a base class is `pub` without writing it (spec §4.2). Now the override must repeat `pub`, though an exported variable and an `@rpc` function need not write it. Kotlin keeps the overridden member's visibility, as its docs state for `protected` and `internal`. The owner finds that object-oriented languages have not settled it.
 - Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
 - Whether a function value turned into a Callable has only its result checked for `T??` and `Variant?` (spec §10.1). Parameters cannot lose a `None`: the engine passes null or a boxed value. Now `Array[int??].filter(func(x): ...)` is refused. `bind()`, `callv()` and a function type that holds `T??` are not checked, and turn `Some(None)` into `None`.
