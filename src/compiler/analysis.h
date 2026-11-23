@@ -55,6 +55,11 @@ public:
 	Analysis(const EngineApi &p_engine, Workspace &r_workspace) :
 			engine(p_engine), workspace(r_workspace) {}
 
+	// The recorder of a migration's inference that every check gives
+	// (CompileOptions::inflows), of an analysis whose results are not kept
+	// beyond a round of it.
+	Inflows *inflows = nullptr;
+
 	const EngineApi &engine_api() const { return engine; }
 	const ProjectApi &project_api() const { return viewed ? *viewed : workspace; }
 

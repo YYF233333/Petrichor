@@ -826,6 +826,12 @@ void Checker::check_connections() {
 				continue;
 			}
 			for (int i = 0; i < int(arguments.size()) - connection.unbinds; i++) {
+				// What the signal passes flows into a parameter without a type, as
+				// from the connection's place in the scene.
+				const int slot = function && i < int(function->params.size()) ? function->params[i].slot : -1;
+				if (slot >= 0 && options.inflows) {
+					options.inflows->flows.push_back({ slot, arguments[i], { scene.path, uint32_t(&connection - scene.connections.data()) } });
+				}
 				// The rest of a vararg engine method are Variant.
 				std::optional<Type> param = function ? method.rest : std::nullopt;
 				if (i < most) {
@@ -1011,6 +1017,12 @@ void Checker::check_stored_exports() {
 		};
 		for (const VarDecl *member : exports) {
 			for (const auto &[name, stored] : p_properties) {
+				// A value saved for a member without a type flows into it, from its
+				// place in the scene.
+				if (name == member->name && member->slot >= 0 && options.inflows) {
+					const uint32_t place = uint32_t(std::hash<std::string>()(p_node + "\n" + p_resource));
+					options.inflows->flows.push_back({ member->slot, stored_type(stored), { p_scene.path, place } });
+				}
 				if (name != member->name || member->type.is_error()) {
 					continue;
 				}

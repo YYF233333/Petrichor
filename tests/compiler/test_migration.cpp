@@ -205,6 +205,34 @@ TEST_CASE("a type written over := keeps the initializer, and an error at an assi
 	CHECK(migration.notes[0].message == "\"labels\" is left without a type: Array[Label] does not check. It receives an element Label (res://f.pet:8).");
 }
 
+TEST_CASE("a signal connected in a scene flows into the parameters of its method") {
+	FakeProject project;
+	project.add_script("res://hud.gd", "extends Node\n\n\nfunc _on_box_child_entered_tree(node):\n\tprint(node)\n");
+	compiler::Scene hud;
+	hud.path = "res://hud.tscn";
+	hud.nodes = { { ".", "Node", "res://hud.gd" }, { "Box", "Node" } };
+	hud.connections = { { "child_entered_tree", "Box", ".", "_on_box_child_entered_tree" } };
+	project.scenes.push_back(hud);
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://hud.gd" }, 10);
+	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n\n\npub func _on_box_child_entered_tree(node: Node):\n\tprint(node)\n");
+	CHECK(migration.errors.empty());
+}
+
+TEST_CASE("a value saved in a scene flows into the exported member") {
+	FakeProject project;
+	project.add_script("res://bag.gd", "extends Node\n@export var tags := []\n\n\nfunc _ready() -> void:\n\ttags.append(\"new\")\n");
+	compiler::Scene level;
+	level.path = "res://level.tscn";
+	level.nodes = { { ".", "Node", "res://bag.gd" } };
+	compiler::SceneValue saved{ "Array" };
+	saved.items = { compiler::SceneValue{ "int", "", "", 3 } };
+	level.nodes[0].properties = { { "tags", saved } };
+	project.scenes.push_back(level);
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://bag.gd" }, 10);
+	CHECK(migration.texts.at("res://bag.pet") == "extends Node\n@export var tags: Array = []\n\n\nfunc _ready() -> void:\n\ttags.append(\"new\")\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("the inference reads a declaration through an error that the loop of fixes then fixes") {
 	FakeProject project;
 	project.add_script("res://state.gd", "class_name CardState\nextends Node\nenum State { BASE, CLICKED }\n@export var state: State\n", "CardState");

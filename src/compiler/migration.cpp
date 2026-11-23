@@ -487,30 +487,30 @@ const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
 	return inside ? &*fix : nullptr;
 }
 
-// Each script of this language in the project checked once with the types
-// that `r_inflows` tries, recording afresh what flows into the slots; the
-// results by path, each error naming its file.
+// Each script of this language in the project, and each scene, checked once
+// with the types that `r_inflows` tries, recording afresh what flows into
+// the slots; the results of the scripts by path, with the errors that the
+// checks of the scenes report in them, each error naming its file.
 std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, const ProjectApi &p_project, Inflows &r_inflows) {
 	r_inflows.flows.clear();
 	r_inflows.calls.clear();
-	ScriptClasses classes(p_engine, &p_project, false, true);
-	classes.inflows = &r_inflows;
+	Workspace workspace(p_project);
+	Analysis analysis(p_engine, workspace);
+	analysis.inflows = &r_inflows;
+	const Analysis::Pass pass(analysis, &p_project);
 	std::map<std::string, CompileResult> results;
 	for (const std::string &path : p_project.script_paths()) {
 		const std::optional<std::string> source = is_script_path(path) ? p_project.script_source(path) : std::nullopt;
-		if (!source) {
-			continue;
+		if (source) {
+			results[path] = *analysis.compile(path, *source);
+			for (Diagnostic &error : results[path].errors) {
+				error.file = path;
+			}
 		}
-		CompileOptions options;
-		options.path = path;
-		options.project = classes.get_project();
-		options.inflows = &r_inflows;
-		ClassDecl cls;
-		classes.begin_compile(path, *source);
-		CompileResult &result = results[path] = compile(*source, p_engine, options, classes, cls);
-		classes.end_compile();
-		for (Diagnostic &error : result.errors) {
-			error.file = path;
+	}
+	for (const std::string &path : p_project.scene_paths()) {
+		for (const Diagnostic &error : analysis.check_scene(path)->errors) {
+			results[error.file].errors.push_back(error);
 		}
 	}
 	return results;
@@ -838,6 +838,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	const std::map<std::string, std::string> original = r_project.texts;
 	std::map<std::string, std::pair<std::string, std::vector<uint32_t>>> lines;
 	const auto where = [&](const Inflows::Key &p_at) {
+		if (!is_script_path(p_at.first)) {
+			return p_at.first; // A scene's connection.
+		}
 		auto found = lines.find(p_at.first);
 		if (found == lines.end()) {
 			const auto text = original.find(p_at.first);

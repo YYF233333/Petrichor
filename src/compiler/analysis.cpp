@@ -24,6 +24,7 @@ Analysis::Pass::Pass(Analysis &r_analysis, const ProjectApi *p_project) :
 	analysis.on_disk = analysis.reading == &analysis.workspace.disk || analysis.viewed_on_disk;
 	analysis.workspace.passes++;
 	analysis.classes = std::make_unique<ScriptClasses>(analysis.engine, analysis.reading, false, true);
+	analysis.classes->inflows = analysis.inflows;
 }
 
 Analysis::Pass::~Pass() {
@@ -91,6 +92,7 @@ std::shared_ptr<const CompileResult> Analysis::compile(const std::string &p_path
 	CompileOptions options;
 	options.path = p_path;
 	options.project = classes->get_project();
+	options.inflows = inflows;
 	ClassDecl cls;
 	classes->begin_compile(p_path, p_source);
 	const std::shared_ptr<const CompileResult> result = std::make_shared<const CompileResult>(compiler::compile(p_source, engine, options, *classes, cls));
@@ -169,6 +171,7 @@ std::shared_ptr<const CompileResult> Analysis::check_scene(const std::string &p_
 		options.project = classes->get_project();
 		options.mode = CheckMode::Scene;
 		options.scene = p_path;
+		options.inflows = inflows;
 		classes->begin_compile(script, *source);
 		std::vector<Reference> references;
 		check(cls, engine, options, errors, *classes, &references);
