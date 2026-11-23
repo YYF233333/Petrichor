@@ -45,9 +45,22 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Whether GDScript should see a `pub` function's containers whose elements exist only in this language (spec §3.14). Overrides of engine virtuals returning `Variant` and `pub` static variables do not apply that rule now. A foreign element is a program error when read, with no memory problem.
 - In an inner class, a bare value naming an outer class's instance function is refused for want of an outer object. That holds even when the inner class's engine base has a method of the name. Bare-name resolution looks up engine members first (spec §4.1), and GDScript takes the engine method.
 - A script without a path cannot take a method of its own struct as a value. The value names its class by the script's path. The verifier then rejects the module as an internal compiler error (`src/compiler/lower.cpp`, `struct_method_call`). A script made at run time in the editor, as by `PetScript.new()`, has no path.
+- A block on the line of its colon takes only its first statement (`block()` in `src/compiler/parser.cpp`). In `if flag: n += 1; n += 2` the second statement runs unconditionally, and `if bad: push_error("x"); return` always returns. GDScript puts both in the block (`modules/gdscript/gdscript_parser.cpp:1966-2010`, `ed1daf0`). The same cause refuses `func f(): pass; return`. Fix it before the migration tool brings such lines in.
+- A scene connection to a node without a script goes unchecked (spec §4.7, §7.7). `check_connections()` skips targets without the checked script (`src/compiler/checker_scenes.cpp`). So `pulse(value: String)` connected to `Control.hide` builds clean and fails at emit. Resolve the method on the target's engine class.
+- A constant read through a call, as `make().N + 1`, drops the call when an enclosing expression folds (`lowered_as_constant`, `fold_binary`). Alone, `make().N` runs it. GDScript drops both. Lower the receiver's call inside a folded expression too.
+- `_init`'s must-assign summary ignores the paths that `return` (`init_stmt` in `src/compiler/checker.cpp`). An early `return` hides a missing assignment, and a final one drops all of them. Intersect the set at each `return` with the one at the end.
+- A resource file's dependencies take the saved path over a valid UID (`SceneIndex::dependencies`). The engine loads by the UID first (`scene/resources/resource_format_text.cpp:491-496`, `ed1daf0`). After a file moves outside Godot, a new file at its old path misleads the preload cycle check. Take the saved path only when the UID resolves to none.
+- Typed Dictionaries of GDScript members, parameters and results are seen untyped (`type_of` in `src/adapter/editor/class_db_api.cpp`). Decode `PROPERTY_HINT_DICTIONARY_TYPE` as the typed Array hint is.
+- Subscripts of values that are not containers:
+  - `v[i]` on vectors, `Color`, `Basis` and the like is refused (`check_subscript`). The spec takes the core value types from GDScript and forbids only iterating vectors. `tests/compiler/test_types.cpp` expects the error now. Type it by the engine's indexing;
+  - a String constant's subscript, as `NAME[0]`, is refused in constants (`fold_subscript` in `src/compiler/constant.cpp`). Fold it by code point.
+- `<`, `<=`, `>` and `>=` on two Strings or two bools are refused (`primitive_binary_type`), though the engine's operator table has them. `sort_custom(func(a, b): return a.name < b.name)` is common. Lowering's primitive path has int and float only, so these go through `EVALUATE`.
+- Float literals `.5` and `1.` are refused (`number()` in `src/compiler/lexer.cpp`). GDScript takes both (`modules/gdscript/gdscript_tokenizer.cpp:726-749, 1496-1498`, `ed1daf0`), and the spec takes literals from it.
+- A member or static variable initialized with `None` alone, as `var target = None`, takes the type `None` instead of a compile error (`src/compiler/checker_declarations.cpp`). Locals, constants and struct fields refuse it. One check would serve all five.
 
 ## Runtime
 
+- Reading or writing a static variable of another class can touch freed storage. `static_variable()` returns a pointer into the image's `Statics`, while `owner`, the only reference to that image, ends with the call (`src/runtime/vm.cpp`). A `@static_unload` class that nothing else holds is freed before the copy and loaded again at each use. GDScript keeps a named class as a constant of the functions that use it (`modules/gdscript/gdscript_compiler.cpp:436-467`, `ed1daf0`). The spec does not say when such a class unloads.
 - A struct method taken as a value binds the class image of its creation (`src/runtime/method_callable.h`, `StructMethodCallable`). After a hot reload it still runs the old body, unlike spec §12.4.
 - Comparing and hashing a struct, a payload enum or `T??` uses the raw object id of a nested `T?` field. A freed object there does not compare equal to `None`, though it does at the top level (`src/runtime/values.cpp`).
 - A Task of another result type is described by its class alone, as in "expected CoroutineTask, found CoroutineTask".
@@ -68,6 +81,11 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - opcodes are numbered by their position in the X macro, so inserting one renumbers the rest;
   - `Function::params` repeats a prefix of `slots`, and `CALL_AWAIT_BUILTIN` is recognized by its method name;
   - hot reload compares declarations by a list kept by hand beside the serializer's fields. Driven by those fields, a new field would count by default.
+- The entry check takes a typed container whose element class extends the declared one, as `Array[RestChild]` for `Array[RestCheck]`, against the invariance of containers (`typed_as()` in `src/runtime/values.cpp`). The engine then drops the function's legal writes with an error print. Use `exactly_typed()` there and delete `typed_as()`.
+- A Dictionary key whose struct field is `Variant` and holds a container is neither copied nor frozen on insertion (`holds_containers`, `copy_containers`, `freeze` in `src/runtime/values.cpp`). Changing the original then loses the entry. Treat a `Variant` leaf by the type it holds.
+- Hot reload counts a constant or default of `NAN` as changed, since `same_constant` compares floats with `==` (`src/runtime/class_image.cpp`). The game then reloads no script until it runs again. Compare their bits.
+- A pub method's typed container result is untyped in its reflected signature, unlike its parameters (`function_info` in `src/adapter/pet_script.cpp`). Pass the result through `typed()`.
+- GDScript cannot pass arguments to an `_init` with a rest parameter: `new`'s reflected flags drop `METHOD_FLAG_VARARG` (`PetScript::_get_method_info`). Keep the flag.
 
 ## Editor
 
@@ -87,6 +105,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - The same holds for any second editor process on the project, such as a language server started apart from the editor.
 - For 0.4: the headless service that stays between commands and yields to an editor opened later (architecture §6.5). On Windows such an editor lacks this language while the service runs, as above. Both processes also write the same `.godot/`. A large project takes 80–150 s to open headless.
   - First a probe: what the analysis lacks in a process started without `-e`, which loads the library without the copy.
+  - Two `pet` commands at once without a service each start a headless editor, and they share `pet.out` and `pet.log` (`run_headless` in `src/pet/pet.cpp`). The service should make the second wait for the first or use it.
 - Hover in the language server shows a `##` comment as written, its BBCode tags such as `[param amount]` included. GDScript's server turns them into Markdown (`modules/gdscript/language_server/godot_lsp.h:1919`, `ed1daf0`).
 - After a save, check the whole project and send the diagnostics of every file with errors, as gopls does. The server now sends them for the files the client has open (architecture §2.4). Turn it on once a whole-project check is fast enough; measure it on the generated 1000-script project first.
 - The hints of the spec other than `unused_ignore`, as the one on a redundant `as` (spec §5.3). None is implemented.
@@ -146,6 +165,8 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface (architecture §5, 0.9).
 - Before 0.9, function times in Godot's profiler. The `_profiling_*` methods of `PetLanguage` are empty, so the profiler shows no function of this language. Deeper integration comes after 1.0 (spec §14.2).
   - Before it, one entry into functions of this language. Now `vm::call`, `call_function`, `call_directly`, `construct_directly`, `call_value` and `start_task` each find the callee's image, index and `self_image`. Spec §8.1's chain or engine entry becomes a field of the callee, not a thread-local protocol.
+- An exported member typed as a node class of this language, as `@export pub var target: Enemy?`, gets the resource picker, so the inspector cannot assign it (`picker_of` in `src/adapter/pet_script.cpp`). ClassDB does not know script classes. Pick by the native class in the type's check, for exported containers' elements too.
+- `pet format` counts a script it refused to write over unsaved changes as formatted, as in "1 formatted, 1 with errors" (`PetEditorPlugin::run_command`). Without `--check`, count the scripts written.
 
 ## Tests
 
@@ -169,6 +190,9 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - a scene-saved value triggering a pre-ready setter error, and `if is_node_ready():` guarding it (§6.5);
   - GDScript assigning a cancelled `Transform3D` coroutine result (§9.8);
   - a lambda created before a body-only hot reload running its old body (§12.4).
+- The pet group reads the bridge's reply to `initialize` without a deadline (`tests/engine/run.py`). A bridge that keeps its pipe open without replying hangs the run before its `finally`. Read it on a thread with `TIMEOUT`, and stop the bridge in `finally`.
+- The spec translation check reads the working tree, not the commit (`tools/check_spec_translation.py`). So committing the Chinese spec by path without the regenerated English one passes. Read both from the index, as `git show :docs/language-spec.md`.
+- "inheritance scene connections belong to their attached class" compiles in Program mode, which checks no connections (`tests/compiler/test_inheritance.cpp`). It passes with any method name. Check the scenes through `check_scenes_in`, or delete it.
 
 ## Performance
 
