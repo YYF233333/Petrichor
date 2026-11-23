@@ -173,6 +173,9 @@ func _ready() -> void:
 	var with_null = v.names_of(named)
 	_check_errors(["values_check.pet:96: Expected Node, found None."], "the program error of the null element")
 	_check(with_null == "", "a null element of Array[Node] is a program error when it is read")
+	var subclass_typed: Array[RestCheck] = []
+	v.callv("names_of", [subclass_typed])
+	_check_errors(["values_check.pet:93: Argument \"nodes\" of names_of(): expected Array[Node], found Array[RestCheck]."], "an array typed with a subclass is refused, as containers do not vary with their element type (spec §3.14)")
 	_check(v.queue_demo() == "a1", "pop_front() of Array[String] gives a String?")
 	var out_of_bounds = v.element(ints, 3)
 	var no_part = v.part("a", 2)

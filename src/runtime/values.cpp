@@ -387,9 +387,9 @@ namespace {
 
 // A container typed as the engine types it, with the element type, and with
 // the class and script of object elements (spec §3.8); a container does not
-// vary with its element type.
-bool typed_as(int64_t p_builtin, const StringName &p_class, const Variant &p_script, ValueType p_type, const StringName &p_want_class, const String &p_want_script) {
-	return p_builtin == int64_t(variant_type(p_type)) && (p_type != ValueType::Object || (p_class == p_want_class && has_script(p_script, p_want_script)));
+// vary with its element type (§3.14).
+bool exactly_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_script, ValueType p_type, const StringName &p_want_class, const String &p_want_script) {
+	return p_builtin == int64_t(variant_type(p_type)) && (p_type != ValueType::Object || (p_class == p_want_class && script_path(p_script) == p_want_script));
 }
 
 // The engine types containers by class or script only: an element of an
@@ -1744,7 +1744,7 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 		case ValueType::Array:
 			if (p_check && p_check->element != ValueType::Void && have == Variant::ARRAY) {
 				const Array array = p_value;
-				if (!typed_as(array.get_typed_builtin(), array.get_typed_class_name(), array.get_typed_script(), p_check->element, p_check->class_name, p_check->script)) {
+				if (!exactly_typed(array.get_typed_builtin(), array.get_typed_class_name(), array.get_typed_script(), p_check->element, p_check->class_name, p_check->script)) {
 					return false;
 				}
 				for (int64_t i = 0; !p_check->interface.is_empty() && i < array.size(); i++) {
@@ -1757,8 +1757,8 @@ bool from_variant(ValueType p_type, const Variant &p_value, uint8_t *p_slot, con
 		case ValueType::Dictionary:
 			if (p_check && p_check->key != ValueType::Void && have == Variant::DICTIONARY) {
 				const Dictionary dictionary = p_value;
-				if (!typed_as(dictionary.get_typed_key_builtin(), dictionary.get_typed_key_class_name(), dictionary.get_typed_key_script(), p_check->key, p_check->key_class_name, p_check->key_script) ||
-						!typed_as(dictionary.get_typed_value_builtin(), dictionary.get_typed_value_class_name(), dictionary.get_typed_value_script(), p_check->element, p_check->class_name, p_check->script)) {
+				if (!exactly_typed(dictionary.get_typed_key_builtin(), dictionary.get_typed_key_class_name(), dictionary.get_typed_key_script(), p_check->key, p_check->key_class_name, p_check->key_script) ||
+						!exactly_typed(dictionary.get_typed_value_builtin(), dictionary.get_typed_value_class_name(), dictionary.get_typed_value_script(), p_check->element, p_check->class_name, p_check->script)) {
 					return false;
 				}
 				if (!p_check->key_interface.is_empty() || !p_check->interface.is_empty()) {
@@ -1953,10 +1953,6 @@ bool extends_script(const Variant &p_script, const Variant &p_base) {
 }
 
 namespace {
-
-bool exactly_typed(int64_t p_builtin, const StringName &p_class, const Variant &p_script, ValueType p_type, const StringName &p_want_class, const String &p_want_script) {
-	return p_builtin == int64_t(variant_type(p_type)) && (p_type != ValueType::Object || (p_class == p_want_class && script_path(p_script) == p_want_script));
-}
 
 // As a value is assigned to an element of the type: converted implicitly
 // (spec §3.14); None to an object type, which the engine keeps alike for T and
