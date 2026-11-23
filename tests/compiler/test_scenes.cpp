@@ -809,9 +809,17 @@ TEST_CASE("a scene used only as the base of inherited scenes may lack a node tha
 TEST_CASE("a literal path from the root into an autoload names the autoload instead (spec §7.3)") {
 	FakeProject project = hud_scene();
 	project.autoloads["Music"] = "res://music.pet";
+	project.add_script("res://music.pet", "extends Node\n\n\npub func play() -> void:\n\tpass\n");
 	CHECK(contains(hud_errors("var n: Node = $\"/root/Music\"", project), "$\"/root/Music\" is the autoload Music; write Music."));
 	CHECK(contains(hud_errors("var n: Node = $/root/Music/Player", project), "$\"/root/Music/Player\" is in the autoload Music; write Music.get_node(\"Player\")."));
 	CHECK(contains(hud_errors("var n := get_node_or_null(\"/root/Music\")", project), "get_node_or_null(\"/root/Music\") is the autoload Music; write Music."));
+	// The fix writes it, and the check goes on with what it gives.
+	const auto in_f = [](const std::string &p_body) { return "extends CanvasLayer\n\n\nfunc f() -> void:\n\t" + p_body + "\n"; };
+	CHECK(fixed_in(in_f("$\"/root/Music\".play()"), project) == "res://test.pet:\n" + in_f("Music.play()"));
+	CHECK(fixed_in(in_f("get_node(\"/root/Music/Player\").queue_free()"), project) == "res://test.pet:\n" + in_f("Music.get_node(\"Player\").queue_free()"));
+	CHECK(contains(hud_errors("var n: Label = $\"/root/Music\"", project), "Cannot assign a value of type music.pet as Label"));
+	// get_node_or_null() gives None where the name fails.
+	CHECK(fixed_in(in_f("print(get_node_or_null(\"/root/Music\"))"), project) == "no such fix");
 	CHECK(hud_errors("var n := get_node(\"/root/Main\")", project).empty());
 	// Another node under the root is a Node, as get_node() gives it.
 	CHECK(hud_errors("var n: Node = $/root/Main", project).empty());

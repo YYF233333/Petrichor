@@ -915,7 +915,7 @@ class Checker : public ClassRelation {
 	const ViewNode *view_node(const Scene &p_scene, const std::function<bool(const ViewNode &)> &p_is);
 	NodeWalk walk_node_path(const Scene &p_scene, const std::string &p_from, const std::string &p_path);
 	void walk_from(const Expr &p_at, const Scene &p_scene, const std::string &p_from, const std::string &p_marked, const std::string &p_shown, bool p_optional, std::vector<NodeWalk> &r_found, int p_depth = 0);
-	std::string through_autoload(const std::string &p_path, const std::string &p_written) const;
+	std::optional<Type> through_autoload(Expr &r_expr, const std::string &p_path, const std::string &p_written, bool p_fixed);
 	std::string autoload_way(const std::string &p_path) const;
 	Type check_get_node(Expr &r_expr);
 	bool walk_placements(const std::vector<Scene> &p_scenes, const Expr &p_path_expr, const std::string &p_shown, bool p_optional, std::vector<NodeWalk> &r_found);

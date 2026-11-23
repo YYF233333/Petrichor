@@ -176,6 +176,19 @@ TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves w
 	CHECK(migration.errors[0].message == "res://hero.tres: the resource has no value for \"holder\", which must be assigned and is not exported.");
 }
 
+TEST_CASE("a literal path from the root to an autoload becomes its name, whose class the inference reads") {
+	FakeProject project;
+	project.add_script("res://audio.gd", "extends Node\n\n\nfunc play(sound):\n\tprint(sound)\n");
+	project.autoloads["Audio"] = "res://audio.gd";
+	project.add_script("res://hud.gd", "extends Node\n@onready var audio = $\"/root/Audio\"\n\n\nfunc _ready() -> void:\n\taudio.play(\"click\")\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://audio.gd", "res://hud.gd" }, 10);
+	CHECK(migration.texts.at("res://audio.pet") == "extends Node\n\n\npub func play(sound: String):\n\tprint(sound)\n");
+	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n@onready var audio = Audio\n\n\nfunc _ready() -> void:\n\taudio.play(\"click\")\n");
+	CHECK(migration.by_name == 0);
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Pub, 1 }, { compiler::FixKind::Autoload, 1 } });
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a migration types each slot without a type by the values that flow into it") {
 	FakeProject project;
 	project.add_script("res://unit.gd", "class_name Unit\nextends Node\nsignal hit(amount)\nvar label = null\n\n\nfunc heal(amount, times = 2):\n\treturn amount * times\n\n\nfunc _ready() -> void:\n\tvar count\n\tcount = heal(3)\n\thit.emit(count)\n\tlabel = Label.new()\n", "Unit");

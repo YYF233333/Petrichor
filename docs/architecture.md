@@ -156,6 +156,7 @@
     - 真值改写、`float` 实参和 `is_instance_valid`；
     - 两层 Option 当作 GDScript 的 null，如与 null 比较和传给 `Variant`；
     - `.detach()`，以及字面量名字改用方法或信号本身；
+    - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
     - 补上 `pub`。声明会因此露出不带 `pub` 的类型时，不提供这个修复。
   - 其余种类只作备选，如 `.unwrap()`、改为 `T?`、补上 `async`、`await` 和 null 模式。
   - 自动的修复排在第一，且无需输入。
@@ -1195,6 +1196,13 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
   - 一轮的修复一起应用，规则与一键修复相同（`compiler::fixed_together()`）。
   - 改到集合之外文件的修复不应用，如给另一个 GDScript 文件或本语言文件补 `pub`。
   - 一轮不再应用修复时停止。10 轮后仍有修复时也停止，报告写明。
+- 以字面量路径从根取 autoload 的，如 `$"/root/Audio"`，自动的修复改为它的名字（规范 §7.3）。
+  - 节点在树中时，两者取到同一个节点。GDScript 的 `$` 就是在自己上调用 `get_node()`（`modules/gdscript/gdscript_compiler.cpp:743-756`，`ed1daf0`）。
+  - 绝对路径从最上层的祖先走起，它须名为 `root`，即场景树的根窗口（`scene/main/node.cpp:1918-1921, 1938`，`scene/main/scene_tree.cpp:2071`）。本语言的名字在这个根下按名字找节点。
+  - 所有 autoload 先挂到根下，根随后才进入场景树。所以它们就绪时彼此都已在树中（`main/main.cpp:4562-4564`，`scene/main/scene_tree.cpp:586-591`）。
+  - 节点不在树中时，GDScript 报错并得到 `null`，本语言照样取到 autoload（`scene/main/node.cpp:1910`）。真实代码不这样用：tanks-of-freedom-ii 的 125 处都是 `@onready` 的初始值，而就绪时节点总在树中。
+  - `get_node_or_null()` 和另一接收者上的 `get_node()` 只报错，不改。前者找不到时得 `None`，后者的接收者要求值。
+  - 反向转换保留名字。GDScript 中带 `*` 的 autoload 也是全局名，在树中指同一个节点。
 - 值的静态类型上没有所访问的成员时：
   - 类型是 `Object` 时改为按名访问，因为 GDScript 本来就按名查找。不用返回值的调用改为 `call("名字", ...)`，属性写入改为 `set("名字", v)`。项目中每个同名的函数补 `pub`；
   - 读属性或用到返回值时得到 `Variant`。转成什么类型要人判断，所以留作编译错误；

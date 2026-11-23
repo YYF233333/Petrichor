@@ -173,16 +173,29 @@ void Checker::walk_from(const Expr &p_at, const Scene &p_scene, const std::strin
 	}
 }
 
-// Why a literal path from the root into an autoload is a compile error:
-// the autoload is reached by its name (spec §7.3). Empty for another path.
-std::string Checker::through_autoload(const std::string &p_path, const std::string &p_written) const {
+// A literal path from the root into an autoload, `r_expr` written as
+// `p_written`, is a compile error: the autoload is reached by its name (spec
+// §7.3). With `p_fixed` and the name reaching the autoload, the fix writes
+// the way there, and the check goes on with the type it gives, as GDScript
+// reaches the same node in the tree (architecture §6.6). Nullopt for another
+// path.
+std::optional<Type> Checker::through_autoload(Expr &r_expr, const std::string &p_path, const std::string &p_written, bool p_fixed) {
 	const std::string root = "/root/";
 	const std::string way = p_path.rfind(root, 0) == 0 ? autoload_way(p_path.substr(root.size())) : std::string();
 	if (way.empty()) {
-		return std::string();
+		return std::nullopt;
 	}
 	const std::string name = way.substr(0, way.find('.'));
-	return p_written + (way == name ? " is the autoload " : " is in the autoload ") + name + "; write " + way + ".";
+	error(r_expr.range, p_written + (way == name ? " is the autoload " : " is in the autoload ") + name + "; write " + way + ".");
+	const std::unique_ptr<Expr> named = synthetic(ExprKind::Name, name, r_expr.range);
+	Tentative tried(*this);
+	const Type type = p_fixed ? check_value(*named) : Type::of(TypeKind::Error);
+	if (named->target != Target::Autoload || !tried.clean()) {
+		return Type::of(TypeKind::Error);
+	}
+	tried.end(false);
+	fix({ { r_expr.range, way } }, FixKind::Autoload);
+	return way == name ? type : Type::object("Node");
 }
 
 // How to reach what a path names when its first name is an autoload's:
@@ -216,9 +229,8 @@ Type Checker::check_get_node(Expr &r_expr) {
 		r_expr.owner = parent.engine_class();
 		return set(r_expr, parent);
 	}
-	const std::string autoload = through_autoload(path, shown_path(path));
-	if (!autoload.empty()) {
-		return fail(r_expr, autoload);
+	if (const std::optional<Type> autoload = through_autoload(r_expr, path, shown_path(path), true)) {
+		return set(r_expr, *autoload);
 	}
 	if (path.empty()) {
 		return fail(r_expr, "Only paths from this node, such as $Head/Camera, are supported yet.");

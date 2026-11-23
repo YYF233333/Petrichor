@@ -155,7 +155,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
     - A class without `class_name` has no name to write as a type. In tanks-of-freedom-ii that leaves 150 slots, 31 of them its board. A rewrite could give such files a name.
       - Among them are members that the scenes type and other files read, such as `map.camera` (72 reads), `ui.picker` (43) and `ui.radial` (33).
   - Rewrites that those games need:
-    - `$"/root/Name"` of an autoload becomes its name (102 uses);
     - a typed loop variable over wider elements, as `for player: AudioStreamPlayer in get_children()` (51 uses);
     - a member that the value's static type lacks, as after `get_collider()` or `instantiate()` (99 uses; architecture §6.6).
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.

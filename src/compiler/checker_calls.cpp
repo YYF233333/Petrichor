@@ -202,9 +202,11 @@ Type Checker::check_engine_call(Expr &r_expr, const EngineMethod &p_method, std:
 	hint(r_expr, [&](int p_current) { return engine_signature(r_expr.text, p_method, params, p_current, (r_expr.getter ? tried_result(p_method, *r_expr.getter) : engine_result(p_method)).to_string()); });
 	check_arguments(r_expr, params, int(params.size()) - p_method.default_count, p_method.is_vararg);
 	if (p_method.owner == "Node" && (p_method.name == "get_node" || p_method.name == "get_node_or_null") && !r_expr.args.empty() && r_expr.args[0]->kind == ExprKind::StringLiteral) {
-		const std::string autoload = through_autoload(r_expr.args[0]->text, r_expr.text + "(\"" + r_expr.args[0]->text + "\")");
-		if (!autoload.empty()) {
-			return fail_call(r_expr, autoload);
+		// The name means what get_node() on self does; get_node_or_null() gives
+		// None instead of failing, and another receiver is evaluated.
+		const bool same = !r_expr.base && p_method.name == "get_node";
+		if (const std::optional<Type> autoload = through_autoload(r_expr, r_expr.args[0]->text, r_expr.text + "(\"" + r_expr.args[0]->text + "\")", same)) {
+			return set(r_expr, *autoload);
 		}
 	}
 	const bool on_self = !r_expr.base || extends_script(r_expr.base->type.script, options.path);

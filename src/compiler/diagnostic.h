@@ -33,6 +33,7 @@ enum class FixKind {
 	Detach,
 	Pub,
 	MemberItself, // The method or signal itself for its literal name.
+	Autoload, // Its name for a literal path from the root to it.
 	// The ones offered for the user to choose.
 	FloatResult, // float arguments where the result's type or value then changes.
 	Unwrap,
@@ -57,6 +58,7 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ true, "Write .detach()" },
 	{ true, "Make it pub" },
 	{ true, "Use the method or signal itself" },
+	{ true, "Reach the autoload by its name" },
 	{ false, "Write the int arguments as float" },
 	{ false, "Write .unwrap()" },
 	{ false, "Make the type T?" },
