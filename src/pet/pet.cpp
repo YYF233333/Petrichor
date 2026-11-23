@@ -4,6 +4,7 @@
 // language client on stdio to the service. It does not depend on Godot.
 
 #include "build_id.gen.h"
+#include "compiler/lexer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -449,24 +450,6 @@ size_t value_end(const std::string &p_json, size_t p_at) {
 	}
 }
 
-void append_utf8(std::string &r_text, uint32_t p_code) {
-	if (p_code < 0x80) {
-		r_text += char(p_code);
-	} else if (p_code < 0x800) {
-		r_text += char(0xC0 | p_code >> 6);
-		r_text += char(0x80 | (p_code & 0x3F));
-	} else if (p_code < 0x10000) {
-		r_text += char(0xE0 | p_code >> 12);
-		r_text += char(0x80 | (p_code >> 6 & 0x3F));
-		r_text += char(0x80 | (p_code & 0x3F));
-	} else {
-		r_text += char(0xF0 | p_code >> 18);
-		r_text += char(0x80 | (p_code >> 12 & 0x3F));
-		r_text += char(0x80 | (p_code >> 6 & 0x3F));
-		r_text += char(0x80 | (p_code & 0x3F));
-	}
-}
-
 uint32_t hex4(const std::string &p_json, size_t p_at) {
 	const std::string digits = p_json.substr(p_at, 4);
 	return digits.size() == 4 && digits.find_first_not_of("0123456789abcdefABCDEF") == std::string::npos ? uint32_t(std::strtoul(digits.c_str(), nullptr, 16)) : 0xFFFD;
@@ -499,7 +482,7 @@ std::optional<std::string> string_of(const std::optional<std::string> &p_json) {
 				code = 0x10000 + ((code - 0xD800) << 10) + (low - 0xDC00);
 				at += 6;
 			}
-			append_utf8(text, code);
+			petrichor::compiler::append_utf8(text, code);
 		}
 	}
 	return text;

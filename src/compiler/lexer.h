@@ -216,4 +216,22 @@ std::shared_ptr<const SourceFile> tokenize(std::string p_source, std::vector<Dia
 // where it was taken as closed.
 std::vector<uint32_t> lex(SourceFile &r_file, const std::vector<uint32_t> &p_resets, const std::vector<uint32_t> &p_unclosed, std::vector<Diagnostic> &r_errors, std::vector<std::pair<uint32_t, uint32_t>> *r_recovered = nullptr);
 
+inline void append_utf8(std::string &r_text, uint32_t p_code) {
+	if (p_code < 0x80) {
+		r_text += char(p_code);
+	} else if (p_code < 0x800) {
+		r_text += char(0xC0 | p_code >> 6);
+		r_text += char(0x80 | (p_code & 0x3F));
+	} else if (p_code < 0x10000) {
+		r_text += char(0xE0 | p_code >> 12);
+		r_text += char(0x80 | (p_code >> 6 & 0x3F));
+		r_text += char(0x80 | (p_code & 0x3F));
+	} else {
+		r_text += char(0xF0 | p_code >> 18);
+		r_text += char(0x80 | (p_code >> 12 & 0x3F));
+		r_text += char(0x80 | (p_code >> 6 & 0x3F));
+		r_text += char(0x80 | (p_code & 0x3F));
+	}
+}
+
 } // namespace petrichor::compiler
