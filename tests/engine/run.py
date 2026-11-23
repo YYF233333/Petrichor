@@ -1151,7 +1151,7 @@ def check_migrate(godot):
             client.request("petrichor/unknown")
             code, out, err = pet("migrate")
             after = {name: text.decode() for name, text in files().items()}
-            report = ["tool.gd: left out: it has @tool", "1 × Make it pub", "1 × Write .unwrap()", "1 × Write async func", "petrichor migrate: 4 script(s), 0 added, 2 left out, 3 fix(es), 6 path(s) renamed, 0 with errors"]
+            report = ["tool.gd: left out: it has @tool", "1 × Make it pub", "1 × Write .unwrap()", "1 × Write async func", "petrichor migrate: 4 script(s), 0 added, 2 left out, 3 fix(es), 6 path(s) renamed, 0 error(s)"]
             renamed = [name for name in before if name.endswith((".gd", ".gd.uid")) and not name.startswith("tool")]
             expect(
                 "pet migrate: it renames the files with their .uid files, rewrites the paths naming them, and applies the fixes",

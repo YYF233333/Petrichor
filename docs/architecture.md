@@ -1179,7 +1179,7 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
   - 每个迁移的文件一行，如 `boss.gd → boss.pet`，连带的写明原因。跳过的文件也各占一行；
   - 每种修复一行，如 `3 × Make it pub`；
   - 留下的错误与 `pet check` 的写法相同；
-  - 最后一行是计数，如 `petrichor migrate: 4 script(s), 0 added, 2 left out, 3 fix(es), 6 path(s) renamed, 0 with errors`。
+  - 最后一行是计数，如 `petrichor migrate: 4 script(s), 0 added, 2 left out, 3 fix(es), 6 path(s) renamed, 0 error(s)`。
 - 反向转换只读 `.pet` 的 token 和引用表，不依赖正向留下的记录。所以迁移后改过的文件也能转回。
 
 ## 7. 暂不决定

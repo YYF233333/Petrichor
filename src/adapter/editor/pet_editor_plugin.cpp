@@ -1653,10 +1653,8 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 	if (!migration.settled) {
 		output += "warning: The fixes still change the files after " + std::to_string(migration.rounds) + " rounds.\n";
 	}
-	std::set<std::string> erring;
 	for (const compiler::Diagnostic &error : migration.errors) {
 		output += diagnostic_line(error) + "\n";
-		erring.insert(error.file);
 	}
 
 	// What is written: each file migrated under its new name, with its .uid
@@ -1713,7 +1711,7 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 			refused++;
 		}
 	}
-	output += "petrichor migrate: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(set.added.size()) + " added, " + std::to_string(set.left_out.size()) + " left out, " + std::to_string(fixes) + " fix(es), " + std::to_string(named) + " path(s) renamed, " + std::to_string(erring.size()) + " with errors";
+	output += "petrichor migrate: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(set.added.size()) + " added, " + std::to_string(set.left_out.size()) + " left out, " + std::to_string(fixes) + " fix(es), " + std::to_string(named) + " path(s) renamed, " + std::to_string(migration.errors.size()) + " error(s)";
 	if (dry_run) {
 		return { output + ", dry run", 0 };
 	}
