@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 91c8c3cb0a22b454eb41200520f9062e5553ebac. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob ea4c8a53475f6e7bbeb5252090aa742a7b011f18. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -288,9 +288,9 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 3.9 Interfaces
 
-- Interfaces are nominal: a class must declare them explicitly with `implements`, and only classes of this language can implement interfaces. A member that an interface requires is treated as `pub`, by the rules of visibility, when the implementing class declares it. An inherited member satisfies an interface only if it is `pub` already. A method cannot be `static`.
+- Interfaces are nominal: a class must declare them explicitly with `implements`, and only classes of this language can implement interfaces. A member that implements an interface must be marked `pub`, and a method cannot be `static`.
 - An interface may declare methods, properties and signals, which are all requirements on the implementing class. An inherited engine property can satisfy a property requirement of the same type. A property not marked `@readonly` is required to be readable and writable. A readable and writable member can satisfy `@readonly`, while an engine property without a setter can satisfy only `@readonly`. Using `@readonly` outside an interface is a compile error.
-- A signal of an interface is a requirement, as a property is. Signals of the same name that the class declares, inherits or has from an engine class all satisfy it. An inherited signal of this language satisfies it only with `pub`. The parameter types of the satisfying signal must be exactly the same.
+- A signal of an interface is a requirement, as a property is. Signals of the same name that the class declares, inherits or has from an engine class all satisfy it. A signal declared in this language satisfies it only with `pub`. The parameter types of the satisfying signal must be exactly the same.
 - An interface may `extends` several parent interfaces. A child interface may redeclare a method of a parent interface with a covariant return type. Members of the same name in parent interfaces with incompatible signatures are a compile error. So is inheritance that forms a cycle.
 - **[Open]** Default values of interface method parameters are settled together with optional parameters in function types. Until then, writing a default value is a compile error.
 - **[Known limitation]** In the first version, interfaces have no default methods and no stateful mixins, and cannot be generic. Declaring `interface Source[T]:` is a compile error.
@@ -423,8 +423,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - The following members are treated as `pub`, with or without `pub` written, because the engine accesses them by name:
   - a method that overrides an engine virtual function;
   - an exported variable;
-  - an `@rpc` function;
-  - a member required by an interface that the class or a base class implements, when this class declares it.
+  - an `@rpc` function.
 - The parent interfaces of a `pub` interface must be `pub`, or it is a compile error.
 - The visibility of `new(...)` is that of the nearest `_init` on the inheritance chain. With no `_init`, `new()` can be called anywhere. When `_init` is without `pub`, only its file and subclasses can call `new(...)`.
 - A member that must be assigned and is without `pub` can be assigned only by its file and by subclasses. The section "Members exposed through reflection" says which members reflection by name can see.
@@ -922,7 +921,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 10.5 Members exposed through reflection
 
-- Through reflection by name, the engine, GDScript and C# can access only `pub` members. Reflection by name means `get_property_list`, `has_method`, `call`, `get`, `set` and `connect`. The members that the rules of visibility treat as `pub` are among them, such as a method that overrides an engine virtual function and an exported variable. Other members are invisible to access by name, as if they did not exist. In GDScript, writing them is a compile error. In a dynamic access, `call` reports an error, `get` gives null, `set` has no effect and `in` gives false.
+- Through reflection by name, the engine, GDScript and C# can access only `pub` members. Reflection by name means `get_property_list`, `has_method`, `call`, `get`, `set` and `connect`. By the rules of visibility, methods that override engine virtual functions, exported variables and `@rpc` functions are `pub` members too. Other members are invisible to access by name, as if they did not exist. In GDScript, writing them is a compile error. In a dynamic access, `call` reports an error, `get` gives null, `set` has no effect and `in` gives false.
 - The following members, which the engine accesses by name, must have `pub`. Otherwise it is a compile error, and the quick fix adds `pub`:
   - the signals and methods of signal connections in scenes;
   - the members that animation property tracks and method tracks refer to, and the properties that `MultiplayerSynchronizer` synchronizes.
