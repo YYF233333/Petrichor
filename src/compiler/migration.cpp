@@ -348,6 +348,44 @@ std::string renamed_in_resource(const std::string &p_text, const std::map<std::s
 	return result + p_text.substr(done);
 }
 
+std::string triple_quoted(const std::string &p_text, int &r_count) {
+	std::string text = p_text;
+	for (bool more = true; more;) {
+		more = false;
+		std::vector<Diagnostic> ignored;
+		const std::shared_ptr<const SourceFile> source = tokenize(text, ignored);
+		for (const Token &token : source->tokens) {
+			if (token.kind != TokenKind::String && token.kind != TokenKind::StringName && token.kind != TokenKind::NodePath) {
+				continue;
+			}
+			const bool raw = text[token.offset] == 'r';
+			const size_t quote = token.offset + (raw || token.kind != TokenKind::String ? 1 : 0);
+			const std::string triple(3, text[quote]);
+			if (text.compare(quote, 3, triple) == 0) {
+				continue;
+			}
+			// Where GDScript ends it, and whether a line ends before.
+			bool spans = false;
+			size_t end = quote + 1;
+			for (; end < text.size() && text[end] != text[quote]; end++) {
+				if (text[end] == '\\' && (!raw || text[end + 1] == text[quote] || text[end + 1] == '\\')) {
+					end += !raw && text.compare(end + 1, 2, "\r\n") == 0 ? 2 : 1;
+				} else if (text[end] == '\n') {
+					spans = true;
+				}
+			}
+			if (spans && end < text.size()) {
+				text.replace(end, 1, triple);
+				text.replace(quote, 1, triple);
+				r_count++;
+				more = true;
+				break;
+			}
+		}
+	}
+	return text;
+}
+
 Migrated::Migrated(const ProjectApi &p_under, const std::set<std::string> &p_files) :
 		under(p_under) {
 	for (const std::string &file : p_files) {
@@ -356,7 +394,8 @@ Migrated::Migrated(const ProjectApi &p_under, const std::set<std::string> &p_fil
 	}
 	for (const std::string &file : p_files) {
 		int count = 0;
-		texts[migrated_path(file)] = renamed_in_script(under.script_source(file).value_or(std::string()), migrated_path(file), renamed, count);
+		const std::string text = triple_quoted(under.script_source(file).value_or(std::string()), quoted);
+		texts[migrated_path(file)] = renamed_in_script(text, migrated_path(file), renamed, count);
 	}
 }
 
@@ -1162,6 +1201,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const std::set<std::string> &p_files, int p_rounds) {
 	Migrated project(p_project, p_files);
 	Migration result;
+	result.quoted = project.quoted;
 	infer(p_engine, project, p_rounds, result);
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);

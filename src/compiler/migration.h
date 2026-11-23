@@ -121,10 +121,15 @@ std::string renamed_in_script(const std::string &p_text, const std::string &p_pa
 // `r_count` counts them.
 std::string renamed_in_resource(const std::string &p_text, const std::map<std::string, std::string> &p_renamed, int &r_count);
 
+// `p_text` with each string in single or double quotes that spans lines, as
+// GDScript reads it, written in triple quotes (spec §2.2); `r_count` counts
+// them.
+std::string triple_quoted(const std::string &p_text, int &r_count);
+
 // The project once the files of a migration are renamed (architecture §6.6),
-// over `under`: its texts are `texts`, and every path of one of them names
-// its new path, as scenes, global classes, autoloads and other scripts
-// would.
+// over `under`: its texts are `texts`, with their strings that span lines in
+// triple quotes, and every path of one of them names its new path, as
+// scenes, global classes, autoloads and other scripts would.
 class Migrated : public ProjectApi {
 	const ProjectApi &under;
 	std::map<std::string, std::string> renamed; // From the .gd paths.
@@ -133,6 +138,7 @@ class Migrated : public ProjectApi {
 
 public:
 	std::map<std::string, std::string> texts; // Of the files migrated, by their new paths.
+	int quoted = 0; // The strings written in triple quotes.
 
 	// `p_files` start as their texts, with the paths renamed.
 	Migrated(const ProjectApi &p_under, const std::set<std::string> &p_files);
@@ -159,7 +165,8 @@ public:
 };
 
 // What the inference, the loop of quick fixes and the check after it gave
-// (architecture §6.6): the texts; how many slots were typed, how many left
+// (architecture §6.6): the texts; how many strings were written in triple
+// quotes; how many slots were typed, how many left
 // without a type, how many have types that rest on calls by name, and how
 // many received int and float, which a use tells apart; how many fixes of
 // each kind were applied, in how many rounds; and the errors left in the
@@ -168,6 +175,7 @@ public:
 // received, or what calls by name gave their types.
 struct Migration {
 	std::map<std::string, std::string> texts;
+	int quoted = 0;
 	int typed = 0;
 	int withdrawn = 0;
 	int by_name = 0;

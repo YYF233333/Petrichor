@@ -1647,6 +1647,9 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 	}
 	const SceneIndex taken(set.files);
 	const compiler::Migration migration = compiler::migrate(ClassDBApi::get(), taken, set.files, 10);
+	if (migration.quoted > 0) {
+		output += std::to_string(migration.quoted) + " × Write the string in triple quotes\n";
+	}
 	if (migration.typed > 0) {
 		output += std::to_string(migration.typed) + " × Write the type\n";
 	}

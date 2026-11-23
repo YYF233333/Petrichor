@@ -157,8 +157,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Rewrites that those games need:
     - `$"/root/Name"` of an autoload becomes its name (102 uses);
     - a typed loop variable over wider elements, as `for player: AudioStreamPlayer in get_children()` (51 uses);
-    - a member that the value's static type lacks, as after `get_collider()` or `instantiate()` (99 uses; architecture §6.6);
-    - a string in single or double quotes that spans lines is written in triple quotes (spec §2.2).
+    - a member that the value's static type lacks, as after `get_collider()` or `instantiate()` (99 uses; architecture §6.6).
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
   - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).

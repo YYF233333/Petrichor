@@ -132,6 +132,15 @@ TEST_CASE("the project once migrated names the new paths") {
 	CHECK(std::set<std::string>(scripts.begin(), scripts.end()) == std::set<std::string>{ "res://gun.pet", "res://hud.gd", "res://player.pet" });
 }
 
+TEST_CASE("a string in single or double quotes that spans lines is written in triple quotes, which GDScript reads the same") {
+	FakeProject project;
+	project.add_script("res://say.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tprint(\"a\nb\", 'c\\'\nd', r\"e\\\"\nf\", &\"g\nh\", \"i\\\nj\")  # \"k\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://say.gd" }, 10);
+	CHECK(migration.texts.at("res://say.pet") == "extends Node\n\n\nfunc _ready() -> void:\n\tprint(\"\"\"a\nb\"\"\", '''c\\'\nd''', r\"\"\"e\\\"\nf\"\"\", &\"\"\"g\nh\"\"\", \"i\\\nj\")  # \"k\n");
+	CHECK(migration.quoted == 4);
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("the loop of fixes applies the meaning-keeping ones until none is left, but none outside the files migrated") {
 	FakeProject project;
 	project.add_script("res://unit.gd", "class_name Unit\nextends Node\n\n\nfunc heal() -> void:\n\tpass\n\n\nfunc wait() -> void:\n\tawait ready\n\tvar parent: Node = get_parent()\n\tprint(parent)\n", "Unit");
