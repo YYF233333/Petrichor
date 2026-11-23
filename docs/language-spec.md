@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 3d3be892ddebb1827b764d7b00ea2a4b9a6070f3. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob af4ff580c4f4fdc876d66749d64e453558f94497. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension. It replaces GDScript in project code and coexists with GDScript plugins. This document is the draft of its language specification. Not every rule is implemented yet ([implementation](architecture.md)). The design trade-offs and the corpus evidence are in the [design notes](design-notes.md). The baseline for checking engine behavior is in the [engine facts](engine-facts.md). This English edition is generated from the [Chinese edition](language-spec.zh.md). Where the two differ, the Chinese edition prevails. The linked documents are in Chinese only.
 
@@ -1030,6 +1030,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - The migration tool converts GDScript files to files of this language. The scope can be a file, a directory or the whole project. Paths that refer to a file in scenes, resources and project settings are changed along with it.
 - Migration makes only the changes that the reversibility rule allows. Examples are adding `pub`, adding types, changing truthiness tests and adding `.detach()`. It introduces no feature that GDScript lacks.
 - What needs judgment is left as a compile error, and a quick fix gives the options. What is not a compile error is listed in the migration report, such as by-name access with a non-literal name. Before a class is migrated, its GDScript subclasses and the GDScript files with class-level access to it are listed. An option to migrate them together is offered.
+- **[Known limitation]** A file with `@tool` is not migrated, because the rules for running it in the editor are not settled. Scripts in the same inheritance tree are not migrated either, because cross-language inheritance is not supported. All of them are listed in the migration report.
 - The reverse conversion turns files of this language back into GDScript. It removes or replaces the reversible forms, and writes out the types that GDScript can express. A file that uses a feature GDScript lacks is not converted; only the places are listed.
 
 ## 14. First-version scope and open questions
