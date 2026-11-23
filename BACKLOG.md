@@ -154,7 +154,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
     - The check that lets an `int` join a `float` is its own batch after the inference. An engine test runs each operation of its list with `3` and `3.0` and compares the results. The tool counts the slots that the check leaves.
     - Measure the inferred share on the corpus as each step lands.
     - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
-    - The inference types 1246 of tanks-of-freedom-ii's 2190 slots, and its errors fall from 5971 to 3550. Of the slots left without a type, 860 got types that do not check, mostly `Variant`.
+    - The inference types 1322 of tanks-of-freedom-ii's 2190 slots, and its errors fall from 5971 to 3477. Of the slots left without a type, 784 got types that do not check, mostly `Variant`.
     - A class without `class_name` has no name to write as a type. In tanks-of-freedom-ii that leaves 84 slots, 26 of them its board. A rewrite could give such files a name.
   - Rewrites that those games need:
     - `$"/root/Name"` of an autoload becomes its name (102 uses);

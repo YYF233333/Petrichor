@@ -784,7 +784,12 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			if (!place) {
 				return;
 			}
+			const size_t reported = errors.size();
 			expect_assignable(*r_stmt.value, value, target_type, "assign", type_written_for(target));
+			if (options.inflows && errors.size() > reported) {
+				const auto range = [&](const Expr &p_expr) { return Inflows::Range(cls.source->begin(p_expr.range), cls.source->end(p_expr.range)); };
+				options.inflows->unfit.push_back({ script_file(options.path), range(*r_stmt.value), range(target) });
+			}
 			return;
 		}
 		case StmtKind::If: {

@@ -497,11 +497,12 @@ class Checker : public ClassRelation {
 		const uint32_t hint_at;
 		const size_t flows;
 		const size_t calls;
+		const size_t unfit;
 		bool ended = false;
 
 	public:
 		explicit Tentative(Checker &r_checker) :
-				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at), flows(r_checker.options.inflows ? r_checker.options.inflows->flows.size() : 0), calls(r_checker.options.inflows ? r_checker.options.inflows->calls.size() : 0) {}
+				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at), flows(r_checker.options.inflows ? r_checker.options.inflows->flows.size() : 0), calls(r_checker.options.inflows ? r_checker.options.inflows->calls.size() : 0), unfit(r_checker.options.inflows ? r_checker.options.inflows->unfit.size() : 0) {}
 		~Tentative() { end(false); }
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
@@ -529,6 +530,7 @@ class Checker : public ClassRelation {
 				if (checker.options.inflows) {
 					checker.options.inflows->flows.resize(flows);
 					checker.options.inflows->calls.resize(calls);
+					checker.options.inflows->unfit.resize(unfit);
 				}
 				checker.hint_at = hint_at;
 			}

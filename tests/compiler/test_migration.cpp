@@ -196,7 +196,7 @@ TEST_CASE("an empty container takes the types of the elements and keys put in it
 	CHECK(migration.errors.empty());
 }
 
-TEST_CASE("a type written over := keeps the initializer, and an error at an assigned value is about its target too") {
+TEST_CASE("a type written over := keeps the initializer, and an assigned value that does not fit is about its target too") {
 	FakeProject project;
 	project.add_script("res://f.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tvar points := []\n\tpoints.append(Vector2.ZERO)\n\tvar labels = []\n\tlabels.append(Label.new())\n\tlabels[0].text = 3\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://f.gd" }, 10);
@@ -257,6 +257,14 @@ TEST_CASE("an error about an override's parameter withdraws the type of its base
 	project.add_script("res://derived.gd", "extends Base\n\n\nfunc act(target):\n\tprint(target.size())\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://base.gd", "res://derived.gd" }, 10);
 	CHECK(migration.texts.at("res://base.pet") == "class_name Base\nextends Node\n\n\nfunc act(target):\n\tprint(target)\n\n\nfunc _ready() -> void:\n\tact(5)\n");
+	CHECK(migration.withdrawn == 1);
+}
+
+TEST_CASE("an error inside an assigned value about something else leaves the slots of the target") {
+	FakeProject project;
+	project.add_script("res://g.gd", "extends Node\n\n\nfunc total(start, items):\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.size()\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
+	CHECK(migration.texts.at("res://g.pet") == "extends Node\n\n\nfunc total(start: int, items) -> int:\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.size()\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
 	CHECK(migration.withdrawn == 1);
 }
 

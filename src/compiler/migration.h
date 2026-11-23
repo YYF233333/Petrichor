@@ -60,6 +60,14 @@ struct Inflows {
 		std::vector<Type> args;
 		std::vector<Key> at;
 	};
+	// An assignment whose value does not fit its target: the file, and
+	// where the value and the target are.
+	using Range = std::pair<uint32_t, uint32_t>;
+	struct Unfit {
+		std::string file;
+		Range value;
+		Range target;
+	};
 	std::set<std::string> files;
 	std::map<Key, Type> tried;
 	std::vector<Slot> slots;
@@ -69,6 +77,7 @@ struct Inflows {
 	std::map<Key, Key> shared;
 	std::vector<Flow> flows;
 	std::vector<Call> calls;
+	std::vector<Unfit> unfit;
 
 	// The slot's index, once found.
 	int slot(const Slot &p_slot);

@@ -494,6 +494,7 @@ const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
 std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, const ProjectApi &p_project, Inflows &r_inflows) {
 	r_inflows.flows.clear();
 	r_inflows.calls.clear();
+	r_inflows.unfit.clear();
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
 	analysis.inflows = &r_inflows;
@@ -934,11 +935,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		};
 		const std::map<std::string, CompileResult> results = checked_with(p_engine, r_project, check);
 		// The locals typed by a value, by where each is declared in the text
-		// written, with where the value is; and the targets of assignments, by
-		// where the value is, which the value must fit.
-		using Range = std::pair<uint32_t, uint32_t>;
+		// written, with where the value is.
+		using Range = Inflows::Range;
 		std::map<Inflows::Key, Range> typed_by;
-		std::map<std::string, std::vector<std::pair<Range, Range>>> assigned;
 		for (const auto &[path, result] : results) {
 			std::vector<Diagnostic> ignored;
 			const ClassDecl decl = parse(r_project.script_source(path).value_or(std::string()), ignored);
@@ -948,9 +947,6 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 				for (const std::unique_ptr<Stmt> &stmt : p_block) {
 					if ((stmt->kind == StmtKind::Var || stmt->kind == StmtKind::For) && !stmt->declared_type && stmt->value) {
 						typed_by[{ path, source.tokens[stmt->name_token].offset }] = range(*stmt->value);
-					}
-					if (stmt->kind == StmtKind::Assign && stmt->target && stmt->value) {
-						assigned[path].emplace_back(range(*stmt->value), range(*stmt->target));
 					}
 					p_self(stmt->body, p_self);
 					p_self(stmt->else_body, p_self);
@@ -1008,9 +1004,10 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 				}
 				std::set<Inflows::Key> seen;
 				involved(result, error.begin, error.end, seen, refused, involved);
-				for (const auto &[value, target] : assigned[path]) {
-					if (value.first <= error.begin && error.end <= value.second) {
-						involved(result, target.first, target.second, seen, refused, involved);
+				// An assigned value that does not fit is about its target too.
+				for (const Inflows::Unfit &unfit : check.unfit) {
+					if (unfit.file == path && unfit.value == Range(error.begin, error.end)) {
+						involved(result, unfit.target.first, unfit.target.second, seen, refused, involved);
 					}
 				}
 				for (const auto &[slot, at] : place) {
