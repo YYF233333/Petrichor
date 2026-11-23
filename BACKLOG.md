@@ -76,6 +76,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 ## Runtime
 
 - A struct method taken as a value binds the class image of its creation (`src/runtime/method_callable.h`, `StructMethodCallable`). After a hot reload it still runs the old body, unlike spec §12.4.
+- An inner class that extends the class around it makes their images hold each other, through `base` and `inner_classes` (`src/runtime/class_image.h`). So the images are never freed, nor their static variables, even after the script unloads. Only the classes they hold are let go of at exit (`ClassImage::release_held_classes()`).
 - Comparing and hashing a struct, a payload enum or `T??` uses the raw object id of a nested `T?` field. A freed object there does not compare equal to `None`, though it does at the top level (`src/runtime/values.cpp`).
 - A Task of another result type is described by its class alone, as in "expected CoroutineTask, found CoroutineTask".
 - Messages name an inner class by its path, as `res://a.pet::Plain`, where the script writes `A.Plain`.
