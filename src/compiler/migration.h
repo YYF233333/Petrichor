@@ -166,11 +166,11 @@ public:
 
 // What the inference, the loop of quick fixes and the check after it gave
 // (architecture §6.6): the texts; how many strings were written in triple
-// quotes; how many slots were typed, how many left
-// without a type, how many have types that rest on calls by name, and how
-// many received int and float, which a use tells apart; how many fixes of
-// each kind were applied, in how many rounds; and the errors left in the
-// project, each naming its file.
+// quotes; how many slots were typed, how many left without a type, how many
+// have types that rest on calls by name, and how many received int and
+// float, which a use tells apart; how many fixes of each kind were applied,
+// in how many rounds; and the errors left in the project, each naming its
+// file.
 // The hints at the slots say why they have no type, with what they
 // received, or what calls by name gave their types.
 struct Migration {
