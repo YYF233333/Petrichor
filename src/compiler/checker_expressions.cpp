@@ -1389,6 +1389,8 @@ void Checker::fix_async(FuncDecl &r_function) {
 		if ((*base)->is_override && (*base)->return_type.kind != TypeKind::Void) {
 			return;
 		}
+		// Its edit replaces the text from the keyword through the name, which
+		// identifies the declaration, as pub_fix() does.
 		const ClassDecl &declarer = declaring(*owner, **base, &ClassDecl::functions);
 		const Token &word = declarer.source->tokens[(*base)->name_token - 1];
 		if (!(*base)->is_async) {
@@ -1396,7 +1398,8 @@ void Checker::fix_async(FuncDecl &r_function) {
 				return;
 			}
 			const std::string path = script_file(declarer.path);
-			async.edits.push_back({ in_this_file(path) ? std::string() : path, { word.offset, word.end(), word.text, "async func" } });
+			const std::string text = declarer.source->text.substr(word.offset, declarer.source->tokens[(*base)->name_token].end() - word.offset);
+			async.edits.push_back({ in_this_file(path) ? std::string() : path, { word.offset, word.offset + uint32_t(text.size()), text, "async " + text } });
 		}
 		owner = declarer.base;
 	}
