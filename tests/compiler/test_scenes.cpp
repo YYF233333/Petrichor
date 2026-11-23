@@ -155,6 +155,16 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 	CHECK(contains(connected("health_updated", "health: String"), "which passes int here"));
 	CHECK(contains(connected("health_updated", ""), "which passes 1 argument(s); _on_health_updated() takes 0."));
 	CHECK(contains(connected("health_changed", "health: int"), "res://main.tscn: the signal \"health_changed\" of Player is connected to _on_health_updated(), but Player has no such signal."));
+	// To a node without a script, whose engine class takes the call.
+	const auto to_label = [](const std::string &p_method) {
+		FakeProject project = hud_scene();
+		project.scenes[0].connections = { { "pulse", "HUD", "HUD/Health", p_method, 0, 0 } };
+		return messages(check_scenes_in("extends CanvasLayer\n\npub signal pulse(value: String)\n", project));
+	};
+	CHECK(to_label("find_children").empty());
+	CHECK(to_label("queue_free") == "3:12: res://main.tscn: the signal \"pulse\" of HUD is connected to queue_free(), which passes 1 argument(s); queue_free() takes 0.\n");
+	CHECK(contains(to_label("set_process"), "is connected to set_process(), which passes String here."));
+	CHECK(contains(to_label("_ready"), "is connected to _ready(), but Label has no such method."));
 	// The engine class's own signals.
 	CHECK(connected("ready", "").empty());
 	CHECK(contains(messages(check_scenes_in("extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n", [] {

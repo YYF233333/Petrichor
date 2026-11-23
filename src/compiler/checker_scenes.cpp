@@ -757,8 +757,9 @@ void Checker::check_named_members() {
 }
 
 // Connections saved in scenes to methods of this class (spec §7.7), on a
-// node with it or on an instance of a scene whose root has it; either end
-// may be inside a scene it instances. The method must exist and take what
+// node with it or on an instance of a scene whose root has it, and from such
+// a node to one without a script; either end may be inside a scene it
+// instances. The method must exist and take what
 // the signal passes. The engine finds the method and the signal by name,
 // so both must be pub, unless the method overrides an engine virtual
 // (§10.5). A method of the engine class that is not virtual is found so too.
@@ -780,17 +781,21 @@ void Checker::check_connections() {
 				references->push_back(std::move(reference));
 			}
 			const ViewNode *target = view_node(scene, connection.target);
-			if (!target || (target->node.script.empty() ? target->node.instance_script : target->node.script) != options.path) {
+			const std::string target_script = !target ? std::string() : (target->node.script.empty() ? target->node.instance_script : target->node.script);
+			// A node without a script takes the call on its engine class, which
+			// the check of the sender's class sees.
+			const bool engine_target = target && target_script.empty() && sends && engine.class_exists(target->node.type);
+			if (!target || (target_script != options.path && !engine_target)) {
 				continue;
 			}
 			const std::string where = scene.path + ": the signal \"" + connection.signal + "\" of " + connection.source + " is connected to " + connection.method + "()";
-			const NamedMember method = named_member(self, Kind::Method, connection.method);
+			const NamedMember method = named_member(engine_target ? Type::object(target->node.type) : self, Kind::Method, connection.method);
+			const TokenRange at = engine_target ? own_name(sent, header) : own_name(method, header);
 			if (!method.found || method.is_virtual) {
-				error_in_scene(header, scene, connection.target, where + ", which this class does not declare.");
+				error_in_scene(engine_target ? at : header, scene, connection.target, where + (engine_target ? ", but " + target->node.type + " has no such method." : ", which this class does not declare."));
 				continue;
 			}
 			const FuncDecl *function = method.function;
-			const TokenRange at = own_name(method, header);
 			if (method.hidden) {
 				error_in_scene(at, scene, connection.target, where + not_pub(true));
 				fix(pub_fix(method.id.scope, method.name_token));
@@ -828,7 +833,7 @@ void Checker::check_connections() {
 				}
 				if (param && param->is_storable() && !assignable(arguments[i], *param)) {
 					const ParamDecl *named = function && method.id.scope == options.path ? &function->params[std::min(size_t(i), function->params.size() - 1)] : nullptr;
-					error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : header, scene, connection.target, where + ", which passes " + arguments[i].to_string() + " here.");
+					error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : at, scene, connection.target, where + ", which passes " + arguments[i].to_string() + " here.");
 				}
 			}
 		}
