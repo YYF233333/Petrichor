@@ -20,7 +20,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
-  - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 136 s for tanks-of-freedom-ii, whose 661 scenes load 6,951 files one scene at a time, 944 of them distinct. That clone lacks the binary assets, which real projects add.
+  - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 41 s for tanks-of-freedom-ii with its assets. Its 661 scenes load 6,951 files one scene at a time, 944 of them distinct. Without the assets, as in the sparse corpus clone, each missing file is a failing load, and the check takes 136 to 195 s.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
     - Its writing refuses files with unsaved changes, as refactorings do (architecture §6.5).
     - Three places check that today, each its own way and with its own messages: `LspServer::edit_of`, `PetEditorPlugin::change_files` and `pet format` in `run_command`.
