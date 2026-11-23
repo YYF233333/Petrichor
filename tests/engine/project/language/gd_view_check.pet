@@ -13,6 +13,13 @@ pub func faster(base: GdViewBase) -> float:
 pub func score(base: GdViewBase):
 	base.scored.emit(7)
 
+# Typed Dictionaries of a member, a parameter and a result.
+pub func tallied(base: GdViewBase) -> int:
+	base.scores["a"] = 3
+	var held: int = base.scores["a"]
+	var counted: int = base.tally(base.scores)["a"]
+	return held + counted
+
 pub func buddy_is_child(base: GdViewBase) -> bool:
 	var buddy: GdViewBase? = base.buddy
 	return buddy != None and buddy is GdViewChild

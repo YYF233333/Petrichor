@@ -9,10 +9,15 @@ const BONUS := 5
 
 var speed: float = 1.5
 var buddy: GdViewBase
+var scores: Dictionary[String, int] = {}
 
 
 func hit(amount: int) -> int:
 	return amount * 2
+
+
+func tally(by: Dictionary[String, int]) -> Dictionary[String, int]:
+	return by
 
 
 static func scaled(amount: int) -> int:

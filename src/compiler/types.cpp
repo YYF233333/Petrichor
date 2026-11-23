@@ -157,6 +157,17 @@ Type api_type(const std::string &p_name, bool p_object_nullable) {
 		}
 		return array;
 	}
+	if (p_name.rfind("typeddictionary::", 0) == 0) {
+		// "K;V", as GDScript's hint names them too
+		// (modules/gdscript/gdscript_parser.cpp:5438-5446; ed1daf0).
+		const std::string entries = p_name.substr(17);
+		const size_t split = entries.find(';');
+		Type dictionary = Type::builtin("Dictionary");
+		if (split != std::string::npos && entries.find_first_of(":/") == std::string::npos) {
+			dictionary.args = { api_type(entries.substr(0, split), false), api_type(entries.substr(split + 1), false) };
+		}
+		return dictionary;
+	}
 	if (builtin::find_class(p_name)) {
 		return Type::builtin(p_name);
 	}

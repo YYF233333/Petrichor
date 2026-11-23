@@ -454,6 +454,7 @@ func _ready() -> void:
 	base.scored.connect(func(points: int): scores.append(points))
 	view.score(base)
 	_check(scores == [7], "a signal of a GDScript class is emitted with its argument")
+	_check(view.tallied(base) == 6, "a GDScript class's typed Dictionaries keep their types, as a member, a parameter and a result")
 	base.buddy = child
 	_check(view.buddy_is_child(base), "a member typed by a GDScript class holds an instance of a subclass, which is tests")
 	_check(view.as_child(child) == child and view.as_child(base) == null and view.as_base(child) == child, "as names GDScript classes, and an instance of a subclass is one of its base")

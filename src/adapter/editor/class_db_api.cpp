@@ -39,6 +39,11 @@ Type type_of(const Dictionary &p_property, bool p_is_return) {
 				return compiler::api_type("typedarray::" + to_utf8(p_property.get("hint_string", String())), true);
 			}
 			return Type::builtin("Array");
+		case Variant::DICTIONARY:
+			if (int(p_property.get("hint", 0)) == PROPERTY_HINT_DICTIONARY_TYPE) {
+				return compiler::api_type("typeddictionary::" + to_utf8(p_property.get("hint_string", String())), true);
+			}
+			return Type::builtin("Dictionary");
 		case Variant::INT:
 			// An enum, as "Node.ProcessMode" or "Key"; a bitfield stays int (spec §3.7).
 			if (usage & PROPERTY_USAGE_CLASS_IS_ENUM) {
