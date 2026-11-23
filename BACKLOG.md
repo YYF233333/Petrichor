@@ -24,6 +24,9 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - A subclass's bodies checked although its base has errors.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project, 303 s for tanks-of-freedom-ii.
   - `pet migrate` with the fixes that exist, the files renamed and their paths rewritten.
+    - Its writing refuses files with unsaved changes, as refactorings do (architecture §6.5).
+    - Three places check that today, each its own way and with its own messages: `LspServer::edit_of`, `PetEditorPlugin::change_files` and `pet format` in `run_command`.
+    - They become one check, which `pet migrate` uses too. Writing all files or none is shared as well.
   - Types inferred over the whole project and written down.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
