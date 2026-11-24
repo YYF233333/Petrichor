@@ -114,8 +114,9 @@ struct Inflows {
 	std::map<Key, std::pair<uint32_t, std::string>> optional;
 	// Declarations with a class written for them whose value a check read
 	// where a subclass is expected, by where their names are (a function's
-	// for what it returns), and exports of scenes of unknown roots. The next
-	// round takes each as a slot, which a subclass of the class written may
+	// for what it returns), exports of scenes of unknown roots, Arrays of
+	// untyped Arrays, and untyped Arrays that iterate one. The next round
+	// takes each as a slot, which a narrower type than the one written may
 	// type: with that type and where it is, for a member where its setter's
 	// parameter is written too, and whether it is an export.
 	std::set<Key> widened;
@@ -126,6 +127,9 @@ struct Inflows {
 		bool exported = false;
 	};
 	std::map<Key, Wide> wide;
+	// By such a declaration of untyped Arrays, the types that reads of their
+	// elements needed in any round, as written.
+	std::map<Key, std::set<std::string>> needed;
 
 	// The slot's index, once found.
 	int slot(const Slot &p_slot);

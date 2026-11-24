@@ -1118,13 +1118,24 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	// A declaration with a class written for it takes a subclass of it that
 	// what flows in merges into; otherwise it keeps the type written. One
 	// written PackedScene takes the scene of its roots' class, an export of
-	// Node without one (spec §7.4), and an Array of them, its elements'.
+	// Node without one (spec §7.4), and an Array of them, its elements'. An
+	// untyped Array, or an Array of them, takes the type of the elements, and
+	// of their elements, unless reads of those need another, as a class it
+	// extends (BACKLOG.md).
 	const auto scene = [](const Type &p_type) { return p_type.kind == TypeKind::Object && p_type.name == "PackedScene" && !p_type.args.empty(); };
-	const auto narrowed = [&](const Inflows::Wide &p_wide, const std::optional<Type> &p_merged) {
+	const auto narrowed = [&](const Inflows::Key &p_key, const Inflows::Wide &p_wide, const std::optional<Type> &p_merged) {
 		const Type &p_written = p_wide.type;
 		Type narrower = p_merged ? p_merged->unwrapped() : Type::of(TypeKind::Error);
 		if (p_written.kind == TypeKind::Builtin) {
-			return narrower.name == "Array" && !narrower.args.empty() && scene(narrower.args[0]) ? narrower : p_written;
+			if (narrower.name == "Array" && !narrower.args.empty() && scene(narrower.args[0])) {
+				return narrower;
+			}
+			const bool nested = p_written == Type::array(Type::builtin("Array"));
+			const Type &held = nested && narrower.name == "Array" && narrower.args.size() == 1 ? narrower.args[0] : narrower;
+			const Type *inner = (nested || p_written == Type::builtin("Array")) && held.name == "Array" && held.args.size() == 1 ? &held.args[0] : nullptr;
+			const auto needed = inflows.needed.find(p_key);
+			const bool fits = inner && (needed == inflows.needed.end() || needed->second == std::set<std::string>{ inner->to_string() });
+			return fits ? narrower : p_written;
 		}
 		if (p_written.name == "PackedScene" && p_written.args.empty()) {
 			if (!scene(narrower) && !p_wide.exported) {
@@ -1155,11 +1166,17 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			if (inflows.slots[i].valued) {
 				continue; // An int as the checks go.
 			}
-			bool numbers = false;
-			const std::optional<Type> type = merge(inflows.slots[i], flowed[i], numbers);
 			const auto wide = inflows.wide.find(inflows.slots[i].key);
+			// What another such declaration gives says nothing of the inner
+			// type until it narrows, as a Variant says nothing of a type.
+			std::vector<Received> told = flowed[i];
+			if (wide != inflows.wide.end() && wide->second.type == Type::array(Type::builtin("Array"))) {
+				told.erase(std::remove_if(told.begin(), told.end(), [&](const Received &p_each) { return p_each.type.unwrapped() == wide->second.type; }), told.end());
+			}
+			bool numbers = false;
+			const std::optional<Type> type = merge(inflows.slots[i], told, numbers);
 			if (wide != inflows.wide.end() && !wide->second.type.is_error()) {
-				next[inflows.slots[i].key] = narrowed(wide->second, type);
+				next[inflows.slots[i].key] = narrowed(inflows.slots[i].key, wide->second, type);
 			} else if (type || p_unknown) {
 				next[inflows.slots[i].key] = type.value_or(without(inflows.slots[i]));
 			}

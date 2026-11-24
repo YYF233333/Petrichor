@@ -820,6 +820,11 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 写作 `Array[PackedScene]` 的导出不报错，但同样作槽位，所存数组的各个场景和代码放入的场景是元素的流入。元素合并出 `PackedScene[T]` 才改写，否则保持原文。
   - 写作 `PackedScene` 的其他声明，读出的值进入 `PackedScene[T]` 的位置时同样作槽位，合并不出时保持原文。deck_builder_tutorial 的 `event_rooms` 由所存两个场景写成 `Array[PackedScene[EventRoom]]`，再经 `get_random()` 的返回值传给 `Room.event_scene`（`custom_resources/event_room_pool.gd:4, 7`，`custom_resources/room.gd:15`，`scenes/map/map_generator.gd:208`）。
   - 这些场景的根把必须赋值的导出留给 `instantiate()` 时，报错带上改为 `T?` 的修复：场景只设所存的属性，GDScript 写了对象类型的成员起初为 null（`scene/resources/packed_scene.cpp:365-371`，`modules/gdscript/gdscript_compiler.cpp:2369-2393`，`ed1daf0`）。deck_builder_tutorial 的 `EnemyStats.ai` 由此写成 `PackedScene[EnemyActionPicker]`，其根的 `enemy` 和 `target` 改为可空（`custom_resources/enemy_stats.gd:4`，`scenes/enemy/enemy_action_picker.gd:4-5`）。
+  - GDScript 写不出嵌套容器的内层类型，所以写作 `Array[Array]` 的参数、返回值和变量不等报错，下一轮起就作槽位。内层 `Array` 的元素只取自流入，合并出类型 `T` 才写成 `Array[Array[T]]`。写下后仍有涉及它的错误时，照常保持原文。
+    - 容器不转换（规范 §3.14），值经过的各个声明须一并改写。所以别的这类声明流入的 `Array[Array]` 在它改窄前不算依据，与 `Variant` 相同。遍历它的循环变量写作 `Array` 时同样作槽位，取元素的类型。
+    - 读出内层元素处要的类型不是 `T`（如 `T` 的基类）时保持原文，取哪个类由所有者决定（BACKLOG.md）。
+    - deck_builder_tutorial 的地图由此写成 `Array[Array[Room]]`，连同生成函数的返回值、局部变量、`load_map()` 的参数、遍历的循环变量和存档的导出（`scenes/map/map_generator.gd:25-66`，`scenes/map/map.gd:14-62`，`custom_resources/save_game.gd:13`）。
+    - 改写后读出内层数组和从引擎进入时，都校验它恰为 `Array[T]`（规范 §3.8），GDScript 只校验它是数组。存档逐个写出内层数组连同类型，读回时脚本有效即恢复类型（`core/variant/variant_parser.cpp:1354-1370, 2339-2397`，`ed1daf0`）。
 
 #### 候选校验、失败撤回与数值核对
 

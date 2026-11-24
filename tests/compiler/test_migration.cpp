@@ -513,6 +513,20 @@ TEST_CASE("an empty container takes the types of the elements and keys put in it
 	CHECK(migration.errors.empty());
 }
 
+// In the shape of deck_builder_tutorial's map (scenes/map/map_generator.gd:25-66,
+// scenes/map/map.gd:14-62). GDScript cannot write the inner type.
+TEST_CASE("an Array of untyped Arrays takes the type of the Arrays that flow in, with each declaration they pass, unless reads need another") {
+	FakeProject project;
+	project.add_script("res://map.gd", "extends Node\nvar grid: Array[Array]\n\n\nfunc build() -> Array[Array]:\n\tvar rows: Array[Array] = []\n\tfor i in 2:\n\t\tvar row: Array[Node3D] = []\n\t\trow.append(Node3D.new())\n\t\trows.append(row)\n\treturn rows\n\n\nfunc restore(saved: Array[Array]) -> void:\n\tgrid = saved\n\n\nfunc _ready() -> void:\n\tgrid = build()\n\trestore(grid)\n\tvar first: Node3D = grid[0][0]\n\tfor row: Array in grid:\n\t\tfor node: Node3D in row:\n\t\t\tprint(node, first)\n");
+	project.add_script("res://wide.gd", "extends Node\nvar grid: Array[Array]\n\n\nfunc _ready() -> void:\n\tvar row: Array[Node3D] = []\n\trow.append(Node3D.new())\n\tgrid.append(row)\n\tvar first: Node = grid[0][0]\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://map.gd", "res://wide.gd" }, 10);
+	CHECK(migration.texts.at("res://map.pet") == "extends Node\nvar grid: Array[Array[Node3D]]\n\n\nfunc build() -> Array[Array[Node3D]]:\n\tvar rows: Array[Array[Node3D]] = []\n\tfor i in 2:\n\t\tvar row: Array[Node3D] = []\n\t\trow.append(Node3D.new())\n\t\trows.append(row)\n\treturn rows\n\n\nfunc restore(saved: Array[Array[Node3D]]) -> void:\n\tgrid = saved\n\n\nfunc _ready() -> void:\n\tgrid = build()\n\trestore(grid)\n\tvar first: Node3D = grid[0][0]\n\tfor row: Array[Node3D] in grid:\n\t\tfor node: Node3D in row:\n\t\t\tprint(node, first)\n");
+	// A class that the elements extend is the owner's to choose (BACKLOG.md).
+	CHECK(migration.texts.at("res://wide.pet") == "extends Node\nvar grid: Array[Array]\n\n\nfunc _ready() -> void:\n\tvar row: Array[Node3D] = []\n\trow.append(Node3D.new())\n\tgrid.append(row)\n\tvar first: Node = grid[0][0]\n");
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].file == "res://wide.pet");
+}
+
 TEST_CASE("a type written over := keeps the initializer, and an assigned value that does not fit is about its target too") {
 	FakeProject project;
 	project.add_script("res://f.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tvar points := []\n\tpoints.append(Vector2.ZERO)\n\tvar labels = []\n\tlabels.append(Label.new())\n\tlabels[0].text = 3\n");

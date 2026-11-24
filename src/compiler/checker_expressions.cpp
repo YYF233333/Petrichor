@@ -1958,6 +1958,9 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 	}
 	error(p_value.range, message);
 	about(p_value.range, { typed_by(p_value) });
+	if (p_from.kind == TypeKind::Variant && p_value.kind == ExprKind::Subscript) {
+		needs_element(*p_value.base, p_to);
+	}
 	if (p_to.kind == TypeKind::Variant && lost_in_encoding(p_from, *this, false) == p_from) {
 		fix({ { p_value.range, operand(p_value) + fitting_call(p_from) } }, FixKind::BothLevels);
 	} else if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int && p_converts) {

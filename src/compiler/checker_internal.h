@@ -658,6 +658,11 @@ class Checker : public ClassRelation, private CheckContext {
 		return scene.kind == TypeKind::Object && scene.name == "PackedScene" && scene.args.empty();
 	}
 
+	// An Array of untyped Arrays, whose inner type GDScript cannot write.
+	static bool is_untyped_nested(const Type &p_type) {
+		return is_typed_container(p_type) && p_type.name == "Array" && p_type.args[0] == Type::builtin("Array");
+	}
+
 	static std::string argument_count(const Signature &p_signature) {
 		return argument_count(int(p_signature.required()), int(p_signature.params.size()), p_signature.rest.has_value());
 	}
@@ -750,7 +755,9 @@ class Checker : public ClassRelation, private CheckContext {
 	void read_untyped(const ClassDecl &p_owner, const std::string &p_name, uint32_t p_name_token);
 	int wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type, bool p_export = false);
 	bool is_wide(int p_slot) const;
+	std::optional<Inflows::Key> read_declaration(const Expr &p_value);
 	void read_wide(const Expr &p_value);
+	void needs_element(const Expr &p_inner, const Type &p_needed);
 	void keep(const Expr &p_value);
 	void keep_numbers(TokenKind p_op, const Expr &p_left, const Type &p_left_type, const Expr &p_right, const Type &p_right_type);
 	static Inflows::Slot parameter_slot(const FuncDecl &p_function, size_t p_index);

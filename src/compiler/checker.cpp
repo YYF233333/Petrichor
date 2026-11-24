@@ -59,15 +59,22 @@ void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflo
 }
 
 // The slot of a declaration with a class written for it, `r_type`, whose
-// value a read in the last round found where a subclass is expected, or of
-// an export of scenes of unknown roots (architecture §6.6); it then has the
-// type tried for it, an Array's elements being the slot. -1 for any other.
+// value a read in the last round found where a subclass is expected, of an
+// export of scenes of unknown roots, or of untyped Arrays (architecture
+// §6.6); it then has the type tried for it, an Array's elements being the
+// slot. -1 for any other.
 int Checker::wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type, bool p_export) {
-	if (!options.inflows || (r_type.kind != TypeKind::Object && !is_untyped_scenes(r_type))) {
+	if (!options.inflows) {
 		return -1;
 	}
-	const auto wide = options.inflows->wide.find({ script_file(options.path), cls.source->tokens[p_name_token].offset });
-	if (wide == options.inflows->wide.end()) {
+	const Inflows::Key key = { script_file(options.path), cls.source->tokens[p_name_token].offset };
+	// One written as an Array of untyped Arrays is a slot from the next round,
+	// as is an untyped Array that iterates one (check_for()).
+	if (is_untyped_nested(r_type) && options.inflows->files.count(key.first)) {
+		options.inflows->widened.insert(key);
+	}
+	const auto wide = options.inflows->wide.find(key);
+	if (wide == options.inflows->wide.end() || (r_type.kind != TypeKind::Object && !is_untyped_scenes(r_type) && !is_untyped_nested(r_type) && r_type != Type::builtin("Array"))) {
 		return -1;
 	}
 	wide->second = { r_type, { cls.source->begin(p_written.range), cls.source->end(p_written.range) }, std::nullopt, p_export };
@@ -85,17 +92,16 @@ bool Checker::is_wide(int p_slot) const {
 	return wide != options.inflows->wide.end() && !wide->second.type.is_error();
 }
 
-// That a value read where a subclass of its class is expected reads a
-// declaration of a migrated file: what its name refers to, a member, a
-// parameter, a local or what a function returns.
-void Checker::read_wide(const Expr &p_value) {
+// The declaration of a migrated file that a value reads: what its name
+// refers to, a member, a parameter, a local or what a function returns.
+std::optional<Inflows::Key> Checker::read_declaration(const Expr &p_value) {
 	if (!options.inflows || !references || p_value.name_token >= cls.source->tokens.size()) {
-		return;
+		return std::nullopt;
 	}
 	const uint32_t offset = cls.source->tokens[p_value.name_token].offset;
 	const auto read = std::find_if(references->rbegin(), references->rend(), [&](const Reference &p_reference) { return p_reference.begin == offset && !p_reference.declares; });
 	if (read == references->rend()) {
-		return;
+		return std::nullopt;
 	}
 	const DeclId &target = read->target;
 	std::optional<Inflows::Key> key;
@@ -116,8 +122,31 @@ void Checker::read_wide(const Expr &p_value) {
 			}
 		}
 	}
-	if (key && options.inflows->files.count(key->first)) {
+	return key && options.inflows->files.count(key->first) ? key : std::nullopt;
+}
+
+// That a value read where a subclass of its class is expected reads a
+// declaration that the next round takes as a slot.
+void Checker::read_wide(const Expr &p_value) {
+	if (const std::optional<Inflows::Key> key = read_declaration(p_value)) {
 		options.inflows->widened.insert(*key);
+	}
+}
+
+// That the elements of `p_inner`, an untyped Array, are read where
+// `p_needed` is: of its declaration, or of one written as an Array of them
+// that it is read from. A class they extend keeps the declaration as written
+// (architecture §6.6).
+void Checker::needs_element(const Expr &p_inner, const Type &p_needed) {
+	const Expr *read = nullptr;
+	if (p_inner.kind == ExprKind::Subscript) {
+		read = is_untyped_nested(p_inner.base->type) ? p_inner.base.get() : nullptr;
+	} else if (p_inner.type == Type::builtin("Array")) {
+		read = &p_inner;
+	}
+	const std::optional<Inflows::Key> key = read ? read_declaration(*read) : std::nullopt;
+	if (key) {
+		options.inflows->needed[*key].insert(p_needed.unwrapped().to_string());
 	}
 }
 

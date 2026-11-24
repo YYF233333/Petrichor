@@ -561,8 +561,18 @@ void Checker::check_for(Stmt &r_stmt) {
 	untyped_element(*r_stmt.value, iterated);
 	r_stmt.element = element;
 	Type type = element;
+	int slot = -1;
 	if (r_stmt.declared_type) {
-		const Type declared = resolve(*r_stmt.declared_type, false);
+		Type declared = resolve(*r_stmt.declared_type, false);
+		// An untyped Array of an Array of them, whose inner type a migration
+		// takes from the Arrays (architecture §6.6).
+		if (declared == Type::builtin("Array") && options.inflows) {
+			if (is_untyped_nested(iterated) && options.inflows->files.count(script_file(options.path))) {
+				options.inflows->widened.insert({ script_file(options.path), cls.source->tokens[r_stmt.name_token].offset });
+			}
+			slot = wide_slot({ Inflows::Kind::Local, r_stmt.name }, r_stmt.name_token, *r_stmt.declared_type, declared);
+			flow(slot, element, r_stmt.value->range);
+		}
 		// The elements' type or a class they extend, without conversions; of
 		// object elements also a class that extends theirs, or their type
 		// without `?`, which each iteration checks.
@@ -571,10 +581,12 @@ void Checker::check_for(Stmt &r_stmt) {
 		const bool fits = declared == element || (objects && assignable(element, declared)) || r_stmt.narrows;
 		if (!declared.is_error() && !element.is_error() && !fits) {
 			error(r_stmt.declared_type->range, "The elements are " + element.to_string() + ", which the loop variable of type " + declared.to_string() + " cannot hold.");
+			needs_element(*r_stmt.value, declared);
 		}
 		type = declared;
 	}
 	declare_local(r_stmt, type);
+	function->locals[r_stmt.local].slot = slot;
 	loop_depth++;
 	check_block(r_stmt.body);
 	loop_depth--;
