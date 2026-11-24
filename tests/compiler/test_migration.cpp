@@ -363,6 +363,14 @@ TEST_CASE("an int joins a float in a member by its reads in every file, but not 
 	CHECK(compiler::migrate(fake_engine(), project, { "res://meter.gd", "res://gauge.gd" }, 10).numbers == 2);
 }
 
+TEST_CASE("an int joins a float by the reads of the last round only, not one beside a float that a later round makes an int") {
+	FakeProject project;
+	project.add_script("res://d.gd", "extends Node\n\n\nfunc f(x, y):\n\tprint(x / y)\n\n\nfunc g(k):\n\tf(1, k)\n\n\nfunc _ready() -> void:\n\tf(1.5, 2.0)\n\tg(2)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://d.gd" }, 10);
+	CHECK(migration.texts.at("res://d.pet") == "extends Node\n\n\nfunc f(x, y):\n\tprint(x / y)\n\n\nfunc g(k: int):\n\tf(1, k)\n\n\nfunc _ready() -> void:\n\tf(1.5, 2.0)\n\tg(2)\n");
+	CHECK(migration.numbers == 2);
+}
+
 TEST_CASE("a type that the check refuses is withdrawn, and the slot stays an error with what it received") {
 	FakeProject project;
 	project.add_script("res://c.gd", "extends Node\n\n\nfunc twice(x):\n\treturn x + x\n\n\nfunc _ready() -> void:\n\tprint(twice(1), twice(\"a\"))\n");

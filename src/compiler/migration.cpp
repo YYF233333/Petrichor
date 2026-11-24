@@ -533,10 +533,7 @@ const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
 // the slots; the results of the scripts by path, with the errors that the
 // checks of the scenes report in them, each error naming its file.
 std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, const ProjectApi &p_project, Inflows &r_inflows) {
-	r_inflows.records.flows.clear();
-	r_inflows.records.calls.clear();
-	r_inflows.records.about.clear();
-	r_inflows.records.elements.clear();
+	each_record(r_inflows.records, [](auto &r_record) { r_record.clear(); });
 	r_inflows.unknown.clear();
 	r_inflows.widened.clear();
 	Workspace workspace(p_project);
