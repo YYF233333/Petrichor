@@ -30,6 +30,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Language
 
+- Load cycles the check misses (spec §7.6): a subclass in another file that uses its base's `preload` constant as a value, and a constant copied through two or more constants. Both load the script at run time without an edge (`load_edges()` in `src/compiler/script_classes.cpp`); the old token scan missed them too.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
 - `Array[PackedScene[T]]` cannot be written, though `[preload(...)]` infers it and spec §7.4 lists container elements.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
