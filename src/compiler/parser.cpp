@@ -1595,6 +1595,7 @@ class Parser {
 				end_of_statement();
 				continue;
 			}
+			const bool is_async = match_word("async");
 			const Token &keyword = expect(TokenKind::Identifier, "set or get");
 			if (!failed && keyword.text != "set" && keyword.text != "get") {
 				fail(keyword, "Expected set or get.");
@@ -1607,6 +1608,7 @@ class Parser {
 			function.name_token = index(keyword);
 			function.accessor_of = r_decl.name;
 			function.is_static = r_decl.is_static;
+			function.is_async = is_async;
 			if (keyword.text == "set") {
 				expect(TokenKind::ParenOpen, "\"(\"");
 				const Token &param = declared_name("the parameter's name");

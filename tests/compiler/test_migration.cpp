@@ -183,6 +183,16 @@ TEST_CASE("a function with an await is made async though its parameter is left w
 	CHECK(migration.errors[0].message == "Parameter \"x\" needs a type.");
 }
 
+// GDScript calls the setter and drops what it returns, so a write goes on
+// where the setter first waits (spec §4.4).
+TEST_CASE("a setter with an await is made async, and a member made T? makes its setter take T?") {
+	FakeProject project;
+	project.add_script("res://relic_ui.gd", "extends Node\nvar relic: Node : set = set_relic\nvar label := \"\":\n\tset(value):\n\t\tif not is_node_ready():\n\t\t\tawait ready\n\t\tlabel = value\n\n\nfunc set_relic(new_relic: Node) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\trelic = new_relic\n\n\nfunc put(node: Node) -> void:\n\trelic = node\n\tlabel = \"put\"\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://relic_ui.gd" }, 10);
+	CHECK(migration.texts.at("res://relic_ui.pet") == "extends Node\nvar relic: Node? : set = set_relic\nvar label := \"\":\n\tasync set(value):\n\t\tif not is_node_ready():\n\t\t\tawait ready\n\t\tlabel = value\n\n\nasync func set_relic(new_relic: Node?) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\trelic = new_relic\n\n\nfunc put(node: Node) -> void:\n\trelic = node\n\tlabel = \"put\"\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null") {
 	FakeProject project;
 	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");

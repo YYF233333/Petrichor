@@ -108,7 +108,7 @@ TEST_CASE("static variables are declared as GDScript's, with accessors and witho
 	CHECK(has_error("extends Node\nstatic var a := 2\nfunc a() -> void:\n\tpass\n", "\"a\" is already declared."));
 	CHECK(has_error("extends Node\nstatic var a\n", "\"a\" needs a type or an initial value."));
 	CHECK(has_error("extends Node\nstatic const A := 1\n", "Only variables and functions can be static."));
-	CHECK(has_error("extends Node\nstatic var a := 1:\n\tset = put\nfunc put(value: int) -> void:\n\tpass\n", "A setter of a static variable is static, and not async: writing the variable does not wait for it."));
+	CHECK(has_error("extends Node\nstatic var a := 1:\n\tset = put\nfunc put(value: int) -> void:\n\tpass\n", "A setter of a static variable is static."));
 	CHECK(has_error("extends Node\nfunc _static_init() -> void:\n\tpass\n", "_static_init() is static, takes no parameters, returns nothing and cannot await."));
 	CHECK(has_error("extends Node\nstatic func _static_init(x: int) -> void:\n\tpass\n", "_static_init() is static"));
 	const auto result = compile(R"(extends Node

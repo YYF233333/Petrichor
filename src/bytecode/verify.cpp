@@ -1055,7 +1055,7 @@ public:
 			}
 			if (member.setter >= 0) {
 				const Function &setter = module.functions[member.setter];
-				if (setter.is_async || !is_void(setter.result.type) || setter.params.size() != 1 || setter.params[0].type != member.type) {
+				if (!is_void(setter.result.type) || setter.params.size() != 1 || setter.params[0].type != member.type) {
 					return fail("the setter of " + member.name + " does not take its type");
 				}
 			}

@@ -146,6 +146,7 @@ public:
 			method("add_child", { { "node", node } }, t(TypeKind::Void)),
 			method("set_owner", { { "owner", node } }, t(TypeKind::Void)),
 			method("queue_free", {}, t(TypeKind::Void)),
+			method("is_node_ready", {}, t(TypeKind::Bool)),
 			method("find_children", { { "pattern", t(TypeKind::String) }, { "type", t(TypeKind::String) }, { "recursive", t(TypeKind::Bool) }, { "owned", t(TypeKind::Bool) } }, Type::array(Type::object("Node")), false, 3),
 		};
 		properties["MeshInstance3D"] = {

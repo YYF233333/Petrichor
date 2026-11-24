@@ -787,12 +787,22 @@ void Checker::check_accessors(VarDecl &r_member) {
 			const bool fits = p_setter ? function->params.size() == 1 && !function->has_rest() && function->params[0].type == r_member.type && function->return_type.kind == TypeKind::Void : function->params.empty() && function->return_type == r_member.type;
 			if (!fits && !r_member.type.is_error()) {
 				error(function->name_token, "As the " + kind + " of \"" + r_member.name + "\", " + p_name + "() " + (p_setter ? "takes one argument of type " + r_member.type.to_string() + " and returns nothing" : "takes no argument and returns " + r_member.type.to_string()) + ".");
+				// Of a member that became T?, as a migration makes it (architecture §6.6).
+				const ParamDecl *param = p_setter && function->params.size() == 1 ? &function->params[0] : nullptr;
+				if (param && param->declared_type && r_member.type.kind == TypeKind::Object && r_member.type.nullable && param->type == r_member.type.unwrapped()) {
+					fix_optional(*param->declared_type, std::string());
+				}
 			}
 		}
-		if (r_member.is_static && (function->is_async || !function->is_static)) {
-			error(function->name_token, "A " + kind + " of a static variable is static, and not async: " + (p_setter ? "writing" : "reading") + " the variable does not wait for it.");
-		} else if (!r_member.is_static && (function->is_async || function->is_static)) {
-			error(function->name_token, "A " + kind + " runs on the object, so it is not static, and not async: " + (p_setter ? "writing" : "reading") + " the member does not wait for it.");
+		// A setter may be a coroutine, which a write starts and does not wait
+		// for (§9.1); a getter gives its value at once.
+		if (r_member.is_static != function->is_static) {
+			error(function->name_token, r_member.is_static ? "A " + kind + " of a static variable is static." : "A " + kind + " runs on the object, so it is not static.");
+		} else if (!p_setter && function->is_async) {
+			error(function->name_token, "A getter is not async: reading the " + std::string(r_member.is_static ? "variable" : "member") + " does not wait for it.");
+		}
+		if (p_setter) {
+			r_member.async_setter = function->is_async;
 		}
 		const auto found = function_index.find(p_name);
 		return found == function_index.end() ? -1 : found->second;

@@ -25,7 +25,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
     - an ancestor's `_ready` as proof that a member is assigned (architecture §6.6). Without it such members become `T?`;
     - declarations written wider than what flows in, and `as` at the remaining implicit downcasts (architecture §6.6);
     - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
-  - Setters as coroutines (spec §4.4, §6.5): `async set(value):`, and `set = f` naming an `async func`. A write starts the setter and goes on when it first suspends, from scripts and from the engine alike. The migration then adds `async` to a setter that awaits (architecture §6.6); deck_builder_tutorial has 12, as `scenes/relic_handler/relic_ui.gd:10-15`.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).

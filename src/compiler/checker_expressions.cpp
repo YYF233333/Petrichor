@@ -1365,11 +1365,20 @@ Type Checker::check_task_join(Expr &r_expr) {
 // §9.1), as GDScript's with an await is a coroutine: where the lambda goes,
 // or as a method whose signature then has no more errors than it has. An
 // override is made async with the methods it overrides, and the other
-// overrides then need the fix too (architecture §6.6). An accessor cannot be
-// async, and a stray block has no `func` to write it before.
+// overrides then need the fix too (architecture §6.6). A setter can be async
+// and a getter cannot (§4.4), and a stray block has no `func` to write it
+// before.
 void Checker::fix_async(FuncDecl &r_function) {
+	const auto getter = [&](const VarDecl &p_variable) { return !p_variable.getter.empty() && p_variable.getter == r_function.name; };
+	if (completion || trying_async || std::any_of(cls.members.begin(), cls.members.end(), getter) || std::any_of(cls.static_vars.begin(), cls.static_vars.end(), getter)) {
+		return;
+	}
+	if (r_function.name.rfind("@set_", 0) == 0) {
+		fix({ { { r_function.name_token, r_function.name_token }, "async set" } }, FixKind::Async);
+		return;
+	}
 	const uint32_t keyword = r_function.is_lambda && r_function.name.empty() ? r_function.name_token : r_function.name_token - 1;
-	if (completion || trying_async || !r_function.accessor_of.empty() || keyword >= cls.source->tokens.size() || cls.source->tokens[keyword].kind != TokenKind::Func) {
+	if (keyword >= cls.source->tokens.size() || cls.source->tokens[keyword].kind != TokenKind::Func) {
 		return;
 	}
 	if (r_function.is_lambda) {

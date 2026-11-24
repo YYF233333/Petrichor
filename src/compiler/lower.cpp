@@ -935,6 +935,7 @@ class Lowerer {
 		method.method = p_setter ? variable.setter : variable.getter;
 		if (p_setter) {
 			method.params.push_back(slot(std::string(), variable.type));
+			method.is_async = variable.async_setter;
 		}
 		method.result = slot(std::string(), result);
 		method.static_class = int32_t(static_class(p_place));
@@ -963,6 +964,7 @@ class Lowerer {
 		method.method = accessor;
 		if (writes) {
 			method.params.push_back(slot(std::string(), member.type));
+			method.is_async = member.async_setter;
 			i.args.push_back(p_value);
 		}
 		method.result = slot(std::string(), writes ? Type::of(TypeKind::Void) : member.type);

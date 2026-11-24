@@ -295,6 +295,25 @@ func _ready() -> void:
 	accessors.inside()
 	_check(accessors.speed == 0.0 and accessors.writes == 2 and accessors.doubled == 14 and accessors.named == 100, "within the class, accessors run, and in their own the name is the field")
 	accessors.free()
+	# An async setter (spec §4.4, §6.5).
+	var titled := AccessorCheck.new()
+	titled.title = "a"
+	titled.set("title", "b")
+	_check(titled.synced == ["start a", "start b"] and titled.title == "", "a write before ready goes on where the async setter first waits")
+	add_child(titled)
+	_check(titled.synced == ["start a", "start b", "ready", "set a", "set b"] and titled.title == "b", "the setters go on in order once ready is emitted, after _ready, and the last value stays")
+	titled.title = "c"
+	_check(titled.synced.back() == "set c" and titled.title == "c", "a write after ready runs the whole setter")
+	titled.free()
+	var stored: AccessorCheck = load("res://language/accessor_scene.tscn").instantiate()
+	_check(stored.synced == ["start stored"], "a value stored in a scene starts the setter")
+	add_child(stored)
+	_check(stored.synced == ["start stored", "ready", "set stored"] and stored.title == "stored", "the setter of a value stored in a scene goes on once ready")
+	stored.free()
+	var never_ready := AccessorCheck.new()
+	never_ready.title = "gone"
+	never_ready.free()
+	_check_errors([], "a node freed before ready cancels its setter silently")
 	_check(c.classify("middle", 0) == "center" and c.classify("bottom", 0) == "b:bottom" and c.classify("x", 0) == "zero" and c.classify("x", 2) == "small" and c.classify("x", 101) == "big" and c.classify("x", 50) == "other", "match: literals, commas, var with when, and _")
 	var bound_before: String = c.classify("x", 7)
 	c.bounds = Vector2i(50, 0)

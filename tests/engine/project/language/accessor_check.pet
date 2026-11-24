@@ -12,6 +12,19 @@ pub var doubled: int = 3:
 		return doubled * 2
 pub var named: int = 0: set = set_named, get = get_named
 
+# A setter that waits for ready, as GDScript's that sync nodes do (spec §6.5).
+pub var synced: Array[String] = []
+@export pub var title := "":
+	async set(value):
+		synced.append("start " + value)
+		if not is_node_ready():
+			await ready
+		title = value
+		synced.append("set " + value)
+
+func _ready() -> void:
+	synced.append("ready")
+
 func set_named(value: int):
 	named = value + 100
 

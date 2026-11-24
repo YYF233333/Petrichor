@@ -538,6 +538,7 @@ struct VarDecl {
 	State state = State::Unchecked;
 	int setter_index = -1; // In the class's functions.
 	int getter_index = -1;
+	bool async_setter = false; // A coroutine, which a write starts (spec §4.4).
 	// Its first value as reflection shows it, when the compiler knows it: the
 	// editor's default (spec §10.1).
 	ConstPtr initial;
