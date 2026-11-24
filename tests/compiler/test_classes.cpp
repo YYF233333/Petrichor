@@ -519,8 +519,13 @@ TEST_CASE("implements: the class has every method of the interface, pub, not sta
 	const std::string awaits = "extends Node3D implements Combat.Damageable\n\npub func damage(amount: float):\n\tawait ready\n";
 	CHECK(fixed_in(awaits, project(), "Write async func") == "no such fix");
 	CHECK(contains(messages(compile_in("extends Node implements Weapon\n", project())), "Weapon is not an interface."));
-	// Open until function types have optional parameters (spec §3.9).
-	CHECK(has_error("extends Node\n\ninterface Gun:\n\tfunc fire(times: int = 3)\n", "Interface methods have no default values."));
+	// A call through the interface may leave out what it writes `= ...`, which
+	// the implementation gives a default.
+	FakeProject guns = project();
+	guns.add_script("res://guns.pet", "class_name Guns\n\npub interface Gun:\n\tfunc fire(times: int = ...) -> int\n", "Guns");
+	CHECK(messages(compile_in("extends Node implements Guns.Gun\npub func fire(times: int = 3) -> int:\n\treturn times\nfunc f(g: Guns.Gun) -> int:\n\treturn g.fire() + g.fire(2)\n", guns)).empty());
+	CHECK(contains(messages(compile_in("extends Node implements Guns.Gun\npub func fire(times: int) -> int:\n\treturn times\n", guns)), "\"fire()\" implements Guns.Gun, whose callers may leave out \"times\"; give it a default value."));
+	CHECK(has_error("extends Node\n\ninterface Gun:\n\tfunc fire(times: int = 3)\n", "An interface method gives no default value; write `= ...`"));
 }
 
 TEST_CASE("implements: interface properties, by a pub member of the same type or an engine property (spec §3.9)") {

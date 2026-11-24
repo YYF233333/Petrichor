@@ -60,6 +60,9 @@ func run(_errors) -> int:
 			check(method.default_args == [null, null], "defaults that are no constants are listed as null, as GDScript lists them")
 	var louder: DefaultValues = load("res://language/default_override.pet").new()
 	check(caller.label_of(louder) == "louder 10" and caller.label_of(c) == "plain", "an override called through its base computes its own default")
+	check(caller.label_through_value(louder) == "louder 10", "call() of a method value typed by the base runs the override with its own default")
+	check(c.lambda_defaults() == [0, 1, 9, 3], "a lambda computes its default at each call that leaves it out")
+	check(c.spawned() == [[3, 1], [2, 3]], "bind() passes its values after the caller's arguments")
 	louder.free()
 	c.free()
 	return failures

@@ -1120,6 +1120,7 @@ Type Checker::resolve_name(const TypeRef &p_ref, bool p_allow_void) {
 		}
 		Type type = Type::function(result, params);
 		type.is_async = p_ref.is_async;
+		type.optional_params = p_ref.optional_params;
 		return type;
 	}
 	if (!p_ref.args.empty()) {
@@ -1257,23 +1258,17 @@ Type Checker::container_element(const TypeRef &p_ref, const std::string &p_what)
 // (spec §4.6).
 Type Checker::function_type(const FuncDecl &p_function) {
 	known_params(p_function);
-	if (p_function.has_rest()) {
-		return Type::builtin("Callable");
-	}
-	Type type = Type::function(p_function.return_type, param_types(p_function.params));
-	type.is_async = p_function.is_async;
-	return type;
+	return p_function.has_rest() ? Type::builtin("Callable") : signature_of(p_function).type();
 }
 
 // The signature as a function type writes it, a rest parameter as
-// `...Array[T]`.
+// `...Array[T]`, after which the parameters with defaults are not marked.
 std::string Checker::signature_text(const FuncDecl &p_function) {
-	std::vector<Type> params = param_types(p_function.params);
+	Type type = signature_of(p_function).type();
 	if (p_function.has_rest()) {
-		params.back() = Type::builtin("..." + params.back().to_string()); // Only written out.
+		type.args.push_back(Type::builtin("..." + p_function.params.back().type.to_string())); // Only written out.
+		type.optional_params = 0;
 	}
-	Type type = Type::function(p_function.return_type, params);
-	type.is_async = p_function.is_async;
 	return type.to_string();
 }
 

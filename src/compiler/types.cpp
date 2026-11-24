@@ -30,11 +30,12 @@ std::string Type::builtin_name() const {
 	}
 }
 
-// `func(int, Node) -> bool`, as written (spec §2.4); `func(int)` returns void.
-static std::string signature(const std::vector<Type> &p_params, size_t p_first) {
+// `func(int, Node = ...) -> bool`, as written (spec §2.4, §3.11); `func(int)`
+// returns void.
+static std::string signature(const std::vector<Type> &p_params, size_t p_first, size_t p_optional = 0) {
 	std::string text = "(";
 	for (size_t i = p_first; i < p_params.size(); i++) {
-		text += (i > p_first ? ", " : "") + p_params[i].to_string();
+		text += (i > p_first ? ", " : "") + p_params[i].to_string() + (i + p_optional >= p_params.size() ? " = ..." : "");
 	}
 	return text + ")";
 }
@@ -62,7 +63,7 @@ std::string Type::to_string() const {
 		case TypeKind::Task:
 			return "Task[" + args[0].to_string() + "]" + (nullable ? "?" : "");
 		case TypeKind::Function:
-			return std::string(is_async ? "async func" : "func") + signature(args, 1) + (args.empty() || args[0].kind == TypeKind::Void ? std::string() : " -> " + args[0].to_string());
+			return std::string(is_async ? "async func" : "func") + signature(args, 1, optional_params) + (args.empty() || args[0].kind == TypeKind::Void ? std::string() : " -> " + args[0].to_string());
 		case TypeKind::Signal:
 			return "Signal" + signature(args, 0);
 		case TypeKind::Builtin:
@@ -121,6 +122,41 @@ Type Type::unwrapped() const {
 	Type result = *this;
 	result.nullable = false;
 	return result;
+}
+
+Signature Signature::of(const Type &p_function) {
+	Signature out;
+	out.params.assign(p_function.args.begin() + 1, p_function.args.end());
+	out.optional = p_function.optional_params;
+	out.result = p_function.args[0];
+	out.is_async = p_function.is_async;
+	return out;
+}
+
+Type Signature::type() const {
+	Type type = Type::function(result, params);
+	type.optional_params = uint32_t(optional);
+	type.is_async = is_async;
+	return type;
+}
+
+Misfit misfit(const Signature &p_from, const Signature &p_to, const std::function<bool(const Type &, const Type &)> &p_assignable) {
+	Misfit out;
+	out.counts = p_from.required() > p_to.required() || (!p_from.rest && (p_to.rest || p_from.params.size() < p_to.params.size()));
+	// Each argument `p_to` takes, those of its rest parameter too where `p_from`
+	// takes them one by one, and then the rest.
+	const size_t fixed = p_to.rest ? std::max(p_to.params.size(), p_from.params.size()) : p_to.params.size();
+	for (size_t i = 0; i <= fixed; i++) {
+		const std::optional<Type> given = i < fixed ? p_to.argument(i) : p_to.rest;
+		const std::optional<Type> taken = p_from.argument(i);
+		if (given && taken && !p_assignable(*given, *taken)) {
+			out.arguments.push_back(i);
+		}
+	}
+	const bool known = !p_from.result.is_error() && !p_to.result.is_error();
+	out.result = known && (p_to.result.kind == TypeKind::Void ? p_from.result.kind != TypeKind::Void : !p_assignable(p_from.result, p_to.result));
+	out.async = p_from.is_async != p_to.is_async;
+	return out;
 }
 
 Type api_type(const std::string &p_name, bool p_object_nullable) {
@@ -240,16 +276,7 @@ Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation 
 		return inner == C::None || (p_from.kind == TypeKind::Option && inner != C::Same && inner != C::Wrap) ? C::None : C::Wrap;
 	}
 	if (p_from.kind == TypeKind::Function && p_to.kind == TypeKind::Function) {
-		// Parameters contravariant, the result covariant (spec §3.14).
-		if (p_from.is_async != p_to.is_async || p_from.args.size() != p_to.args.size()) {
-			return C::None;
-		}
-		for (size_t i = 1; i < p_to.args.size(); i++) {
-			if (!is_assignable(p_to.args[i], p_from.args[i], p_classes)) {
-				return C::None;
-			}
-		}
-		return allowed(p_to.args[0].kind == TypeKind::Void ? p_from.args[0].kind == TypeKind::Void : is_assignable(p_from.args[0], p_to.args[0], p_classes));
+		return allowed(misfit(Signature::of(p_from), Signature::of(p_to), [&](const Type &p_a, const Type &p_b) { return is_assignable(p_a, p_b, p_classes); }).fits());
 	}
 	// The engine takes them as its Callable and Signal. A function value's
 	// Callable is called as a pub function is (spec §10.1).

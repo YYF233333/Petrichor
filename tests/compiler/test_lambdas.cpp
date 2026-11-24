@@ -36,15 +36,52 @@ TEST_CASE("a lambda's types: parameters written or from where it goes, the retur
 	CHECK(has_error(in_function("var f := func(up: bool):\n\tif up:\n\t\treturn 1\n\treturn \"a\""), "The lambda returns int and String; declare its return type."));
 	CHECK(has_error(in_function("var f := func(up: bool):\n\tif up:\n\t\treturn 1"), "Not all paths of the lambda return a value."));
 	CHECK(has_error(in_function("var f := func(up: bool):\n\tif up:\n\t\treturn 1\n\treturn"), "The lambda returns a value on some paths and none on others."));
-	CHECK(has_error(in_function("var f := func(x: int = 1): return x"), "Lambda parameters have no default values."));
 	CHECK(has_error("extends Node\nconst F = func(): pass\n", "A lambda is not a constant expression."));
 }
 
+TEST_CASE("a function type marks the last parameters a call may leave out, as method values and lambdas with defaults have (spec §3.11)") {
+	CHECK(type_of("f", "var f: func(int, String = ...) = func(a: int, b := \"\"): pass") == "func(int, String = ...)");
+	CHECK(has_error(in_function("var f: func(int = ..., String) = func(a := 0, b := \"\"): pass"), "Only the last parameters of a function type may be left out"));
+	CHECK(has_error(in_function("var f: func(int = 1) = func(a := 0): pass"), "Expected \"...\", as a function type has no default values"));
+	const std::string show = "extends Node\nfunc show(title: String, randomized := false) -> void:\n\tpass\nfunc f() -> void:\n\t";
+	CHECK(has_error(show + "var probe: bool = show\n", "type func(String, bool = ...) as bool"));
+	// A lambda's default sees what its body does, its captures too.
+	CHECK(type_of("f", "var n := 2\nvar f := func(x := n): return x") == "func(int = ...) -> int");
+	require_ok(compile(show + "var g := show\n\tg.call(\"a\")\n\tg.call(\"a\", true)\n\tvar n := 2\n\tvar h := func(x := n, y: int = x + n): return x + y\n\tprint(h.call() + h.call(2))\n"));
+	CHECK(has_error(show + "var g := show\n\tg.call()\n", "takes 1 to 2 argument(s), 0 given"));
+	CHECK(has_error("extends Node\nfunc f(x: int = ...) -> void:\n\tpass\n", "Only the parameters of an interface method are written `= ...`"));
+}
+
+TEST_CASE("a function value stands for a function type when it takes every count of arguments the type allows (spec §5)") {
+	require_ok(compile(in_function("var f: func() = func(x: int = 1): pass\nvar g: func(int) = func(x: int = 1): pass\nvar h: func(int = ...) = func(x: int = 1, y := 2): pass")));
+	CHECK(has_error(in_function("var f: func() = func(x: int): pass"), "Cannot assign a value of type func(int) as func()."));
+	CHECK(has_error(in_function("var f: func(int = ...) = func(x: int): pass"), "Cannot assign a value of type func(int) as func(int = ...)."));
+	// TypeScript lets (a = 1) => a pass through () => number as (a: string) =>
+	// number (TypeScript#13043); the second step is refused here.
+	CHECK(has_error(in_function("var f: func() = func(x: int = 1): pass\nvar g: func(String) = f"), "Cannot assign a value of type func() as func(String)."));
+	// A signal connected to a method whose last parameters have defaults
+	// (tanks-of-freedom-ii scenes/board/board.gd:165).
+	require_ok(compile("extends Node\nfunc toggle_radial_menu(context_object: Node? = None) -> void:\n\tpass\nfunc f() -> void:\n\tready.connect(toggle_radial_menu)\n"));
+}
+
+TEST_CASE("bind() puts its values after the caller's arguments, as the engine does (spec §3.11)") {
+	const std::string head = "extends Node\nsignal pressed\nsignal toggled(on: bool)\nfunc show(title: String, randomized := false) -> void:\n\tpass\nfunc spawn(kind := 0, count := 1) -> void:\n\tpass\nfunc f() -> void:\n\t";
+	CHECK(has_error(head + "var probe: bool = show.bind(\"Deck\")\n", "type func() as bool"));
+	CHECK(has_error(head + "var probe: bool = show.bind(true)\n", "type func(String) as bool"));
+	CHECK(has_error(head + "var probe: bool = spawn.bind(3)\n", "type func(int = ...) as bool"));
+	// Each bind in turn: f.bind(1).bind(2) calls f(…, 2, 1).
+	CHECK(has_error(head + "var probe: bool = spawn.bind(3).bind(4)\n", "type func() as bool"));
+	require_ok(compile(head + "pressed.connect(show.bind(\"Deck\"))\n"));
+	CHECK(has_error(head + "toggled.connect(show)\n", "Signal(bool) passes bool as argument 1, which func(String, bool = ...) does not take."));
+	CHECK(has_error(head + "var g := show.bind(1)\n", "bind() puts its values after the caller's arguments, where func(String, bool = ...) takes no int."));
+}
+
 TEST_CASE("a function type is a type of its own where modules meet, as hot reload compares them (spec §12.4)") {
-	const compiler::CompileResult result = compile("extends Node\nvar a: Callable\nvar b: func() = func(): pass\n");
+	const compiler::CompileResult result = compile("extends Node\nvar a: Callable\nvar b: func() = func(): pass\nvar c: func(int = ...) = func(x := 0): pass\nvar d: func(int) = func(x: int): pass\n");
 	require_ok(result);
 	const auto key = [&](const char *p_member) { return bytecode::type_key(result.module.types, member_named(result.module, p_member).type); };
 	CHECK(key("a") != key("b"));
+	CHECK(key("c") != key("d"));
 }
 
 TEST_CASE("a lambda passed to an Array method takes the elements (spec §3.8, §4.6)") {

@@ -774,10 +774,15 @@ static bool returns_value(const Block &p_block) {
 	});
 }
 
-// The values themselves are checked with the body (declare_params()).
-void Checker::check_defaults(const FuncDecl &p_function) {
+// The values themselves are checked with the body (declare_params()). An
+// interface method writes `= ...` instead, and only it (spec §3.9).
+void Checker::check_defaults(const FuncDecl &p_function, bool p_interface) {
 	bool any = false;
 	for (const ParamDecl &param : p_function.params) {
+		const bool value = param.default_value && param.default_value->kind != ExprKind::Error;
+		if (param.elides_default() ? !p_interface : p_interface && value) {
+			error(param.default_value->range, p_interface ? "An interface method gives no default value; write `= ...`, and its implementation gives the value." : "Only the parameters of an interface method are written `= ...`; give the default value.");
+		}
 		any = any || param.default_value;
 		if (any && !param.default_value && !param.is_rest) {
 			error(param.name_token, "Parameter \"" + param.name + "\" follows one with a default value and needs one too.");
@@ -802,13 +807,17 @@ Type Checker::rest_element(const Type &p_rest) {
 	return p_rest.is_error() ? p_rest : Type::of(TypeKind::Variant);
 }
 
-// What the function takes as argument `p_index`, nullopt when it takes none.
-std::optional<Type> Checker::argument_type(const FuncDecl &p_function, size_t p_index) {
-	const size_t fixed = p_function.params.size() - (p_function.has_rest() ? 1 : 0);
-	if (p_index < fixed) {
-		return p_function.params[p_index].type;
+Signature Checker::signature_of(const FuncDecl &p_function) {
+	Signature out;
+	out.params = param_types(p_function.params);
+	if (p_function.has_rest()) {
+		out.rest = rest_element(out.params.back());
+		out.params.pop_back();
 	}
-	return p_function.has_rest() ? std::optional<Type>(rest_element(p_function.params.back().type)) : std::nullopt;
+	out.optional = out.params.size() - size_t(required_params(p_function));
+	out.result = p_function.return_type;
+	out.is_async = p_function.is_async;
+	return out;
 }
 
 // A parameter whose type nothing gives (spec §4.6).
@@ -873,6 +882,9 @@ bool Checker::override_assignable(const Type &p_from, const Type &p_to) const {
 	if (p_from == p_to || p_from.is_error() || p_to.is_error()) {
 		return true;
 	}
+	if (p_to.kind == TypeKind::Variant) {
+		return assignable(p_from, p_to);
+	}
 	if (p_to.kind == TypeKind::Option) {
 		return p_from.kind == TypeKind::Option ? p_from.args == p_to.args : override_assignable(p_from, p_to.args[0]);
 	}
@@ -911,10 +923,10 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 			fix_async(r_fn);
 		}
 	}
-	const size_t base_fixed = p_base.params.size() - (p_base.has_rest() ? 1 : 0);
+	const Signature base_signature = signature_of(p_base);
 	for (size_t i = 0; i < r_fn.params.size(); ++i) {
 		ParamDecl &param = r_fn.params[i];
-		const std::optional<Type> base = argument_type(p_base, i);
+		const std::optional<Type> base = base_signature.argument(i);
 		if (param.declared_type) {
 			param.type = resolve(*param.declared_type, false);
 		} else if (param.infers_type) {
@@ -931,29 +943,30 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 		} else {
 			untyped(param);
 		}
-		// A rest parameter takes each argument of the base from here on, which
-		// it holds as an Array of it.
-		bool narrows = !param.is_rest && base && !override_assignable(*base, param.type);
-		for (size_t j = i; param.is_rest && j < base_fixed; j++) {
-			narrows = narrows || !override_assignable(Type::array(p_base.params[j].type), param.type);
-		}
-		if (param.is_rest && p_base.has_rest()) {
-			narrows = narrows || !override_assignable(p_base.params.back().type, param.type);
-		}
-		if (compared && narrows) {
-			error(param.name_token, "The override narrows its base parameter type.");
-		}
 	}
 	check_rest(r_fn);
 	check_defaults(r_fn);
-	if (compared && p_base.has_rest() && !r_fn.has_rest()) {
-		error(r_fn.name_token, "The override must keep the rest parameter of its base method.");
-	} else if (compared && (!takes(r_fn, base_fixed) || required_params(r_fn) > required_params(p_base))) {
-		error(r_fn.name_token, "The override must accept every argument count of its base method.");
-	}
 	r_fn.return_type = r_fn.return_type_ref ? resolve(*r_fn.return_type_ref, true) : p_base.return_type;
 	r_fn.slot = r_fn.return_type_ref ? -1 : p_base.slot;
-	if (compared && !override_assignable(r_fn.return_type, p_base.return_type)) {
+	if (!compared) {
+		return;
+	}
+	// A rest parameter takes each argument of the base from where it is.
+	const Misfit misfit = compiler::misfit(signature_of(r_fn), base_signature, [&](const Type &p_from, const Type &p_to) { return override_assignable(p_from, p_to); });
+	const ParamDecl *reported = nullptr;
+	for (const size_t argument : misfit.arguments) {
+		const ParamDecl &param = r_fn.params[std::min(argument, r_fn.params.size() - 1)];
+		if (&param != reported) {
+			error(param.name_token, "The override narrows its base parameter type.");
+		}
+		reported = &param;
+	}
+	if (p_base.has_rest() && !r_fn.has_rest()) {
+		error(r_fn.name_token, "The override must keep the rest parameter of its base method.");
+	} else if (misfit.counts) {
+		error(r_fn.name_token, "The override must accept every argument count of its base method.");
+	}
+	if (misfit.result) {
 		error(r_fn.name_token, "The override widens its base return type.");
 	}
 }
@@ -1084,7 +1097,7 @@ void Checker::check_signature(FuncDecl &r_function) {
 		}
 	}
 	// It takes as many arguments as the engine passes (spec §4.6).
-	if (r_function.is_override && !takes(r_function, engine_method->params.size())) {
+	if (r_function.is_override && !signature_of(r_function).takes(engine_method->params.size())) {
 		error(r_function.name_token, "\"" + r_function.name + "()\" overrides an engine method with " + std::to_string(engine_method->params.size()) + " parameter(s).");
 	}
 	for (size_t i = 0; i < r_function.params.size(); i++) {
@@ -1196,7 +1209,7 @@ void Checker::infer_params(FuncDecl &r_function) {
 			ParamDecl &param = r_function.params[i];
 			if (param.infers_type && param.default_value) {
 				param.type = param.default_value->kind == ExprKind::Error ? Type::of(TypeKind::Error) : inferred(check_value(*param.default_value), param.name_token, param.name);
-				const std::optional<Type> base = parent && !classes.errors_in(parent) ? argument_type(*parent, i) : std::nullopt;
+				const std::optional<Type> base = parent && !classes.errors_in(parent) ? signature_of(*parent).argument(i) : std::nullopt;
 				if (base && !override_assignable(*base, param.type)) {
 					error(param.name_token, "The override narrows its base parameter type.");
 				}
@@ -1245,12 +1258,25 @@ void Checker::known_params(const FuncDecl &p_function) {
 }
 
 // A function's default values see self and the parameters before them
-// (spec §4.6).
+// (spec §4.6). A lambda's see what its body does, and are checked with it
+// only (§3.11).
 void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
+	// The parameters are the first locals, before what a lambda's defaults
+	// capture.
+	const size_t first = r_function.locals.size();
 	for (const ParamDecl &param : r_function.params) {
-		// What a syntax error left is reported; one that gives the type is
-		// checked with the signature.
-		if (p_defaults && param.default_value && param.default_value->kind != ExprKind::Error && !param.infers_type) {
+		r_function.locals.push_back({ param.name, param.type, param.name_token });
+		r_function.locals.back().written = param.declared_type ? &*param.declared_type : nullptr;
+		r_function.locals.back().slot = param.slot;
+	}
+	for (size_t i = 0; i < r_function.params.size(); i++) {
+		ParamDecl &param = r_function.params[i];
+		// What a syntax error left is reported; one that gives the type of a
+		// function's parameter is checked with the signature.
+		const bool checked = p_defaults && param.default_value && param.default_value->kind != ExprKind::Error;
+		if (checked && param.infers_type && r_function.is_lambda && param.type.is_error()) {
+			param.type = r_function.locals[first + i].type = inferred(check_value(*param.default_value), param.name_token, param.name);
+		} else if (checked && (!param.infers_type || r_function.is_lambda)) {
 			const Type value = check_value(*param.default_value, param.type);
 			flow(param.slot, value, param.default_value->range);
 			expect_assignable(*param.default_value, value, param.type, "use", param.declared_type ? &*param.declared_type : nullptr);
@@ -1259,10 +1285,7 @@ void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
 			error(param.name_token, "Parameter \"" + param.name + "\" is declared twice.");
 		}
 		refuse_global_name(param.name, param.name_token);
-		scopes.back()[param.name] = int(r_function.locals.size());
-		r_function.locals.push_back({ param.name, param.type, param.name_token });
-		r_function.locals.back().written = param.declared_type ? &*param.declared_type : nullptr;
-		r_function.locals.back().slot = param.slot;
+		scopes.back()[param.name] = int(first + i);
 		refer_local(param.name_token, param.type);
 	}
 }
@@ -1316,11 +1339,9 @@ void Checker::declare_interfaces() {
 			refuse_new(method);
 			refer(method.name_token, script_id(options.path, interface.name + "." + method.name), SymbolKind::Method);
 			for (ParamDecl &param : method.params) {
-				if (param.default_value) {
-					error(param.default_value->range, "Interface methods have no default values.");
-				}
 				if (!param.declared_type) {
-					if (!param.infers_type) {
+					// `x := value` is reported for its value.
+					if (!param.infers_type || param.elides_default()) {
 						untyped(param);
 					}
 					continue;
@@ -1329,6 +1350,7 @@ void Checker::declare_interfaces() {
 			}
 			method.inference = FuncDecl::Inference::Done;
 			check_rest(method);
+			check_defaults(method, true);
 			method.return_type = method.return_type_ref ? resolve(*method.return_type_ref, true) : Type::of(TypeKind::Void);
 		}
 		std::unordered_set<std::string> members;
@@ -1417,13 +1439,12 @@ std::optional<std::pair<Checker::InterfaceMember, uint32_t>> Checker::own_interf
 // one that need only be readable, not the other way.
 bool Checker::fits_inherited(const InterfaceMember &p_member, const InterfaceMember &p_inherited, bool p_redeclared) const {
 	if (p_member.method && p_inherited.method) {
-		const FuncDecl &a = *p_member.method;
-		const FuncDecl &b = *p_inherited.method;
-		bool same = a.params.size() == b.params.size() && a.is_async == b.is_async && (p_redeclared ? assignable(a.return_type, b.return_type) : a.return_type == b.return_type);
-		for (size_t i = 0; same && i < a.params.size(); i++) {
-			same = a.params[i].type == b.params[i].type && a.params[i].is_rest == b.params[i].is_rest;
+		Signature member = signature_of(*p_member.method);
+		const Signature inherited = signature_of(*p_inherited.method);
+		if (p_redeclared && assignable(member.result, inherited.result)) {
+			member.result = inherited.result;
 		}
-		return same;
+		return member == inherited;
 	}
 	if (p_member.property && p_inherited.property) {
 		return p_member.property->type == p_inherited.property->type && (!p_member.property->is_readonly || p_inherited.property->is_readonly || !p_redeclared);
@@ -1503,11 +1524,15 @@ void Checker::check_implements() {
 			if (function.is_static) {
 				error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + ", so it cannot be static.");
 			}
-			bool same = function.params.size() == method.params.size() && function.return_type == method.return_type && function.is_async == method.is_async;
-			for (size_t i = 0; same && i < method.params.size(); i++) {
-				same = function.params[i].type == method.params[i].type && function.params[i].is_rest == method.params[i].is_rest;
-			}
-			if (!same) {
+			// It gives the defaults of the arguments that a call through the
+			// interface may leave out, and may have more.
+			Signature own = signature_of(function);
+			const Signature required = signature_of(method);
+			const bool defaults = own.optional >= required.optional;
+			own.optional = required.optional;
+			if (own == required && !defaults) {
+				error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" implements " + member.owner.name + ", whose callers may leave out \"" + function.params[required.required()].name + "\"; give it a default value.");
+			} else if (!(own == required)) {
 				error(own_name(function, cls.functions, ref.range), "\"" + function.name + "()\" does not have the signature that " + member.owner.name + " declares, " + signature_text(method) + ".");
 			}
 		}

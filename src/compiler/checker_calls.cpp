@@ -125,7 +125,12 @@ Type Checker::engine_method_value(Expr &r_expr, const EngineMethod &p_method) {
 		r_expr.static_on_value = r_expr.base && !names_type(*r_expr.base);
 	}
 	// Of a method that takes any number of arguments, a Callable of unknown signature.
-	return set(r_expr, p_method.is_vararg ? Type::builtin("Callable") : Type::function(engine_result(p_method), params));
+	if (p_method.is_vararg) {
+		return set(r_expr, Type::builtin("Callable"));
+	}
+	Type type = Type::function(engine_result(p_method), params);
+	type.optional_params = uint32_t(p_method.default_count);
+	return set(r_expr, type);
 }
 
 // A try_ version as a value (spec §3.11, §10.3), which is lowered at each
@@ -268,12 +273,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 		out.id = script_id(p_owner, p_function.name);
 		out.name_token = p_function.name_token;
 		out.function = &p_function;
-		out.params = param_types(p_function.params);
-		out.required = required_params(p_function);
-		if (p_function.has_rest()) {
-			out.rest = rest_element(out.params.back());
-			out.params.pop_back();
-		}
+		out.signature = signature_of(p_function);
 	};
 	const auto from_engine = [&](const EngineMethod &p_method, const DeclId &p_id) {
 		out.found = true;
@@ -281,11 +281,11 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 		out.id = p_id;
 		const std::vector<Type> signal = p_kind == Kind::Signal ? signal_type(p_method).args : std::vector<Type>();
 		for (size_t i = 0; i < p_method.params.size(); i++) {
-			out.params.push_back(localized(signal.empty() ? p_method.params[i].type : signal[i]));
+			out.signature.params.push_back(localized(signal.empty() ? p_method.params[i].type : signal[i]));
 		}
-		out.required = int(p_method.params.size()) - p_method.default_count;
+		out.signature.optional = size_t(p_method.default_count);
 		if (p_method.is_vararg) {
-			out.rest = Type::of(TypeKind::Variant);
+			out.signature.rest = Type::of(TypeKind::Variant);
 		}
 	};
 	if (p_class.is_interface) {
@@ -305,7 +305,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 		if (member && member->signal && p_kind == Kind::Signal) {
 			out.found = true;
 			out.id = interface_member_id(*member);
-			out.params = param_types(member->signal->params);
+			out.signature.params = param_types(member->signal->params);
 			return out;
 		}
 	} else if (is_script_path(p_class.script)) {
@@ -329,7 +329,7 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 				out.hidden = !signal->is_pub;
 				out.id = script_id(declaring(*decl, *signal, &ClassDecl::signals).path, signal->name);
 				out.name_token = signal->name_token;
-				out.params = param_types(signal->params);
+				out.signature.params = param_types(signal->params);
 				return out;
 			}
 		}
@@ -490,14 +490,13 @@ void Checker::check_member_name(Expr &r_call, const EngineMethod &p_method, cons
 		// The arguments that follow are passed on: to the method, or with the
 		// signal as it is emitted.
 		const size_t given = r_call.args.size() - first;
-		const size_t required = p_named.kind == Kind::Method ? size_t(member.required) : member.params.size();
-		if (given < required || (!member.rest && given > member.params.size())) {
-			error(literal.range, "\"" + name + "\" takes " + argument_count(int(required), int(member.params.size()), member.rest.has_value()) + " argument(s); " + std::to_string(given) + " follow.");
+		if (!member.signature.takes(given)) {
+			error(literal.range, "\"" + name + "\" takes " + argument_count(member.signature) + " argument(s); " + std::to_string(given) + " follow.");
 			return;
 		}
 		for (size_t i = 0; i < given; i++) {
 			const Expr &arg = *r_call.args[first + i];
-			const Type &param = i < member.params.size() ? member.params[i] : *member.rest;
+			const Type param = *member.signature.argument(i);
 			if (!arg.type.is_error() && !assignable(arg.type, param)) {
 				error(arg.range, "\"" + name + "\" takes " + param.to_string() + " as argument " + std::to_string(i + 1) + "; found " + arg.type.to_string() + ".");
 			} else {
@@ -505,7 +504,7 @@ void Checker::check_member_name(Expr &r_call, const EngineMethod &p_method, cons
 			}
 		}
 	} else if (p_named.kind == Kind::Signal && first < r_call.args.size() && (r_call.args[first]->type.kind == TypeKind::Function || rest_function(*r_call.args[first]))) {
-		check_handler(*r_call.args[first], Type::signal(member.params));
+		check_handler(*r_call.args[first], Type::signal(member.signature.params));
 	}
 }
 
@@ -820,7 +819,7 @@ Type Checker::check_named_value(Expr &r_expr, bool p_signal) {
 	// A method of this language as its method value; any other as the
 	// engine's Callable, which finds it by name.
 	r_expr.index = member && member->id.kind == DeclId::Kind::Script ? 1 : 0;
-	return set(r_expr, p_signal && member ? Type::signal(member->params) : Type::builtin(p_signal ? "Signal" : "Callable"));
+	return set(r_expr, p_signal && member ? Type::signal(member->signature.params) : Type::builtin(p_signal ? "Signal" : "Callable"));
 }
 
 Type Checker::role_type(bytecode::ElementRole p_role, const Type &p_container) {
@@ -1075,34 +1074,68 @@ Type Checker::check_builtin_method(Expr &r_expr, const Type &p_base, bool p_stat
 	return set(r_expr, result);
 }
 
-// `f.bind(a, b)` drops the last two parameters of f, which the engine
-// passes after the caller's arguments (spec §3.11,
-// core/variant/callable_bind.cpp:141-150).
+// `f.bind(a, b)`, whose values the engine passes after the caller's
+// arguments (spec §3.11, core/variant/callable_bind.cpp:141-150; ed1daf0).
+// It takes k arguments when f takes k + 2 and a and b go into the parameters
+// they land on then; its type takes the first run of such counts.
 Type Checker::check_bind(Expr &r_expr, const Type &p_function) {
-	const size_t param_count = p_function.args.size() - 1;
+	const Signature function = Signature::of(p_function);
+	const std::vector<Type> &params = function.params;
 	const size_t bound = r_expr.args.size();
-	if (bound > param_count) {
-		return fail_call(r_expr, "bind() binds " + std::to_string(bound) + " argument(s), but " + p_function.to_string() + " takes " + std::to_string(param_count) + ".");
+	if (bound > params.size()) {
+		return fail_call(r_expr, "bind() binds " + std::to_string(bound) + " argument(s), but " + p_function.to_string() + " takes " + std::to_string(params.size()) + ".");
 	}
-	const std::vector<Type> rest(p_function.args.begin() + 1, p_function.args.end() - bound);
-	const std::vector<Type> bound_params(p_function.args.end() - bound, p_function.args.end());
-	check_arguments(r_expr, bound_params, int(bound), false);
+	const size_t least = function.required() > bound ? function.required() - bound : 0;
+	size_t first = params.size() - bound;
+	size_t last = first;
+	if (least == first) {
+		// The values go into known parameters, which they convert to.
+		check_arguments(r_expr, std::vector<Type>(params.begin() + least, params.end()), int(bound), false);
+	} else {
+		std::vector<Type> given;
+		for (const std::unique_ptr<Expr> &arg : r_expr.args) {
+			given.push_back(check_value(*arg));
+			r_expr.param_types.push_back(given.back());
+		}
+		const auto lands = [&](size_t p_count) {
+			for (size_t i = 0; i < bound; i++) {
+				if (!assignable(given[i], params[p_count + i])) {
+					return false;
+				}
+			}
+			return true;
+		};
+		first = least;
+		while (first <= params.size() - bound && !lands(first)) {
+			first++;
+		}
+		if (first > params.size() - bound) {
+			std::string values;
+			for (const Type &type : given) {
+				values += (values.empty() ? "" : ", ") + type.to_string();
+			}
+			return fail(r_expr, "bind() puts its values after the caller's arguments, where " + p_function.to_string() + " takes no " + values + ".");
+		}
+		for (last = first; last < params.size() - bound && lands(last + 1); last++) {
+		}
+	}
 	const FuncDecl *callee = r_expr.base->target == Target::MethodValue || r_expr.base->target == Target::StaticValue ? r_expr.base->callee : nullptr;
-	for (size_t i = 0; callee && i < bound && param_count - bound + i < callee->params.size(); i++) {
-		flow(callee->params[param_count - bound + i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
+	for (size_t i = 0; callee && i < bound && first + i < callee->params.size(); i++) {
+		flow(callee->params[first + i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
 	}
 	// The engine's Callable keeps them as Variants.
 	for (size_t i = 0; i < bound; i++) {
-		const std::string loss = encoding_loss(bound_params[i], "the engine", false);
+		const std::string loss = encoding_loss(r_expr.param_types[i], "the engine", false);
 		if (!loss.empty()) {
-			error(r_expr.args[i]->range, "bind() keeps a value of type " + bound_params[i].to_string() + ", but " + loss);
+			error(r_expr.args[i]->range, "bind() keeps a value of type " + r_expr.param_types[i].to_string() + ", but " + loss);
 		}
 	}
 	r_expr.target = Target::BindArguments;
 	refer(r_expr.name_token, engine_id("Callable", "bind"));
-	Type type = Type::function(p_function.args[0], rest);
-	type.is_async = p_function.is_async;
-	return set(r_expr, type);
+	Signature result = function;
+	result.params.resize(last);
+	result.optional = last - first;
+	return set(r_expr, result.type());
 }
 
 // `f.call(x)`, checked against f's type, and `f.callv(args)`, whose
@@ -1112,8 +1145,17 @@ Type Checker::check_bind(Expr &r_expr, const Type &p_function) {
 Type Checker::check_function_call(Expr &r_expr, const Type &p_function) {
 	const bool spread = r_expr.text == "callv";
 	const std::vector<Type> params(p_function.args.begin() + 1, p_function.args.end());
-	hint(r_expr, [&](int p_current) { return signature(r_expr.text, spread ? std::vector<std::string>{ "arguments: Array" } : type_names(params), false, p_current, p_function.args[0].to_string()); });
-	check_arguments(r_expr, spread ? std::vector<Type>{ Type::builtin("Array") } : params, spread ? 1 : int(params.size()), false);
+	hint(r_expr, [&](int p_current) {
+		std::vector<std::string> names = type_names(params);
+		for (size_t i = names.size() - p_function.optional_params; i < names.size(); i++) {
+			names[i] += " = ...";
+		}
+		return signature(r_expr.text, spread ? std::vector<std::string>{ "arguments: Array" } : names, false, p_current, p_function.args[0].to_string());
+	});
+	check_arguments(r_expr, spread ? std::vector<Type>{ Type::builtin("Array") } : params, spread ? 1 : int(params.size() - p_function.optional_params), false);
+	// The call's signature is the type's, also for an argument left out (spec §3.11).
+	r_expr.engine_params = spread ? r_expr.param_types : params;
+	r_expr.index = spread ? 0 : int(p_function.optional_params);
 	r_expr.target = Target::CallValue;
 	refer(r_expr.name_token, engine_id("Callable", r_expr.text));
 	r_expr.is_async = p_function.is_async;

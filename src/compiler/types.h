@@ -54,6 +54,7 @@ struct Type {
 	std::string base;
 	bool is_interface = false;
 	bool is_async = false;
+	uint32_t optional_params = 0; // Function: how many of the last parameters a call may leave out (spec §3.11).
 	std::shared_ptr<const EnumValues> values; // Enum and PayloadEnum; the name and the script say which enum it is.
 	static Type task(const Type &p_result) { return Type{ TypeKind::Task, std::string(), false, { p_result } }; }
 
@@ -111,7 +112,7 @@ struct Type {
 	static Type cancel_reason();
 
 	bool operator==(const Type &p_other) const {
-		return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args && script == p_other.script && is_interface == p_other.is_interface && is_async == p_other.is_async;
+		return kind == p_other.kind && name == p_other.name && nullable == p_other.nullable && args == p_other.args && script == p_other.script && is_interface == p_other.is_interface && is_async == p_other.is_async && optional_params == p_other.optional_params;
 	}
 	bool operator!=(const Type &p_other) const { return !(*this == p_other); }
 
@@ -158,6 +159,41 @@ struct EnumValues {
 		return false;
 	}
 };
+
+// What a function takes and gives (spec §3.11, §4.6): the types of its
+// parameters, how many of the last ones a call may leave out, what it takes
+// each argument after them as when it has a rest parameter, its result and
+// whether it is async.
+struct Signature {
+	std::vector<Type> params;
+	size_t optional = 0;
+	std::optional<Type> rest;
+	Type result = Type::of(TypeKind::Void);
+	bool is_async = false;
+
+	static Signature of(const Type &p_function);
+	Type type() const; // As a function type, which has no rest parameter.
+	size_t required() const { return params.size() - optional; }
+	bool takes(size_t p_count) const { return p_count >= required() && (rest || p_count <= params.size()); }
+	std::optional<Type> argument(size_t p_index) const { return p_index < params.size() ? std::optional<Type>(params[p_index]) : rest; }
+	bool operator==(const Signature &p_other) const { return params == p_other.params && optional == p_other.optional && rest == p_other.rest && result == p_other.result && is_async == p_other.is_async; }
+};
+
+// How a function of `p_from` fails to stand where one of `p_to` is expected
+// (spec §3.14, §4.6). It must take every count of arguments that `p_to`
+// takes, and each argument as `p_assignable(argument, parameter)` says;
+// where results count, give what `p_to` gives and be async as it is.
+struct Misfit {
+	bool counts = false;
+	std::vector<size_t> arguments; // Each it does not take, by its index.
+	bool result = false;
+	bool async = false;
+
+	bool takes_arguments() const { return !counts && arguments.empty(); }
+	bool fits() const { return takes_arguments() && !result && !async; }
+};
+
+Misfit misfit(const Signature &p_from, const Signature &p_to, const std::function<bool(const Type &, const Type &)> &p_assignable);
 
 // A type named as godot-cpp's extension API names it: "float", "Vector3",
 // "Variant", "enum::Vector3.Axis", a class… Objects the engine returns are

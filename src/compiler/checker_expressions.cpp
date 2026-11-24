@@ -650,16 +650,14 @@ Type Checker::check_lambda(Expr &r_expr, const Type &p_expected) {
 		return fail(r_expr, "A lambda is not a constant expression.");
 	}
 	lambda.is_static = function ? function->is_static : static_initializing >= 0;
-	// A function type has no rest parameter (spec §4.6).
-	const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() == lambda.params.size() + 1 && !lambda.has_rest();
+	// A function type has no rest parameter (spec §4.6). Those after the
+	// type's parameters have default values.
+	const bool typed_by_expected = p_expected.kind == TypeKind::Function && p_expected.args.size() <= lambda.params.size() + 1 && !lambda.has_rest();
 	for (size_t i = 0; i < lambda.params.size(); i++) {
 		ParamDecl &param = lambda.params[i];
-		if (param.default_value) {
-			error(param.default_value->range, "Lambda parameters have no default values.");
-		}
 		if (param.declared_type) {
 			param.type = resolve(*param.declared_type, false);
-		} else if (typed_by_expected) {
+		} else if (typed_by_expected && i + 1 < p_expected.args.size()) {
 			param.type = p_expected.args[i + 1];
 		} else if (!param.infers_type) {
 			untyped(param, ": nothing the lambda goes to gives one");
@@ -667,6 +665,7 @@ Type Checker::check_lambda(Expr &r_expr, const Type &p_expected) {
 	}
 	lambda.inference = FuncDecl::Inference::Done;
 	check_rest(lambda);
+	check_defaults(lambda);
 	Returns inferred;
 	if (typed_by_expected) {
 		inferred.expected = p_expected.args[0];
@@ -689,7 +688,7 @@ Type Checker::check_lambda(Expr &r_expr, const Type &p_expected) {
 	in_assert = false;
 	initializing = -1;
 	static_initializing = -1;
-	declare_params(lambda);
+	declare_params(lambda, true);
 	check_block(lambda.body);
 	in_assert = was_assert;
 	if (!lambda.return_type_ref) {
@@ -753,33 +752,22 @@ void Checker::check_handler(const Expr &p_handler, const Type &p_signal) {
 	for (size_t i = 0; callee && i < p_signal.args.size() && i < callee->params.size(); i++) {
 		flow(callee->params[i].slot, p_signal.args[i], p_handler.range);
 	}
-	// A Callable, checked by its declaration.
-	if (const FuncDecl *declared = rest_function(p_handler)) {
-		if (!takes(*declared, p_signal.args.size())) {
-			error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + signature_text(*declared) + " takes " + argument_count(*declared) + ".");
-			return;
-		}
-		for (size_t i = 0; i < p_signal.args.size(); i++) {
-			if (!assignable(p_signal.args[i], *argument_type(*declared, i))) {
-				error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + signature_text(*declared) + " does not take.");
-				return;
-			}
-		}
-		return;
-	}
-	if (handler.kind != TypeKind::Function) {
+	// A Callable is checked by its declaration.
+	const FuncDecl *declared = rest_function(p_handler);
+	if (!declared && handler.kind != TypeKind::Function) {
 		error(p_handler.range, "A signal is connected to a function value, such as a method name, whose parameters it can check; found " + handler.to_string() + ".");
 		return;
 	}
-	if (handler.args.size() - 1 != p_signal.args.size()) {
-		error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + handler.to_string() + " takes " + std::to_string(handler.args.size() - 1) + ".");
-		return;
-	}
-	for (size_t i = 0; i < p_signal.args.size(); i++) {
-		if (!assignable(p_signal.args[i], handler.args[i + 1])) {
-			error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + handler.to_string() + " does not take.");
-			return;
-		}
+	const Signature taking = declared ? signature_of(*declared) : Signature::of(handler);
+	const std::string shown = declared ? signature_text(*declared) : handler.to_string();
+	Signature passed;
+	passed.params = p_signal.args;
+	const Misfit misfit = compiler::misfit(taking, passed, [&](const Type &p_from, const Type &p_to) { return assignable(p_from, p_to); });
+	if (misfit.counts) {
+		error(p_handler.range, p_signal.to_string() + " passes " + std::to_string(p_signal.args.size()) + " argument(s), but " + shown + " takes " + argument_count(taking) + ".");
+	} else if (!misfit.arguments.empty()) {
+		const size_t i = misfit.arguments[0];
+		error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + shown + " does not take.");
 	}
 }
 
@@ -976,7 +964,9 @@ std::optional<Type> Checker::check_function_argument(Expr &r_call, const std::ve
 	if (function.is_error()) {
 		return std::nullopt;
 	}
-	if (function.kind != TypeKind::Function || function.is_async || function.args.size() != p_params.size() + 1 || (!p_params.empty() && !assignable(p_params[0], function.args[1]))) {
+	Signature taken;
+	taken.params = p_params;
+	if (function.kind != TypeKind::Function || function.is_async || !compiler::misfit(Signature::of(function), taken, [&](const Type &p_from, const Type &p_to) { return assignable(p_from, p_to); }).takes_arguments()) {
 		const std::string wanted = p_params.empty() ? "without parameters" : "of one parameter, which takes " + p_params[0].to_string();
 		error(arg.range, "\"" + r_call.text + "()\" takes a function " + wanted + "; found " + function.to_string() + ".");
 		return std::nullopt;

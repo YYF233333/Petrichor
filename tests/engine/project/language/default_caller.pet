@@ -21,3 +21,7 @@ pub func computed(other: DefaultValues) -> Array:
 
 pub func label_of(other: DefaultValues) -> String:
 	return other.label()
+
+pub func label_through_value(other: DefaultValues) -> String:
+	var f := other.label
+	return f.call()

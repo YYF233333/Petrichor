@@ -568,8 +568,11 @@ class Lowerer {
 		i.base = p_value;
 		bytecode::MethodCall method;
 		method.method = "call";
+		for (size_t p = 1; p < p_function.args.size(); p++) {
+			method.params.push_back(slot(std::string(), p_function.args[p]));
+		}
+		method.defaults = p_function.optional_params;
 		if (p_arg != NO_REG) {
-			method.params.push_back(slot(std::string(), p_function.args[1]));
 			i.args.push_back(convert(p_arg, p_arg_type, p_function.args[1]));
 		}
 		method.result = slot(std::string(), p_function.args[0]);
@@ -2004,9 +2007,10 @@ class Lowerer {
 				i.op = Op::CALL_VALUE;
 				bytecode::MethodCall method;
 				method.method = p_call.text;
-				for (const Type &param : p_call.param_types) {
+				for (const Type &param : p_call.engine_params) {
 					method.params.push_back(slot(std::string(), param));
 				}
+				method.defaults = uint32_t(p_call.index);
 				method.result = slot(std::string(), p_call.type);
 				i.imm = method_call(method);
 				break;
@@ -2138,10 +2142,15 @@ class Lowerer {
 			local_regs[local] = uint32_t(fn.regs.size());
 			fn.regs.push_back(slot(lambda.locals[local].name, lambda.locals[local].type));
 		}
+		if (has_defaults(lambda)) {
+			fn.given = temp(ValueType::Int);
+		}
+		lower_defaults(lambda);
 		lower_block(lambda.body);
 		finish();
 		bytecode::Function out = ir::emit(fn, module);
 		out.is_lambda = true;
+		out.defaults = default_constants(lambda);
 		out.is_vararg = lambda.has_rest();
 		out.captures = uint32_t(lambda.captures.size());
 		out.is_static = !lambda.uses_self;
@@ -3332,6 +3341,24 @@ class Lowerer {
 		current = new_block();
 	}
 
+	static bool has_defaults(const FuncDecl &p_function) {
+		return std::any_of(p_function.params.begin(), p_function.params.end(), [](const ParamDecl &p_param) { return bool(p_param.default_value); });
+	}
+
+	// The default values as the engine's method list shows them, NIL for one
+	// that is no constant, as GDScript lists it
+	// (modules/gdscript/gdscript_analyzer.cpp:1795-1798).
+	std::vector<bytecode::Constant> default_constants(const FuncDecl &p_function) {
+		std::vector<bytecode::Constant> out;
+		for (const ParamDecl &param : p_function.params) {
+			if (param.default_value) {
+				const ConstPtr value = converted(param.default_value->constant, param.type);
+				out.push_back(value && !loads(*value) ? constant_of(*value) : bytecode::Constant{ type_index(Type::of(TypeKind::Variant)) });
+			}
+		}
+		return out;
+	}
+
 	// The defaults of the arguments a call left out, first in the function (spec
 	// §4.6): the call wrote into `fn.given` how many it passed.
 	void lower_defaults(const FuncDecl &p_function) {
@@ -3634,7 +3661,7 @@ public:
 			for (const LocalInfo &local : function.locals) {
 				fn.regs.push_back(slot(local.name, local.type));
 			}
-			if (std::any_of(function.params.begin(), function.params.end(), [](const ParamDecl &p_param) { return bool(p_param.default_value); })) {
+			if (has_defaults(function)) {
 				fn.given = temp(ValueType::Int);
 			}
 			if (!p_declarations_only && !inherited) {
@@ -3677,14 +3704,7 @@ public:
 				}
 			}
 			out.is_vararg = function.has_rest();
-			for (const ParamDecl &param : function.params) {
-				if (param.default_value) {
-					// NIL for one that is no constant, as GDScript lists it
-					// (modules/gdscript/gdscript_analyzer.cpp:1795-1798).
-					const ConstPtr value = converted(param.default_value->constant, param.type);
-					out.defaults.push_back(value && !loads(*value) ? constant_of(*value) : bytecode::Constant{ type_index(Type::of(TypeKind::Variant)) });
-				}
-			}
+			out.defaults = default_constants(function);
 			module.functions.push_back(std::move(out));
 		}
 		for (const StructDecl &structure : cls.structs) {

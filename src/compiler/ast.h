@@ -27,10 +27,12 @@ struct TypeRef {
 	uint32_t name_token = 0;
 	uint32_t optional = 0; // The ?s of `T?` (spec §3.3, §3.4) or `T??`.
 	std::vector<TypeRef> args; // `Array[T]`; a function type's parameters.
-	// `func(T) -> R` (spec §2.4), with its return type in `result` when written.
+	// `func(T) -> R` (spec §2.4), with its return type in `result` when written,
+	// and how many of the last parameters are written `T = ...` (§3.11).
 	bool is_function = false;
 	bool is_async = false;
 	std::vector<TypeRef> result;
+	uint32_t optional_params = 0;
 };
 
 struct FuncDecl;
@@ -580,12 +582,16 @@ struct ParamDecl {
 	uint32_t name_token = 0;
 	std::optional<TypeRef> declared_type;
 	bool infers_type = false; // Written `name := value`: typed by the value (spec §4.6).
+	// `= ...` of an interface method's parameter, which the implementation's
+	// default fills (spec §3.9), is an Error expression of the Ellipsis.
 	std::unique_ptr<Expr> default_value;
 	// `...args`, the last parameter, which takes the arguments after the
 	// others as an Array (spec §4.6).
 	bool is_rest = false;
 	Type type; // Filled by the checker.
 	int slot = -1; // Filled by the checker in a migration: the untyped slot it is (Inflows).
+
+	bool elides_default() const { return default_value && default_value->kind == ExprKind::Error && default_value->op == TokenKind::Ellipsis; }
 };
 
 struct LocalInfo {

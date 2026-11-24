@@ -338,6 +338,7 @@ func _ready() -> void:
 	_check(refused_array == 0 and v.count_damageable(with_target) == 1, "an array of an interface takes only objects that implement it")
 	_check(v.mortal_signal(target) == "[\"fall\"] true", "a signal an interface requires connects and emits through it, and an object of an interface is one of those it extends")
 	_check(CombatCheck.new().spawned() == "Node2D", "a method that a child interface redeclares with a narrower result is called through the parent")
+	_check(CombatCheck.new().fired() == [3, 5], "a call through an interface that leaves out an argument takes the implementation's default")
 	_check(v.objects_found() == [true, true, true, true], "instance_from_id() and get_object() give the object, or None once it is freed")
 	var orders := []
 	for pair in [["apple", "banana"], ["b", "b"], ["é", "z"]]:

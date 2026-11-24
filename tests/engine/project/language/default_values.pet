@@ -54,3 +54,22 @@ pub func local_computed() -> Array:
 
 pub func label(text: String = "plain") -> String:
 	return text
+
+# A lambda computes its default at each call that leaves it out (spec §3.11).
+pub func lambda_defaults() -> Array:
+	var seen: Array[int] = []
+	var f := func(n: int = seen.size()) -> int:
+		seen.append(n)
+		return n
+	# Kept where a function type that takes none is expected (spec §3.14).
+	var kept: Array[func() -> int] = [f]
+	return [f.call(), f.call(), f.call(9), kept[0].call()]
+
+func spawn(kind := 0, count := 1) -> Array:
+	return [kind, count]
+
+# The caller's arguments come first, the bound value after them, as the
+# engine passes them (spec §3.11).
+pub func spawned() -> Array:
+	var f := spawn.bind(3)
+	return [f.call(), f.call(2)]

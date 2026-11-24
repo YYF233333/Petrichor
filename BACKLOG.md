@@ -30,9 +30,6 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 ## Language
 
-- `f.bind(x)` where `f` has a parameter with a default. Spec §3.11 types it by dropping the last parameters. The engine passes bound arguments after the caller's (`core/variant/callable_bind.cpp:141-150`), so `x` lands where the caller's arguments end.
-  - So `pressed.connect(f.bind("Deck"))` with `func f(title: String, randomized := false)` is refused, though it runs (deck_builder_tutorial `scenes/run/run.gd:148`).
-  - In corpus v2, 27 such binds of a class's own methods leave the defaults to the caller, and 17 fill them. Scene connections already follow the engine (`checker_scenes.cpp`).
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
 - `Array[PackedScene[T]]` cannot be written, though `[preload(...)]` infers it and spec §7.4 lists container elements.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
@@ -342,8 +339,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - After 0.3 and before 0.9: tuples for multi-parameter signal `await` (spec §9.6, §14.3). Decide then whether `await Task.all([...])` also returns a tuple of heterogeneous results (§9.5).
   - About half of the uses in corpus v2 await `HTTPRequest.request_completed`, often reading `[3]`. Fields named by the signal's parameters, as `.body`, are a candidate besides tuples.
   - Before them, `AWAIT_TASK` and `AWAIT_SIGNAL` must carry the type of their result, as other instructions with a result do. Now the VM searches the frame's slots on each resume.
-- After 0.3 and before 0.9: default values of lambda parameters and of interface method parameters, with optional parameters in function types (spec §3.9, §3.11, §14.3).
-  - Before them, one `Signature` value should serve overriding, implementing, signal handlers and function-type conversion. Now each repeats the rules of compatibility and argument counts.
 - Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
   - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).

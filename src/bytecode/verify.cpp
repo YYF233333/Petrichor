@@ -606,8 +606,9 @@ class Verifier {
 				}
 				const MethodCall &method = module.method_calls[callee];
 				const bool spread = method.method == "callv";
-				if ((!spread && method.method != "call") || method.static_class >= 0 || method.is_async || method.defaults != 0 || p_call[3] != method.params.size() ||
-						(spread && (method.params.size() != 1 || storage(method.params[0].type) != ValueType::Array))) {
+				// call() may leave out the arguments its function type marks.
+				if ((!spread && method.method != "call") || method.static_class >= 0 || method.is_async || p_call[3] > method.params.size() || p_call[3] + method.defaults < method.params.size() ||
+						(spread && (method.defaults != 0 || method.params.size() != 1 || storage(method.params[0].type) != ValueType::Array))) {
 					return fail("CALL_VALUE of what is not call() or callv() of a function value");
 				}
 				for (uint32_t i = 0; i < p_call[3]; i++) {
@@ -1157,7 +1158,7 @@ public:
 			if (each.is_abstract && (!module.is_abstract || each.is_static)) {
 				return fail("an abstract function of a class that is not abstract, or a static one");
 			}
-			if (each.is_lambda ? each.captures > each.params.size() || !each.defaults.empty() || each.is_pub || each.is_override || each.is_abstract || each.is_inherited : each.captures != 0) {
+			if (each.is_lambda ? each.captures + each.defaults.size() > each.params.size() || each.is_pub || each.is_override || each.is_abstract || each.is_inherited : each.captures != 0) {
 				return fail("a lambda with more captures than parameters, or declared as a method");
 			}
 		}

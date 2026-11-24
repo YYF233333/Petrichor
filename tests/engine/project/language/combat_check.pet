@@ -32,3 +32,16 @@ pub func spawned() -> String:
 	var name := made.get_class()
 	made.free()
 	return name
+
+# A call through the interface may leave out what it writes `= ...`, which
+# the implementation's default gives (spec §3.9).
+pub interface Firing:
+	func fire(times: int = ...) -> int
+
+class Gun implements Firing:
+	pub func fire(times: int = 3) -> int:
+		return times
+
+pub func fired() -> Array:
+	var gun: Firing = Gun.new()
+	return [gun.fire(), gun.fire(5)]

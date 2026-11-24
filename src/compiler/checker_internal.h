@@ -668,8 +668,8 @@ class Checker : public ClassRelation {
 		return p_type.kind == TypeKind::Object && p_type.name == "PackedScene" && !p_type.args.empty();
 	}
 
-	static std::string argument_count(const FuncDecl &p_function) {
-		return argument_count(required_params(p_function), int(p_function.params.size()), p_function.has_rest());
+	static std::string argument_count(const Signature &p_signature) {
+		return argument_count(int(p_signature.required()), int(p_signature.params.size()), p_signature.rest.has_value());
 	}
 
 	// A method value keeps no reference to its object (spec §3.11), so one of
@@ -689,9 +689,7 @@ class Checker : public ClassRelation {
 		uint32_t name_token = NO_TOKEN; // Of one of this language, in its declaration in the file of `id`.
 		const FuncDecl *function = nullptr; // A method of this language.
 		Type type = Type::of(TypeKind::Error); // A property's, or Error.
-		std::vector<Type> params; // A method's or a signal's.
-		int required = 0; // A method's.
-		std::optional<Type> rest; // What a method takes after `params`, when it takes more.
+		Signature signature; // A method's, or of a signal its arguments.
 	};
 
 	// Where to report a member of this class: as own_name().
@@ -745,10 +743,6 @@ class Checker : public ClassRelation {
 	// (modules/gdscript/gdscript_parser.cpp:2177-2182).
 	static bool is_comment(const Expr &p_expr) {
 		return p_expr.kind == ExprKind::StringLiteral && p_expr.op == TokenKind::String;
-	}
-
-	static bool takes(const FuncDecl &p_function, size_t p_count) {
-		return p_count >= size_t(required_params(p_function)) && (p_function.has_rest() || p_count <= p_function.params.size());
 	}
 
 	// Names that may be written somewhere, as types or as values: more than
@@ -1147,10 +1141,10 @@ class Checker : public ClassRelation {
 	std::string node_field(const Type &p_type, const std::string &p_field, std::unordered_set<std::string> &r_seen) const;
 	void check_static_declaration(size_t p_index);
 	void check_accessors(VarDecl &r_member);
-	void check_defaults(const FuncDecl &p_function);
+	void check_defaults(const FuncDecl &p_function, bool p_interface = false);
 	static int required_params(const FuncDecl &p_function);
 	static Type rest_element(const Type &p_rest);
-	static std::optional<Type> argument_type(const FuncDecl &p_function, size_t p_index);
+	static Signature signature_of(const FuncDecl &p_function);
 	void untyped(ParamDecl &r_param, const std::string &p_why = std::string());
 	void check_rest(const FuncDecl &p_function);
 	bool refuse_in_static(const Expr &p_expr, const std::string &p_name, const std::string &p_member = std::string());

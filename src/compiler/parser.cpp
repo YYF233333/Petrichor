@@ -242,6 +242,12 @@ class Parser {
 			expect(TokenKind::ParenOpen, "\"(\"");
 			while (!failed && !check(TokenKind::ParenClose)) {
 				ref.args.push_back(type_ref());
+				if (match(TokenKind::Equal)) {
+					expect(TokenKind::Ellipsis, "\"...\", as a function type has no default values");
+					ref.optional_params++;
+				} else if (ref.optional_params > 0) {
+					report(tokens[ref.args.back().range.first], "Only the last parameters of a function type may be left out; write this one as `T = ...` too.");
+				}
 				if (!comma()) {
 					break;
 				}
@@ -1238,7 +1244,12 @@ class Parser {
 				report(peek(), "The rest parameter cannot have a default value.");
 			}
 			if (match(TokenKind::Equal)) {
-				param.default_value = expression();
+				if (check(TokenKind::Ellipsis)) {
+					param.default_value = make(ExprKind::Error, advance()); // An interface method's (spec §3.9).
+					param.default_value->op = TokenKind::Ellipsis;
+				} else {
+					param.default_value = expression();
+				}
 			}
 			param.range = span(first);
 			result.push_back(std::move(param));

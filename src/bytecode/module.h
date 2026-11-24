@@ -344,8 +344,9 @@ struct Function {
 	bool is_async = false;
 	std::string name;
 	std::vector<Slot> params;
-	// The last parameters' default values as the engine's method list shows
-	// them, NIL for one that is no constant (spec §4.6). The code computes
+	// The last parameters' default values, before a lambda's captures, as the
+	// engine's method list shows them, NIL for one that is no constant (spec
+	// §4.6, §3.11). The code computes
 	// those a call leaves out first, from the count of arguments the call
 	// writes into the int slot at `given`.
 	std::vector<Constant> defaults;

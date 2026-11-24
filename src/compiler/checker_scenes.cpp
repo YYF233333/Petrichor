@@ -830,29 +830,29 @@ void Checker::check_connections() {
 			if (!signal.found || signal.unknown) {
 				continue;
 			}
-			const std::vector<Type> &arguments = signal.params;
-			const int passed = int(arguments.size()) - connection.unbinds + connection.binds;
-			const int most = int(method.params.size());
-			if (passed < method.required || (!method.rest && passed > most)) {
-				error_in_scene(at, scene, connection.target, where + ", which passes " + std::to_string(passed) + " argument(s); " + connection.method + "() takes " + argument_count(method.required, most, method.rest.has_value()) + ".");
+			// The signal's arguments that the connection keeps, then the values it
+			// binds, whose types are not known here, as the engine connects them
+			// (scene/resources/packed_scene.cpp:675-679; ed1daf0).
+			const std::vector<Type> &arguments = signal.signature.params;
+			const size_t kept = size_t(std::max(0, int(arguments.size()) - connection.unbinds));
+			Signature passed;
+			passed.params.assign(arguments.begin(), arguments.begin() + kept);
+			passed.params.resize(kept + size_t(connection.binds), Type::of(TypeKind::Error));
+			const Misfit misfit = compiler::misfit(method.signature, passed, [&](const Type &p_from, const Type &p_to) { return !p_to.is_storable() || assignable(p_from, p_to); });
+			if (misfit.counts) {
+				error_in_scene(at, scene, connection.target, where + ", which passes " + std::to_string(passed.params.size()) + " argument(s); " + connection.method + "() takes " + argument_count(method.signature) + ".");
 				continue;
 			}
-			for (int i = 0; i < int(arguments.size()) - connection.unbinds; i++) {
-				// What the signal passes flows into a parameter without a type, as
-				// from the connection's place in the scene.
-				const int slot = function && i < int(function->params.size()) ? function->params[i].slot : -1;
-				if (slot >= 0 && options.inflows) {
-					options.inflows->flows.push_back({ slot, arguments[i], { scene.path, uint32_t(&connection - scene.connections.data()) } });
+			// What the signal passes flows into a parameter without a type, as from
+			// the connection's place in the scene.
+			for (size_t i = 0; function && options.inflows && i < kept && i < function->params.size(); i++) {
+				if (function->params[i].slot >= 0) {
+					options.inflows->flows.push_back({ function->params[i].slot, arguments[i], { scene.path, uint32_t(&connection - scene.connections.data()) } });
 				}
-				// The rest of a vararg engine method are Variant.
-				std::optional<Type> param = function ? method.rest : std::nullopt;
-				if (i < most) {
-					param = method.params[i];
-				}
-				if (param && param->is_storable() && !assignable(arguments[i], *param)) {
-					const ParamDecl *named = function && method.id.scope == options.path ? &function->params[std::min(size_t(i), function->params.size() - 1)] : nullptr;
-					error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : at, scene, connection.target, where + ", which passes " + arguments[i].to_string() + " here.");
-				}
+			}
+			for (const size_t i : misfit.arguments) {
+				const ParamDecl *named = function && method.id.scope == options.path ? &function->params[std::min(i, function->params.size() - 1)] : nullptr;
+				error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : at, scene, connection.target, where + ", which passes " + arguments[i].to_string() + " here.");
 			}
 		}
 	}
