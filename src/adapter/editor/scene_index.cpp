@@ -583,10 +583,12 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	// scene/resources/packed_scene.h:256).
 	std::set<std::string> files{ p_path };
 	const String extension = path.get_extension().to_lower();
+	Ref<Resource> loaded;
 	if (file_empty(p_path)) {
 		// Read again once its stats change.
 	} else if (extension == "tscn" || extension == "scn") {
 		const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
+		loaded = packed;
 		if (packed.is_valid() && packed->get_state().is_valid()) {
 			entry->scene = read_scene(path, packed, taken, files, entry->embedded);
 			instanced_scenes(packed->get_state(), files);
@@ -602,13 +604,27 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 			})) {
 			std::set<uint64_t> seen;
 			entry->scene.path = p_path;
-			read_resources(path, ResourceLoader::get_singleton()->load(path, "", ResourceLoader::CACHE_MODE_IGNORE), taken, entry->scene, files, seen, entry->embedded);
+			loaded = ResourceLoader::get_singleton()->load(path, "", ResourceLoader::CACHE_MODE_IGNORE);
+			read_resources(path, loaded, taken, entry->scene, files, seen, entry->embedded);
 		}
 	}
 	stamp(*entry, files);
 	std::lock_guard<std::mutex> lock(mutex);
 	scenes.insert_or_assign(p_path, entry);
+	if (const auto kept = held.lock(); kept && loaded.is_valid()) {
+		kept->push_back(loaded);
+	}
 	return entry;
+}
+
+std::shared_ptr<const void> SceneIndex::hold() const {
+	std::lock_guard<std::mutex> lock(mutex);
+	std::shared_ptr<std::vector<Ref<Resource>>> kept = held.lock();
+	if (!kept) {
+		kept = std::make_shared<std::vector<Ref<Resource>>>();
+		held = kept;
+	}
+	return kept;
 }
 
 std::vector<std::string> SceneIndex::scene_paths() const {

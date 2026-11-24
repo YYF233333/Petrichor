@@ -23,6 +23,7 @@ Analysis::Pass::Pass(Analysis &r_analysis, const ProjectApi *p_project) :
 	analysis.reading = p_project ? p_project : &analysis.project_api();
 	analysis.on_disk = analysis.reading == &analysis.workspace.disk || analysis.viewed_on_disk;
 	analysis.workspace.passes++;
+	analysis.held = analysis.reading->hold();
 	analysis.classes = std::make_unique<ScriptClasses>(analysis.engine, analysis.reading, false, true);
 	analysis.classes->inflows = analysis.inflows;
 }
@@ -30,6 +31,7 @@ Analysis::Pass::Pass(Analysis &r_analysis, const ProjectApi *p_project) :
 Analysis::Pass::~Pass() {
 	if (--analysis.passes == 0) {
 		analysis.classes.reset();
+		analysis.held.reset();
 		analysis.workspace.passes--;
 		analysis.reading = nullptr;
 	}

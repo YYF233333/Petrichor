@@ -70,6 +70,7 @@ public:
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const override;
 	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override { return disk.foreign_class(p_path, p_members); }
+	std::shared_ptr<const void> hold() const override { return disk.hold(); }
 };
 
 // Another project with texts of its own for some scripts, as an LSP session
@@ -99,6 +100,7 @@ public:
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const override;
 	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override { return under.foreign_class(p_path, p_members); }
+	std::shared_ptr<const void> hold() const override { return under.hold(); }
 };
 
 } // namespace petrichor::compiler

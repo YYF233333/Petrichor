@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -233,6 +234,10 @@ public:
 	// none; its members only with `p_members`, which loads it, since a script
 	// of this language that is being loaded may load no other.
 	virtual std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const = 0;
+	// While the result lives, what reading the project loads stays loaded, so
+	// that what several scenes share is loaded once; a pass of the analysis
+	// holds it to its end (architecture §2.1).
+	virtual std::shared_ptr<const void> hold() const { return nullptr; }
 };
 
 } // namespace petrichor::compiler

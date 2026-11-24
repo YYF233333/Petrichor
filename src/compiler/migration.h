@@ -169,6 +169,7 @@ public:
 	std::vector<std::string> script_paths() const override;
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
+	std::shared_ptr<const void> hold() const override { return under.hold(); }
 };
 
 // What the inference, the loop of quick fixes and the check after it gave

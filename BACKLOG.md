@@ -20,7 +20,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The survey [tool-migration](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md) measures what the tool leaves in three games of corpus v1, by cause. Rerun it after each step and add its row. At `bbdd797` they leave 10.5 errors per 100 lines.
-  - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 41 s for tanks-of-freedom-ii with its assets. Its 661 scenes load 6,951 files one scene at a time, 944 of them distinct. Without the assets, as in the sparse corpus clone, each missing file is a failing load, and the check takes 136 to 195 s.
+  - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project. A pass now holds what it loads, so a check of tanks-of-freedom-ii with its assets takes 17 s, from 47 to 50 s. Without the assets, as in the sparse corpus clone, each missing file is still a failing load in every scene that names it. Its migration dry run takes 90 s there, from 119 s.
   - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left: GDScript's implicit `null` as evidence (architecture §6.6), and the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
@@ -238,10 +238,9 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - The compiler could record each instruction's statement in the table. Such a table would also fix a wrong line. From the second pass on, an error in a `while` condition is reported at the body's last statement. GDScript does the same (`modules/gdscript/gdscript_compiler.cpp:1903`, `ed1daf0`).
 - Large projects, before teams bring real ones in 0.3. A generated project of 1000 scripts, 300 scenes and 60 `.gd` files, on the official 4.7.2 editor, headless:
   - opening it takes 80 to 150 s, and the headless build about 80 s in all. Most of it reads each scene once.
-    - Reading a scene loads the scenes it instances, and compiles their scripts anew, as nothing keeps them loaded (`SceneIndex::read`).
+    - A pass now holds each scene and resource it reads until it ends, so a file that several scenes share loads once (architecture §2.1). These times of the generated project predate that.
     - Instances nest about 30 deep there, likely deeper than in real projects.
-    - Ways out, to choose with the owner:
-      - keep loaded scripts alive in the scene index;
+    - Ways left, to choose with the owner:
       - compile scripts lazily on load, as GDScript's cache does;
       - read the structure from the scene text;
   - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;

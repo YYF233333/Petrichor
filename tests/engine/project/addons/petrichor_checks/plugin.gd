@@ -50,6 +50,7 @@ func _run() -> void:
 	await _check_named_members()
 	_check_inheritance_recovery()
 	await _check_instanced_scene_change()
+	_check_shared_load()
 	await _check_scene_marks()
 	_check_lookup()
 	_check_completion()
@@ -303,6 +304,32 @@ func _check_instanced_scene_change() -> void:
 		for file in [path, path + ".uid", path.get_basename() + ".tscn", "res://.godot/petrichor/%s.petc" % path.get_file().get_basename()]:
 			DirAccess.remove_absolute(file)
 	for file in [inner, base]:
+		DirAccess.remove_absolute(file)
+
+
+# A pass loads a file that two scenes share once, and lets it go as it ends, so
+# that the next pass loads it anew (architecture §2.1).
+func _check_shared_load() -> void:
+	var counter := "res://editor_check_counter.gd"
+	var shared := "res://editor_check_shared.tres"
+	var user := "res://editor_check_user.pet"
+	var scenes := ["res://editor_check_shared_a.tscn", "res://editor_check_shared_b.tscn"]
+	_write(counter, "@tool\nextends Resource\n\n\nfunc _init() -> void:\n\tEngine.set_meta(&\"editor_check_loads\", Engine.get_meta(&\"editor_check_loads\", 0) + 1)\n")
+	_write(shared, '[gd_resource type="Resource" format=3]\n\n[ext_resource type="Script" path="%s" id="1"]\n\n[resource]\nscript = ExtResource("1")\n' % counter)
+	var scene := '[gd_scene format=3]\n\n[ext_resource type="Resource" path="%s" id="1"]\n\n[node name="Root" type="Node"]\nmetadata/shared = ExtResource("1")\n' % shared
+	for path in scenes:
+		_write(path, scene)
+	_write(user, "extends Node\n")
+	_scanned()
+	var script: Script = ResourceLoader.load(user, "", ResourceLoader.CACHE_MODE_IGNORE)
+	_compiles(script, user)
+	_check(Engine.get_meta(&"editor_check_loads", 0) == 1, "a pass loads a file that two scenes share once")
+	_write(scenes[0], scene + '\n[node name="Child" type="Node" parent="."]\n')
+	_scanned()
+	_compiles(script, user)
+	_check(Engine.get_meta(&"editor_check_loads", 0) == 2, "the next pass reads a changed scene and loads what it shares anew")
+	Engine.remove_meta(&"editor_check_loads")
+	for file in [counter, shared, user, user + ".uid", "res://.godot/petrichor/editor_check_user.petc"] + scenes:
 		DirAccess.remove_absolute(file)
 
 

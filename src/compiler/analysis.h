@@ -42,6 +42,7 @@ class Analysis {
 	const ProjectApi *viewed = nullptr; // By passes given no project; the workspace if null.
 	bool viewed_on_disk = false;
 	std::unique_ptr<ScriptClasses> classes; // Of the pass.
+	std::shared_ptr<const void> held; // What the pass loads (ProjectApi::hold()).
 	std::map<std::string, Compiled> compiled[2]; // Scripts, and the checks of scenes, by their paths; of the disk view second.
 	std::map<std::string, std::pair<uint64_t, std::vector<Diagnostic>>> placed; // placed_errors() by path, with the revision.
 	int checks = 0;

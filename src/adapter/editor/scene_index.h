@@ -4,6 +4,7 @@
 #include "compiler/workspace.h"
 
 #include <godot_cpp/classes/code_edit.hpp>
+#include <godot_cpp/classes/resource.hpp>
 #include <godot_cpp/variant/array.hpp>
 
 #include <cstdint>
@@ -47,6 +48,10 @@ class SceneIndex : public compiler::ProjectApi {
 	mutable uint64_t changes = 0; // On disk, as the editor reports them.
 	mutable std::map<std::string, std::shared_ptr<const Entry>> scenes;
 	mutable std::map<std::string, std::shared_ptr<const Loads>> loads; // literal_loads() of each script read.
+	// The scenes and resource files read while something holds them (hold()),
+	// which hold the files they load in the engine's cache
+	// (doc/classes/ResourceLoader.xml:168-173; ed1daf0).
+	mutable std::weak_ptr<std::vector<godot::Ref<godot::Resource>>> held;
 	// The global classes by name, and the list of the project settings they
 	// were read from, which the editor replaces when they change.
 	mutable std::shared_ptr<const std::map<std::string, std::string>> global_classes;
@@ -82,6 +87,7 @@ public:
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const override;
 	std::optional<compiler::ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
+	std::shared_ptr<const void> hold() const override;
 
 	// Files changed on disk, which ones unknown: what was read from them is
 	// checked again, by their stats.
