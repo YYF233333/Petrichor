@@ -1,9 +1,12 @@
-# Loads preload_valued.pet with itself, and preload_typed.pet, which it names
-# only in types, not (spec §2.1).
+# Loads preload_valued.pet with itself, and not preload_typed.pet or
+# preload_exported.pet, which it names only in types (spec §2.1).
 extends RefCounted
 
 const Typed = preload("preload_typed.pet")
 const Valued = preload("preload_valued.pet")
+const Exported = preload("preload_exported.pet")
+
+@export var exported: Exported?
 
 
 pub func typed(x: Variant) -> bool:

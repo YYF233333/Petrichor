@@ -301,6 +301,12 @@ struct Member : Slot {
 	// For the inspector: PropertyHint as the engine numbers it, and its string.
 	uint32_t hint = 0;
 	std::string hint_string;
+	// An exported member's class of a script, or that of its container's
+	// elements and keys, as the inspector names it: the nearest class along
+	// its bases with a global name, or its engine class; empty for one of the
+	// engine.
+	std::string export_class;
+	std::string export_key_class;
 	// For the inspector and scenes: PropertyUsageFlags as the engine numbers
 	// them, without SCRIPT_VARIABLE, which every member has.
 	uint32_t usage = 0;

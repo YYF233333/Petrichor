@@ -525,6 +525,12 @@ void Checker::check_member_declaration(size_t p_index) {
 	}
 	member.type = type;
 	check_annotations(member);
+	if (member.is_export) {
+		const Type &exported = type.unwrapped();
+		const bool container = is_typed_container(exported);
+		member.export_class = inspector_class(container ? exported.args.back() : exported);
+		member.export_key_class = container && exported.args.size() == 2 ? inspector_class(exported.args[0]) : std::string();
+	}
 	// The inspector's Dictionary editor reads any hint string as the types
 	// of the keys and the values; "0:" keeps the keys untyped, and names the
 	// type after it (architecture §6.2).
@@ -533,6 +539,40 @@ void Checker::check_member_declaration(size_t p_index) {
 	}
 	check_accessors(member);
 	member.state = VarDecl::State::Checked;
+}
+
+// The class by which the inspector picks an exported object of a class of a
+// script, as GDScript names it, without loading the script (spec §2.1): the
+// nearest class along its bases with a global name, or its engine class
+// (modules/gdscript/gdscript_parser.cpp:4601-4650, 4808-4819; ed1daf0).
+// Empty for any other type.
+std::string Checker::inspector_class(const Type &p_type) {
+	if (p_type.kind != TypeKind::Object || p_type.script.empty()) {
+		return std::string();
+	}
+	std::set<std::string> seen;
+	for (std::string path = p_type.script; !path.empty() && seen.insert(path).second;) {
+		if (is_script_path(path)) {
+			const ClassDecl *header = script_header(path);
+			if (!header) {
+				break;
+			}
+			if (!header->class_name.empty() && path.find("::") == std::string::npos) {
+				return header->class_name;
+			}
+			path = classes.base_path(*header, path);
+		} else {
+			const ForeignClass *foreign = foreign_class(path);
+			if (!foreign) {
+				break;
+			}
+			if (!foreign->name.empty()) {
+				return foreign->name;
+			}
+			path = foreign->base;
+		}
+	}
+	return p_type.engine_class();
 }
 
 // A member's first value as reflection shows it, when the compiler knows

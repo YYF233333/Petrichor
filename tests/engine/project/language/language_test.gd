@@ -850,7 +850,9 @@ func _ready() -> void:
 	_check(bumps == ["1ab", "2abb", "3abbb"], "a class marked @static_unload stays loaded, with its static variables (spec §4.8): %s" % [bumps])
 	var preload_log: Script = load("res://language/preload_log.pet")
 	var preload_user = load("res://language/preload_user.pet").new()
-	_check(not preload_user.typed(RefCounted.new()) and preload_log.get("ran") == ["valued"], "loading a file loads a script its constant names as a value, and not one it names only in types (spec §2.1): %s" % [preload_log.get("ran")])
+	var exported_hint: Dictionary = preload_user.get_property_list().filter(func(property): return property.name == "exported")[0]
+	_check(not preload_user.typed(RefCounted.new()) and preload_log.get("ran") == ["valued"], "loading a file loads a script its constant names as a value, and not one it names only in types, also in an export (spec §2.1): %s" % [preload_log.get("ran")])
+	_check(exported_hint.hint == PROPERTY_HINT_RESOURCE_TYPE and exported_hint.hint_string == "Resource", "an export of a class without a global name is picked by the nearest class along its bases that has one, as in GDScript")
 	var cycle_board: Node = load("res://language/cycle_board.pet").new()
 	_check(cycle_board.owns_abilities(), "a file that a preload names only as a type preloads that file in turn, and both load and run (spec §2.1, §7.6)")
 	cycle_board.free()

@@ -1136,6 +1136,7 @@ class Checker : public ClassRelation {
 	void check_members();
 	void check_member_declaration(size_t p_index);
 	ConstPtr reflected_initial(const Expr *p_value, const Type &p_type) const;
+	std::string inspector_class(const Type &p_type);
 	ConstPtr encoded_fields(const Type &p_type, const Expr *p_call) const;
 	static ConstPtr encoded(const ConstPtr &p_value, const Type &p_type);
 	std::string node_field(const Type &p_type, const std::string &p_field, std::unordered_set<std::string> &r_seen) const;

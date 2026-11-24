@@ -3550,6 +3550,8 @@ public:
 			member.is_export = decl_member.is_export;
 			member.hint = decl_member.hint;
 			member.hint_string = decl_member.hint_string;
+			member.export_class = decl_member.export_class;
+			member.export_key_class = decl_member.export_key_class;
 			member.usage = decl_member.usage;
 			// Its type's default (spec §4.3) when it has no initializer; an empty
 			// Array[T] is typed too.

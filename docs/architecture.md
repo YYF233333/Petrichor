@@ -260,6 +260,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
 adapter 实现 ScriptLanguageExtension、ScriptExtension 和 ScriptInstanceExtension，将实例属性读写、方法调用和通知转给 runtime，并负责 `.pet` 源码与字节码文件的加载保存。内部类脚本（规范 §4.1）没有资源路径，由所在文件脚本持有并一并取得镜像，运行时以文件路径后接 `::` 和各级名字指称它。
 
 - **构造与反射暴露**：Script 类绑定 `new`，并把 `pub` 的 `_init` 报告为返回该类的静态方法，供 GDScript 检查 `Player.new(...)`（`modules/gdscript/gdscript.cpp:1078`，`modules/gdscript/gdscript_analyzer.cpp:5958-5961`）。非 `pub` 的 `_init` 不报告，GDScript 视其为无参构造（`:6005-6031`，规范 §10.1）。`Class.new` 作为值是名为 `new` 的静态函数值（规范 §3.11），与 Script 的 `new` 共用构造，可见性由检查器在取值处检查（§4.2）。
+- **导出提示**：检查器按类名挑选导出的对象。脚本的类名由编译器写进字节码（`Member::export_class`），取沿基类最近的有全局名的类，否则取引擎类，与 GDScript 相同（`modules/gdscript/gdscript_parser.cpp:4601-4650, 4808-4819`）。列出属性时因此不加载脚本，只当类型用的常量在导出中也不加载（规范 §2.1）。
 - **async 方法的反射**：反射接口没有协程标记（`core/object/method_info.h:37-44`），async 方法统一报告为无类型 Variant（`PROPERTY_USAGE_NIL_IS_VARIANT`，§9.8）。若报告为 T，GDScript 一方面会给出多余 await 警告（`gdscript_analyzer.cpp:3102-3107`）。另一方面，取消时的 `completed(null)` 不经检查写进 T 类型临时变量，会让 Transform3D 等值类型崩溃（`modules/gdscript/gdscript_vm.cpp:2667-2668`，`modules/gdscript/gdscript_byte_codegen.cpp:998-1001`）。
 - **导出插件**：导出插件用字节码替换 `.pet`，经 `add_file(..., true)` 生成重映射，与 GDScript 换成 `.gdc` 相同（`modules/gdscript/register_types.cpp:99-116`）。同时它检查导出的每个场景，有错误即报告导出失败。
 - **编辑器插件**：提供分析服务（§13.1）、场景编辑器错误标记、运行前编译，以及两项脚本编辑器扩展：

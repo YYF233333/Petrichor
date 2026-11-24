@@ -544,6 +544,8 @@ struct VarDecl {
 	int slot = -1; // As ParamDecl's.
 	uint32_t hint = 0; // For the inspector: PropertyHint as the engine numbers it.
 	std::string hint_string;
+	std::string export_class; // As bytecode::Member's.
+	std::string export_key_class;
 	uint32_t usage = 0; // PropertyUsageFlags as the engine numbers them, for an export.
 };
 
