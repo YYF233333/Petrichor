@@ -786,6 +786,7 @@ class Checker : public ClassRelation, private CheckContext {
 	static Fix::Edit optional_edit(const SourceFile &p_source, const TypeRef &p_written);
 	std::optional<Fix::Edit> line_after(const TokenRange &p_range, uint32_t p_indented, const std::string &p_line) const;
 	void fix_optional(const TypeRef &p_written, const std::string &p_owner = std::string());
+	void fix_taking_none(const Type &p_passed, const ParamDecl *p_param, const std::string &p_owner);
 	const TypeRef *type_written_for(const Expr &p_target) const;
 	bool variant_in_gdscript(const Expr &p_target) const;
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);
@@ -1036,14 +1037,14 @@ class Checker : public ClassRelation, private CheckContext {
 	static std::string fitting_call(const Type &p_two_level);
 	std::string variant_refusal(const Type &p_type) const;
 	std::string callable_refusal(const Type &p_function) const;
-	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written = nullptr, bool p_converts = true);
+	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written = nullptr, bool p_converts = true, const std::string &p_owner = std::string());
 	bool downcast(const Type &p_from, const Type &p_to) const;
 	void expect_condition(Expr &r_condition);
 
 	/* checker_calls.cpp */
 
 	static std::string argument_count(int p_required, int p_max, bool p_vararg);
-	void check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest = Type::of(TypeKind::Variant), const FuncDecl *p_declared = nullptr);
+	void check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest = Type::of(TypeKind::Variant), const std::vector<ParamDecl> *p_declared = nullptr, const std::string &p_owner = std::string());
 	std::vector<Type> engine_params(const EngineMethod &p_method, Expr &r_call, bool &r_ok);
 	Type property_type(const EngineProperty &p_property, Expr &r_expr);
 	Type engine_method_value(Expr &r_expr, const EngineMethod &p_method);

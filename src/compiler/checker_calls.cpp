@@ -44,8 +44,9 @@ std::string Checker::argument_count(int p_required, int p_max, bool p_vararg) {
 
 // Checks the arguments of a call against parameter types.
 // With `p_vararg`, those after `p_params` are of type `p_rest`.
-// `p_declared` is the function called when this file declares it.
-void Checker::check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest, const FuncDecl *p_declared) {
+// `p_declared` are the parameters as declared, in this file or else in that
+// of the class at `p_owner`.
+void Checker::check_arguments(Expr &r_call, const std::vector<Type> &p_params, int p_required, bool p_vararg, const Type &p_rest, const std::vector<ParamDecl> *p_declared, const std::string &p_owner) {
 	const int count = int(r_call.args.size());
 	const int max = int(p_params.size());
 	if (probing) {
@@ -58,8 +59,8 @@ void Checker::check_arguments(Expr &r_call, const std::vector<Type> &p_params, i
 		const Type param = i < max ? p_params[i] : p_rest;
 		const Type arg_type = check_value(arg, param);
 		r_call.param_types.push_back(param);
-		const ParamDecl *declared = p_declared && i < max ? &p_declared->params[i] : nullptr;
-		expect_assignable(arg, arg_type, param, "pass", declared && declared->declared_type ? &*declared->declared_type : nullptr);
+		const ParamDecl *declared = p_declared && i < max ? &(*p_declared)[size_t(i)] : nullptr;
+		expect_assignable(arg, arg_type, param, "pass", declared && declared->declared_type ? &*declared->declared_type : nullptr, true, p_owner);
 	}
 }
 
@@ -2013,7 +2014,7 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 	if (base_type.kind == TypeKind::Signal && name == "emit") {
 		// What the connected functions take (spec §4.7).
 		hint(r_expr, [&](int p_current) { return signature(name, type_names(base_type.args), false, p_current, "void"); });
-		check_arguments(r_expr, base_type.args, int(base_type.args.size()), false);
+		check_arguments(r_expr, base_type.args, int(base_type.args.size()), false, Type::of(TypeKind::Variant), base.signal && !base.owner.empty() ? &base.signal->params : nullptr, base.owner);
 		for (size_t i = 0; base.signal && i < r_expr.args.size() && i < base.signal->params.size(); i++) {
 			flow(base.signal->params[i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
 		}

@@ -520,9 +520,9 @@ namespace {
 // The fix of the error that the loop of fixes applies: the first of the
 // automatic kinds, IntConversion, Async, Unwrap, Optional, ReturnNone,
 // Wildcard or Cast, unless it edits a file outside those migrated. Optional
-// comes first only for a value that a scene or a creator lacks and for a null
-// assigned or returned where a type is written; ReturnNone where GDScript
-// returns null.
+// comes first only for a value that a scene or a creator lacks, for a null
+// assigned, passed or returned where a type is written and for a parameter
+// that a signal passes a T?; ReturnNone where GDScript returns null.
 const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
 	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.assumed() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::Optional || p_fix.kind == FixKind::ReturnNone || p_fix.kind == FixKind::Wildcard || p_fix.kind == FixKind::Cast; });
 	const bool inside = fix != p_error.fixes.end() && std::all_of(fix->edits.begin(), fix->edits.end(), [&](const Fix::Edit &p_edit) { return p_project.texts.count(p_edit.file.empty() ? p_error.file : p_edit.file) > 0; });

@@ -965,6 +965,7 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		}
 		r_expr.target = Target::MethodValue;
 		r_expr.callee = &method;
+		r_expr.owner = owner;
 		return set(r_expr, function_type(method));
 	}
 	const auto own_signal = signal_index.find(r_expr.text);
@@ -978,7 +979,8 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		}
 		r_expr.target = Target::SelfSignal;
 		r_expr.signal = &signal;
-		refer(r_expr.name_token, script_id(declaring(cls, signal, &ClassDecl::signals).path, signal.name));
+		r_expr.owner = declaring(cls, signal, &ClassDecl::signals).path;
+		refer(r_expr.name_token, script_id(r_expr.owner, signal.name));
 		return set(r_expr, signal_of(signal));
 	}
 	if (const auto signal = engine.find_signal(cls.native_base, r_expr.text)) {
@@ -1252,7 +1254,8 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		}
 		r_expr.target = Target::ObjectSignal;
 		r_expr.signal = &signal;
-		refer(r_expr.name_token, script_id(declaring(*decl, signal, &ClassDecl::signals).path, signal.name));
+		r_expr.owner = declaring(*decl, signal, &ClassDecl::signals).path;
+		refer(r_expr.name_token, script_id(r_expr.owner, signal.name));
 		return signal_of(signal);
 	}
 	if (const FuncDecl *entry = find_named(decl->all_functions, r_expr.text)) {
@@ -1347,6 +1350,7 @@ Type Checker::method_value(Expr &r_expr, const FuncDecl &p_method, const std::st
 	}
 	r_expr.target = Target::MethodValue;
 	r_expr.callee = &p_method;
+	r_expr.owner = p_owner;
 	return function_type(p_method);
 }
 
@@ -1495,7 +1499,7 @@ Type Checker::call_declared(Expr &r_expr, const FuncDecl &p_callee, const Source
 	const std::vector<Type> params = param_types(p_callee.params);
 	const bool rest = p_callee.has_rest();
 	const std::vector<Type> fixed(params.begin(), params.end() - (rest ? 1 : 0));
-	check_arguments(r_expr, fixed, required_params(p_callee), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant), &p_source == cls.source.get() ? &p_callee : nullptr);
+	check_arguments(r_expr, fixed, required_params(p_callee), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant), &p_source == cls.source.get() ? &p_callee.params : nullptr);
 	for (size_t i = 0; i < r_expr.args.size() && i < fixed.size(); i++) {
 		flow(p_callee.params[i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
 	}

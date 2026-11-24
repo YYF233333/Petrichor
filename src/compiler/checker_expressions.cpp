@@ -760,6 +760,8 @@ void Checker::check_handler(const Expr &p_handler, const Type &p_signal) {
 	} else if (!misfit.arguments.empty()) {
 		const size_t i = misfit.arguments[0];
 		error(p_handler.range, p_signal.to_string() + " passes " + p_signal.args[i].to_string() + " as argument " + std::to_string(i + 1) + ", which " + shown + " does not take.");
+		const FuncDecl *function = method.kind == ExprKind::Lambda ? method.function.get() : callee;
+		fix_taking_none(p_signal.args[i], function && i < function->params.size() ? &function->params[i] : nullptr, method.owner);
 	}
 }
 
@@ -1923,10 +1925,10 @@ std::string Checker::callable_refusal(const Type &p_function) const {
 	return std::string();
 }
 
-// `p_written` is the type of where the value goes, as written in this file
-// for a variable or a parameter; `p_converts`, whether GDScript converts the
-// value to its type there.
-void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written, bool p_converts) {
+// `p_written` is the type of where the value goes, as written for a variable
+// or a parameter in this file or else in that of the class at `p_owner`;
+// `p_converts`, whether GDScript converts the value to its type there.
+void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written, bool p_converts, const std::string &p_owner) {
 	if (p_to.kind == TypeKind::Float) {
 		keep(p_value);
 	}
@@ -1977,12 +1979,12 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		const bool empty = p_value.kind == ExprKind::ArrayLiteral && p_value.args.empty();
 		fix({ { p_value.range, p_to.name + "(" + (empty ? std::string() : cls.source->text_of(p_value.range)) + ")" } }, FixKind::PackedArray);
 	} else if (p_from.kind == TypeKind::None && p_written) {
-		fix_optional(*p_written); // As GDScript holds the null.
+		fix_optional(*p_written, p_owner); // As GDScript holds the null.
 	} else if (p_from.is_optional() && !p_to.is_optional() && assignable(p_from.unwrapped(), p_to)) {
 		// It fails here, not where GDScript uses the null later (spec §1.2).
 		fix({ { p_value.range, operand(p_value) + ".unwrap()" } }, FixKind::Unwrap);
 		if (p_written) {
-			fix_optional(*p_written);
+			fix_optional(*p_written, p_owner);
 		}
 	} else if (is_untyped_scenes(p_from) && p_from.kind == TypeKind::Object && is_typed_scene(p_to.unwrapped())) {
 		read_wide(p_value); // A scene of unknown root, which the roots that flow in may type (architecture §6.6).

@@ -457,6 +457,15 @@ void Checker::fix_optional(const TypeRef &p_written, const std::string &p_owner)
 	fix(Fix{ "Write " + edit.change.new_text, FixKind::Optional, { edit } });
 }
 
+// Gives the error reported last the fix that makes the parameter `p_param`,
+// in this file or else in that of the class at `p_owner`, take the T? that a
+// signal passes it, as GDScript passes the null on (architecture §6.6).
+void Checker::fix_taking_none(const Type &p_passed, const ParamDecl *p_param, const std::string &p_owner) {
+	if (p_param && p_param->declared_type && p_passed.kind == TypeKind::Object && p_passed.nullable && assignable(p_passed.unwrapped(), p_param->type)) {
+		fix_optional(*p_param->declared_type, p_owner);
+	}
+}
+
 // The type written in this file for the local, member or static variable
 // that `p_target` names; null when it is inferred, declared elsewhere or a
 // T? already, as a narrowed local's is.

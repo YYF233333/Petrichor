@@ -346,7 +346,7 @@ struct Expr {
 	// properties: the range of the value their setter takes.
 	std::vector<std::optional<bytecode::IntRange>> arg_ranges;
 	std::optional<bytecode::IntRange> int_range;
-	std::string owner; // The type a field, constant, method or constructor belongs to.
+	std::string owner; // The type a field, constant, method, signal or constructor belongs to.
 	Type tested; // TypeTest and Cast: the class after is or as.
 	// StaticVar; ObjectProperty: the member of a class of this language, which
 	// the object holds in a slot (spec §10.5).

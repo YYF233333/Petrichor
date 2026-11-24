@@ -379,6 +379,24 @@ TEST_CASE("the loop of fixes makes a type T? where the original assigns or retur
 	CHECK(migration.errors.empty());
 }
 
+// GDScript passes the null to the connected functions, whose parameters take
+// it (modules/gdscript/gdscript_function.cpp:103-106; ed1daf0).
+TEST_CASE("the loop of fixes makes a signal's parameter T? where the original emits null, and the parameters of the functions connected to it") {
+	FakeProject project;
+	project.add_script("res://rewards.gd", "class_name Rewards\nextends Node\nsignal picked(card: Node)\n\n\nfunc _ready() -> void:\n\tpicked.connect(_on_picked)\n\tpicked.connect(func(card: Node): print(card))\n\n\nfunc _on_picked(card: Node) -> void:\n\tif not card:\n\t\treturn\n\tprint(card.name)\n", "Rewards");
+	project.add_script("res://skip.gd", "extends Node\n\n\nfunc skip(rewards: Rewards) -> void:\n\trewards.picked.emit(null)\n");
+	project.add_script("res://hud.gd", "extends Node\n\n\nfunc _on_rewards_picked(card: Node) -> void:\n\tprint(card)\n");
+	compiler::Scene hud;
+	hud.path = "res://hud.tscn";
+	hud.nodes = { { ".", "Node", "res://hud.gd" }, { "Rewards", "Node", "res://rewards.gd" } };
+	hud.connections = { { "picked", "Rewards", ".", "_on_rewards_picked" } };
+	project.scenes.push_back(hud);
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://rewards.gd", "res://skip.gd", "res://hud.gd" }, 10);
+	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n\n\npub func _on_rewards_picked(card: Node?) -> void:\n\tprint(card)\n");
+	CHECK(migration.texts.at("res://rewards.pet") == "class_name Rewards\nextends Node\npub signal picked(card: Node?)\n\n\nfunc _ready() -> void:\n\tpicked.connect(_on_picked)\n\tpicked.connect(func(card: Node?): print(card))\n\n\nfunc _on_picked(card: Node?) -> void:\n\tif not is_instance_valid(card):\n\t\treturn\n\tprint(card.unwrap().name)\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a literal path from the root to an autoload becomes its name, whose class the inference reads") {
 	FakeProject project;
 	project.add_script("res://audio.gd", "extends Node\n\n\nfunc play(sound):\n\tprint(sound)\n");

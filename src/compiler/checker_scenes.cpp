@@ -858,6 +858,7 @@ void Checker::check_connections() {
 			for (const size_t i : misfit.arguments) {
 				const ParamDecl *named = function && method.id.scope == options.path ? &function->params[std::min(i, function->params.size() - 1)] : nullptr;
 				error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : at, scene, connection.target, where + ", which passes " + arguments[i].to_string() + " here.");
+				fix_taking_none(arguments[i], function && i < function->params.size() ? &function->params[i] : nullptr, method.id.scope);
 			}
 		}
 	}
