@@ -2651,6 +2651,19 @@ public:
 #define NEXT(m_op) \
 	pc += bytecode::fixed_length(Op::m_op); \
 	break
+// After a helper that returns false on a program error, which ends the call.
+#define NEXT_IF(m_op, m_ran) \
+	if (!(m_ran)) { \
+		return false; \
+	} \
+	NEXT(m_op)
+// Likewise for an instruction of the call form.
+#define NEXT_CALL_IF(m_ran) \
+	if (!(m_ran)) { \
+		return false; \
+	} \
+	pc += bytecode::call_length(code + pc); \
+	break
 
 		size_t pc = p_async ? p_async->pc : 0;
 		while (true) {
@@ -2722,15 +2735,9 @@ public:
 					copy_value(types[code[pc + 1]], members + code[pc + 2], frame + code[pc + 3]);
 					NEXT(STORE_MEMBER_VALUE);
 				case Op::LOAD_STATIC:
-					if (!op_load_static(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(LOAD_STATIC);
+					NEXT_IF(LOAD_STATIC, op_load_static(code + pc, frame, fn, record.line));
 				case Op::STORE_STATIC:
-					if (!op_store_static(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(STORE_STATIC);
+					NEXT_IF(STORE_STATIC, op_store_static(code + pc, frame, fn, record.line));
 				case Op::INIT_STATIC:
 					op_init_static(code + pc, frame);
 					NEXT(INIT_STATIC);
@@ -2824,10 +2831,7 @@ public:
 					op_add_string(code + pc, frame);
 					NEXT(ADD_STRING);
 				case Op::FORMAT:
-					if (!op_format(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(FORMAT);
+					NEXT_IF(FORMAT, op_format(code + pc, frame, fn, record.line));
 #define COMPARE(m_op, m_access, m_cmp) \
 	case Op::m_op: \
 		U64(code[pc + 1]) = (m_access(code[pc + 2]) m_cmp m_access(code[pc + 3])) ? 1 : 0; \
@@ -2864,35 +2868,20 @@ public:
 					image.setters[code[pc + 1]](frame + code[pc + 2], frame + code[pc + 3]);
 					NEXT(SET_FIELD);
 				case Op::GET_PROPERTY:
-					if (!op_get_property(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_PROPERTY);
+					NEXT_IF(GET_PROPERTY, op_get_property(code + pc, frame, freed, fn, record.line));
 				case Op::CHECK_ENUM:
 					if (!is_enum_value(types[code[pc + 1]], I64(code[pc + 2]))) {
 						return fail_check_enum(fn, record.line, code[pc + 1], I64(code[pc + 2]));
 					}
 					NEXT(CHECK_ENUM);
 				case Op::HAS_MEMBER:
-					if (!op_has_member(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(HAS_MEMBER);
+					NEXT_IF(HAS_MEMBER, op_has_member(code + pc, frame, freed, fn, record.line));
 				case Op::SET_PROPERTY:
-					if (!op_set_property(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(SET_PROPERTY);
+					NEXT_IF(SET_PROPERTY, op_set_property(code + pc, frame, freed, fn, record.line));
 				case Op::GET_MEMBER_OF:
-					if (!op_get_member_of(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_MEMBER_OF);
+					NEXT_IF(GET_MEMBER_OF, op_get_member_of(code + pc, frame, freed, fn, record.line));
 				case Op::SET_MEMBER_OF:
-					if (!op_set_member_of(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(SET_MEMBER_OF);
+					NEXT_IF(SET_MEMBER_OF, op_set_member_of(code + pc, frame, freed, fn, record.line));
 				case Op::NEW_OBJECT:
 				case Op::NEW_WITHOUT_INIT: {
 					bool initialized;
@@ -2908,55 +2897,27 @@ public:
 					break;
 				}
 				case Op::GET_SCRIPT:
-					if (!op_get_script(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_SCRIPT);
+					NEXT_IF(GET_SCRIPT, op_get_script(code + pc, frame, fn, record.line));
 				case Op::GET_OWNER:
-					if (!op_get_owner(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_OWNER);
+					NEXT_IF(GET_OWNER, op_get_owner(code + pc, frame, freed, fn, record.line));
 				case Op::GET_SELF:
-					if (!op_get_self(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_SELF);
+					NEXT_IF(GET_SELF, op_get_self(code + pc, frame, freed, fn, record.line));
 				case Op::GET_SINGLETON:
-					if (!op_get_singleton(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_SINGLETON);
+					NEXT_IF(GET_SINGLETON, op_get_singleton(code + pc, frame, fn, record.line));
 				case Op::GET_AUTOLOAD:
-					if (!op_get_autoload(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_AUTOLOAD);
+					NEXT_IF(GET_AUTOLOAD, op_get_autoload(code + pc, frame, fn, record.line));
 				case Op::METHOD_VALUE:
 				case Op::ENGINE_METHOD_VALUE:
-					if (!op_method_value(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(METHOD_VALUE);
+					NEXT_IF(METHOD_VALUE, op_method_value(code + pc, frame, freed, fn, record.line));
 				case Op::STATIC_VALUE:
 					op_static_value(code + pc, frame);
 					NEXT(STATIC_VALUE);
 				case Op::STRUCT_METHOD_VALUE:
-					if (!op_struct_method_value(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(STRUCT_METHOD_VALUE);
+					NEXT_IF(STRUCT_METHOD_VALUE, op_struct_method_value(code + pc, frame, fn, record.line));
 				case Op::MAKE_LAMBDA:
-					if (!op_make_lambda(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					pc += bytecode::call_length(code + pc);
-					break;
+					NEXT_CALL_IF(op_make_lambda(code + pc, frame, freed, fn, record.line));
 				case Op::GET_SIGNAL:
-					if (!op_get_signal(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_SIGNAL);
+					NEXT_IF(GET_SIGNAL, op_get_signal(code + pc, frame, freed, fn, record.line));
 				case Op::CHECK_MUST:
 					SELF_ALIVE();
 					if (!image.assigned(members, code[pc + 1])) {
@@ -2969,10 +2930,7 @@ public:
 					NEXT(MARK_ASSIGNED);
 				case Op::CHECK_PROVIDED:
 					SELF_ALIVE();
-					if (!check_provided(fn, members)) {
-						return false;
-					}
-					NEXT(CHECK_PROVIDED);
+					NEXT_IF(CHECK_PROVIDED, check_provided(fn, members));
 				case Op::CHECK_RANGE: {
 					const bytecode::IntRange range = bytecode::IntRange(code[pc + 1]);
 					if (!bytecode::int_in_range(range, I64(code[pc + 2]))) {
@@ -2981,15 +2939,9 @@ public:
 					NEXT(CHECK_RANGE);
 				}
 				case Op::CHECK_OBJECT:
-					if (!op_check_object(code + pc, frame, fn, record.line, false)) {
-						return false;
-					}
-					NEXT(CHECK_OBJECT);
+					NEXT_IF(CHECK_OBJECT, op_check_object(code + pc, frame, fn, record.line, false));
 				case Op::CHECK_ELEMENT:
-					if (!op_check_object(code + pc, frame, fn, record.line, true)) {
-						return false;
-					}
-					NEXT(CHECK_ELEMENT);
+					NEXT_IF(CHECK_ELEMENT, op_check_object(code + pc, frame, fn, record.line, true));
 				case Op::CHECK_LIVE:
 					if (!is_live_object(frame + code[pc + 1])) {
 						return fail_freed(fn, record.line, "The object given to the engine was freed.", *reinterpret_cast<const uint64_t *>(frame + code[pc + 1]));
@@ -3008,30 +2960,15 @@ public:
 					op_cast_object(code + pc, frame);
 					NEXT(CAST_OBJECT);
 				case Op::NEW_CONTAINER:
-					if (!op_new_container(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(NEW_CONTAINER);
+					NEXT_IF(NEW_CONTAINER, op_new_container(code + pc, frame, fn, record.line));
 				case Op::GET_INDEX:
-					if (!op_get_index(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(GET_INDEX);
+					NEXT_IF(GET_INDEX, op_get_index(code + pc, frame, fn, record.line));
 				case Op::SET_INDEX:
-					if (!op_set_index(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(SET_INDEX);
+					NEXT_IF(SET_INDEX, op_set_index(code + pc, frame, fn, record.line));
 				case Op::ITER_STATE:
-					if (!op_iter_state(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(ITER_STATE);
+					NEXT_IF(ITER_STATE, op_iter_state(code + pc, frame, fn, record.line));
 				case Op::ORD:
-					if (!op_ord(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(ORD);
+					NEXT_IF(ORD, op_ord(code + pc, frame, fn, record.line));
 				case Op::PRINT_STACK:
 				case Op::GET_STACK:
 					op_stack(code + pc, frame);
@@ -3066,18 +3003,12 @@ public:
 				}
 				case Op::EQUAL:
 				case Op::LESS:
-					if (!op_compare(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(EQUAL);
+					NEXT_IF(EQUAL, op_compare(code + pc, frame, fn, record.line));
 				case Op::SAME_OBJECT:
 					U64(code[pc + 2]) = same_object(frame + code[pc + 3], code[pc + 1] & 1, frame + code[pc + 4], code[pc + 1] & 2) ? 1 : 0;
 					NEXT(SAME_OBJECT);
 				case Op::TO_VARIANT:
-					if (!op_to_variant(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(TO_VARIANT);
+					NEXT_IF(TO_VARIANT, op_to_variant(code + pc, frame, fn, record.line));
 				case Op::FROM_VARIANT:
 					if (!read_variant(types[code[pc + 1]], frame + code[pc + 3], frame + code[pc + 2])) {
 						return fail_helper(fn, record.line);
@@ -3101,15 +3032,9 @@ public:
 					}
 					NEXT(VARIANT_EQUAL);
 				case Op::BOX:
-					if (!op_box(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(BOX);
+					NEXT_IF(BOX, op_box(code + pc, frame, fn, record.line));
 				case Op::ENCODE:
-					if (!op_encode(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(ENCODE);
+					NEXT_IF(ENCODE, op_encode(code + pc, frame, fn, record.line));
 				case Op::UNWRAP: {
 					const TypeImage &type = types[code[pc + 1]];
 					const uint8_t *src = frame + code[pc + 3];
@@ -3162,25 +3087,13 @@ public:
 					const uint32_t target = code[pc + 1];
 					const ClassImage *owner = module.functions[target].is_static || !context.self_image ? &image : context.self_image.get();
 					const ClassImage::FunctionOrigin &origin = owner->function_origins[target];
-					if (!call_function(origin.image ? *origin.image : *owner, origin.image ? uint32_t(origin.index) : target, context, code + pc, frame, module.functions[target].result, fn, record.line)) {
-						return false;
-					}
-					pc += bytecode::call_length(code + pc);
-					break;
+					NEXT_CALL_IF(call_function(origin.image ? *origin.image : *owner, origin.image ? uint32_t(origin.index) : target, context, code + pc, frame, module.functions[target].result, fn, record.line));
 				}
 				case Op::CALL_SUPER:
 				case Op::CALL_METHOD:
-					if (!op_call_method(code + pc, frame, freed, fn, record.line)) {
-						return false;
-					}
-					pc += bytecode::call_length(code + pc);
-					break;
+					NEXT_CALL_IF(op_call_method(code + pc, frame, freed, fn, record.line));
 				case Op::CALL_VALUE:
-					if (!op_call_value(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					pc += bytecode::call_length(code + pc);
-					break;
+					NEXT_CALL_IF(op_call_value(code + pc, frame, fn, record.line));
 				case Op::CLEAR:
 					for (uint32_t i = 0; i < code[pc + 4]; i++) {
 						clear_value(image.types[code[pc + 5 + 2 * i]], frame + code[pc + 6 + 2 * i]);
@@ -3189,25 +3102,13 @@ public:
 					break;
 				case Op::TASK_ANY:
 				case Op::TASK_ALL:
-					if (!op_task_join(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					pc += bytecode::call_length(code + pc);
-					break;
+					NEXT_CALL_IF(op_task_join(code + pc, frame, fn, record.line));
 				case Op::RANGE:
-					if (!op_range(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					pc += bytecode::call_length(code + pc);
-					break;
+					NEXT_CALL_IF(op_range(code + pc, frame, fn, record.line));
 				case Op::CALL_AWAIT_ENGINE:
 				case Op::CALL_ENGINE: {
 					if (image.native_calls[code[pc + 1]].bind) {
-						if (!op_call_native(code + pc, frame, freed, fn, record.line)) {
-							return false;
-						}
-						pc += bytecode::call_length(code + pc);
-						break;
+						NEXT_CALL_IF(op_call_native(code + pc, frame, freed, fn, record.line));
 					}
 					bool done = false;
 					if (!op_call_engine(code + pc, frame, freed, p_async, pc, done, fn, record.line)) {
@@ -3231,34 +3132,17 @@ public:
 				case Op::CALL_UTILITY:
 				case Op::CALL_BUILTIN: {
 					const bool plain = Op(code[pc]) == Op::CALL_BUILTIN && image.builtin_calls[code[pc + 1]].plain;
-					if (!(plain ? op_call_plain(code + pc, frame, fn, record.line) : op_call_builtin(code + pc, frame, fn, record.line))) {
-						return false;
-					}
-					pc += bytecode::call_length(code + pc);
-					break;
+					NEXT_CALL_IF(plain ? op_call_plain(code + pc, frame, fn, record.line) : op_call_builtin(code + pc, frame, fn, record.line));
 				}
 				case Op::CONSTRUCT:
-					if (!op_construct(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					pc += bytecode::call_length(code + pc);
-					break;
+					NEXT_CALL_IF(op_construct(code + pc, frame, fn, record.line));
 				case Op::TASK_CANCEL:
-					if (!op_task_cancel(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(TASK_CANCEL);
+					NEXT_IF(TASK_CANCEL, op_task_cancel(code + pc, frame, fn, record.line));
 				case Op::TASK_OF:
 				case Op::TASK_DELAY:
-					if (!op_signal_task(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(TASK_OF);
+					NEXT_IF(TASK_OF, op_signal_task(code + pc, frame, fn, record.line));
 				case Op::TASK_SETTLED:
-					if (!op_task_settled(code + pc, frame, fn, record.line)) {
-						return false;
-					}
-					NEXT(TASK_SETTLED);
+					NEXT_IF(TASK_SETTLED, op_task_settled(code + pc, frame, fn, record.line));
 				case Op::AWAIT_TASK: {
 					bool done = false;
 					if (!op_await_task(code + pc, frame, p_async, pc, done, fn, record.line)) {
@@ -3289,6 +3173,8 @@ public:
 #undef WRAP
 #undef SELF_ALIVE
 #undef NEXT
+#undef NEXT_IF
+#undef NEXT_CALL_IF
 	}
 };
 
