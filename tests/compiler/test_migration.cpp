@@ -436,12 +436,14 @@ TEST_CASE("an int joins a float in a member by its reads in every file, but not 
 // gdscript_vm.cpp:1433-1438; ed1daf0), and the result of a compound
 // assignment, not its right side (gdscript_compiler.cpp:1346-1381). A
 // variable declared with an int value and no type holds the float.
+// tanks-of-freedom-ii reads its camera's angles negated and through float()
+// (scenes/camera.gd:50, 293).
 TEST_CASE("a float into an int that GDScript wrote is converted, and a float joins an int value where every read keeps") {
 	FakeProject project;
-	project.add_script("res://base.gd", "extends Node\nvar delay = 0\nvar steps = 0\n\n\nfunc run() -> void:\n\tvar t := 0\n\tt = 1.5\n\tt += 0.5\n\tsteps = 2.5\n\tprint(t, delay > 0, Vector2(delay, 0), steps / 2)\n");
-	project.add_script("res://lock.gd", "extends \"res://base.gd\"\n\n\nfunc _init() -> void:\n\tself.delay = 0.3\n");
+	project.add_script("res://base.gd", "extends Node\nvar delay = 0\nvar steps = 0\nvar angle = 0\nvar turns = 0\n\n\nfunc run() -> void:\n\tvar t := 0\n\tt = 1.5\n\tt += 0.5\n\tsteps = 2.5\n\tprint(t, delay > 0, Vector2(delay, 0), steps / 2, deg_to_rad(-angle), float(turns))\n");
+	project.add_script("res://lock.gd", "extends \"res://base.gd\"\n\n\nfunc _init() -> void:\n\tself.delay = 0.3\n\tself.angle = 0.5\n\tself.turns = 1.5\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://base.gd", "res://lock.gd" }, 10);
-	CHECK(migration.texts.at("res://base.pet") == "extends Node\nvar delay: float = 0\nvar steps = 0\n\n\nfunc run() -> void:\n\tvar t := 0\n\tt = int(1.5)\n\tt += 0.5\n\tsteps = 2.5\n\tprint(t, delay > 0, Vector2(delay, 0), steps / 2)\n");
+	CHECK(migration.texts.at("res://base.pet") == "extends Node\nvar delay: float = 0\nvar steps = 0\nvar angle: float = 0\nvar turns: float = 0\n\n\nfunc run() -> void:\n\tvar t := 0\n\tt = int(1.5)\n\tt += 0.5\n\tsteps = 2.5\n\tprint(t, delay > 0, Vector2(delay, 0), steps / 2, deg_to_rad(-angle), float(turns))\n");
 	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::IntConversion, 1 } });
 	CHECK(migration.numbers == 1);
 	REQUIRE(migration.errors.size() == 2);

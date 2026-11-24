@@ -726,6 +726,9 @@ Type Checker::check_constructor(Expr &r_expr, const builtin::Class &p_type) {
 		}
 	}
 	const std::string name = p_type.name;
+	if (name == "float" && args.size() == 1) {
+		keep(*r_expr.args[0]); // It gives for an int what it gives for the same float.
+	}
 	// Of a number, int() and float() check NaN and the range as the program
 	// runs (spec §3.14), which the engine's constructors do not.
 	if ((name == "int" || name == "float") && args.size() == 1 && args[0].is_numeric()) {
