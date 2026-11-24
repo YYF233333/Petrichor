@@ -1377,16 +1377,9 @@ void Checker::check_body(FuncDecl &r_function) {
 	}
 	if (r_function.has_body && r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_error() && !ends) {
 		error(r_function.name_token, "Not all paths of \"" + r_function.name + "()\" return a value.");
-		// `return None` on a line after the last statement, at its indentation.
-		const std::string &text = cls.source->text;
-		const uint32_t first = r_function.body.empty() ? 0 : cls.source->begin(r_function.body.front()->range);
-		const size_t line = text.rfind('\n', first);
-		const std::string indent = line == std::string::npos ? std::string("x") : text.substr(line + 1, first - line - 1);
-		if (assignable(Type::of(TypeKind::None), r_function.return_type) && !r_function.body.empty() && indent.find_first_not_of(" \t") == std::string::npos) {
-			size_t end = std::min(text.find('\n', cls.source->end(r_function.body.back()->range)), text.size());
-			const bool crlf = end > 0 && text[end - 1] == '\r';
-			end -= crlf;
-			fix(Fix{ "Write return None", FixKind::ReturnNone, { { std::string(), { uint32_t(end), uint32_t(end), std::string(), (crlf ? "\r\n" : "\n") + indent + "return None" } } } });
+		const std::optional<Fix::Edit> edit = r_function.body.empty() ? std::nullopt : line_after(r_function.body.back()->range, r_function.body.front()->range.first, "return None");
+		if (assignable(Type::of(TypeKind::None), r_function.return_type) && edit) {
+			fix(Fix{ "Write return None", FixKind::ReturnNone, { *edit } });
 		}
 	}
 	if (init) {

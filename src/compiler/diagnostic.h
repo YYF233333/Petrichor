@@ -41,6 +41,7 @@ enum class FixKind {
 	Unwrap,
 	Optional,
 	ReturnNone, // Where a function that may return None returns nothing.
+	Wildcard, // `_: pass` after the branches of a match that handles some values only.
 	Async,
 	Await,
 	NullPattern,
@@ -69,6 +70,7 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ false, "Write .unwrap()" },
 	{ false, "Make the type T?" },
 	{ false, "Write return None" },
+	{ false, "Write _: pass" },
 	{ false, "Write async func" },
 	{ false, "Write await" },
 	{ false, "Match both levels of null" },

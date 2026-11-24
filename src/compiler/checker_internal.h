@@ -770,6 +770,7 @@ class Checker : public ClassRelation, private CheckContext {
 	std::string operand(const Expr &p_expr) const;
 	void fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check);
 	static Fix::Edit optional_edit(const SourceFile &p_source, const TypeRef &p_written);
+	std::optional<Fix::Edit> line_after(const TokenRange &p_range, uint32_t p_indented, const std::string &p_line) const;
 	void fix_optional(const TypeRef &p_written, const std::string &p_owner = std::string());
 	const TypeRef *type_written_for(const Expr &p_target) const;
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);

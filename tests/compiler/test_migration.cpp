@@ -156,6 +156,16 @@ TEST_CASE("the loop of fixes applies the meaning-keeping ones until none is left
 	CHECK(contains(migration.errors[0].message, "help"));
 }
 
+// GDScript runs no branch when none matches (modules/gdscript/gdscript_compiler.cpp:1938-1943, 1983, 1999-2002; ed1daf0).
+TEST_CASE("the loop of fixes ends a match over an enum that leaves out values with _: pass") {
+	FakeProject project;
+	project.add_script("res://room.gd", "extends Node\nenum Type { BATTLE, SHOP, EVENT }\n\n\nfunc enter(type: Type, ease: Tween.EaseType) -> void:\n\tmatch type:\n\t\tType.BATTLE:\n\t\t\tprint(1)\n\t\tType.SHOP: print(2)  # shop\n\tmatch ease:\n\t\tTween.EASE_IN:\n\t\t\tprint(3)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://room.gd" }, 10);
+	CHECK(migration.texts.at("res://room.pet") == "extends Node\nenum Type { BATTLE, SHOP, EVENT }\n\n\nfunc enter(type: Type, ease: Tween.EaseType) -> void:\n\tmatch type:\n\t\tType.BATTLE:\n\t\t\tprint(1)\n\t\tType.SHOP: print(2)  # shop\n\t\t_: pass\n\tmatch ease:\n\t\tTween.EASE_IN:\n\t\t\tprint(3)\n\t\t_: pass\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Wildcard, 2 } });
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("an override with an await is made async with the method it overrides, and so are the other overrides") {
 	FakeProject project;
 	project.add_script("res://state.gd", "class_name CardState\nextends Node\n\n\nfunc enter() -> void:\n\tpass\n\n\nfunc change() -> void:\n\tenter()\n", "CardState");

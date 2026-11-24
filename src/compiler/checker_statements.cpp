@@ -491,8 +491,15 @@ void Checker::check_exhaustive(Stmt &r_match, const Type &p_matched) {
 	if (r_match.exhaustive || !(own_enum || p_matched.is_optional() || p_matched.kind == TypeKind::Enum)) {
 		return;
 	}
+	// GDScript runs no branch when none matches (architecture §6.6).
+	const auto fix_wildcard = [&] {
+		if (const std::optional<Fix::Edit> edit = r_match.branches.empty() ? std::nullopt : line_after(r_match.range, r_match.branches.front().range.first, "_: pass")) {
+			fix(Fix{ "Write _: pass", FixKind::Wildcard, { *edit } });
+		}
+	};
 	if (p_matched.kind == TypeKind::Enum && (!p_matched.values || p_matched.values->is_engine)) {
 		error(r_match.value->range, "A match over " + enum_spelling(p_matched) + " needs a `_` branch: the engine's enums are open, it gives values outside them and later versions add more.");
+		fix_wildcard();
 		return;
 	}
 	// What is left of each constructor: all, or only some values.
@@ -526,6 +533,7 @@ void Checker::check_exhaustive(Stmt &r_match, const Type &p_matched) {
 		names += " and " + std::to_string(missing.size() - 8) + " more";
 	}
 	error(r_match.value->range, "This match over " + (own_enum ? enum_spelling(p_matched) : p_matched.to_string()) + " does not handle " + names + "; handle them or add a `_` branch.");
+	fix_wildcard();
 }
 
 // GDScript compares the types first, String and StringName alike, so a

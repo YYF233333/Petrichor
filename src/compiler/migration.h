@@ -236,7 +236,7 @@ struct Migration {
 // Checks the project with `p_files` migrated, in memory. It infers the types
 // of their slots without one, in at most `p_rounds` rounds of checks, and
 // writes them. Then it applies in each round the fixes of the automatic
-// kinds, Async and Unwrap, and Optional for a value that a scene lacks, as
+// kinds and of those that the GDScript settles (architecture §6.6), as
 // fixing all of a kind does, but not one that edits a file outside them;
 // Cast in a round without others; until a round applies none, or after
 // `p_rounds` rounds.

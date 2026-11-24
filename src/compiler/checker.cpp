@@ -392,6 +392,23 @@ Fix::Edit Checker::optional_edit(const SourceFile &p_source, const TypeRef &p_wr
 	return { std::string(), { p_source.begin(p_written.range), p_source.end(p_written.range), text, (p_written.is_function ? "(" + text + ")" : text) + "?" } };
 }
 
+// The edit that writes `p_line` on a line of its own after the one where
+// `p_range` ends, indented as token `p_indented`; nullopt where other text
+// comes before that token on its line.
+std::optional<Fix::Edit> Checker::line_after(const TokenRange &p_range, uint32_t p_indented, const std::string &p_line) const {
+	const std::string &text = cls.source->text;
+	const uint32_t first = cls.source->tokens[p_indented].offset;
+	const size_t line = text.rfind('\n', first);
+	const std::string indent = line == std::string::npos ? std::string("x") : text.substr(line + 1, first - line - 1);
+	if (indent.find_first_not_of(" \t") != std::string::npos) {
+		return std::nullopt;
+	}
+	size_t end = std::min(text.find('\n', cls.source->end(p_range)), text.size());
+	const bool crlf = end > 0 && text[end - 1] == '\r';
+	end -= crlf;
+	return Fix::Edit{ std::string(), { uint32_t(end), uint32_t(end), std::string(), (crlf ? "\r\n" : "\n") + indent + p_line } };
+}
+
 // Gives the error reported last the fix that makes the type written at
 // `p_written` a T?, in the file of the class at `p_owner` if another.
 void Checker::fix_optional(const TypeRef &p_written, const std::string &p_owner) {
