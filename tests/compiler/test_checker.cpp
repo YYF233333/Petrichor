@@ -103,6 +103,10 @@ TEST_CASE("@warning_ignore takes the names of warnings") {
 TEST_CASE("float to int and an Array to a packed array need an explicit conversion") {
 	CHECK(has_error(in_function("var hp: int = 10\nhp = 2.5"), "Convert explicitly with int(x)."));
 	CHECK(errors_of(in_function("var hp: int = int(2.5)")).empty());
+	// Offered, but not fixed with the others: a float there more often means a
+	// float variable (architecture §2.1).
+	CHECK(fixed(in_function("var hp: int = 10\nhp = 2.5"), "Write int(2.5)") == in_function("var hp: int = 10\nhp = int(2.5)"));
+	CHECK(fixed_all(in_function("var hp: int = 10\nhp = 2.5"), compiler::FixKind::IntConversion) == in_function("var hp: int = 10\nhp = 2.5"));
 	CHECK(errors_of(in_function("var x: float = 1")).empty());
 	// The other explicit conversions are the engine's constructors.
 	CHECK(errors_of(in_function("var b := bool(2)\nvar i: int = int(\"5\") + int()\nvar f := float(\"1.5\")\nvar s := String(&\"a\")")).empty());

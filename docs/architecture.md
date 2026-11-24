@@ -152,10 +152,10 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - `.detach()`，以及字面量名字改用方法或信号本身；
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
     - packed 数组位置上的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）；
-    - `int` 位置上的 `float` 套上 `int(x)`。GDScript 在它写了类型（含 `:=`）的位置同样向零取整转换并给出警告（`modules/gdscript/gdscript_analyzer.cpp:3062-3064, 6370-6374`，`modules/gdscript/gdscript_byte_codegen.cpp:934-939, 992-997`，`modules/gdscript/gdscript_vm.cpp:1433-1438`，`core/variant/variant_construct.cpp:69`，`ed1daf0`）。复合赋值不提供：GDScript 转换的是运算结果（`modules/gdscript/gdscript_compiler.cpp:1346-1381`）。以值定型、没写 `:=` 的变量也不提供，它在 GDScript 中是 `Variant`，照存 `float`；
     - 多参信号结果的字面量下标改为它所指的字段（§6.6）；
     - 补上 `pub`（若声明会因此露出不带 `pub` 的类型，则不提供）。
   - 其余种类（如 `.unwrap()`、改为 `T?`、补上 `async`、`await`、null 模式和写 `as`）只作备选；自动修复排在首位且无需输入。
+  - `int` 位置上的 `float` 套上 `int(x)` 也只作备选，因为本语言写的代码在这里更常是该把变量写成 `float`。GDScript 在它写了类型（含 `:=`）的位置向零取整转换并给出警告（`modules/gdscript/gdscript_analyzer.cpp:3062-3064, 6370-6374`，`modules/gdscript/gdscript_byte_codegen.cpp:934-939, 992-997`，`modules/gdscript/gdscript_vm.cpp:1433-1438`，`core/variant/variant_construct.cpp:69`，`ed1daf0`），迁移因此直接应用它（§6.6）。检查器同样按已经套上继续检查。复合赋值不提供：GDScript 转换的是运算结果（`modules/gdscript/gdscript_compiler.cpp:1346-1381`）。以值定型、没写 `:=` 的变量也不提供，它在 GDScript 中是 `Variant`，照存 `float`。
   - 一键修复（`compiler::fix_all()`）每次只应用本脚本中的一种自动修复。同种修复区间重叠或起点相同时跳过后者留给下次，两个错误给出的同一修复只应用一次；跨种类批量修复属于迁移工具（§6.6）。
   - 改写会给操作数加括号（名字、成员、调用、下标、字面量和已在括号中的除外）。检查器在原树上暂时改写并重检来判断改写能否通过（如加上 `.unwrap()` 后成员能否找到），通不过就不提供。这次检查的报错、引用和警告随即撤回，补全时不做这种验证。
   - 修复也可编辑其他脚本（如给另一文件的声明补上 `pub` 或给被覆盖方法补上 `async`），这处编辑带上目标脚本的 `res://` 路径，原文从关键字取到名字。
@@ -841,11 +841,12 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 
 修复循环复用编辑器的快速修复（§2.1），每个错误取第一个符合条件的修复（含场景检查给出的修复，如给信号方法补 `pub`）。单轮修复按 `compiler::fixed_together()` 一并应用，改到集合外文件的修复跳过；不再应用修复或达到 10 轮上限时停止（达上限在报告写明）。
 
-- **原文定意的五类备选修复**：以下备选修复在原文写法已定下意图时直接应用：
+- **原文定意的六类备选修复**：以下备选修复在原文写法已定下意图时直接应用：
   - **补 `async`**：原文含 `await` 的函数只要签名不多出错误就补 `async`（参数缺类型也照补）。覆盖链上方法同步补齐以保持一致，顶端覆盖有返回值引擎虚函数或 `_init` 时不提供（规范 §9.1）。丢弃结果的调用随后由自动修复补 `.detach()`：GDScript 协程运行到第一处挂起就返回、调用方接着执行，与 `detach` 相同（`modules/gdscript/gdscript_vm.cpp:2586-2597, 2641-2654`，`ed1daf0`）。反向转换去掉 `async` 和 `.detach()`，无 `await` 函数在 GDScript 中照常运行到底。作 setter 的函数和内联 `set(value):` 照补，写入属性处不补 `.detach()`：写入即启动 setter 并在它首次挂起时接着执行（规范 §4.4），GDScript 调用 setter 后同样丢弃返回值（`modules/gdscript/gdscript_compiler.cpp:1360-1365`）。
   - **补 `.unwrap()`**：原文未判空就使用的值补 `.unwrap()`，与 GDScript 在同一处出错。
   - **改为 `T?`**：场景、资源或 `instantiate()` 未给值的导出改为 `T?`（GDScript 运行时给 `null`，后续未判空使用照样补 `.unwrap()`，反向转换写回 `T`）。原文把字面量 `null` 赋给 `T` 变量、从 `-> T` 函数返回或只写 `return` 时同样改为 `T?`，因为 GDScript 接受 `null` 作为任何对象类型（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。写了对象类型而无初始值的声明也改为 `T?`，规范 §6.2 证明有值的除外，与推断同一规则：deck_builder_tutorial 中 `create_instance()` 之后才赋值的 `var deck: CardPile`（`custom_resources/character_stats.gd:17`）写成 `CardPile?`。这条由推断在写类型时一并写下，不等检查报错，因为挂在场景节点上的成员按祖先赋值处理、不报错。setter 的参数按规则取成员的类型，成员改为 `T?` 后，具名 setter 仍写 `T` 的参数由这类修复一并改为 `T?`（deck_builder_tutorial 的 `scenes/ui/mana_ui.gd:9`）。
   - **补 `return None`**：返回 `T?` 或 `Variant` 的函数中，只写的 `return` 改为 `return None`；走到末尾的路径在函数体末尾另起一行补上 `return None`。两者都是 GDScript 返回的 `null`。
+  - **套 `int(x)`**：GDScript 写了 `int` 的位置上的 `float` 套上 `int(x)`，与 GDScript 同样向零取整（§2.1）。
   - **补 `_: pass`**：`match` 因不穷尽又无 `_` 报错时（规范 §5.6），在最后一个分支之后按分支缩进补上 `_: pass`。GDScript 把分支编成一串 if/else，没有分支匹配就什么都不执行（`modules/gdscript/gdscript_compiler.cpp:1938-1943, 1983, 1999-2002`，`ed1daf0`）。编辑器中它只作备选，因为用户也可能想处理余下的值；反向转换保留它。
 - **隐式向下转换写 `as`**：改不了声明的（上文“写宽了的类型”）在值上写 `as`，结果是否可空随值而定。值非空写 `(x as T).unwrap()`，得 `T`；值可空写 `x as T`，得 `T?`，再按流入和上面几类处理。
   - GDScript 给带类型变量赋值时放过 `null`，类不符时调试版报错，发布版不检查（`modules/gdscript/gdscript_vm.cpp:1533-1625`，`ed1daf0`）。值非空时与 GDScript 在同一处出错；值可空时类不符得 `None`，到使用处才出错。

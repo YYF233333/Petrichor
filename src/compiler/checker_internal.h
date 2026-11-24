@@ -491,11 +491,11 @@ class Checker : public ClassRelation, private CheckContext {
 		~Tentative() { end(false); }
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
-		// Nothing but errors with an automatic fix or one that unwraps, after
-		// which the check goes on as if it were applied (architecture §2.1).
+		// Nothing but errors with a fix after which the check goes on as if it
+		// were applied, or one that unwraps (architecture §2.1).
 		bool fixed() const {
 			return std::all_of(checker.errors.begin() + std::ptrdiff_t(errors), checker.errors.end(), [](const Diagnostic &p_error) {
-				return std::any_of(p_error.fixes.begin(), p_error.fixes.end(), [](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Unwrap; });
+				return std::any_of(p_error.fixes.begin(), p_error.fixes.end(), [](const Fix &p_fix) { return p_fix.assumed() || p_fix.kind == FixKind::Unwrap; });
 			});
 		}
 		// What the name at `p_begin` was found to refer to since it began.

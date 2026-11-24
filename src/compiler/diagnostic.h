@@ -36,13 +36,13 @@ enum class FixKind {
 	Autoload, // Its name for a literal path from the root to it.
 	PackedArray, // The conversion of an Array where a packed array is expected.
 	ArgumentField, // The field for a literal index of a signal's arguments.
-	IntConversion, // int(x) of a float where GDScript converts it.
 	// The ones offered for the user to choose.
 	FloatResult, // float arguments where the result's type or value then changes.
 	Unwrap,
 	Optional,
 	ReturnNone, // Where a function that may return None returns nothing.
 	Wildcard, // `_: pass` after the branches of a match that handles some values only.
+	IntConversion, // int(x) of a float where GDScript converts it.
 	Async,
 	Await,
 	NullPattern,
@@ -67,12 +67,12 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ true, "Reach the autoload by its name" },
 	{ true, "Convert to the packed array" },
 	{ true, "Read the argument by its name" },
-	{ true, "Convert to int" },
 	{ false, "Write the int arguments as float" },
 	{ false, "Write .unwrap()" },
 	{ false, "Make the type T?" },
 	{ false, "Write return None" },
 	{ false, "Write _: pass" },
+	{ false, "Convert to int" },
 	{ false, "Write async func" },
 	{ false, "Write await" },
 	{ false, "Match both levels of null" },
@@ -93,6 +93,10 @@ struct Fix {
 	std::vector<Edit> edits;
 
 	bool automatic() const { return FIX_KINDS[size_t(kind)].automatic; }
+	// Whether the check goes on as if it were applied and a migration applies
+	// it: an automatic one, or int(x), as GDScript converts there (architecture
+	// §2.1).
+	bool assumed() const { return automatic() || kind == FixKind::IntConversion; }
 };
 
 // A compile error, a warning or a hint (spec §1.4), over a byte range of the
