@@ -148,9 +148,8 @@ Refactorings that remove code, taken in this order. The line counts are estimate
   - Its design is in architecture §6.6. It infers missing types over the whole project, from what flows into each slot.
     - Measure the inferred share on the corpus as each step lands.
     - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
-    - The inference types 1554 of tanks-of-freedom-ii's 2266 slots, and its errors fall from 5971 to 2896. Of the slots left without a type, 531 got types that do not check, mostly `Variant`.
-    - A class without `class_name` has no name to write as a type. In tanks-of-freedom-ii that leaves 159 slots, 31 of them its board. A rewrite could give such files a name.
-      - Among them are members that the scenes type and other files read, such as `map.camera` (72 reads), `ui.picker` (43) and `ui.radial` (33).
+    - The inference types 1647 of tanks-of-freedom-ii's 2266 slots, and its errors fall from 5971 to 2684. Of the slots left without a type, 619 got types that do not check, mostly `Variant`. 47 of them name classes without `class_name`, and most meet errors of the class they name, such as the board's.
+    - Members that the scenes type and other files read stay unknown there, such as `map.camera` (72 reads), `ui.picker` (43) and `ui.radial` (33).
   - Rewrites that those games need:
     - a typed loop variable over wider elements, as `for player: AudioStreamPlayer in get_children()` (53 uses);
     - a member that the value's static type lacks, as after `get_collider()` or `instantiate()` (99 uses; architecture §6.6).

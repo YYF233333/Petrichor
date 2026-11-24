@@ -925,6 +925,162 @@ bool joins(const Inflows::Slot &p_slot, Uses &r_uses) {
 	return kept(p_slot.kind == Inflows::Kind::Member ? r_uses.of_member[{ p_slot.owner, p_slot.name }] : r_uses.of_local[p_slot.key], kept);
 }
 
+// A file's or a directory's name in PascalCase, as main_menu gives MainMenu;
+// "" when it makes no name.
+std::string pascal_case(const std::string &p_name) {
+	std::string result;
+	bool upper = true;
+	for (const char c : p_name) {
+		if (c == '_' || c == '-' || c == ' ' || c == '.') {
+			upper = true;
+		} else if (std::isalnum(static_cast<unsigned char>(c))) {
+			result += upper ? char(std::toupper(static_cast<unsigned char>(c))) : c;
+			upper = false;
+		} else {
+			return std::string();
+		}
+	}
+	return result.empty() || std::isdigit(static_cast<unsigned char>(result[0])) ? std::string() : result;
+}
+
+// The constants by which a file names the classes of files without a
+// class_name in the types written into it (architecture §6.6).
+class Aliases {
+	struct File {
+		std::map<std::string, std::string> names; // By the script's file.
+		std::map<std::string, std::string> added; // By name: the scripts of those to add.
+		std::set<std::string> taken;
+		uint32_t at = 0; // Where they go: after the class's header.
+	};
+	const EngineApi &engine;
+	const ProjectApi &project;
+	const std::map<std::string, std::string> &texts;
+	std::map<std::string, File> files;
+
+	File &of(const std::string &p_file) {
+		const auto found = files.find(p_file);
+		if (found != files.end()) {
+			return found->second;
+		}
+		File &file = files[p_file];
+		std::vector<Diagnostic> ignored;
+		const ClassDecl decl = parse(texts.at(p_file), ignored);
+		const SourceFile &source = *decl.source;
+		for (const uint32_t token : { decl.class_name_token, decl.extends_token }) {
+			if (token != NO_TOKEN) {
+				const size_t end = texts.at(p_file).find('\n', source.tokens[token].offset);
+				file.at = std::max(file.at, end == std::string::npos ? uint32_t(texts.at(p_file).size()) : uint32_t(end + 1));
+			}
+		}
+		const auto collect = [&](const auto &p_self, const ClassDecl &p_class) -> void {
+			for (const auto *list : { &p_class.members, &p_class.static_vars }) {
+				for (const VarDecl &each : *list) {
+					file.taken.insert(each.name);
+				}
+			}
+			for (const ConstDecl &each : p_class.constants) {
+				file.taken.insert(each.name);
+				const bool preloads = &p_class == &decl && each.initializer && each.initializer->kind == ExprKind::Call && !each.initializer->base && each.initializer->text == "preload" && each.initializer->args.size() == 1 && each.initializer->args[0]->kind == ExprKind::StringLiteral;
+				if (preloads) {
+					const std::string path = resolved_path(each.initializer->args[0]->text, p_file);
+					file.names.emplace(path.rfind("uid://", 0) == 0 ? project.uid_path(path) : path, each.name);
+				}
+			}
+			for (const FuncDecl &each : p_class.functions) {
+				file.taken.insert(each.name);
+			}
+			for (const SignalDecl &each : p_class.signals) {
+				file.taken.insert(each.name);
+			}
+			for (const EnumDecl &each : p_class.enums) {
+				file.taken.insert(each.name);
+			}
+			for (const StructDecl &each : p_class.structs) {
+				file.taken.insert(each.name);
+			}
+			for (const InterfaceDecl &each : p_class.interfaces) {
+				file.taken.insert(each.name);
+			}
+			for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+				file.taken.insert(inner->name);
+				p_self(p_self, *inner);
+			}
+		};
+		collect(collect, decl);
+		return file;
+	}
+
+public:
+	Aliases(const EngineApi &p_engine, const ProjectApi &p_project, const std::map<std::string, std::string> &p_texts) :
+			engine(p_engine), project(p_project), texts(p_texts) {}
+
+	// The constant that names the script's class in the file: one the file
+	// has, or one to add, named after the script's file, with the names of
+	// its directories before it, the nearest first, until no other name of
+	// the file, global class, engine class or autoload has it. "" when none
+	// is free.
+	std::string name(const std::string &p_file, const std::string &p_script) {
+		File &file = of(p_file);
+		const auto found = file.names.find(p_script);
+		if (found != file.names.end()) {
+			return found->second;
+		}
+		const std::string base = file_name(p_script);
+		std::string name = pascal_case(base.substr(0, base.rfind('.')));
+		std::string folder = p_script.substr(0, p_script.find_last_of('/'));
+		while (!name.empty()) {
+			if (!file.taken.count(name) && !engine.class_exists(name) && project.global_class_path(name).empty() && project.autoload_path(name).empty()) {
+				file.taken.insert(name);
+				file.names[p_script] = name;
+				file.added[name] = p_script;
+				return name;
+			}
+			const size_t slash = folder.find_last_of('/');
+			const std::string parent = pascal_case(slash == std::string::npos ? std::string() : folder.substr(slash + 1));
+			if (parent.empty() || folder.size() <= std::string("res://").size()) {
+				break;
+			}
+			name = parent + name;
+			folder = folder.substr(0, slash);
+		}
+		file.names[p_script] = std::string();
+		return std::string();
+	}
+
+	// The constants to add to the file for the scripts given, sorted, with
+	// where they go.
+	std::pair<uint32_t, std::string> added(const std::string &p_file, const std::set<std::string> &p_scripts) {
+		File &file = of(p_file);
+		std::string text;
+		for (const auto &[name, script] : file.added) {
+			if (p_scripts.count(script)) {
+				text += "const " + name + " = preload(\"" + script + "\")\n";
+			}
+		}
+		return { file.at, text.empty() ? text : "\n" + text };
+	}
+};
+
+// The type with each class of a file without a class_name named by its
+// constant in `p_file`, with the scripts of those named so; false when one
+// has no constant.
+bool aliased(Type &r_type, const std::string &p_file, Aliases &r_aliases, std::set<std::string> &r_scripts) {
+	if (r_type.kind == TypeKind::Object && !r_type.script.empty()) {
+		const std::string script = script_file(r_type.script);
+		const std::string shown = file_name(script);
+		const bool own_inner = script == p_file && r_type.script != script;
+		if (r_type.name.rfind(shown, 0) == 0 && !own_inner) {
+			const std::string name = r_aliases.name(p_file, script);
+			if (name.empty()) {
+				return false;
+			}
+			r_type.name = name + r_type.name.substr(shown.size());
+			r_scripts.insert(script);
+		}
+	}
+	return std::all_of(r_type.args.begin(), r_type.args.end(), [&](Type &r_arg) { return aliased(r_arg, p_file, r_aliases, r_scripts); });
+}
+
 } // namespace
 
 // Stage 2 of a migration (architecture §6.6): rounds of checks that record
@@ -1057,12 +1213,19 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		r_result.notes.push_back(std::move(hint));
 	};
 	std::map<Inflows::Key, std::string> written;
+	// The scripts whose constants a type written names.
+	std::map<Inflows::Key, std::set<std::string>> aliased_in;
+	Aliases aliases(p_engine, r_project, original);
 	std::map<Inflows::Key, std::string> refusals;
 	for (const Inflows::Slot &slot : slots) {
 		const auto found = tried.find(slot.key);
-		const std::string text = found == tried.end() ? std::string() : spelled(found->second, slot.key.first);
-		if (!text.empty() && place.count(slot.key)) {
+		Type type = found == tried.end() ? Type::of(TypeKind::Error) : found->second;
+		std::set<std::string> scripts;
+		const bool named = found != tried.end() && place.count(slot.key) && aliased(type, slot.key.first, aliases, scripts);
+		const std::string text = named ? spelled(type, slot.key.first) : std::string();
+		if (!text.empty()) {
 			written[slot.key] = text;
+			aliased_in[slot.key] = scripts;
 		} else if (found != tried.end()) {
 			refusals[slot.key] = found->second.to_string() + " has no name here";
 		} else {
@@ -1073,9 +1236,18 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	check.files = inflows.files;
 	for (int pass = 0;; pass++) {
 		insertions.clear();
+		std::map<std::string, std::set<std::string>> aliased_by_file;
 		for (const auto &[slot, text] : written) {
 			const Place &at = place.at(slot);
 			insertions[slot.first].push_back({ at.at, at.end, at.before + text + at.after, slot });
+			aliased_by_file[slot.first].insert(aliased_in[slot].begin(), aliased_in[slot].end());
+		}
+		// The constants go after the header, as written by no slot.
+		for (const auto &[file, scripts] : aliased_by_file) {
+			const auto [at, text] = aliases.added(file, scripts);
+			if (!text.empty()) {
+				insertions[file].push_back({ at, at, text, { file, UINT32_MAX } });
+			}
 		}
 		for (auto &[file, text] : r_project.texts) {
 			std::vector<Written> &in_file = insertions[file];
@@ -1224,6 +1396,19 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		if (!rests.empty()) {
 			note(slot.key, "The type of \"" + slot.name + "\", " + written.at(slot.key) + ", " + rests[0] + (rests.size() > 1 ? "; it " + rests[1] : std::string()) + ".");
 			r_result.partial++;
+		}
+	}
+	for (const auto &[file, in_file] : insertions) {
+		for (const Written &each : in_file) {
+			if (each.slot.second == UINT32_MAX) {
+				std::string lines;
+				for (size_t at = 1; at < each.text.size();) {
+					const size_t end = each.text.find('\n', at);
+					lines += (lines.empty() ? "" : ", ") + each.text.substr(at, end - at);
+					at = end + 1;
+				}
+				note({ file, each.at }, "Added " + lines + " to name classes without a class_name in types.");
+			}
 		}
 	}
 	r_result.typed = int(written.size());

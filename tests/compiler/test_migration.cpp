@@ -288,6 +288,23 @@ TEST_CASE("a type that the check refuses is withdrawn, and the slot stays an err
 	CHECK(contains(migration.errors[0].message, "\"x\" needs a type"));
 }
 
+// In the shape of tanks-of-freedom-ii, whose board passes itself to its
+// abilities (spec §2.1, §7.6).
+TEST_CASE("a class without a class_name is named in types by a constant that preloads it, which the file has or gets") {
+	FakeProject project;
+	project.add_script("res://board/board.gd", "extends Node\nvar abilities = preload(\"res://abilities/abilities.gd\").new(self)\n");
+	project.add_script("res://abilities/abilities.gd", "extends RefCounted\nvar board\n\n\nfunc _init(p_board):\n\tboard = p_board\n");
+	project.add_script("res://unit.gd", "extends RefCounted\n");
+	project.add_script("res://outcomes/camera.gd", "extends Node\n");
+	project.add_script("res://camera.gd", "class_name Camera\nextends Node\n", "Camera");
+	project.add_script("res://hud.gd", "extends Node\nconst Unit = preload(\"res://unit.gd\")\nvar picked\nvar watched\n\n\nfunc _ready() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.gd\").new()\n\tadd_child(watched)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://board/board.gd", "res://abilities/abilities.gd", "res://unit.gd", "res://outcomes/camera.gd", "res://camera.gd", "res://hud.gd" }, 10);
+	CHECK(migration.texts.at("res://abilities/abilities.pet") == "extends RefCounted\n\nconst Board = preload(\"res://board/board.pet\")\nvar board: Board\n\n\npub func _init(p_board: Board):\n\tboard = p_board\n");
+	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n\nconst OutcomesCamera = preload(\"res://outcomes/camera.pet\")\nconst Unit = preload(\"res://unit.pet\")\nvar picked: Unit\nvar watched: OutcomesCamera\n\n\nfunc _ready() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.pet\").new()\n\tadd_child(watched)\n");
+	CHECK(migration.errors.empty());
+	CHECK(std::any_of(migration.notes.begin(), migration.notes.end(), [](const compiler::Diagnostic &p_note) { return p_note.file == "res://hud.pet" && p_note.message == "Added const OutcomesCamera = preload(\"res://outcomes/camera.pet\") to name classes without a class_name in types."; }));
+}
+
 TEST_CASE("an empty container takes the types of the elements and keys put in it, or else stays untyped") {
 	FakeProject project;
 	project.add_script("res://e.gd", "extends Node\nvar names = []\nvar scores = {}\n\n\nfunc gather(nodes: Array[Node]) -> void:\n\tvar picked = []\n\tnames.append(\"a\")\n\tscores[\"a\"] = 1\n\tfor child in nodes:\n\t\tpicked.push_back(child)\n\tvar mixed = []\n\tmixed.append(1)\n\tmixed.append(\"x\")\n\tvar unused = {}\n\tprint(picked, mixed, unused)\n");
