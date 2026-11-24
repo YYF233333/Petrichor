@@ -660,14 +660,17 @@ void LspServer::step() {
 		Connection &connection = each.connection;
 		for (bool first = true; !connection.closing && (first || time->get_ticks_msec() - start < FRAME_BUDGET); first = false) {
 			size_t skipped = 0;
-			const std::optional<std::string> body = connection.next(skipped);
+			std::optional<std::string> body = each.waiting ? std::exchange(each.waiting, std::nullopt) : connection.next(skipped);
 			if (skipped > 0 && each.state == State::Running) {
 				show_message(vformat("Petrichor's language server skipped a message of %d bytes, as it reads messages of up to %d.", int64_t(skipped), int64_t(MAX_MESSAGE)));
 			}
 			if (!body) {
 				break;
 			}
-			handle(*body);
+			if (!handle(*body)) {
+				each.waiting = std::move(body);
+				break;
+			}
 		}
 		connection.in.erase(0, connection.read);
 		connection.read = 0;
@@ -769,13 +772,13 @@ std::optional<std::string> LspServer::Connection::next(size_t &r_skipped) {
 
 // A response is never answered, also one without a usable id (JSON-RPC 2.0,
 // Response object).
-void LspServer::handle(const std::string &p_body) {
+bool LspServer::handle(const std::string &p_body) {
 	Ref<JSON> json;
 	json.instantiate();
 	const std::optional<String> text = json_text(p_body);
 	if (!text || json->parse(*text) != OK) {
 		reply_error(session->connection.out, Variant(), PARSE_ERROR, "The message is not JSON in UTF-8.");
-		return;
+		return true;
 	}
 	const Variant data = json->get_data();
 	const Dictionary message = dictionary(data);
@@ -783,20 +786,21 @@ void LspServer::handle(const std::string &p_body) {
 	const Variant method = message.get("method", Variant());
 	const bool has_id = id.get_type() != Variant::NIL;
 	if (!message.has("method") && (message.has("result") || message.has("error"))) {
-		return;
+		return true;
 	}
 	if (data.get_type() != Variant::DICTIONARY || (message.has("id") && !has_id) || !message.has("method") || method.get_type() != Variant::STRING) {
 		reply_error(session->connection.out, id, INVALID_REQUEST, "The message is no JSON-RPC request, notification or response.");
 	} else if (has_id) {
-		request(id, method, message.get("params", Variant()));
+		return request(id, method, message.get("params", Variant()));
 	} else {
 		notification(method, dictionary(message.get("params", Variant())));
 	}
+	return true;
 }
 
 // Before `initialize` and after `shutdown`, only `exit` is taken
 // (LSP 3.17, Lifecycle Messages).
-void LspServer::request(const Variant &p_id, const String &p_method, const Variant &p_params) {
+bool LspServer::request(const Variant &p_id, const String &p_method, const Variant &p_params) {
 	static const std::map<std::string, Variant (LspServer::*)(const Dictionary &)> QUERIES = {
 		{ "textDocument/completion", &LspServer::on_completion },
 		{ "textDocument/signatureHelp", &LspServer::on_signature_help },
@@ -878,14 +882,26 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		}
 		reply(out, p_id, files);
 	} else if (p_method == "petrichor/run") {
-		// A command of pet, on the files as they are now (architecture §6.5).
+		// A command of pet, on the files as they are now (architecture §6.5),
+		// once the editor's scan of them has ended, as without a service
+		// (PetEditorPlugin::run_headless()). Until then the editor puts off
+		// what it learns of global classes, so a script written meanwhile would
+		// compile against those of before
+		// (editor/file_system/editor_file_system.cpp:1074, 2552-2554; ed1daf0).
+		EditorFileSystem *files = EditorInterface::get_singleton()->get_resource_filesystem();
+		if (files->is_scanning()) {
+			return false;
+		}
+		refresh();
+		if (files->is_scanning()) {
+			return false;
+		}
 		const Dictionary params = dictionary(p_params);
 		const Variant listed = params.get("args", Array());
 		std::vector<std::string> args;
 		for (int64_t i = 0; listed.get_type() == Variant::ARRAY && i < Array(listed).size(); i++) {
 			args.push_back(to_utf8(Array(listed)[i].stringify()));
 		}
-		refresh();
 		std::set<std::string> warned;
 		for (const std::string &file : held()) {
 			if (conflicts.count(file)) {
@@ -899,7 +915,7 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 			result["exitCode"] = ran->second;
 			reply(out, p_id, result);
 		} else {
-			reply_error(out, p_id, INVALID_PARAMS, "The command is none of check, build and format.");
+			reply_error(out, p_id, INVALID_PARAMS, "The command is none of check, build, format and migrate.");
 		}
 	} else if (const auto query = QUERIES.find(to_utf8(p_method)); query != QUERIES.end()) {
 		// On the files as they are now (architecture §6.5).
@@ -917,6 +933,7 @@ void LspServer::request(const Variant &p_id, const String &p_method, const Varia
 	} else {
 		reply_error(out, p_id, METHOD_NOT_FOUND, "Unknown method: " + p_method);
 	}
+	return true;
 }
 
 // One with a malformed field is ignored.

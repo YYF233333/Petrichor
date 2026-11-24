@@ -72,6 +72,7 @@ class LspServer {
 		bool resolves_edits = false; // Of code actions, when one is chosen.
 		bool annotates = false; // Edits that need confirmation.
 		std::map<std::string, Document> documents;
+		std::optional<std::string> waiting; // A message handled again in a later frame (request()).
 	};
 
 public:
@@ -118,8 +119,9 @@ private:
 	void step();
 	bool flush(Connection &r_connection);
 	bool transfer(Connection &r_connection);
-	void handle(const std::string &p_body);
-	void request(const godot::Variant &p_id, const godot::String &p_method, const godot::Variant &p_params);
+	// False for a request that waits, which is handled again in a later frame.
+	bool handle(const std::string &p_body);
+	bool request(const godot::Variant &p_id, const godot::String &p_method, const godot::Variant &p_params);
 	void notification(const godot::String &p_method, const godot::Dictionary &p_params);
 	void opened(const godot::Dictionary &p_params);
 	void changed(const godot::Dictionary &p_params);

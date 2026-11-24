@@ -1108,7 +1108,8 @@ def check_migrate(godot):
     """pet migrate (architecture §6.6) on a copy of tests/engine/migrate: a dry
     run of one file names what it takes and writes nothing; through a service,
     it writes nothing while an LSP client has unsaved changes to a file it
-    rewrites, and once it has none, it renames the files with their .uid
+    rewrites, and once it has none, after Godot's scan of the files, it
+    renames the files with their .uid
     files, rewrites the paths naming them, writes the types it infers and
     applies the fixes that keep the meaning, leaving out the script templates
     from the project setting. Godot then reads the project again, which checks
@@ -1150,8 +1151,11 @@ def check_migrate(godot):
             refused = "hud.pet: error: Another editor has unsaved changes to it. Save them there first."
             expect("pet migrate: nothing is written while an LSP client has unsaved changes to a file it rewrites", code == 1 and refused in out.splitlines() and out.rstrip().endswith("; nothing was written") and files() == before, out + err)
             client.notify("textDocument/didClose", {"textDocument": {"uri": hud}})
-            client.request("petrichor/unknown")
-            code, out, err = pet("migrate")
+            # A file written as the command comes has Godot scan the files then,
+            # as its first scan may still run.
+            (project / "notes.txt").write_bytes(b"")
+            ran = (client.request("petrichor/run", {"command": "migrate", "args": []}) or {}).get("result", {})
+            code, out, err = ran.get("exitCode"), ran.get("output", ""), ""
             after = {name: text.decode() for name, text in files().items()}
             report = [
                 "tool.gd: left out: it has @tool",
