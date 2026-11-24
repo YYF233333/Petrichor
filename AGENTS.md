@@ -2,97 +2,55 @@
 
 ## Project
 
-Petrichor designs a statically typed scripting language that replaces GDScript, delivered as a GDExtension. The compiler and the bytecode format do not depend on Godot. The runtime uses godot-cpp directly.
+Petrichor is a statically typed scripting language that replaces GDScript, delivered as a GDExtension. The compiler and bytecode format do not depend on Godot; the runtime uses godot-cpp directly.
 
-`docs/language-spec.zh.md` (v0.2 draft) is the single source of truth for language rules. When the implementation runs into a problem with a rule, change the spec in a separate commit. Do not relax the rule in code. `docs/architecture.md` holds the implementation, the source tree (§2.5) and the roadmap (§5).
+`docs/language-spec.zh.md` is the single source of truth for language rules. When the implementation runs into a problem with a rule, change the spec in a separate commit rather than relaxing it in code. `docs/architecture.md` holds the implementation, source tree (§2.5) and roadmap (§5).
 
-The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable` source (commit `ed1daf0`), never from memory. Cite the commit and `path:line` for every engine fact recorded. `docs/engine-facts.md` lists the spec's engine facts. Re-verify their line numbers when moving to a newer engine commit.
+The target engine is Godot 4.7. Check engine behavior against the Godot source commit pinned in `docs/engine-facts.md`, never from memory, and cite the commit and `path:line` for every engine fact recorded. Re-verify `docs/engine-facts.md` when moving to a newer engine commit.
 
 ## Design
 
-- A restriction must prevent a wrong meaning or keep a later design open. Allow what has a determined meaning; style belongs to lints. A check that still refuses such code needs real code that meets it: a corpus count or a migrated script. Without one it waits in `BACKLOG.md` as a question. Where unsure, provide a default consistent with the defaults around it. Never restrict users or work around a design to save implementation work. Do not optimize for hypothetical needs; the goals of spec §1 and §13 are real ones.
-- A design proposal shows:
-  - what users see, in two or three concrete code examples;
-  - what GDScript does, with engine citations, giving bugs of GDScript or the engine sane semantics instead of copying them;
-  - for a component that mature languages or tools also have, how their implementations work and what problems they hit. Research it from their source and docs before choosing, beyond what users see. Don't assume GDScript's is best;
-  - whether it stays consistent with the defaults around it and allows what GDScript allows;
-  - where it crosses freed objects, the time before ready, `await` and cancellation, the engine boundary, scene inheritance and hot reload. Each case with no obvious result is a script of five lines or fewer, checked against the spec's guarantees. It is decided as Workflow says, and becomes a test;
-  - the cost of doing it now against later.
+- A restriction must prevent a wrong meaning or keep a later design open. Allow what has a determined meaning; style belongs to lints. Refusing such code requires real code that meets it (a corpus count or migrated script), or it waits in `BACKLOG.md` as a question. Never restrict users or work around a design to save implementation work, and do not optimize for hypothetical needs (the goals of spec §1 and §13 are real).
 - Each stage is part of the final design. A shortcut taken now must not show users behavior that the final design changes.
-- When real code can answer a design question, survey real Godot projects first. A survey lives in the [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) repository: a write-up plus the scripts that reproduce it. A single count backing one rule goes into `corpus-counts`. A survey records the design it evaluated. When the design changes, point to the current rule rather than rewriting the data.
+- Where unsure, choose a default consistent with the defaults around it. Before proposing a design or surveying real Godot projects, follow the proposal checklist and corpus rules in `docs/development.md`.
 
 ## Documentation
 
-- The README is in Chinese and English and both versions change in the same commit. They keep the same facts, scope and commitments, but each is written natively rather than mirrored line for line. The documents under `docs/` are in Chinese only, except the English spec; commits that change the Chinese spec regenerate the English one by `tools/spec_translation.md`.
 - Each document holds one kind of content:
-  - the spec: concise normative rules, without engine `path:line` citations or review history;
+  - `docs/language-spec.zh.md`: concise normative rules, without engine `path:line` citations or review history (regenerate `docs/language-spec.md` via `tools/spec_translation.md`);
   - `docs/design-notes.md`: detailed rationales, corpus counts, post-v1 designs and rejected alternatives;
   - `docs/engine-facts.md`: engine citations;
   - `docs/architecture.md`: implementation decisions, the constraints they keep and the roadmap, without progress notes;
   - `BACKLOG.md`: unfinished work and open questions.
-- Decided content carries no marker. Non-normative status is marked 【待定】/[Open] or 【已知限制】/[Known limitation] where it applies. Additions after the first version are listed only in spec §14.2. When a rule changes the first-version scope or open questions, update spec §14.
-- Match style to the document's role. `tools/check_doc_style.py` flags sentences over 60 字 or 40 words in the lines a commit changes (status markers are excluded). It guards against ideas piled into one sentence, not against natural phrasing; one-off texts, such as release notes and reports, are not held to it.
-  - In the spec and lookup tables, write one idea per sentence, put the condition before the result, and turn embedded lists or chains of "or" into lists.
-  - In `README`, `docs/design-notes.md`, `docs/architecture.md` and `docs/development.md`, prefer natural short prose paragraphs with varied sentence rhythm over walls of bullets; reserve lists for parallel items, steps or comparisons, and group long implementation sections under subheadings.
-  - Use concrete subjects and active verbs, avoid marketing or condescending filler, and put `path:line` citations and links at the end in brackets.
-  - In the spec, refer to another rule by its concept, such as "the comparison rules", not by section number.
+- Keep `README.md` and `README.zh.md` aligned in facts, scope and commitments, written natively rather than mirrored line for line. Other files under `docs/` are Chinese only.
+- When a rule changes first-version scope or open questions, update spec §14. Follow the house style in `docs/development.md` (文档).
 
 ## Code and tests
 
-- Setup: run `git submodule update --init`. In every new clone, run `pip install pre-commit` and `git config core.hooksPath tools/hooks`. `AGENTS.local.md` (gitignored) holds machine-local paths and notes; no other tracked file refers to it. `docs/development.md` collects build, test and debugging pitfalls.
-- Build with SCons, MSVC on Windows; the output goes to `tests/engine/project/bin/`. Close the editor before rebuilding: the extension is not reloadable.
-  - `scons` (`target=editor`) builds the library that every test and benchmark loads.
-  - `scons target=template_debug` and `scons target=template_release` build the two export libraries, without the compiler. Only the `export` test group uses them, and reports when one is stale. Build them before a full run, not while iterating.
-- Compiler tests: `scons compiler_tests`, then `tests/compiler/bin/compiler_tests`, with no engine.
-- Engine tests: `python tests/engine/run.py <Godot 4.7 editor binary> [group...]`, with the groups listed in `run.py`.
-- Benchmarks: `python benchmarks/run.py <Godot 4.7 editor binary>`. Run them on an optimized engine such as the official 4.7.2-stable release, not a `dev_build` (architecture §4).
-- Derive tests from the spec, the engine and real code, not from the implementation (architecture §3).
-  - A test stays only when what it protects is worth its run time and upkeep.
-  - It protects a spec rule or a real defect in this language's scripts, and no other test runs it.
-  - Remove tests of engine behavior, of implementation details or of what another test runs.
-  - Do not rerun tests. Run the full engine suite when a large feature is finished, not before every commit. Bisect regressions.
-  - Cut test and build time where it slows development.
+- Setup, build/test/benchmark commands and pitfalls live in `docs/development.md`. Close the editor before rebuilding: the extension is not reloadable.
+- Derive tests from the spec, the engine and real code, not from the implementation (architecture §3). Keep a test only when it protects a spec rule or real script defect that no other test covers; remove tests of engine behavior, implementation details or duplicates.
+- Do not rerun tests needlessly. Run the full engine suite when a large feature finishes, not before every commit; bisect regressions and cut slow build or test paths.
 - Code is a liability: keep only real complexity, and count fewer lines as progress.
-  - Remove dead paths, rules kept in several places, abstractions with one use and generality nothing uses.
-  - Remove checks for states that cannot occur. Replace a rare, hard-to-test fallback path with a definite error where one would do.
-  - Restructure only to remove code or to make it easier to find. Moving code without either is not progress.
-  - Let the engine compute what it defines. When this language repeats engine behavior, keep both in step by construction or by a check that catches drift.
-  - Before writing a general-purpose helper, look for one in the repository, the standard library and the existing dependencies.
+  - Remove dead paths, duplicated rules, single-use abstractions, unused generality and checks for impossible states. Replace rare, hard-to-test fallbacks with definite errors.
+  - Restructure only to remove code or make it easier to find.
+  - Let the engine compute what it defines; keep any repeated engine behavior in step by construction or a check.
+  - Look for an existing helper in the repository, standard library or dependencies before writing a general-purpose one.
   - Write no comment that the code is understood without.
 
 ## Commits
 
-- Other sessions share the working tree and its index. Commit only your own files, by path (`git commit -m … -- <paths>`). Push to main after committing. A push that changes code cancels the CI run in progress.
-- Git hooks in `tools/hooks/` run `.pre-commit-config.yaml`, with project checks in `tools/`. When a hook fixes a file, the commit stops; commit again.
-- Commit messages are in English: a subject, and an optional body after a blank line, wrapped at 72 columns.
-  - The subject is `Area: Imperative summary` within 72 characters, capitalized and without a full stop.
-  - `Area` is one of `Spec`, `Arch`, `Survey`, `Compiler`, `Bytecode`, `Runtime`, `Adapter`, `Editor`, `Tests`, `Bench`, `Tools` and `Docs`. A commit spanning several areas names the primary one.
-  - Omit the body when the subject, the diff and the updated documents already explain the change. Do not retell the diff or repeat what the commit writes into `docs/`.
-  - Write a body only for what `git blame` cannot find in the diff or `docs/`: non-obvious causes, spec or engine citations, measurements and traps in rejected alternatives. Use `-` lists for parallel points.
+- Other sessions share the working tree and index. Commit only your own files by path (`git commit -m … -- <paths>`) and push to `main` after committing. A push that changes code cancels the in-progress CI run.
+- Git hooks in `tools/hooks/` run `.pre-commit-config.yaml` (formatting, doc pairs/style, diagnostics and commit message format). When a hook fixes a file, commit again.
+- Write commit messages in English; the `commit-msg` hook checks the header and line length. Omit the body when the subject, diff and updated docs already explain the change. Put only what `git blame` cannot find in the body: non-obvious causes, spec or engine citations, measurements and traps in rejected alternatives.
 
 ## Workflow
 
-- Slow iteration is worse than more bugs. Implement with confidence, push work into real use and leave further verification to reviewers.
-  - Fix ordinary defects by their actual impact rather than proving hypothetical uses safe.
-  - A crash, memory corruption or broken type guarantee on a legal script is not ordinary, however rare.
-  - Make a small gap or cheap fix in the area at hand now.
-  - Clean up debt in code a change touches, without widening into an open-ended refactor. Paying down debt is progress too. The owner decides whether debt or features come next.
+- Slow iteration is worse than more bugs. Implement with confidence and push work into real use; fix ordinary defects by impact, while crashes, memory corruption or broken type guarantees on legal scripts are always high priority. Fix small gaps in the area at hand and clean up debt in touched code without widening into an open-ended refactor.
 - Ask the owner first, proposing the smallest option, about:
-  - what cannot be changed back compatibly: the run-time meaning of legal code, stored formats and what the project promises users;
-  - the roadmap: architecture §5 and `BACKLOG.md`;
+  - what cannot be changed back compatibly: run-time meaning of legal code, stored formats and user-facing promises;
+  - the roadmap (`docs/architecture.md` §5 and `BACKLOG.md`);
   - any new component, pass or process.
-- Decide the rest yourself and list it in the report, for the owner to overrule:
-  - a case that the spec's rules and guarantees already settle;
-  - a case they leave open, as a compile error that can be allowed later, recorded among the open questions;
-  - the details of an agreed design, such as format fields, opcodes, test helpers and file splits.
-- Each release has a date and a list that gates it (architecture §5, `BACKLOG.md`). Work on the list first, and choose from it when asked what comes next. Do not close a step or propose a milestone instead. When the measure that accepts a step has stopped moving, say so.
-- Report at the end of each working day:
-  - the release list: what moved and what is stuck;
-  - the work that went elsewhere;
-  - what you decided yourself, each new rule with the real code that meets it;
-  - what waits for the owner.
-- The owner starts reviews when needed. Reviewers follow `REVIEW.md` and leave their findings as files in the repository root.
-  - Findings are not tasks: they are first checked against the tree, the spec and the engine source. The implementer does not argue them one by one.
-  - When a findings file has nothing left to act on, propose deleting it.
-- At Godot's pre-releases and releases, the owner starts a scan of upstream changes. Scanners follow `WATCH.md`, and their reports are handled as findings.
-- `BACKLOG.md` lists unfinished work and open questions in no fixed order. Remove an item as soon as it is done or settled, leaving no trace. Record decisions in the spec or the architecture, and leave history to git.
+- Decide the rest yourself and list it in the report for the owner to overrule: cases settled by the spec, cases left open (as compile errors recorded as open questions) and details of an agreed design.
+- Work on the current release's gating list first (`docs/architecture.md` §5, `BACKLOG.md`). Do not close a step or propose a milestone instead; report when its acceptance measure stops moving.
+- End-of-day report covers: release-list movement and blockers, work outside the list, self-made decisions (each new rule with real code that meets it) and items waiting for the owner.
+- Reviewers follow `REVIEW.md` and upstream scans follow `WATCH.md`. Treat root `review-*.md` and `watch-*.md` findings as leads to verify against code, spec and engine source rather than tasks to argue one by one, and propose deleting a file once nothing remains.

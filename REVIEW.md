@@ -68,7 +68,7 @@ Review the shared working tree itself, with no worktree, clone or branch. A fork
   - A probe can still run in a copy of `tests/engine/project`, with its `bin/` and `.godot/` outside the repository. `<godot>` below is a Godot 4.7 editor binary.
   - `<godot> --headless -e --path <copy> -- --petrichor-build` compiles every script and prints the diagnostics.
   - `<godot> --headless --path <copy> <scene>` runs a scene. Run it under a timeout, since a script error can keep it from quitting.
-- With no implementer, build and run the tests in the tree as `AGENTS.md` describes.
+- With no implementer, build and run the tests in the tree as `docs/development.md` describes.
 - Check engine facts against the Godot source at `4.7.2-stable` (`ed1daf0`), never from memory.
 
 ## The findings file

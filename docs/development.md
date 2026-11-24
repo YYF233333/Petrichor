@@ -1,6 +1,18 @@
 # 开发说明
 
-本文记录在本地构建、测试、调试和打包 Petrichor 时反复踩过的坑，面向直接动源码的贡献者。基础构建命令见仓库根目录的 `AGENTS.md`。
+本文汇总本地环境配置、常用构建与测试命令、开发踩坑，以及设计提案与文档写作约定，面向直接动源码的贡献者。
+
+## 环境与常用命令
+
+新克隆仓库后执行 `git submodule update --init`、`pip install pre-commit` 和 `git config core.hooksPath tools/hooks`。本机路径和笔记写入已忽略的 `AGENTS.local.md`，已跟踪文件不引用它。
+
+Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/bin/`。扩展不支持热重载，重建前先关闭编辑器。
+
+- `scons`（`target=editor`）：构建所有测试和基准共用的编辑器扩展库，同时构建命令行工具 `pet`（单独构建用 `scons pet`）。
+- `scons target=template_debug` 和 `scons target=template_release`：构建不含编译器的导出库。只有 `export` 测试组使用它们并在过期时提示；迭代期间不必构建，跑全套测试前再编。
+- `scons compiler_tests`，随后运行 `tests/compiler/bin/compiler_tests`：不启动引擎运行编译器测试。
+- `python tests/engine/run.py <Godot 4.7 编辑器> [group...]`：运行引擎测试，分组名见 `run.py`。
+- `python benchmarks/run.py <Godot 4.7 编辑器>`：在官方优化构建（如 `4.7.2-stable`）上运行性能基准，不要使用 `dev_build`（实现架构 §4）。
 
 ## 构建
 
@@ -13,7 +25,6 @@
 
 其余构建细节：
 
-- 默认 `scons` 会一并构建命令行工具 `pet`，只编它时运行 `scons pet`。
 - 扩展的构建标识直接取自 `HEAD` 的提交哈希，所以每次新提交后的首次构建都会重编 `lsp_server.cpp`。
 - 用 MinGW 单独完整编译 `src/pet/pet.cpp` 时需要加上 `-municode -lws2_32`，因为它在 Windows 上的入口函数是 `wmain`。
 
@@ -134,6 +145,24 @@
 - **性能基准**：必须使用官方 `4.7.2-stable` 发布版，因为 dev 构建会扭曲与 GDScript 的对比结果。
 - **C# 互操作**：跑 dotnet 测试组或带 C# 手动运行 Ring 时使用官方 .NET 版，并确保 `PATH` 中有 .NET SDK 8 或更新版本。
 
-## 语料
+## 设计提案与语料
 
-获取语料库和复跑各项调查的步骤，见 [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) 的 README。
+提出语言或工具设计方案时，提案应逐项说明以下内容：
+
+- 用户看到的效果，用两三段具体代码示例呈现；
+- GDScript 的做法与引擎出处，对 GDScript 或引擎缺陷给出合理语义而非照搬；
+- 若成熟语言或工具已有同类组件，先读它们的源码与文档，调研实现方式与踩过的坑，不要假定 GDScript 的方案最好；
+- 是否与周边默认规则一致，以及是否允许 GDScript 允许的写法；
+- 与已释放对象、就绪前、`await` 与取消、引擎边界、场景继承、热重载的交叉点。无显而易见结论的情形各写不超过五行的脚本，对照规范保证判定并转为测试；
+- 现在实现与延后实现的成本权衡。
+
+能由真实代码回答的设计问题，先在真实 Godot 项目中调查。调查报告连同复现脚本存放在 [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) 仓库，获取语料和复跑方式见其 README。支撑单条规则的计数放入 `corpus-counts`。每份调查都记录当时评估的设计；设计调整后只需指向现行规则，不要重写历史数据。
+
+## 文档
+
+文档写法应匹配各自的角色。提交钩子 `tools/check_doc_style.py` 会标记改动行里超过 60 字或 40 词的句子（状态标记不计入）。它用来防多条意思挤在一句里，不是要求拆碎自然句子；发布说明、报告等一次性文本不受此限。
+
+- 规范与速查表：一句只讲一件事，条件放在结果前面，句内并列或连串的“或”改写成列表。
+- `README`、`docs/design-notes.md`、`docs/architecture.md` 和 `docs/development.md`：优先使用节奏自然的短散文段落，避免大段条目；列表留给并列项、步骤或对照，长实现段落用子标题分组。
+- 通用要求：用具体主语与主动动词，避免宣传或居高临下的空话，`path:line` 出处与链接放在句末括号里。
+- 规范内引用其他规则时写概念名（如“比较规则”），不写章节号。

@@ -80,7 +80,7 @@ def main():
     for error in errors:
         print(error, file=sys.stderr)
     if errors:
-        print(f"{len(errors)} sentences may pile up several ideas; split them or turn them into lists (AGENTS.md, Documentation).", file=sys.stderr)
+        print(f"{len(errors)} sentences may pile up several ideas; split them or turn them into lists (docs/development.md, 文档).", file=sys.stderr)
     return 1 if errors else 0
 
 

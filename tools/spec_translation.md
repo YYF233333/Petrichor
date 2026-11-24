@@ -29,7 +29,7 @@
   - Translate Chinese comments, and keep the column where each comment starts.
   - Leave identifiers and string literals as they are, Chinese string literals included.
 - Translate Chinese placeholders in inline code, such as `expect(消息)` to `expect(message)`.
-- Follow the house style of `AGENTS.md`, "Documentation".
+- Follow the house style in `docs/development.md` (文档).
   - Write clear, idiomatic specification English. The style check flags sentences over 40 words, excluding status markers (`**[Open]**` and `**[Known limitation]**`).
   - Where one sentence would still pile up ideas, split it cleanly without changing the meaning.
   - Integrate short parenthetical examples naturally into their sentence rather than breaking them out into mechanical "Examples are ..." sentences.

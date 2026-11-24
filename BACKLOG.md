@@ -1,6 +1,6 @@
 # Backlog
 
-In no fixed order, except the first section. An item is removed as soon as it is done (AGENTS.md, Workflow).
+`First` and `Next release` are in order; the rest are not. Remove an item as soon as it is done or settled, leaving no trace; record decisions in the spec or architecture and leave history to git.
 
 ## First
 
