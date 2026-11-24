@@ -1351,10 +1351,8 @@ void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
 
 void Checker::check_body(FuncDecl &r_function) {
 	function = &r_function;
-	scopes.clear();
-	scopes.emplace_back();
-	narrowed.clear();
-	narrowed.emplace_back();
+	scopes = { {} };
+	narrowed = { {} };
 	if (r_function.of_struct && !r_function.is_static) {
 		scopes.back()["self"] = 0;
 		r_function.locals.push_back({ "self", structure_type, r_function.name_token });

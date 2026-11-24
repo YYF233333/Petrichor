@@ -117,7 +117,30 @@ struct Place {
 	std::string owner;
 };
 
-class Lowerer {
+// What lowering keeps of the function it is in. A lambda's function is
+// lowered with its own, while the one around it waits whole.
+struct FunctionState {
+	ir::Function fn;
+	const FuncDecl *decl = nullptr; // Null in the init function.
+	uint32_t current = 0;
+	TokenRange at; // The statement, member or function being lowered, where errors go.
+	struct Loop {
+		uint32_t continue_block;
+		uint32_t break_block;
+		size_t scope; // Of its body in `scopes`, the first that break and continue leave.
+	};
+	std::vector<Loop> loops;
+	// The locals of each block being lowered, innermost last, released when
+	// the block is left (spec §6.8).
+	std::vector<std::vector<uint32_t>> scopes;
+	// The function's registers of preset() by their type and value.
+	std::map<std::pair<uint32_t, uint64_t>, uint32_t> presets;
+	// The register of each local: the parameters, then a lambda's captures,
+	// then the other locals.
+	std::vector<uint32_t> local_regs;
+};
+
+class Lowerer : FunctionState {
 	const ClassDecl &cls;
 	bytecode::Module &module;
 	std::vector<Diagnostic> &errors;
@@ -136,26 +159,6 @@ class Lowerer {
 	// The entry of each constant value that is not a scalar, so that every use
 	// of a constant reads the same container (spec §4.5).
 	std::unordered_map<const ConstValue *, uint32_t> constant_entries;
-
-	ir::Function fn;
-	const FuncDecl *decl = nullptr; // Null in the init function.
-	uint32_t current = 0;
-	TokenRange at; // The statement, member or function being lowered, where errors go.
-
-	struct Loop {
-		uint32_t continue_block;
-		uint32_t break_block;
-		size_t scope; // Of its body in `scopes`, the first that break and continue leave.
-	};
-	std::vector<Loop> loops;
-	// The locals of each block being lowered, innermost last, released when
-	// the block is left (spec §6.8).
-	std::vector<std::vector<uint32_t>> scopes;
-	// The function's registers of preset() by their type and value.
-	std::map<std::pair<uint32_t, uint64_t>, uint32_t> presets;
-	// A lambda's register for each of its locals, whose captures come right
-	// after the parameters; empty where a local is its register.
-	std::vector<uint32_t> local_regs;
 	// Lambdas, which come after the class's functions (spec §3.11), in the order
 	// they are made in.
 	std::vector<bytecode::Function> lambdas;
@@ -2120,61 +2123,57 @@ class Lowerer {
 		add(i);
 
 		lambdas.emplace_back();
-		ir::Function outer_fn = std::move(fn);
-		const FuncDecl *outer_decl = decl;
-		const uint32_t outer_current = current;
-		const TokenRange outer_at = at;
-		std::vector<Loop> outer_loops = std::move(loops);
-		std::vector<std::vector<uint32_t>> outer_scopes = std::move(scopes);
-		std::map<std::pair<uint32_t, uint64_t>, uint32_t> outer_presets = std::move(presets);
-		std::vector<uint32_t> outer_regs = std::move(local_regs);
-
-		start(lambda.name.empty() ? "<lambda>" : lambda.name);
-		decl = &lambda;
-		at = lambda.range;
-		fn.param_count = uint32_t(lambda.params.size() + lambda.captures.size());
-		fn.result = slot(std::string(), lambda.return_type);
-		fn.is_async = lambda.is_async;
-		fn.line = uint32_t(cls.source->line(lambda.name_token));
-		// The parameters, then the captures, then the other locals.
-		std::vector<int> order;
-		for (size_t p = 0; p < lambda.params.size(); p++) {
-			order.push_back(int(p));
-		}
-		order.insert(order.end(), lambda.captures.begin(), lambda.captures.end());
-		for (size_t l = lambda.params.size(); l < lambda.locals.size(); l++) {
-			if (std::find(lambda.captures.begin(), lambda.captures.end(), int(l)) == lambda.captures.end()) {
-				order.push_back(int(l));
-			}
-		}
-		local_regs.assign(lambda.locals.size(), NO_REG);
-		for (int local : order) {
-			local_regs[local] = uint32_t(fn.regs.size());
-			fn.regs.push_back(slot(lambda.locals[local].name, lambda.locals[local].type));
-		}
-		if (has_defaults(lambda)) {
-			fn.given = temp(ValueType::Int);
-		}
-		lower_defaults(lambda);
-		lower_block(lambda.body);
-		finish();
-		bytecode::Function out = ir::emit(fn, module);
+		FunctionState outer = std::move(*this);
+		bytecode::Function out = lower_function(lambda, lambda.range, uint32_t(cls.source->line(lambda.name_token)), true);
+		static_cast<FunctionState &>(*this) = std::move(outer);
 		out.is_lambda = true;
-		out.defaults = default_constants(lambda);
-		out.is_vararg = lambda.has_rest();
 		out.captures = uint32_t(lambda.captures.size());
 		out.is_static = !lambda.uses_self;
 		lambdas[own] = std::move(out);
-
-		fn = std::move(outer_fn);
-		decl = outer_decl;
-		current = outer_current;
-		at = outer_at;
-		loops = std::move(outer_loops);
-		scopes = std::move(outer_scopes);
-		presets = std::move(outer_presets);
-		local_regs = std::move(outer_regs);
 		return i.dst;
+	}
+
+	// A function or a lambda: its parameters (after self in an instance method
+	// of a struct), then a lambda's captures, then the other locals, and with
+	// `p_body` its code.
+	bytecode::Function lower_function(const FuncDecl &p_function, const TokenRange &p_at, uint32_t p_line, bool p_body) {
+		start(p_function.name.empty() ? "<lambda>" : p_function.name);
+		decl = &p_function;
+		at = p_at;
+		const size_t params = p_function.params.size() + (p_function.of_struct && !p_function.is_static ? 1 : 0);
+		fn.param_count = uint32_t(params + p_function.captures.size());
+		fn.result = slot(std::string(), p_function.return_type);
+		fn.is_async = p_function.is_async;
+		fn.is_pub = p_function.is_pub;
+		fn.is_override = p_function.is_override;
+		fn.line = p_line;
+		std::vector<int> order;
+		for (size_t p = 0; p < params && p < p_function.locals.size(); p++) {
+			order.push_back(int(p));
+		}
+		order.insert(order.end(), p_function.captures.begin(), p_function.captures.end());
+		for (size_t l = params; l < p_function.locals.size(); l++) {
+			if (std::find(p_function.captures.begin(), p_function.captures.end(), int(l)) == p_function.captures.end()) {
+				order.push_back(int(l));
+			}
+		}
+		local_regs.assign(p_function.locals.size(), NO_REG);
+		for (int local : order) {
+			local_regs[local] = uint32_t(fn.regs.size());
+			fn.regs.push_back(slot(p_function.locals[local].name, p_function.locals[local].type));
+		}
+		if (has_defaults(p_function)) {
+			fn.given = temp(ValueType::Int);
+		}
+		if (p_body) {
+			lower_defaults(p_function);
+			lower_block(p_function.body);
+		}
+		finish();
+		bytecode::Function out = ir::emit(fn, module);
+		out.defaults = default_constants(p_function);
+		out.is_vararg = p_function.has_rest();
+		return out;
 	}
 
 	uint32_t lower_expr(const Expr &p_expr) {
@@ -3349,11 +3348,8 @@ class Lowerer {
 	}
 
 	void start(const std::string &p_name) {
-		fn = ir::Function();
+		static_cast<FunctionState &>(*this) = FunctionState();
 		fn.name = p_name;
-		loops.clear();
-		scopes.clear();
-		presets.clear();
 		current = new_block();
 	}
 
@@ -3403,7 +3399,6 @@ class Lowerer {
 
 	void lower_field_default(const StructDecl &p_struct, const VarDecl &p_field, bool p_declarations_only) {
 		start(field_default_name(p_struct, p_field));
-		decl = nullptr;
 		at = p_field.range;
 		fn.result = slot(std::string(), p_field.type);
 		fn.line = uint32_t(cls.source->line(p_field.name_token));
@@ -3424,7 +3419,6 @@ class Lowerer {
 	bool lower_initializers(bool p_onready, bytecode::Function &r_out) {
 		bool any = false;
 		start(p_onready ? "@ready" : "@init");
-		decl = nullptr;
 		// A node that becomes ready without the members the scene or the creator
 		// must assign stops there, before the @onready initializers (spec §6.4).
 		const auto must_assign = [](const VarDecl *p_member) { return p_member->must_assign; };
@@ -3460,7 +3454,6 @@ class Lowerer {
 	bool lower_static_initializer(bytecode::Function &r_out) {
 		bool any = false;
 		start("@static_init");
-		decl = nullptr;
 		const auto init_static = [&](size_t p_variable, uint32_t p_value) {
 			ir::Instr i;
 			i.op = Op::INIT_STATIC;
@@ -3669,33 +3662,11 @@ public:
 		for (const FuncDecl *entry : cls.all_functions) {
 			const FuncDecl &function = *entry;
 			const bool inherited = !is_own_function(function);
-			start(function.name);
-			decl = &function;
-			at = inherited ? TokenRange{ cls.extends_token, cls.extends_token } : function.range;
-			// An instance method of a struct takes self first.
-			fn.param_count = uint32_t(function.params.size()) + (function.of_struct && !function.is_static ? 1 : 0);
-			fn.result = slot(std::string(), function.return_type);
-			fn.is_async = function.is_async;
-			fn.is_pub = function.is_pub;
-			fn.is_override = function.is_override;
-			for (const ClassDecl *owner = &cls; owner; owner = owner->base) {
-				if (declares(*owner, function)) {
-					fn.line = uint32_t(owner->source->line(function.name_token));
-					break;
-				}
+			uint32_t line = 0;
+			for (const ClassDecl *owner = &cls; owner && !line; owner = owner->base) {
+				line = declares(*owner, function) ? uint32_t(owner->source->line(function.name_token)) : 0;
 			}
-			for (const LocalInfo &local : function.locals) {
-				fn.regs.push_back(slot(local.name, local.type));
-			}
-			if (has_defaults(function)) {
-				fn.given = temp(ValueType::Int);
-			}
-			if (!p_declarations_only && !inherited) {
-				lower_defaults(function);
-				lower_block(function.body);
-			}
-			finish();
-			bytecode::Function out = ir::emit(fn, module);
+			bytecode::Function out = lower_function(function, inherited ? TokenRange{ cls.extends_token, cls.extends_token } : function.range, line, !p_declarations_only && !inherited);
 			out.is_static = function.is_static || function.of_struct; // A struct's methods have no object.
 			out.rpc = function.rpc;
 			out.is_abstract = function.is_abstract;
@@ -3729,8 +3700,6 @@ public:
 					out.interface_signatures.push_back(declared_signature(*required));
 				}
 			}
-			out.is_vararg = function.has_rest();
-			out.defaults = default_constants(function);
 			module.functions.push_back(std::move(out));
 		}
 		for (const StructDecl &structure : cls.structs) {

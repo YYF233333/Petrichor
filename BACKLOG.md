@@ -6,9 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- One struct for the checker's mutable context, saved and restored whole, and one per-function state for lowering. About 70 lines less.
-  - Now seven places of the checker save parts of its context.
-  - Lowering also gets one setup path for methods and lambdas (`src/compiler/lower.cpp`).
 - Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
   - A design proposal comes first. The stored format changes, and the editor would run the initializers of constants in scripts without `@tool`.
   - It must land before the bytecode format gets its version, with Mod (architecture §6.1).

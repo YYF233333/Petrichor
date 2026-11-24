@@ -116,6 +116,48 @@ inline bool at_cursor(const std::string &p_name) {
 
 class Checker;
 
+// The return type of a lambda without one, as its return statements give it.
+struct Returns {
+	std::optional<Type> type;
+	bool bare = false; // A return without a value.
+	// What the function type the lambda goes to returns, if known, which the
+	// values it returns take their type from, as Ok(v) and None do.
+	Type expected;
+	// The values returned. Those that leave part of their type to the
+	// others are typed as the lambda's return type once that is known.
+	std::vector<Expr *> values;
+};
+
+// Where the code being checked is. A lambda's body, and a declaration that
+// code needs checked first, are checked in a context of their own, while the
+// one they leave waits whole.
+struct CheckContext {
+	FuncDecl *function = nullptr;
+	std::vector<std::unordered_map<std::string, int>> scopes;
+	// Types of locals narrowed by conditions (spec §5.4), innermost last.
+	std::vector<std::unordered_map<int, Type>> narrowed = { {} };
+	int loop_depth = 0;
+	bool in_predelete = false;
+	bool in_assert = false;
+	// The member whose initializer is being checked: it and the members after
+	// it are not initialized yet (spec §6.1), nor are @onready members unless
+	// it is one too (§6.3).
+	int initializing = -1;
+	bool initializing_onready = false;
+	// The static variable whose initializer is being checked, by its index in
+	// the class's own: it and those after it are not initialized yet, and
+	// there is no instance (spec §4.8).
+	int static_initializing = -1;
+	// Checking a constant's initializer, which may come before the members' types are known.
+	bool in_constant = false;
+	// The struct whose method or field's default value is being checked (spec
+	// §3.6), and its type.
+	const StructDecl *structure = nullptr;
+	Type structure_type;
+	const VarDecl *field_default = nullptr;
+	Returns *returns = nullptr; // Of the lambda being checked, when it has no return type.
+};
+
 // The classes of one file, each checked by a checker of its own (spec §2.1,
 // §4.1): all are declared before any function body is checked, and they reach
 // each other's declarations here, also while they are being declared.
@@ -125,7 +167,7 @@ struct FileCheck {
 	Checker *find(const std::string &p_path) const;
 };
 
-class Checker : public ClassRelation {
+class Checker : public ClassRelation, private CheckContext {
 	ClassDecl &cls;
 	const EngineApi &engine;
 	const CompileOptions options;
@@ -168,29 +210,11 @@ class Checker : public ClassRelation {
 	bool declared = false; // Declared without an error that stops it, so its bodies are checked.
 	bool init_checked = false;
 
-	FuncDecl *function = nullptr;
-	std::vector<std::unordered_map<std::string, int>> scopes;
-	// Types of locals narrowed by conditions (spec §5.4), innermost last.
-	std::vector<std::unordered_map<int, Type>> narrowed;
-	int loop_depth = 0;
-	bool in_predelete = false;
-	bool in_assert = false;
 	// fix_async() is checking a signature again, as async with the methods it
 	// overrides, which its fix makes async too.
 	bool trying_async = false;
 	// The interfaces this class's own `implements` names, with where.
 	std::vector<std::pair<Type, const TypeRef *>> own_interfaces;
-	// The member whose initializer is being checked: it and the members after
-	// it are not initialized yet (spec §6.1), nor are @onready members unless
-	// it is one too (§6.3).
-	int initializing = -1;
-	bool initializing_onready = false;
-	// The static variable whose initializer is being checked, by its index in
-	// the class's own: it and those after it are not initialized yet, and
-	// there is no instance (spec §4.8).
-	int static_initializing = -1;
-	// Checking a constant's initializer, which may come before the members' types are known.
-	bool in_constant = false;
 	// Checking the default values that give parameters their types, which may
 	// come before the members' types are known (spec §4.6).
 	int inferring_params = 0;
@@ -198,38 +222,13 @@ class Checker : public ClassRelation {
 	// `current_value` its own may name (spec §3.7).
 	const EnumDecl *current_enum = nullptr;
 	size_t current_value = 0;
-	// The struct whose method or field's default value is being checked (spec
-	// §3.6), and its type.
-	const StructDecl *structure = nullptr;
-	Type structure_type;
-	const VarDecl *field_default = nullptr;
 	// The functions around the lambda being checked (spec §3.11), outermost
 	// first, each as it was where its lambda is.
-	struct Enclosing {
-		FuncDecl *function;
-		std::vector<std::unordered_map<std::string, int>> scopes;
-		std::vector<std::unordered_map<int, Type>> narrowed;
+	struct Enclosing : CheckContext {
 		Expr *lambda;
-		int loop_depth;
-		bool in_predelete;
-		int initializing;
-		bool initializing_onready;
-		int static_initializing;
 		Type expected; // What its lambda goes to, if known.
 	};
 	std::vector<Enclosing> enclosing;
-	// The return type of a lambda without one, as its return statements give it.
-	struct Returns {
-		std::optional<Type> type;
-		bool bare = false; // A return without a value.
-		// What the function type the lambda goes to returns, if known, which the
-		// values it returns take their type from, as Ok(v) and None do.
-		Type expected;
-		// The values returned. Those that leave part of their type to the
-		// others are typed as the lambda's return type once that is known.
-		std::vector<Expr *> values;
-	};
-	Returns *returns = nullptr;
 
 	std::unordered_map<std::string, int> member_index;
 	std::unordered_map<std::string, int> static_index; // In all_static_vars.
@@ -446,46 +445,17 @@ class Checker : public ClassRelation {
 	// so far; nullopt where no path goes on.
 	using Assigned = std::optional<std::set<int>>;
 
+	CheckContext &context() { return *this; }
+
 	// What a constant's initializer is checked in: the class, outside any
 	// function, wherever the constant is first used.
 	struct ClassScope {
 		Checker &checker;
-		FuncDecl *function;
-		std::vector<std::unordered_map<std::string, int>> scopes;
-		std::vector<std::unordered_map<int, Type>> narrowed;
-		int loop_depth;
-		bool in_predelete;
-		int initializing;
-		bool initializing_onready;
-		int static_initializing;
-		const StructDecl *structure;
-		Type structure_type;
-		const VarDecl *field_default;
+		CheckContext left;
 
 		explicit ClassScope(Checker &r_checker) :
-				checker(r_checker), function(r_checker.function), scopes(std::move(r_checker.scopes)), narrowed(std::move(r_checker.narrowed)), loop_depth(r_checker.loop_depth), in_predelete(r_checker.in_predelete), initializing(r_checker.initializing), initializing_onready(r_checker.initializing_onready), static_initializing(r_checker.static_initializing), structure(std::exchange(r_checker.structure, nullptr)), structure_type(std::exchange(r_checker.structure_type, Type())), field_default(std::exchange(r_checker.field_default, nullptr)) {
-			checker.function = nullptr;
-			checker.scopes.clear();
-			checker.narrowed.assign(1, {});
-			checker.loop_depth = 0;
-			checker.in_predelete = false;
-			checker.initializing = -1;
-			checker.initializing_onready = false;
-			checker.static_initializing = -1;
-		}
-		~ClassScope() {
-			checker.function = function;
-			checker.scopes = std::move(scopes);
-			checker.narrowed = std::move(narrowed);
-			checker.loop_depth = loop_depth;
-			checker.in_predelete = in_predelete;
-			checker.initializing = initializing;
-			checker.initializing_onready = initializing_onready;
-			checker.static_initializing = static_initializing;
-			checker.structure = structure;
-			checker.structure_type = std::move(structure_type);
-			checker.field_default = field_default;
-		}
+				checker(r_checker), left(std::exchange(r_checker.context(), CheckContext())) {}
+		~ClassScope() { checker.context() = std::move(left); }
 	};
 
 	// A query tried without effect: what it reports, refers to and hints is

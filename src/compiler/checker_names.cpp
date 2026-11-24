@@ -95,7 +95,6 @@ void Checker::check_constant(ConstDecl &r_decl) {
 	r_decl.state = ConstDecl::State::Checking;
 	{
 		const ClassScope scope(*this);
-		const bool was_in_constant = in_constant;
 		in_constant = true;
 		// One initialized with the name of an enum with payloads names the
 		// enum, but has no value, as the name has none (spec §3.7).
@@ -114,7 +113,6 @@ void Checker::check_constant(ConstDecl &r_decl) {
 			flow(slot, r_decl.initializer->type, r_decl.initializer->range);
 			r_decl.type = r_decl.type.is_error() ? tried(slot) : r_decl.type;
 		}
-		in_constant = was_in_constant;
 	}
 	r_decl.state = ConstDecl::State::Checked;
 }
@@ -285,7 +283,6 @@ void Checker::check_enum(EnumDecl &r_decl) {
 	r_decl.state = EnumDecl::State::Checking;
 	{
 		const ClassScope scope(*this);
-		const bool was_in_constant = in_constant;
 		const EnumDecl *was_enum = current_enum;
 		const size_t was_value = current_value;
 		in_constant = true;
@@ -328,7 +325,6 @@ void Checker::check_enum(EnumDecl &r_decl) {
 		if (!r_decl.name.empty() && !r_decl.has_payloads) {
 			r_decl.dictionary = enum_dictionary(*r_decl.numbers, r_decl.type);
 		}
-		in_constant = was_in_constant;
 		current_enum = was_enum;
 		current_value = was_value;
 	}

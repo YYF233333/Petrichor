@@ -670,27 +670,19 @@ Type Checker::check_lambda(Expr &r_expr, const Type &p_expected) {
 	if (typed_by_expected) {
 		inferred.expected = p_expected.args[0];
 	}
-	Returns *const outer_returns = returns;
 	if (lambda.return_type_ref) {
 		lambda.return_type = resolve(*lambda.return_type_ref, true);
-		returns = nullptr;
-	} else {
-		returns = &inferred;
 	}
-
-	enclosing.push_back({ function, std::move(scopes), std::move(narrowed), &r_expr, loop_depth, in_predelete, initializing, initializing_onready, static_initializing, p_expected });
-	function = &lambda;
-	scopes = { {} };
-	narrowed = { {} };
-	loop_depth = 0;
-	in_predelete = false;
-	const bool was_assert = in_assert;
-	in_assert = false;
-	initializing = -1;
-	static_initializing = -1;
+	CheckContext inner;
+	inner.function = &lambda;
+	inner.scopes = { {} };
+	inner.structure = structure;
+	inner.structure_type = structure_type;
+	inner.field_default = field_default;
+	inner.returns = lambda.return_type_ref ? nullptr : &inferred;
+	enclosing.push_back({ std::exchange(context(), std::move(inner)), &r_expr, p_expected });
 	declare_params(lambda, true);
 	check_block(lambda.body);
-	in_assert = was_assert;
 	if (!lambda.return_type_ref) {
 		lambda.return_type = inferred.type.value_or(Type::of(TypeKind::Void));
 		if (inferred.type && inferred.bare) {
@@ -717,17 +709,8 @@ Type Checker::check_lambda(Expr &r_expr, const Type &p_expected) {
 	if (!loss.empty()) {
 		error(r_expr.range, function_label() + " returns " + lambda.return_type.to_string() + ", but " + loss);
 	}
-	Enclosing &outer = enclosing.back();
-	function = outer.function;
-	scopes = std::move(outer.scopes);
-	narrowed = std::move(outer.narrowed);
-	loop_depth = outer.loop_depth;
-	in_predelete = outer.in_predelete;
-	initializing = outer.initializing;
-	initializing_onready = outer.initializing_onready;
-	static_initializing = outer.static_initializing;
+	context() = std::move(enclosing.back());
 	enclosing.pop_back();
-	returns = outer_returns;
 
 	return set(r_expr, function_type(lambda));
 }
