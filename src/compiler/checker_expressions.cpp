@@ -1101,6 +1101,11 @@ Type Checker::check_array_literal(Expr &r_expr, const Type &p_expected) {
 	const Type wanted = p_expected.kind == TypeKind::Option ? p_expected.args[0] : p_expected;
 	const Type expected = wanted.kind == TypeKind::Variant ? Type::builtin("Array") : wanted;
 	if (expected.kind != TypeKind::Builtin || expected.name != "Array") {
+		// Where a packed array goes, an empty one is GDScript's untyped Array,
+		// to convert there as any other (expect_assignable()).
+		if (r_expr.args.empty() && expected.kind == TypeKind::Builtin && expected.name.rfind("Packed", 0) == 0) {
+			return set(r_expr, Type::builtin("Array"));
+		}
 		if (r_expr.args.empty()) {
 			return fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
 		}
@@ -1963,7 +1968,8 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		// engine's constructor does (core/variant/variant.cpp:814-819,
 		// 2076-2084, 2185-2191, core/variant/variant_construct.h:637-655;
 		// ed1daf0).
-		fix({ { p_value.range, p_to.name + "(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::PackedArray);
+		const bool empty = p_value.kind == ExprKind::ArrayLiteral && p_value.args.empty();
+		fix({ { p_value.range, p_to.name + "(" + (empty ? std::string() : cls.source->text_of(p_value.range)) + ")" } }, FixKind::PackedArray);
 	} else if (p_from.kind == TypeKind::None && p_written) {
 		fix_optional(*p_written); // As GDScript holds the null.
 	} else if (p_from.is_optional() && !p_to.is_optional() && assignable(p_from.unwrapped(), p_to)) {

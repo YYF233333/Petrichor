@@ -151,7 +151,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - 两层 Option 当作 GDScript 的 null（如与 null 比较和传给 `Variant`）；
     - `.detach()`，以及字面量名字改用方法或信号本身；
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
-    - packed 数组位置上的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）；
+    - packed 数组位置上的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）。空数组字面量在这里同是无类型 `Array`，改写为 `PackedStringArray()` 这样的空构造；
     - 多参信号结果的字面量下标改为它所指的字段（§6.6）；
     - 位置期望的正是 `as` 所转的容器类型时，去掉字面量上的 `as`。字面量本就取位置的类型，GDScript 也把它定为所转类型（`modules/gdscript/gdscript_analyzer.cpp:3808-3815`，`ed1daf0`）；
     - 补上 `pub`（若声明会因此露出不带 `pub` 的类型，则不提供）。

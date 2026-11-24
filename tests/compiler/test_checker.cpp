@@ -115,6 +115,8 @@ TEST_CASE("float to int and an Array to a packed array need an explicit conversi
 	const std::string packed = "func f(a: Array, b: Array[Vector2]) -> PackedStringArray:";
 	CHECK(errors_of(in_function("var p: PackedVector2Array = PackedVector2Array(b)\nreturn PackedStringArray(a)", packed)).empty());
 	CHECK(fixed_all(in_function("var p: PackedVector2Array = b\nreturn a", packed), compiler::FixKind::PackedArray) == in_function("var p: PackedVector2Array = PackedVector2Array(b)\nreturn PackedStringArray(a)", packed));
+	// An empty literal is GDScript's untyped Array (deck_builder_tutorial's custom_resources/card_pile.gd:56).
+	CHECK(fixed_all(in_function("var names: PackedStringArray = []"), compiler::FixKind::PackedArray) == in_function("var names: PackedStringArray = PackedStringArray()"));
 }
 
 TEST_CASE("an int argument is accepted for a float parameter") {
