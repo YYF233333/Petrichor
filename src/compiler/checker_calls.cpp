@@ -279,9 +279,11 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 		out.found = true;
 		out.is_virtual = p_method.is_virtual;
 		out.id = p_id;
-		const std::vector<Type> signal = p_kind == Kind::Signal ? signal_type(p_method).args : std::vector<Type>();
+		if (p_kind == Kind::Signal) {
+			out.type = localized(signal_type(p_method));
+		}
 		for (size_t i = 0; i < p_method.params.size(); i++) {
-			out.signature.params.push_back(localized(signal.empty() ? p_method.params[i].type : signal[i]));
+			out.signature.params.push_back(p_kind == Kind::Signal ? out.type.args[i] : localized(p_method.params[i].type));
 		}
 		out.signature.optional = size_t(p_method.default_count);
 		if (p_method.is_vararg) {
@@ -305,7 +307,8 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 		if (member && member->signal && p_kind == Kind::Signal) {
 			out.found = true;
 			out.id = interface_member_id(*member);
-			out.signature.params = param_types(member->signal->params);
+			out.type = signal_of(*member->signal);
+			out.signature.params = out.type.args;
 			return out;
 		}
 	} else if (is_script_path(p_class.script)) {
@@ -329,7 +332,8 @@ Checker::NamedMember Checker::named_member(const Type &p_class, builtin::MemberN
 				out.hidden = !signal->is_pub;
 				out.id = script_id(declaring(*decl, *signal, &ClassDecl::signals).path, signal->name);
 				out.name_token = signal->name_token;
-				out.signature.params = param_types(signal->params);
+				out.type = signal_of(*signal);
+				out.signature.params = out.type.args;
 				return out;
 			}
 		}
@@ -504,7 +508,7 @@ void Checker::check_member_name(Expr &r_call, const EngineMethod &p_method, cons
 			}
 		}
 	} else if (p_named.kind == Kind::Signal && first < r_call.args.size() && (r_call.args[first]->type.kind == TypeKind::Function || rest_function(*r_call.args[first]))) {
-		check_handler(*r_call.args[first], Type::signal(member.signature.params));
+		check_handler(*r_call.args[first], member.type);
 	}
 }
 
@@ -819,7 +823,7 @@ Type Checker::check_named_value(Expr &r_expr, bool p_signal) {
 	// A method of this language as its method value; any other as the
 	// engine's Callable, which finds it by name.
 	r_expr.index = member && member->id.kind == DeclId::Kind::Script ? 1 : 0;
-	return set(r_expr, p_signal && member ? Type::signal(member->signature.params) : Type::builtin(p_signal ? "Signal" : "Callable"));
+	return set(r_expr, p_signal && member ? member->type : Type::builtin(p_signal ? "Signal" : "Callable"));
 }
 
 Type Checker::role_type(bytecode::ElementRole p_role, const Type &p_container) {

@@ -593,6 +593,7 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 		}
 		if (bytecode::has_fields(p_types, i)) {
 			image.name = to_godot(type.name);
+			image.arguments = bytecode::is_arguments(type);
 			const std::vector<uint32_t> offsets = bytecode::field_offsets(p_types, i);
 			for (size_t f = 0; f < type.fields.size(); f++) {
 				image.fields.push_back({ to_godot(type.fields[f].name), &images[type.fields[f].type], offsets[f] });
@@ -801,6 +802,13 @@ static Variant encode_kept(const TypeImage &p_type, const Variant &p_value) {
 Variant encode(const TypeImage &p_type, const uint8_t *p_slot) {
 	if (is_option(p_type)) {
 		return tag(p_slot) ? encode(*p_type.element, p_slot + 8) : Variant();
+	}
+	if (p_type.arguments) {
+		Array encoded;
+		for (const FieldImage &field : p_type.fields) {
+			encoded.push_back(encode(*field.type, p_slot + field.offset));
+		}
+		return encoded;
 	}
 	if (is_struct(p_type)) {
 		// A PayloadEnum names its variant by the reserved key (spec §3.7).
@@ -1040,6 +1048,18 @@ bool from_variant(const TypeImage &p_type, const Variant &p_value, uint8_t *p_sl
 			return false;
 		}
 		tag(p_slot) = 1;
+		return true;
+	}
+	if (p_type.arguments) {
+		if (type_of(p_value) != Variant::ARRAY || Array(p_value).size() != int64_t(p_type.fields.size())) {
+			return false;
+		}
+		const Array arguments = p_value;
+		for (size_t i = 0; i < p_type.fields.size(); i++) {
+			if (!from_variant(*p_type.fields[i].type, arguments[int64_t(i)], p_slot + p_type.fields[i].offset, p_check)) {
+				return false;
+			}
+		}
 		return true;
 	}
 	if (is_struct(p_type)) {

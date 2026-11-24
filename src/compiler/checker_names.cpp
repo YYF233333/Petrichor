@@ -979,7 +979,7 @@ std::optional<Type> Checker::check_self_name(Expr &r_expr) {
 		r_expr.target = Target::SelfSignal;
 		r_expr.signal = &signal;
 		refer(r_expr.name_token, script_id(declaring(cls, signal, &ClassDecl::signals).path, signal.name));
-		return set(r_expr, Type::signal(param_types(signal.params)));
+		return set(r_expr, signal_of(signal));
 	}
 	if (const auto signal = engine.find_signal(cls.native_base, r_expr.text)) {
 		if ((!r_expr.base && refuse_ambiguous_engine_name(r_expr.text, r_expr.range, true)) || refuse_in_static(r_expr, r_expr.text)) {
@@ -1197,7 +1197,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 			// Of the class, which must declare it pub (spec §3.9, §10.5).
 			r_expr.target = Target::ObjectSignal;
 			r_expr.signal = member->signal;
-			return Type::signal(param_types(member->signal->params));
+			return signal_of(*member->signal);
 		}
 		// Read and written by name, whichever member or engine property provides it.
 		r_expr.target = Target::ObjectProperty;
@@ -1253,7 +1253,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		r_expr.target = Target::ObjectSignal;
 		r_expr.signal = &signal;
 		refer(r_expr.name_token, script_id(declaring(*decl, signal, &ClassDecl::signals).path, signal.name));
-		return Type::signal(param_types(signal.params));
+		return signal_of(signal);
 	}
 	if (const FuncDecl *entry = find_named(decl->all_functions, r_expr.text)) {
 		const FuncDecl &function = *entry;
@@ -1653,7 +1653,7 @@ Type Checker::check_member_access(Expr &r_expr) {
 			if (decl->fields[i].name == r_expr.text) {
 				r_expr.target = Target::StructField;
 				r_expr.index = int(i);
-				refer(r_expr.name_token, script_id(base_type.script, decl->name + "." + decl->fields[i].name));
+				refer(r_expr.name_token, base_type.is_arguments() ? language_id(base_type.name, decl->fields[i].name) : script_id(base_type.script, decl->name + "." + decl->fields[i].name));
 				return set(r_expr, decl->fields[i].type);
 			}
 		}

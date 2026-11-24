@@ -152,6 +152,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - `.detach()`，以及字面量名字改用方法或信号本身；
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
     - packed 数组位置上的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）；
+    - 多参信号结果的字面量下标改为它所指的字段（§6.6）；
     - 补上 `pub`（若声明会因此露出不带 `pub` 的类型，则不提供）。
   - 其余种类（如 `.unwrap()`、改为 `T?`、补上 `async`、`await`、null 模式和写 `as`）只作备选；自动修复排在首位且无需输入。
   - 一键修复（`compiler::fix_all()`）每次只应用本脚本中的一种自动修复。同种修复区间重叠或起点相同时跳过后者留给下次，两个错误给出的同一修复只应用一次；跨种类批量修复属于迁移工具（§6.6）。
@@ -169,6 +170,9 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
 - **带载荷 enum 与 `Result`**：带载荷 enum 按 struct 布局存放，先放分支序号，再依次排列每个分支的字段。未激活分支的字段保持默认值，复制和析构与 struct 相同。构造先读入该分支的常量（各字段均为默认值）再写入实参；相等、排序、哈希和编码只看序号与该分支字段。不重叠存放的代价是槽位较大，以后可改为按最大分支共用。
   - `Result[T, E]` 是名为 `Result` 的带载荷 enum，分支为 `Ok(value: T)` 和 `Err(error: E)`。类型键含字段类型，不同的 T、E 是不同的类型。它的方法和后缀 `?` 编译为按序号跳转，`unwrap` 和 `expect` 另用一条指令，失败时报出错误值。
 - **`T.try_from(v)` 与引擎 `try_`**：`T.try_from(v)` 对应单条指令，与 struct 字段共用解码函数，两者规则由构造保持一致。解码失败时，`Err` 中的 `ConversionError` 记下入口检查报错；`ConversionError` 由编译器声明，没有脚本，字节码中名为 `::ConversionError`。引擎 API 的 `try_` 版本在每个调用处展开：先调原方法，再调读取错误的 getter（规范 §10.3）。作为值时，检查器将其改写成调用它的 lambda（如 `func(path, flags): return FileAccess.try_open(path, flags)`），降级与运行时无需新路径。
+- **多参信号的结果**：`await` 多参信号得到编译器声明的 struct（规范 §9.6），没有脚本，按参数的名字和类型命名，如 `await Signal(result: int, body: PackedByteArray)`。参数名字和类型都相同的信号共用这一类型，`Task.of(信号)` 的结果也是它。
+  - 字节码中它名为 `::await Signal(...)`，运行时据此把它编码为按参数顺序的 Array，也从这样的 Array 解码。信号恢复 `await` 时交来的正是这个 Array，GDScript 的 `await` 也给出它（`modules/gdscript/gdscript_function.cpp:256-274`，`ed1daf0`）。
+  - 字段没有默认值，因为非空对象参数本就没有默认值，所以 `resize()` 等需要默认值的操作不接受它。
 - **必须赋值的成员标记**：必须赋值的成员（规范 §6.2）在槽位后紧跟 8 字节标记，赋值后非零。本语言写入后跟一条置位指令，引擎经 `set` 写入时由运行时置位，读取前检查该标记。这套标记对所有类型一致，因为 struct 和带载荷 enum 没有可表示"未赋值"的值。节点就绪时，运行时按 owner 决定当场检查，还是等到 owner 发出 `ready` 时检查，免去跨文件分析赋值来源。
 
 #### 装箱容器与循环引用防护

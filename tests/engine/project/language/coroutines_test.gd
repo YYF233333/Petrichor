@@ -238,6 +238,16 @@ func run(p_errors: ErrorLog) -> int:
 	c.tick.emit(4)
 	check(results == [7], "Task.of() finishes with what the signal passes")
 	results.clear()
+	var http := HTTPRequest.new()
+	add_child(http)
+	collect(http.request_completed, results)
+	collect(c.arguments(http), results)
+	http.request_completed.emit(1, 404, PackedStringArray(["a: b"]), "no".to_utf8_buffer())
+	c.told.emit(3, "high")
+	var given := [1, 404, PackedStringArray(["a: b"]), "no".to_utf8_buffer()]
+	check(results.size() == 2 and results[0] == given and results[1] == [404, "no", 4, "high", given, str([3, "high"])], "a signal's arguments by name, and as GDScript's Array: %s" % [results])
+	http.free()
+	results.clear()
 	collect(c.delayed(), results)
 	check(results.is_empty(), "Task.delay() waits")
 	await get_tree().process_frame

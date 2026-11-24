@@ -586,6 +586,16 @@ TEST_CASE("a signal connected to a method flows into its parameters, as do the a
 	CHECK(migration.errors.empty());
 }
 
+// As material-maker reads a request's result (addons/material_maker/engine/loader.gd:81).
+TEST_CASE("a literal index of what awaiting a signal with several parameters gives becomes the field it names") {
+	FakeProject project;
+	project.add_script("res://loader.gd", "extends Node\n\n\nfunc fetch(http: HTTPRequest) -> bool:\n\tvar result = await http.request_completed\n\tif result[0] != 0 or result[1] != 200:\n\t\treturn false\n\tprint(result[3].get_string_from_ascii())\n\treturn true\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://loader.gd" }, 10);
+	CHECK(migration.texts.at("res://loader.pet") == "extends Node\n\n\nasync func fetch(http: HTTPRequest) -> bool:\n\tvar result = await http.request_completed\n\tif result.result != 0 or result.response_code != 200:\n\t\treturn false\n\tprint(result.body.get_string_from_ascii())\n\treturn true\n");
+	CHECK(migration.fixes.at(compiler::FixKind::ArgumentField) == 3);
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("the inference and the loop of fixes stop after their rounds") {
 	FakeProject project;
 	project.add_script("res://unit.gd", "extends Node\n\n\nfunc wait() -> void:\n\tawait ready\n\n\nfunc take(amount):\n\tprint(amount)\n\n\nfunc hit(body: Node) -> void:\n\tbody.take(1)\n");

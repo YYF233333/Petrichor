@@ -138,6 +138,7 @@ struct TypeImage {
 	std::string result_key; // The signature key of a Task[T] whose T it is.
 	godot::String name; // Struct and the enums: "script::Name"; an engine enum as the engine names it.
 	std::vector<FieldImage> fields; // Struct and PayloadEnum, whose first field is the variant's index.
+	bool arguments = false; // A struct of a signal's arguments, an Array as a Variant (bytecode::is_arguments).
 	std::vector<int64_t> enum_values; // Enum, sorted; PayloadEnum: each variant's first field.
 	bool enum_checked = false; // An enum of this language, whose values entry checks check.
 	// Enum: the names and values in declaration order; PayloadEnum: the names

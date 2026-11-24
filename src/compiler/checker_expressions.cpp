@@ -2,6 +2,15 @@
 
 namespace petrichor::compiler::checking {
 
+// What awaiting a signal gives, and its task (spec §9.5, §9.6): nothing
+// without parameters, the one, or a struct of them.
+static Type awaited(const Type &p_signal) {
+	if (p_signal.args.size() > 1) {
+		return Type::arguments(p_signal);
+	}
+	return p_signal.args.empty() ? Type::of(TypeKind::Void) : p_signal.args[0];
+}
+
 const char *operator_name(TokenKind p_op) {
 	switch (p_op) {
 		case TokenKind::Plus:
@@ -1040,6 +1049,22 @@ Type Checker::check_subscript(Expr &r_expr) {
 	if (base.kind == TypeKind::Variant) {
 		return fail(r_expr, "Cannot index a Variant." + variant_hint());
 	}
+	if (base.is_arguments()) {
+		// A literal index names a field (spec §9.6), which the check goes on
+		// reading as the fix writes it.
+		const Expr &at = *r_expr.right;
+		if (at.kind != ExprKind::IntLiteral || at.int_value < 0 || uint64_t(at.int_value) >= base.names.size()) {
+			std::string names;
+			for (const std::string &name : base.names) {
+				names += (names.empty() ? "" : ", ") + name;
+			}
+			return fail(r_expr, "A signal's arguments are read by name (" + names + "), not by index.");
+		}
+		const std::string field = operand(*r_expr.base) + "." + base.names[size_t(at.int_value)];
+		error(r_expr.range, "A signal's arguments are read by name, as " + field + ", not by index.");
+		fix({ { r_expr.range, field } }, FixKind::ArgumentField);
+		return set(r_expr, base.args[size_t(at.int_value)]);
+	}
 	if (entries) {
 		if (!assignable(index, entries->first)) {
 			return fail(*r_expr.right, "The keys of " + base.to_string() + " are " + entries->first.to_string() + ", not " + index.to_string() + ".");
@@ -1299,7 +1324,7 @@ Type Checker::check_task_function(Expr &r_expr) {
 	const Type signal = check_value(*r_expr.args[0]);
 	std::optional<Type> result;
 	if (signal.kind == TypeKind::Signal) {
-		result = signal.args.size() == 1 ? signal.args[0] : Type::of(TypeKind::Void);
+		result = awaited(signal);
 	} else if (signal.builtin_name() == "Signal") {
 		result = Type::of(TypeKind::Variant);
 	} else if (!signal.is_error()) {
@@ -1434,7 +1459,7 @@ Type Checker::check_await(Expr &r_expr) {
 		return set(r_expr, type.args[0]);
 	}
 	if (type.kind == TypeKind::Signal) {
-		return set(r_expr, type.args.size() == 1 ? type.args[0] : Type::of(TypeKind::Void));
+		return set(r_expr, awaited(type));
 	}
 	if (type.builtin_name() == "Signal") {
 		return set(r_expr, Type::of(TypeKind::Variant));

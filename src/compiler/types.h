@@ -56,6 +56,9 @@ struct Type {
 	bool is_async = false;
 	uint32_t optional_params = 0; // Function: how many of the last parameters a call may leave out (spec §3.11).
 	std::shared_ptr<const EnumValues> values; // Enum and PayloadEnum; the name and the script say which enum it is.
+	// Signal: the names of its parameters, which equality ignores; the struct
+	// of its arguments: the names of its fields.
+	std::vector<std::string> names;
 	static Type task(const Type &p_result) { return Type{ TypeKind::Task, std::string(), false, { p_result } }; }
 
 	static Type of(TypeKind p_kind) { return Type{ p_kind }; }
@@ -71,7 +74,15 @@ struct Type {
 		type.args.insert(type.args.end(), p_params.begin(), p_params.end());
 		return type;
 	}
-	static Type signal(const std::vector<Type> &p_params) { return Type{ TypeKind::Signal, std::string(), false, p_params }; }
+	static Type signal(const std::vector<Type> &p_params, const std::vector<std::string> &p_names) {
+		Type type{ TypeKind::Signal, std::string(), false, p_params };
+		type.names = p_names;
+		return type;
+	}
+	// What awaiting a signal with several parameters gives (spec §9.6): a
+	// struct that the language declares, with a field for each parameter,
+	// named "await Signal(a: int, b: String)" after them.
+	static Type arguments(const Type &p_signal);
 	// A class of this language (spec §11.1): its name, its script and the
 	// engine class it extends.
 	static Type script_class(const std::string &p_name, const std::string &p_script, const std::string &p_base) {
@@ -125,6 +136,7 @@ struct Type {
 	// Of the language's generic enums, which no script declares.
 	bool is_result() const { return kind == TypeKind::PayloadEnum && args.size() == 2 && name == "Result"; }
 	bool is_settled() const { return kind == TypeKind::PayloadEnum && args.size() == 1 && name == "Settled"; }
+	bool is_arguments() const;
 	// May be None: T? of an object or of a value type.
 	bool is_optional() const { return kind == TypeKind::Option || ((kind == TypeKind::Object || kind == TypeKind::Task) && nullable); }
 	// T?? or Variant?, whose None and the None or null inside are one null in

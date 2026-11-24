@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <deque>
 #include <iomanip>
 #include <iterator>
 #include <limits>
@@ -60,6 +61,14 @@ inline std::vector<Type> param_types(const std::vector<ParamDecl> &p_params) {
 		types.push_back(param.type);
 	}
 	return types;
+}
+
+inline Type signal_of(const SignalDecl &p_signal) {
+	std::vector<std::string> names;
+	for (const ParamDecl &param : p_signal.params) {
+		names.push_back(param.name);
+	}
+	return Type::signal(param_types(p_signal.params), names);
 }
 
 // What a function returns, then what it takes.
@@ -236,6 +245,7 @@ class Checker : public ClassRelation, private CheckContext {
 	std::unordered_map<std::string, int> function_index;
 	std::unordered_map<std::string, int> signal_index;
 	mutable std::unordered_map<std::string, std::optional<ForeignClass>> foreign_classes; // By path.
+	mutable std::deque<StructDecl> argument_structs; // The structs of signals' arguments, as struct_decl() declares them.
 
 	void error(uint32_t p_token, const std::string &p_message) {
 		error(TokenRange{ p_token, p_token }, p_message);

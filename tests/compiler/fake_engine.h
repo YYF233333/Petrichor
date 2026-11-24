@@ -51,6 +51,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "MeshInstance3D", "Node3D" },
 		{ "FileAccess", "RefCounted" },
 		{ "Area3D", "Node3D" },
+		{ "HTTPRequest", "Node" },
 	};
 	std::vector<std::string> singletons = { "Input", "ResourceLoader" };
 	std::map<std::string, int64_t> constants = {
@@ -235,6 +236,9 @@ public:
 		};
 		signals["Area3D"] = {
 			method("body_shape_entered", { { "body_rid", Type::builtin("RID") }, { "body", Type::object("Node3D", true) }, { "body_shape_index", t(TypeKind::Int) }, { "local_shape_index", t(TypeKind::Int) } }, t(TypeKind::Void)),
+		};
+		signals["HTTPRequest"] = {
+			method("request_completed", { { "result", t(TypeKind::Int) }, { "response_code", t(TypeKind::Int) }, { "headers", Type::builtin("PackedStringArray") }, { "body", Type::builtin("PackedByteArray") } }, t(TypeKind::Void)),
 		};
 	}
 

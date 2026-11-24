@@ -106,6 +106,21 @@ Type Type::settled(const Type &p_value) {
 	return type;
 }
 
+Type Type::arguments(const Type &p_signal) {
+	std::string fields;
+	for (size_t i = 0; i < p_signal.args.size(); i++) {
+		fields += (i > 0 ? ", " : "") + p_signal.names[i] + ": " + p_signal.args[i].to_string();
+	}
+	Type type = structure(std::string(bytecode::ARGUMENTS_NAME) + "(" + fields + ")", std::string());
+	type.args = p_signal.args;
+	type.names = p_signal.names;
+	return type;
+}
+
+bool Type::is_arguments() const {
+	return kind == TypeKind::Struct && name.rfind(bytecode::ARGUMENTS_NAME, 0) == 0;
+}
+
 Type Type::cancel_reason() {
 	static const std::shared_ptr<const EnumValues> values = [] {
 		auto list = std::make_shared<EnumValues>();

@@ -1137,6 +1137,25 @@ const StructDecl *Checker::struct_decl(const Type &p_struct) const {
 	if (p_struct == Type::conversion_error()) {
 		return &conversion_error_decl();
 	}
+	if (p_struct.is_arguments()) {
+		// Its fields have no defaults: an object passed may not be null.
+		const auto same = [&](const StructDecl &p_decl) {
+			return p_decl.name == p_struct.name && std::equal(p_decl.fields.begin(), p_decl.fields.end(), p_struct.args.begin(), p_struct.args.end(), [](const VarDecl &p_field, const Type &p_type) { return p_field.type == p_type; });
+		};
+		const auto found = std::find_if(argument_structs.begin(), argument_structs.end(), same);
+		if (found != argument_structs.end()) {
+			return &*found;
+		}
+		StructDecl &decl = argument_structs.emplace_back();
+		decl.name = p_struct.name;
+		decl.is_pub = true;
+		for (size_t i = 0; i < p_struct.args.size(); i++) {
+			VarDecl &field = decl.fields.emplace_back();
+			field.name = p_struct.names[i];
+			field.type = p_struct.args[i];
+		}
+		return &decl;
+	}
 	const ClassDecl *decl = script_decl(p_struct.script);
 	const StructDecl *found = decl ? decl->find_struct(p_struct.interface_name()) : nullptr;
 	return found && !classes.errors_in(found) ? found : nullptr;
@@ -2008,14 +2027,16 @@ Type engine_result(const EngineMethod &p_method) {
 Type signal_type(const EngineMethod &p_signal) {
 	const bool audited = p_signal.owner.rfind("res://", 0) != 0;
 	std::vector<Type> params;
+	std::vector<std::string> names;
 	for (const EngineParam &param : p_signal.params) {
 		Type type = param.type;
 		if (audited) {
 			type.nullable = type.kind == TypeKind::Object && builtin::signal_param_nullable(p_signal.owner, p_signal.name, uint32_t(params.size()));
 		}
 		params.push_back(type);
+		names.push_back(param.name);
 	}
-	return Type::signal(params);
+	return Type::signal(params, names);
 }
 
 } // namespace petrichor::compiler

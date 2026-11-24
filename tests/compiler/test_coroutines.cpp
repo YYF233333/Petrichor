@@ -54,7 +54,6 @@ TEST_CASE("coroutine declarations enforce their public contracts") {
 	CHECK(fixed("async func f():\n\tpass\nasync func g():\n\tf()\n", "Write await f()") == "async func f():\n\tpass\nasync func g():\n\tawait f()\n");
 	CHECK(has_error("func f(t: Task):\n\tpass\n", "Task"));
 	CHECK(has_error("func f(t: Array[void]):\n\tpass\n", "void"));
-	CHECK(has_error("signal s(a: int, b: int)\nasync func f() -> int:\n\treturn await s\n", "void"));
 	CHECK(has_error("async func f() -> int:\n\treturn 1\nfunc g():\n\tvar t: Task[float] = f()\n", "Task"));
 	const auto result = compile("async func f() -> int:\n\treturn 3\n");
 	REQUIRE(result.ok());
@@ -88,12 +87,27 @@ TEST_CASE("Task.of() and Task.delay() make tasks, owned when awaited at once") {
 	CHECK(has_error(in_function("Task.delay(1.0)"), "detach"));
 	CHECK(has_error(in_function("var t := Task.of(3)"), "Task.of() takes a signal, not int."));
 	CHECK(has_error(in_function("var t := Task.wait(1.0)"), "Task has no function \"wait()\"."));
-	const auto result = compile("extends Node\nsignal moved(x: int, y: int)\nasync func f():\n\tvar t: Task[void] = Task.of(moved)\n\tawait Task.of(moved)\n\tawait Task.delay(0.5)\n\tawait t\n");
+	const auto result = compile("extends Node\nsignal moved(x: int, y: int)\nasync func f():\n\tvar t := Task.of(moved)\n\tawait Task.of(moved)\n\tawait Task.delay(0.5)\n\tprint((await t).y)\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	const auto &f = function_named(result.module, "f");
 	find_instruction(f, Op::TASK_DELAY);
 	const size_t pc = find_instruction(f, Op::AWAIT_TASK);
 	CHECK(f.code[pc + 3] == 1);
+}
+
+// Spec §9.6: a struct that the language declares, whose fields the signal's
+// declaration names and types, of the engine's and of this language.
+TEST_CASE("awaiting a signal with several parameters gives a field for each, read by name") {
+	const std::string told = "extends Node\nsignal told(level: int, text: String)\n";
+	const auto result = compile(told + "async func f(http: HTTPRequest) -> String:\n\tvar r = await http.request_completed\n\tvar own = await told\n\tprint(r)\n\treturn r.body.get_string_from_utf8() + str(r.result + own.level) + own.text\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK(type_of("Task.of(h.request_completed)", "var h := HTTPRequest.new()") == "Task[await Signal(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray)]");
+	// Its type has no spelling: a function that passes it on declares a struct.
+	CHECK(has_error(told + "async func f() -> int:\n\treturn await told\n", "await Signal(level: int, text: String)"));
+	// A literal index names its field, as which the check reads it on.
+	CHECK(fixed(told + "async func f() -> String:\n\tvar r = await told\n\treturn r[1]\n") == told + "async func f() -> String:\n\tvar r = await told\n\treturn r.text\n");
+	CHECK(messages(compile(told + "async func f() -> String:\n\tvar r = await told\n\treturn r[1]\n")) == "5:9: A signal's arguments are read by name, as r.text, not by index.\n");
+	CHECK(has_error(told + "async func f(i: int):\n\tvar r = await told\n\tprint(r[i], r[2])\n", "A signal's arguments are read by name (level, text), not by index."));
 }
 
 // Spec §9.2: settled() gives how a task ended, which match takes apart; it

@@ -223,6 +223,13 @@ ValueType storage_of(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 uint32_t type_size(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // A struct or a PayloadEnum, whose fields are slots inside its slot.
 bool has_fields(const std::vector<TypeDesc> &p_types, uint32_t p_type);
+// The struct of the arguments that awaiting a signal with several parameters
+// gives (spec §9.6), "::await Signal(a: int, b: String)", which a Variant
+// holds as the Array of its fields, as GDScript gives the arguments.
+inline constexpr char ARGUMENTS_NAME[] = "await Signal";
+inline bool is_arguments(const TypeDesc &p_type) {
+	return p_type.kind == TypeKind::Struct && p_type.name.rfind(std::string("::") + ARGUMENTS_NAME, 0) == 0;
+}
 // Where each field of a struct starts in its slot.
 std::vector<uint32_t> field_offsets(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // The type as text, equal exactly for equal types in any module.

@@ -1690,8 +1690,8 @@ void Checker::check_interface_properties() {
 
 void Checker::check_interface_signal(const InterfaceMember &p_member, const TypeRef &p_ref) {
 	const SignalDecl &required = *p_member.signal;
-	const std::vector<Type> wanted = param_types(required.params);
-	if (std::any_of(wanted.begin(), wanted.end(), [](const Type &p_type) { return p_type.is_error(); })) {
+	const Type wanted = signal_of(required);
+	if (std::any_of(wanted.args.begin(), wanted.args.end(), [](const Type &p_type) { return p_type.is_error(); })) {
 		return;
 	}
 	const std::string &owner = p_member.owner.name;
@@ -1701,20 +1701,20 @@ void Checker::check_interface_signal(const InterfaceMember &p_member, const Type
 		if (is_own(provided, cls.signals)) {
 			refer(provided.name_token, script_id(options.path, provided.name), SymbolKind::Signal, interface_member_id(p_member));
 		}
-		const std::vector<Type> given = param_types(provided.params);
+		const Type given = signal_of(provided);
 		if (!provided.is_pub) {
 			error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" implements " + owner + " and must be pub.");
 			fix(pub_fix(declaring(cls, provided, &ClassDecl::signals).path, provided.name_token));
-		} else if (std::none_of(given.begin(), given.end(), [](const Type &p_type) { return p_type.is_error(); }) && given != wanted) {
-			error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" is " + Type::signal(given).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
+		} else if (std::none_of(given.args.begin(), given.args.end(), [](const Type &p_type) { return p_type.is_error(); }) && given != wanted) {
+			error(own_name(provided, cls.signals, p_ref.range), "\"" + provided.name + "\" is " + given.to_string() + ", but " + owner + " requires " + wanted.to_string() + ".");
 		}
 		return;
 	}
 	const auto signal = engine.find_signal(cls.native_base, required.name);
 	if (!signal) {
 		error(p_ref.range, "The class does not implement the signal \"" + required.name + "\" of " + owner + ".");
-	} else if (signal_type(*signal).args != wanted) {
-		error(p_ref.range, "The engine signal \"" + required.name + "\" is " + signal_type(*signal).to_string() + ", but " + owner + " requires " + Type::signal(wanted).to_string() + ".");
+	} else if (signal_type(*signal) != wanted) {
+		error(p_ref.range, "The engine signal \"" + required.name + "\" is " + signal_type(*signal).to_string() + ", but " + owner + " requires " + wanted.to_string() + ".");
 	}
 }
 

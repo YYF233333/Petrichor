@@ -210,3 +210,13 @@ pub func start_leave(door: CoroutineCheck) -> Task[int]:
 pub func start_value() -> Task[int]:
 	var f := async func() -> int: return 1
 	return f.call()
+
+# A field for each parameter of an engine signal and of one of this
+# language, which a Variant holds as GDScript's Array (spec §9.6).
+pub signal told(level: int, text: String)
+
+pub async func arguments(http: HTTPRequest) -> Array:
+	var r = await http.request_completed
+	var own = await Task.of(told)
+	var whole: Variant = r
+	return [r.response_code, r.body.get_string_from_utf8(), own.level + 1, own.text, whole, str(own)]

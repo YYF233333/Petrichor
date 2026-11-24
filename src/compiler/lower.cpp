@@ -309,6 +309,14 @@ class Lowerer : FunctionState {
 	uint32_t struct_index(const Type &p_struct) {
 		bytecode::TypeDesc type;
 		type.kind = bytecode::TypeKind::Struct;
+		if (p_struct.is_arguments()) {
+			// Of a signal (spec §9.6): unwritten, no field holds it in turn.
+			type.name = "::" + p_struct.name;
+			for (size_t i = 0; i < p_struct.args.size(); i++) {
+				type.fields.push_back({ p_struct.names[i], type_index(p_struct.args[i]) });
+			}
+			return type_index(type);
+		}
 		type.name = qualified_name(p_struct);
 		if (const auto found = named_types.find(type.name); found != named_types.end()) {
 			return found->second;
