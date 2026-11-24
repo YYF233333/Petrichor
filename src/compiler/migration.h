@@ -84,21 +84,26 @@ struct Inflows {
 	// An override's parameter without a type, by where its name is, to the
 	// slot of its base's, whose type it takes.
 	std::map<Key, Key> shared;
-	std::vector<Flow> flows;
-	std::vector<Call> calls;
-	std::vector<About> about;
-	// The reads of an element of an untyped Array or Dictionary, by index,
-	// for or get(), by their files and ranges: a Variant whatever the slots
-	// they reference are typed, so an error about one is not about them.
-	std::vector<std::pair<std::string, Range>> elements;
+	// What checks record as they go, which a check tried without effect takes
+	// back (each_record()).
+	struct Records {
+		std::vector<Flow> flows;
+		std::vector<Call> calls;
+		std::vector<About> about;
+		// The reads of an element of an untyped Array or Dictionary, by index,
+		// for or get(), by their files and ranges: a Variant whatever the slots
+		// they reference are typed, so an error about one is not about them.
+		std::vector<std::pair<std::string, Range>> elements;
+		// The reads of variables that give for an int what the same float
+		// gives: beside a float in arithmetic, compared, or where a float is
+		// expected. Each by where its name is, with where it begins.
+		std::vector<std::pair<Key, uint32_t>> kept;
+	};
+	Records records;
 	// Members typed from the scenes and constants typed by resources that
 	// another file read without their types, which the next round takes as
 	// slots.
 	std::vector<Slot> unknown;
-	// The reads of variables that give for an int what the same float
-	// gives: beside a float in arithmetic, compared, or where a float is
-	// expected. Each by where its name is, with where it begins.
-	std::vector<std::pair<Key, uint32_t>> kept;
 	// The class types written for variables declared without a value, which
 	// GDScript starts as null, and nothing shows assigned before a read: by
 	// where each begins, with its end and its text as T?.
@@ -121,6 +126,18 @@ struct Inflows {
 	// What is tried for it; Error for nothing yet.
 	Type type(int p_slot) const;
 };
+
+// Calls `p_f` with each record of `r_records`: one added that the binding
+// misses does not compile.
+template <typename F>
+void each_record(Inflows::Records &r_records, const F &p_f) {
+	auto &[flows, calls, about, elements, kept] = r_records;
+	p_f(flows);
+	p_f(calls);
+	p_f(about);
+	p_f(elements);
+	p_f(kept);
+}
 
 // The GDScript files that migrating those under `p_paths` (res://, the whole
 // project when none) takes (architecture §6.6). Their whole inheritance trees

@@ -533,10 +533,10 @@ const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
 // the slots; the results of the scripts by path, with the errors that the
 // checks of the scenes report in them, each error naming its file.
 std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, const ProjectApi &p_project, Inflows &r_inflows) {
-	r_inflows.flows.clear();
-	r_inflows.calls.clear();
-	r_inflows.about.clear();
-	r_inflows.elements.clear();
+	r_inflows.records.flows.clear();
+	r_inflows.records.calls.clear();
+	r_inflows.records.about.clear();
+	r_inflows.records.elements.clear();
 	r_inflows.unknown.clear();
 	r_inflows.widened.clear();
 	Workspace workspace(p_project);
@@ -589,10 +589,10 @@ std::vector<std::vector<Received>> received(const Inflows &p_inflows) {
 			parameters.emplace(p_inflows.slots[i].function, int(i));
 		}
 	}
-	for (const Inflows::Flow &flow : p_inflows.flows) {
+	for (const Inflows::Flow &flow : p_inflows.records.flows) {
 		add(flow.slot, { flow.type, flow.at, false, flow.part });
 	}
-	for (const Inflows::Call &call : p_inflows.calls) {
+	for (const Inflows::Call &call : p_inflows.records.calls) {
 		const int count = int(call.args.size());
 		const auto [first, last] = parameters.equal_range(call.name);
 		for (auto each = first; each != last; ++each) {
@@ -611,22 +611,10 @@ std::vector<std::vector<Received>> received(const Inflows &p_inflows) {
 	return result;
 }
 
-std::string file_name(const std::string &p_path) {
-	return p_path.substr(p_path.find_last_of('/') + 1);
-}
-
-// The type of the objects of the class of this language at `p_path`, named
-// as the checker names it.
+// The type of the objects of the class of this language at `p_path`.
 Type class_type(const std::string &p_path, ScriptClasses &r_classes) {
-	const ClassDecl *file = r_classes.header(script_file(p_path));
-	std::string name = file && !file->class_name.empty() ? file->class_name : file_name(script_file(p_path));
-	for (size_t at = p_path.find("::"); at != std::string::npos;) {
-		const size_t next = p_path.find("::", at + 2);
-		name += "." + p_path.substr(at + 2, next == std::string::npos ? next : next - at - 2);
-		at = next;
-	}
 	const ClassDecl *decl = r_classes.header(p_path);
-	return Type::script_class(name, p_path, decl ? r_classes.native_base(*decl, p_path) : std::string("Object"));
+	return Type::script_class(class_display_name(r_classes.header(script_file(p_path)), p_path), p_path, decl ? r_classes.native_base(*decl, p_path) : std::string("Object"));
 }
 
 // The classes that an object of the class is, its own first, up through the
@@ -856,10 +844,10 @@ Uses uses_of(const std::map<std::string, CompileResult> &p_results, const Inflow
 	Uses found;
 	// A read that flows into a slot whose type the check tried keeps nothing.
 	std::set<std::tuple<std::string, uint32_t, uint32_t>> flowed;
-	for (const Inflows::Flow &flow : p_inflows.flows) {
+	for (const Inflows::Flow &flow : p_inflows.records.flows) {
 		flowed.emplace(flow.at.first, flow.at.second, flow.last);
 	}
-	for (const auto &[name, begin] : p_inflows.kept) {
+	for (const auto &[name, begin] : p_inflows.records.kept) {
 		if (!flowed.count({ name.first, begin, name.second })) {
 			found.kept.insert(name);
 		}
@@ -1358,7 +1346,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		// those in an element of an untyped container there.
 		const auto involved = [&](const std::string &p_path, const CompileResult &p_result, uint32_t p_begin, uint32_t p_end, std::set<Inflows::Key> &r_seen, std::set<Inflows::Key> &r_slots, const auto &p_self) -> void {
 			std::vector<Range> elements;
-			for (const auto &[file, read] : check.elements) {
+			for (const auto &[file, read] : check.records.elements) {
 				if (file == p_path && p_begin <= read.first && read.second <= p_end) {
 					elements.push_back(read);
 				}
@@ -1391,12 +1379,12 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		for (const auto &[path, result] : checked) {
 			for (const Diagnostic &error : result.errors) {
 				const auto [begin, inside] = original_at(path, error.begin);
-				const auto about = std::find_if(check.about.begin(), check.about.end(), [&](const Inflows::About &p_about) { return p_about.file == path && p_about.error == Range(error.begin, error.end); });
+				const auto about = std::find_if(check.records.about.begin(), check.records.about.end(), [&](const Inflows::About &p_about) { return p_about.file == path && p_about.error == Range(error.begin, error.end); });
 				// One about no place here says that a declaration elsewhere has
 				// errors, which is no type's here. A cast is for what no type
 				// written changes.
 				const Fix *fix = loop_fix(error, r_project);
-				if ((fix && fix->kind != FixKind::Cast) || reported.count({ path, begin, error.message }) || (about != check.about.end() && about->places.empty())) {
+				if ((fix && fix->kind != FixKind::Cast) || reported.count({ path, begin, error.message }) || (about != check.records.about.end() && about->places.empty())) {
 					continue;
 				}
 				if (inside) {
@@ -1404,7 +1392,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 					continue;
 				}
 				std::set<Inflows::Key> seen;
-				for (const Range &range : about != check.about.end() ? about->places : std::vector<Range>{ { error.begin, error.end } }) {
+				for (const Range &range : about != check.records.about.end() ? about->places : std::vector<Range>{ { error.begin, error.end } }) {
 					involved(path, result, range.first, range.second, seen, refused, involved);
 				}
 			}

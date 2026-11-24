@@ -46,7 +46,7 @@ Type Checker::tried(int p_slot) const {
 
 void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflows::Part p_part) {
 	if (p_slot >= 0 && options.inflows) {
-		options.inflows->flows.push_back({ p_slot, p_type, { script_file(options.path), cls.source->begin(p_at) }, p_part, cls.source->tokens[p_at.last].offset });
+		options.inflows->records.flows.push_back({ p_slot, p_type, { script_file(options.path), cls.source->begin(p_at) }, p_part, cls.source->tokens[p_at.last].offset });
 	}
 }
 
@@ -130,7 +130,7 @@ void Checker::starts_null(int p_slot, const TypeRef *p_written, const Type &p_ty
 void Checker::keep(const Expr &p_value) {
 	const bool read = p_value.kind == ExprKind::Name || p_value.kind == ExprKind::Member;
 	if (options.inflows && read && p_value.name_token < cls.source->tokens.size()) {
-		options.inflows->kept.push_back({ { script_file(options.path), cls.source->tokens[p_value.name_token].offset }, cls.source->begin(p_value.range) });
+		options.inflows->records.kept.push_back({ { script_file(options.path), cls.source->tokens[p_value.name_token].offset }, cls.source->begin(p_value.range) });
 	}
 }
 
@@ -213,7 +213,7 @@ void Checker::call_by_name(const Expr &p_call) {
 		call.args.push_back(arg->type);
 		call.at.push_back({ script_file(options.path), cls.source->begin(arg->range) });
 	}
-	options.inflows->calls.push_back(std::move(call));
+	options.inflows->records.calls.push_back(std::move(call));
 }
 
 // At the start of the file for what was not written, such as the base
@@ -523,23 +523,8 @@ std::string Checker::missing(std::string p_message, const std::string &p_script)
 	return p_message;
 }
 
-// The class name used in messages and types: class_name, or the file's
-// name, followed by the names of the inner classes down to it, as
-// Player.Shot.
 std::string Checker::display_name(const ClassDecl &p_decl, const std::string &p_path) const {
-	const size_t inner = p_path.find("::");
-	if (inner == std::string::npos) {
-		return p_decl.class_name.empty() ? file_name(p_path) : p_decl.class_name;
-	}
-	const std::string file_path = p_path.substr(0, inner);
-	const ClassDecl *file_decl = script_header(file_path);
-	std::string name = file_decl && !file_decl->class_name.empty() ? file_decl->class_name : file_name(file_path);
-	for (size_t at = inner; at != std::string::npos;) {
-		const size_t next = p_path.find("::", at + 2);
-		name += "." + p_path.substr(at + 2, next == std::string::npos ? next : next - at - 2);
-		at = next;
-	}
-	return name;
+	return class_display_name(p_path.find("::") == std::string::npos ? &p_decl : script_header(script_file(p_path)), p_path);
 }
 
 /* Inner classes (spec §4.1) */
@@ -733,11 +718,6 @@ Type Checker::value_around(Expr &r_expr, Checker &r_around) {
 		return fail(r_expr, no_instance(name, r_around));
 	}
 	return fail(r_expr, "\"" + name + "\" is a type, not a value.");
-}
-
-std::string Checker::file_name(const std::string &p_path) {
-	const size_t slash = p_path.find_last_of('/');
-	return p_path.substr(slash == std::string::npos ? 0 : slash + 1);
 }
 
 /* Classes of other languages (spec §11.1) */
@@ -1411,7 +1391,7 @@ void Checker::about(const TokenRange &p_error, std::initializer_list<TokenRange>
 	for (const TokenRange &place : p_places) {
 		record.places.push_back(range(place));
 	}
-	options.inflows->about.push_back(std::move(record));
+	options.inflows->records.about.push_back(std::move(record));
 }
 
 // The same for an error of an operation with one Variant operand, which is
@@ -1434,7 +1414,7 @@ TokenRange Checker::typed_by(const Expr &p_value) {
 // the read references are typed, so an error about it is not about them.
 void Checker::untyped_element(const Expr &p_read, const Type &p_container) {
 	if (options.inflows && p_container.kind == TypeKind::Builtin && (p_container.name == "Array" || p_container.name == "Dictionary") && p_container.args.empty()) {
-		options.inflows->elements.push_back({ script_file(options.path), { cls.source->begin(p_read.range), cls.source->end(p_read.range) } });
+		options.inflows->records.elements.push_back({ script_file(options.path), { cls.source->begin(p_read.range), cls.source->end(p_read.range) } });
 	}
 }
 

@@ -1029,6 +1029,25 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 	}
 }
 
+// The name of a script's file without its folders, which names a class
+// without class_name.
+inline std::string file_name(const std::string &p_path) {
+	return p_path.substr(p_path.find_last_of('/') + 1);
+}
+
+// The class name used in messages and types, `p_file` being the header of
+// its file, if read: class_name, or the file's name, followed by the names of
+// the inner classes down to it, as Player.Shot.
+inline std::string class_display_name(const ClassDecl *p_file, const std::string &p_path) {
+	std::string name = p_file && !p_file->class_name.empty() ? p_file->class_name : file_name(script_file(p_path));
+	for (size_t at = p_path.find("::"); at != std::string::npos;) {
+		const size_t next = p_path.find("::", at + 2);
+		name += "." + p_path.substr(at + 2, next == std::string::npos ? next : next - at - 2);
+		at = next;
+	}
+	return name;
+}
+
 // The names that the file's expressions read, as names, members or callees.
 // A constant among them is used as a value (spec §2.1), also where another
 // declaration of that name hides it.

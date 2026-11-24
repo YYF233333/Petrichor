@@ -468,16 +468,16 @@ class Checker : public ClassRelation, private CheckContext {
 		const size_t warnings;
 		const std::string call_hint;
 		const uint32_t hint_at;
-		const size_t flows;
-		const size_t calls;
-		const size_t about;
-		const size_t elements;
-		const size_t kept;
+		std::vector<size_t> records; // How far each of Inflows::Records goes.
 		bool ended = false;
 
 	public:
 		explicit Tentative(Checker &r_checker) :
-				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at), flows(r_checker.options.inflows ? r_checker.options.inflows->flows.size() : 0), calls(r_checker.options.inflows ? r_checker.options.inflows->calls.size() : 0), about(r_checker.options.inflows ? r_checker.options.inflows->about.size() : 0), elements(r_checker.options.inflows ? r_checker.options.inflows->elements.size() : 0), kept(r_checker.options.inflows ? r_checker.options.inflows->kept.size() : 0) {}
+				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at) {
+			if (checker.options.inflows) {
+				each_record(checker.options.inflows->records, [&](const auto &p_record) { records.push_back(p_record.size()); });
+			}
+		}
 		~Tentative() { end(false); }
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
@@ -510,11 +510,8 @@ class Checker : public ClassRelation, private CheckContext {
 					checker.completion->call_hint = call_hint;
 				}
 				if (checker.options.inflows) {
-					checker.options.inflows->flows.resize(flows);
-					checker.options.inflows->calls.resize(calls);
-					checker.options.inflows->about.resize(about);
-					checker.options.inflows->elements.resize(elements);
-					checker.options.inflows->kept.resize(kept);
+					auto size = records.begin();
+					each_record(checker.options.inflows->records, [&](auto &r_record) { r_record.resize(*size++); });
 				}
 				checker.hint_at = hint_at;
 			}
@@ -773,6 +770,7 @@ class Checker : public ClassRelation, private CheckContext {
 	const ClassDecl *script_header(const std::string &p_path) const;
 	std::optional<std::string> broken(const void *p_decl, const std::string &p_what) const;
 	std::string missing(std::string p_message, const std::string &p_script) const;
+	// class_display_name(), with this file's classes as its checkers have them.
 	std::string display_name(const ClassDecl &p_decl, const std::string &p_path) const;
 	std::string inner_class_path(const std::string &p_path, const std::string &p_name) const;
 	bool declares(const std::string &p_name) const;
@@ -785,7 +783,6 @@ class Checker : public ClassRelation, private CheckContext {
 	std::string class_named(const std::string &p_name, bool p_autoload = false);
 	Type class_value(Expr &r_expr, const std::string &p_path);
 	Type value_around(Expr &r_expr, Checker &r_around);
-	static std::string file_name(const std::string &p_path);
 	const ForeignClass *foreign_class(const std::string &p_path) const;
 	std::optional<Type> autoload_class(const std::string &p_name, const TokenRange &p_at);
 	std::string autoload_script(const std::string &p_name);

@@ -852,7 +852,7 @@ void Checker::check_connections() {
 			// the connection's place in the scene.
 			for (size_t i = 0; function && options.inflows && i < kept && i < function->params.size(); i++) {
 				if (function->params[i].slot >= 0) {
-					options.inflows->flows.push_back({ function->params[i].slot, arguments[i], { scene.path, uint32_t(&connection - scene.connections.data()) } });
+					options.inflows->records.flows.push_back({ function->params[i].slot, arguments[i], { scene.path, uint32_t(&connection - scene.connections.data()) } });
 				}
 			}
 			for (const size_t i : misfit.arguments) {
@@ -1093,7 +1093,7 @@ void Checker::check_stored_exports() {
 				// place in the scene.
 				if (name == member->name && member->slot >= 0 && options.inflows) {
 					const uint32_t place = uint32_t(std::hash<std::string>()(p_node + "\n" + p_resource));
-					options.inflows->flows.push_back({ member->slot, stored_type(stored), { p_scene.path, place } });
+					options.inflows->records.flows.push_back({ member->slot, stored_type(stored), { p_scene.path, place } });
 				}
 				if (name != member->name || member->type.is_error()) {
 					continue;
