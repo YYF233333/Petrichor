@@ -9,7 +9,6 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
   - A design proposal comes first. The stored format changes, and the editor would run the initializers of constants in scripts without `@tool`.
   - It must land before the bytecode format gets its version, with Mod (architecture §6.1).
-- The files of tools out of the compiler's identity, with no lines less (`COMPILER_ID`, `SConstruct`). A change to the migration, navigation, completion or warnings now refuses every cached bytecode file (`src/adapter/pet_compiled.cpp`). Leave out only a file that changes neither the module nor the errors of a compile, checked one by one.
 
 ## Next release
 

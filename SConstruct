@@ -210,12 +210,20 @@ env.Command(
     Value(source_id(Glob("src/bytecode/*.h") + Glob("src/bytecode/*.cpp"))),
     Action(id_header("FORMAT_ID", "petrichor::bytecode", "src/bytecode/"), "Generating $TARGET"),
 )
-# With the inputs of the generated tables.
-compiler_inputs = Glob("src/compiler/*.h") + Glob("src/compiler/*.cpp") + Glob("src/compiler/*.py") + Glob("src/compiler/*.txt")
+# With the inputs of the generated tables, but not the tools' files, which
+# change neither the module nor the errors of a compile: completion,
+# formatting, migration, navigation, renaming, the scenes' text and the
+# warnings, which the compiled file does not keep.
+compiler_tools = ["checker_completion", "formatter", "migration", "navigation", "rename", "scene_text", "warnings"]
+compiler_inputs = [
+    node
+    for node in Glob("src/compiler/*.h") + Glob("src/compiler/*.cpp") + Glob("src/compiler/*.py") + Glob("src/compiler/*.txt")
+    if os.path.splitext(node.name)[0] not in compiler_tools
+]
 env.Command(
     "gen/compiler_id.gen.h",
     Value(source_id(compiler_inputs + [File("thirdparty/godot-cpp/gdextension/extension_api-4-7.json")])),
-    Action(id_header("COMPILER_ID", "petrichor::compiler", "src/compiler/ and the extension API"), "Generating $TARGET"),
+    Action(id_header("COMPILER_ID", "petrichor::compiler", "src/compiler/ but its tools, and the extension API"), "Generating $TARGET"),
 )
 
 
