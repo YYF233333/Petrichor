@@ -1290,7 +1290,10 @@ std::string Checker::unwritable(const Type &p_type, const SceneValue &p_value, b
 		const bool closed = p_type.values && !p_type.values->is_engine;
 		return closed && !p_type.values->has(p_value.integer) ? at + "expected " + p_type.to_string() + ", found " + std::to_string(p_value.integer) + ", which is none of its values" : std::string();
 	}
-	return assignable(stored_type(p_value), p_type) ? std::string() : mismatch;
+	// A scene whose root the project does not show, as an imported model's,
+	// is checked as instantiate() gives the root.
+	const Type stored = stored_type(p_value);
+	return assignable(stored, p_type) || (is_typed_scene(p_type) && stored == Type::object("PackedScene")) ? std::string() : mismatch;
 }
 
 // Whether a stored container is typed as the engine types the container
