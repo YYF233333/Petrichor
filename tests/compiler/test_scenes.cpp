@@ -301,7 +301,10 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	compiler::Scene legacy;
 	legacy.path = "res://objects/legacy.tscn";
 	legacy.nodes = { { ".", "Node3D", "res://objects/legacy.gd" } };
-	project.scenes = { impact, platform, legacy };
+	compiler::Scene flat;
+	flat.path = "res://objects/flat.tscn";
+	flat.nodes = { { ".", "Node2D", "" } };
+	project.scenes = { impact, platform, legacy, flat };
 	const auto errors = [&](const std::string &p_body) {
 		return messages(compile_in("extends Node\n\nfunc f(path: String):\n\t" + p_body + "\n", project));
 	};
@@ -315,6 +318,9 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	CHECK(errors("var s: PackedScene[Node3D] = preload(\"objects/platform.tscn\")").empty());
 	CHECK(errors("var s: PackedScene[Node3D] = preload(\"./objects/../objects/platform.tscn\")").empty());
 	CHECK(errors("var s: PackedScene[Node3D] = preload(\"res://objects//platform.tscn\")").empty());
+	// Scenes of other roots have the scene of the class both extend, as
+	// tanks-of-freedom-ii's heroes (scenes/map/templates.gd:755-768).
+	CHECK(errors("var s := [preload(\"res://objects/impact.tscn\"), preload(\"res://objects/flat.tscn\")]\n\tvar t: Array[PackedScene[Node]] = s").empty());
 
 	CHECK(contains(errors("var s := preload(\"res://missing.tscn\")"), "There is no scene at res://missing.tscn."));
 	// Other resources take the class their file loads as, or their script's

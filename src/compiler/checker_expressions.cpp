@@ -970,13 +970,20 @@ std::optional<Type> Checker::check_function_argument(Expr &r_call, const std::ve
 /* Conditional expressions, subscripts, literals, casts and super */
 
 // The type both branches fit: one of them, or for objects the nearest
-// class both extend; Error if there is none.
+// class both extend, for scenes of their roots (spec §3.14); Error if there
+// is none.
 Type Checker::common_type(const Type &p_a, const Type &p_b) const {
 	if (assignable(p_a, p_b)) {
 		return p_b;
 	}
 	if (assignable(p_b, p_a)) {
 		return p_a;
+	}
+	if (is_typed_scene(p_a) && is_typed_scene(p_b)) {
+		const Type root = common_type(p_a.args[0], p_b.args[0]);
+		Type scene = root.is_error() ? root : Type::scene(root);
+		scene.nullable = !root.is_error() && (p_a.nullable || p_b.nullable);
+		return scene;
 	}
 	if (p_a.kind == TypeKind::Object && p_b.kind == TypeKind::Object && p_a.args.empty() && p_b.args.empty() && !p_a.is_interface && !p_b.is_interface) {
 		for (std::string path = p_a.script; is_script_path(path);) {
