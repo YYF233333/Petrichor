@@ -98,6 +98,20 @@ func weakest[T: Damageable](units: Array[T]) -> T?:
 - 用在 `is` 之后：69 处；
 - 作为类型标注：46 处。
 
+#### 只当类型用的 preload 常量不加载（§2.1、§7.6）
+
+没有 `class_name` 的类只能经路径引用，迁移工具要写它的类型，就得在用到的文件里写 `const Board = preload(...)`。若这样的常量照常随文件加载，核心类之间会成环：tanks-of-freedom-ii 的 board 预加载 abilities 等逻辑对象并把 `self` 传给它们，这些对象又要写 Board 类型。迁移在 tanks 中因类没有名字而写不出类型的槽位有 162 个，涉及 43 个类。按加载边算，其中 37 个会成环，正是 board 和 map 两个核心类。这些数字取自迁移工具在 Petrichor `bbdd797` 上对 tanks 的报告（[迁移工具调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md)）。
+
+检查一个值是否某类的实例并不需要加载这个类：值若是它的实例，它必已加载。本语言运行时按脚本路径做类型检查，`new()`、静态调用和建带类型的容器都在用到时才按路径加载，只有 preload 常量在类加载时求值。因此只当类型用的常量跳过这一步即可。GDScript 本身允许脚本之间互相 preload，它先给浅脚本，编译完再补全（[引擎事实](engine-facts.md)）。
+
+另外两种做法都没有采用。按文件名补 `class_name` 会把名字放进全局命名空间，Node 脚本还会出现在新建节点对话框里。tanks 的 277 个无名文件中也有 104 个文件名相同，如 3 个 `camera.gd`。让所有 preload 都推迟到首次使用时加载则改动太大：被预加载脚本的静态初始化都会挪到首次使用时。
+
+别的语言里最接近的是 JVM：只在签名里出现的类不初始化，建实例、调静态方法和读写静态字段时才初始化（[JLS §12.4.1](https://docs.oracle.com/javase/specs/jls/se21/html/jls-12.html#jls-12.4.1)）。TypeScript 默认删去只当类型用的 import，结果一是模块的副作用丢了（[TypeScript#9191](https://github.com/microsoft/TypeScript/issues/9191)），二是删不删要看另一个文件的声明，单文件工具判断不了（[TypeScript#51479](https://github.com/microsoft/TypeScript/issues/51479)）。5.0 起改为只删写明 `import type` 的。本语言只看本文件的写法分类，避开了第二个问题。
+
+第一个问题对应的差别是静态初始化的时机。只当类型用的脚本，其 `_static_init` 不随本文件加载而运行，GDScript 则只要 preload 就会运行。迁移工具新写的常量在原文中并无 preload，行为反而与原文一致。原文已有且只当类型用的常量才有差别，而 v1 语料中 `_static_init` 一共只有 4 个。
+
+带类型的容器是例外。引擎的带类型容器持有元素类型的 Script 对象（[引擎事实](engine-facts.md)），类加载过程中再去加载同一个环上的脚本只会得到空值，容器便只按原生类定型。所以类加载时就要建的容器，如静态变量初始化式中的 `Array[Unit]`，仍以元素类型为边。
+
 #### `null` 别名与单行引号字符串（§2.2）
 
 保留 `null` 作为 `None` 的别名，纯属降低机械迁移成本。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `null` 每千行出现 22.2 次，把它改成编译错误除了增加无意义的机械改写，没有额外收益。

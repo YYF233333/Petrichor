@@ -52,6 +52,9 @@
 | `JSON.stringify` 把 `Vector2` 等引擎值写成字符串。`JSON.from_native` 按类型编码，`to_native` 能还原 | `core/io/json.cpp:193-197, 675-720, 1063` | §10.8 |
 | 资源按路径缓存，`load` 默认复用缓存 | `core/io/resource_loader.cpp:800-810`；`core/io/resource_loader.h:259` | §7.6 |
 | 资源的循环加载返回 null | `core/io/resource_loader.cpp:1049-1056` | §7.6 |
+| GDScript 之间的 `preload` 可以成环：分析器绕过 `ResourceLoader` 取浅脚本，编译完再补全依赖 | `modules/gdscript/gdscript_analyzer.cpp:4755-4764`；`modules/gdscript/gdscript_cache.cpp:303-343, 352-368, 423-447` | §2.1、§7.6 |
+| GDScript 的静态初始化在脚本编译完后进行，依赖先于拥有者 | `modules/gdscript/gdscript.cpp:849, 882-887` | §2.1 |
+| 带类型的容器持有元素类型的 Script 对象，按指针比较；收到空脚本时只按原生类定型 | `core/variant/container_type_validate.h:43-47, 121-141, 186-191`；`core/variant/array.cpp:885-897` | §2.1、§7.6 |
 | 方法的反射信息中没有协程性 | `core/object/method_info.h:37-44` | §9.8 |
 | 脚本语言所需的钩子对 GDExtension 公开 | `core/object/script_language_extension.h:304, 391, 441, 497, 655` | §1.3 |
 | 扩展实现的脚本语言经 `_is_abstract` 和全局类表报告抽象性 | `core/object/script_language_extension.h:132-136, 657-670` | §4.1 |

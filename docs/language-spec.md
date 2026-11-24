@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 34da42c231f9363ed275579439eae0f7a1bbccb3. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 2a47153b013fd1adc0deec80265609c4001f6084. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -62,6 +62,7 @@ Besides the no-silent-differences rule, this language's own operations guarantee
 
 - `preload` of any script gives its class, and its role depends on context:
   - a constant initialized with it names that class where its bare name is used, serving as a type like `class_name` and exposing `new()`, static methods and constants. Direct access to `.new()` or other members after `preload(...)` works the same way;
+  - when such a constant appears in its file only in type positions, loading the file does not load the script it names. Type positions are the types of variables, parameters and return values, and `is` and `as`. Using the constant as a value, or accessing its members, loads the script as usual;
   - where a value is needed, it is the script resource itself: `GDScript` for a GDScript file, and the script resource class for any other script:
 
   ```gdscript
@@ -784,6 +785,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - Writing a property or calling a modifying method on a resource known to be shared gives a warning that lists the sharing sites and offers two quick fixes: setting it local to scene, or calling `duplicate()` before modifying it. Turn the warning off with `@warning_ignore` when sharing is intended; resources replaced at run time are not tracked.
 - `duplicate()` returns the static type of the receiver. The depth of the copy is stated with `duplicate_deep(mode)`.
 - A reference cycle among `preload`, exported `PackedScene` and resources is a compile error. The quick fix changes one of its edges to a runtime `load`.
+- A `preload` constant used only as a type is not an edge of a cycle. A typed container that must be built when the class loads makes edges of its element and key types, as `Array[Unit]` does in a static variable's initializer.
 
 ### 7.7 Connections and paths in scenes
 
