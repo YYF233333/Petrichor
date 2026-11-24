@@ -136,15 +136,11 @@ void Checker::starts_null(int p_slot, const TypeRef *p_written, const Type &p_ty
 }
 
 // A use of the value that gives for an int what the same float gives
-// (architecture §6.6), when the value reads a variable named in the source,
-// or negates one, as -x keeps what x gives.
+// (architecture §6.6), when the value reads a variable named in the source.
 void Checker::keep(const Expr &p_value) {
-	const Expr *read = &p_value;
-	while (read->kind == ExprKind::Unary && read->op == TokenKind::Minus) {
-		read = read->left.get();
-	}
-	if (options.inflows && (read->kind == ExprKind::Name || read->kind == ExprKind::Member) && read->name_token < cls.source->tokens.size()) {
-		options.inflows->records.kept.push_back({ { script_file(options.path), cls.source->tokens[read->name_token].offset }, cls.source->begin(p_value.range) });
+	const bool read = p_value.kind == ExprKind::Name || p_value.kind == ExprKind::Member;
+	if (options.inflows && read && p_value.name_token < cls.source->tokens.size()) {
+		options.inflows->records.kept.push_back({ { script_file(options.path), cls.source->tokens[p_value.name_token].offset }, cls.source->begin(p_value.range) });
 	}
 }
 

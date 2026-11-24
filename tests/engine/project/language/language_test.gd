@@ -1073,7 +1073,6 @@ func _number_uses(x) -> Array:
 		sum, difference, product, quotient,
 		x == 3, x != 3, x < 4, x > 2, x <= 3, x >= 3, x == 3.0, x < 3.5, 3 == x, 2.5 < x,
 		_float_of(x), sin(x), Vector2(x, 0), typed, _returned(x),
-		-x + 0.5, -x < 4, _float_of(-x),
 		float(x),
 	]
 
