@@ -265,6 +265,39 @@ TEST_CASE("an export written PackedScene takes the class of the roots of the sce
 	CHECK(migration.errors.empty());
 }
 
+// deck_builder_tutorial's EventRoomPool (custom_resources/event_room_pool.gd,
+// scenes/event_rooms/event_room_pool.tres) and Room.event_scene
+// (custom_resources/room.gd:15, scenes/map/map_generator.gd:208).
+TEST_CASE("an export written Array[PackedScene] takes the class of the roots of the scenes stored in it, and passes it on to a scene written PackedScene") {
+	FakeProject project;
+	project.add_script("res://event.gd", "class_name EventRoom\nextends Control\n@export var stats: Resource\n", "EventRoom");
+	project.add_script("res://gamble.gd", "extends EventRoom\n");
+	project.add_script("res://pool.gd", "class_name Pool\nextends Resource\n@export var rooms: Array[PackedScene]\n@export var spare: Array[PackedScene]\n\n\nfunc pick() -> PackedScene:\n\treturn rooms.pick_random()\n", "Pool");
+	project.add_script("res://room.gd", "class_name Room\nextends Resource\n@export var scene: PackedScene\n", "Room");
+	project.add_script("res://map.gd", "extends Node\n\n\nfunc set_up(room: Room, pool: Pool) -> void:\n\troom.scene = pool.pick()\n");
+	compiler::Scene gamble;
+	gamble.path = "res://gamble.tscn";
+	gamble.nodes = { { ".", "Control", "res://gamble.gd" } };
+	compiler::Scene help;
+	help.path = "res://help.tscn";
+	help.nodes = { { ".", "Control", "res://event.gd" } };
+	compiler::SceneValue rooms{ "Array" };
+	rooms.typed = { { "Object", "PackedScene" } };
+	for (const std::string &path : { gamble.path, help.path }) {
+		rooms.items.push_back({ "Object", "PackedScene" });
+		rooms.items.back().path = path;
+	}
+	compiler::Scene pool;
+	pool.path = "res://pool.tres";
+	pool.resources = { { pool.path, "res://pool.gd", { { "rooms", rooms } } } };
+	project.scenes = { gamble, help, pool };
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://event.gd", "res://gamble.gd", "res://pool.gd", "res://room.gd", "res://map.gd" }, 10);
+	CHECK(migration.texts.at("res://pool.pet") == "class_name Pool\nextends Resource\n@export var rooms: Array[PackedScene[EventRoom]]\n@export var spare: Array[PackedScene]\n\n\npub func pick() -> PackedScene[EventRoom]:\n\treturn rooms.pick_random()\n");
+	CHECK(migration.texts.at("res://room.pet") == "class_name Room\nextends Resource\n@export var scene: PackedScene[EventRoom]\n");
+	CHECK(migration.texts.at("res://event.pet") == "class_name EventRoom\nextends Control\n@export var stats: Resource?\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a member is narrowed with its setter's parameter, and an override's result apart from the method it overrides") {
 	FakeProject project;
 	project.add_script("res://button.gd", "class_name RewardButton\nextends Node\nvar icon: Resource = Texture2D.new() : set = set_icon\n\n\nfunc set_icon(new_icon: Resource) -> void:\n\ticon = new_icon\n\tshow(icon)\n\n\nfunc show(texture: Texture2D) -> void:\n\tpass\n", "RewardButton");

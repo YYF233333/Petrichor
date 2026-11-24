@@ -1090,10 +1090,15 @@ void Checker::check_stored_exports() {
 		for (const VarDecl *member : exports) {
 			for (const auto &[name, stored] : p_properties) {
 				// A value saved for a member without a type flows into it, from its
-				// place in the scene.
+				// place in the scene; into an exported Array of scenes, its
+				// elements.
 				if (name == member->name && member->slot >= 0 && options.inflows) {
-					const uint32_t place = uint32_t(std::hash<std::string>()(p_node + "\n" + p_resource));
-					options.inflows->records.flows.push_back({ member->slot, stored_type(stored), { p_scene.path, place } });
+					const bool elements = is_wide(member->slot) && !options.inflows->slots[size_t(member->slot)].container.empty();
+					const std::string place = p_node + "\n" + p_resource;
+					for (size_t i = 0; i < (elements ? stored.items.size() : 1); i++) {
+						const uint32_t at = uint32_t(std::hash<std::string>()(elements ? place + "\n" + std::to_string(i) : place));
+						options.inflows->records.flows.push_back({ member->slot, stored_type(elements ? stored.items[i] : stored), { p_scene.path, at }, elements ? Inflows::Part::Element : Inflows::Part::Whole });
+					}
 				}
 				if (name != member->name || member->type.is_error()) {
 					continue;
@@ -1119,6 +1124,10 @@ void Checker::check_stored_exports() {
 					error_in_scene(at, p_scene, p_node, p_scene.path + ": the value stored for \"" + name + "\" of " + p_shown + " does not fit its type: " + why + ".");
 					// A missing object, after which the game runs (spec §7.5).
 					errors.back().runs = value->type == "Nil" && member->type.kind == TypeKind::Object;
+				} else if (value) {
+					each_stored_scene(member->type, *value, [&](const Scene &p_stored, const Type &p_to) {
+						report_unfit_scene(p_stored, p_to, [&](const std::string &p_why) { error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + p_stored.path + ", which " + p_why); });
+					});
 				}
 			}
 		}
@@ -1142,6 +1151,19 @@ void Checker::check_stored_exports() {
 		if (extends_script(resource.script, options.path) && !resource.unread && placed_class(resource.script)) {
 			check(scenes[0], resource.properties, resource.shown(), std::string(), resource.path);
 		}
+	}
+}
+
+// Calls `p_f` with each scene that a value stored for the type holds where a
+// PackedScene[T] goes, with that type: the value, or what a container holds
+// (spec §7.4).
+void Checker::each_stored_scene(const Type &p_type, const SceneValue &p_value, const std::function<void(const Scene &, const Type &)> &p_f) {
+	const Type type = p_type.unwrapped();
+	if (const std::optional<Scene> scene = is_typed_scene(type) && is_scene_file(p_value.path) ? options.project->scene(p_value.path) : std::nullopt) {
+		p_f(*scene, type);
+	}
+	for (size_t i = 0; is_typed_container(type) && i < p_value.items.size(); i++) {
+		each_stored_scene(type.args.size() == 1 || i % 2 == 0 ? type.args[0] : type.args[1], p_value.items[i], p_f);
 	}
 }
 

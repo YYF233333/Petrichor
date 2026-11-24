@@ -59,17 +59,19 @@ void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflo
 }
 
 // The slot of a declaration with a class written for it, `r_type`, whose
-// value a read in the last round found where a subclass is expected
-// (architecture §6.6); it then has the type tried for it. -1 for any other.
-int Checker::wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type) {
-	if (!options.inflows || r_type.kind != TypeKind::Object) {
+// value a read in the last round found where a subclass is expected, or of
+// an export of scenes of unknown roots (architecture §6.6); it then has the
+// type tried for it, an Array's elements being the slot. -1 for any other.
+int Checker::wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type, bool p_export) {
+	if (!options.inflows || (r_type.kind != TypeKind::Object && !is_untyped_scenes(r_type))) {
 		return -1;
 	}
 	const auto wide = options.inflows->wide.find({ script_file(options.path), cls.source->tokens[p_name_token].offset });
 	if (wide == options.inflows->wide.end()) {
 		return -1;
 	}
-	wide->second = { r_type, { cls.source->begin(p_written.range), cls.source->end(p_written.range) } };
+	wide->second = { r_type, { cls.source->begin(p_written.range), cls.source->end(p_written.range) }, std::nullopt, p_export };
+	p_slot.container = r_type.kind == TypeKind::Builtin ? r_type.name : std::string();
 	const int slot = untyped_slot(p_slot, p_name_token);
 	r_type = tried(slot);
 	return slot;
@@ -80,7 +82,7 @@ bool Checker::is_wide(int p_slot) const {
 		return false;
 	}
 	const auto wide = options.inflows->wide.find(options.inflows->slots[size_t(p_slot)].key);
-	return wide != options.inflows->wide.end() && wide->second.type.kind == TypeKind::Object;
+	return wide != options.inflows->wide.end() && !wide->second.type.is_error();
 }
 
 // That a value read where a subclass of its class is expected reads a
@@ -1372,10 +1374,11 @@ Type Checker::resolve_generic(const TypeRef &p_ref) {
 
 // The engine types the elements of a container, and the keys of a
 // Dictionary, with one built-in type or one class, and containers one level
-// deep; this language keeps the types only it has boxed (spec §3.8).
+// deep; this language keeps the types only it has boxed (spec §3.8), and
+// the roots of scenes, which their checks see (§7.4).
 Type Checker::container_element(const TypeRef &p_ref, const std::string &p_what) {
 	const Type element = resolve(p_ref, false);
-	if (!element.is_error() && !element.args.empty() && !is_boxed(element) && !is_typed_container(element)) {
+	if (!element.is_error() && !element.args.empty() && !is_boxed(element) && !is_typed_container(element) && !is_typed_scene(element)) {
 		error(p_ref.range, p_what + element.to_string() + " are not supported yet.");
 		return Type::of(TypeKind::Error);
 	}

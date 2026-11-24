@@ -834,7 +834,7 @@ std::map<Inflows::Key, Place> places(const std::string &p_file, const std::strin
 	functions(decl, functions);
 	// Over the class written for a declaration that a subclass may type.
 	for (const auto &[key, wide] : p_inflows.wide) {
-		if (key.first == p_file && found.count(key) && wide.type.kind == TypeKind::Object) {
+		if (key.first == p_file && found.count(key) && !wide.type.is_error()) {
 			found[key] = { wide.written.first, wide.written.second, std::string(), std::string() };
 		}
 	}
@@ -1116,18 +1116,25 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		return p_slot.container.empty() ? merged(p_received, classes, p_engine, r_numbers) : merged_container(p_slot.container, p_received, classes, p_engine, r_numbers);
 	};
 	// A declaration with a class written for it takes a subclass of it that
-	// what flows in merges into; otherwise it keeps the type written. An
-	// export written PackedScene takes the scene of its roots' class, or of
-	// Node without one (spec §7.4).
-	const auto narrowed = [&](const Type &p_written, const std::optional<Type> &p_merged) {
+	// what flows in merges into; otherwise it keeps the type written. One
+	// written PackedScene takes the scene of its roots' class, an export of
+	// Node without one (spec §7.4), and an Array of them, its elements'.
+	const auto scene = [](const Type &p_type) { return p_type.kind == TypeKind::Object && p_type.name == "PackedScene" && !p_type.args.empty(); };
+	const auto narrowed = [&](const Inflows::Wide &p_wide, const std::optional<Type> &p_merged) {
+		const Type &p_written = p_wide.type;
 		Type narrower = p_merged ? p_merged->unwrapped() : Type::of(TypeKind::Error);
-		const bool scene = narrower.kind == TypeKind::Object && narrower.name == "PackedScene" && !narrower.args.empty();
+		if (p_written.kind == TypeKind::Builtin) {
+			return narrower.name == "Array" && !narrower.args.empty() && scene(narrower.args[0]) ? narrower : p_written;
+		}
 		if (p_written.name == "PackedScene" && p_written.args.empty()) {
-			narrower = scene ? narrower : Type::scene(Type::object("Node"));
+			if (!scene(narrower) && !p_wide.exported) {
+				return p_written;
+			}
+			narrower = scene(narrower) ? narrower : Type::scene(Type::object("Node"));
 			narrower.nullable = p_written.nullable;
 			return narrower;
 		}
-		if (narrower.kind != TypeKind::Object || narrower.is_interface || (!narrower.args.empty() && !scene)) {
+		if (narrower.kind != TypeKind::Object || narrower.is_interface || (!narrower.args.empty() && !scene(narrower))) {
 			return p_written;
 		}
 		const auto key = [](const Type &p_class) { return p_class.script.empty() ? p_class.name : p_class.script; };
@@ -1151,8 +1158,8 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			bool numbers = false;
 			const std::optional<Type> type = merge(inflows.slots[i], flowed[i], numbers);
 			const auto wide = inflows.wide.find(inflows.slots[i].key);
-			if (wide != inflows.wide.end() && wide->second.type.kind == TypeKind::Object) {
-				next[inflows.slots[i].key] = narrowed(wide->second.type, type);
+			if (wide != inflows.wide.end() && !wide->second.type.is_error()) {
+				next[inflows.slots[i].key] = narrowed(wide->second, type);
 			} else if (type || p_unknown) {
 				next[inflows.slots[i].key] = type.value_or(without(inflows.slots[i]));
 			}
@@ -1266,7 +1273,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	std::map<Inflows::Key, std::string> refusals;
 	const auto wide = [&](const Inflows::Key &p_slot) -> const Inflows::Wide * {
 		const auto found = inflows.wide.find(p_slot);
-		return found != inflows.wide.end() && found->second.type.kind == TypeKind::Object ? &found->second : nullptr;
+		return found != inflows.wide.end() && !found->second.type.is_error() ? &found->second : nullptr;
 	};
 	for (const Inflows::Slot &slot : slots) {
 		const auto found = tried.find(slot.key);

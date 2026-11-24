@@ -280,6 +280,35 @@ TEST_CASE("an exported scene is written PackedScene[T] (spec §7.4)") {
 	CHECK(contains(exports_errors(scenes + "var s: PackedScene[Timer] = model"), "Cannot assign a value of type PackedScene[Node3D] as PackedScene[Timer]"));
 }
 
+TEST_CASE("an exported Array[PackedScene[T]] holds scenes whose roots are a T, which leave to instantiate() only what it asks for (spec §7.4)") {
+	FakeProject project;
+	project.add_script("res://room.pet", "class_name Room\nextends Node\n@export pub var exit: Node\n", "Room");
+	compiler::Scene shop;
+	shop.path = "res://shop.tscn";
+	shop.nodes = { { ".", "Node", "res://room.pet" } };
+	compiler::Scene hall;
+	hall.path = "res://hall.tscn";
+	hall.nodes = { { ".", "Node2D", "" } };
+	const auto scenes = [](const std::vector<std::string> &p_paths) {
+		compiler::SceneValue array{ "Array" };
+		array.typed = { { "Object", "PackedScene" } };
+		for (const std::string &path : p_paths) {
+			array.items.push_back({ "Object", "PackedScene" });
+			array.items.back().path = path;
+		}
+		return array;
+	};
+	compiler::Scene pool;
+	pool.path = "res://pool.tres";
+	pool.resources = { { pool.path, "res://test.pet", { { "rooms", scenes({ shop.path }) }, { "halls", scenes({ shop.path, hall.path }) } } } };
+	project.scenes = { shop, hall, pool };
+	const std::string source = "extends Resource\n@export pub var rooms: Array[PackedScene[Room]]\n@export pub var halls: Array[PackedScene[Room]]\n\n\nfunc f() -> Room:\n\treturn rooms[0].instantiate()\n";
+	CHECK(compile_in(source, project).errors.empty());
+	const std::string errors = messages(check_scenes_in(source, project));
+	CHECK(contains(errors, "res://pool.tres: \"rooms\" of the resource holds res://shop.tscn, which leaves \"exit\" to instantiate(), but a PackedScene[Room] does not ask for it."));
+	CHECK(contains(errors, "res://pool.tres: the value stored for \"halls\" of the resource does not fit its type: Array[PackedScene[Room]][1]: expected PackedScene[Room], found PackedScene[Node2D]."));
+}
+
 // A constant as text, a Dictionary of the encoding (spec §10.1) with its
 // keys in order, a constructed value as C(arguments).
 static std::string shown(const bytecode::Module &p_module, const bytecode::Constant &p_constant) {

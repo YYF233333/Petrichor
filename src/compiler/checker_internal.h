@@ -652,6 +652,12 @@ class Checker : public ClassRelation, private CheckContext {
 		return p_type.kind == TypeKind::Object && p_type.name == "PackedScene" && !p_type.args.empty();
 	}
 
+	// A PackedScene of unknown root, or an Array of them.
+	static bool is_untyped_scenes(const Type &p_type) {
+		const Type &scene = is_typed_container(p_type) && p_type.name == "Array" ? p_type.args[0] : p_type;
+		return scene.kind == TypeKind::Object && scene.name == "PackedScene" && scene.args.empty();
+	}
+
 	static std::string argument_count(const Signature &p_signature) {
 		return argument_count(int(p_signature.required()), int(p_signature.params.size()), p_signature.rest.has_value());
 	}
@@ -742,7 +748,7 @@ class Checker : public ClassRelation, private CheckContext {
 	int valued_slot(Inflows::Slot p_slot, uint32_t p_name_token);
 	int found_slot(uint32_t p_name_token) const;
 	void read_untyped(const ClassDecl &p_owner, const std::string &p_name, uint32_t p_name_token);
-	int wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type);
+	int wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type, bool p_export = false);
 	bool is_wide(int p_slot) const;
 	void read_wide(const Expr &p_value);
 	void keep(const Expr &p_value);
@@ -1019,6 +1025,7 @@ class Checker : public ClassRelation, private CheckContext {
 	bool check_written_back(const Expr &p_target);
 	void expect_scene_fits(const Expr &p_value, const Type &p_to);
 	void report_unfit_scene(const Scene &p_scene, const Type &p_to, const std::function<void(const std::string &)> &p_report);
+	void each_stored_scene(const Type &p_type, const SceneValue &p_value, const std::function<void(const Scene &, const Type &)> &p_f);
 	std::string encoding_loss(const Type &p_type, const std::string &p_who, bool p_fix, bool p_copied = false, const std::string &p_what = std::string()) const;
 	static std::string fitting_call(const Type &p_two_level);
 	std::string variant_refusal(const Type &p_type) const;

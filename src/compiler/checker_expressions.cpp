@@ -1957,6 +1957,8 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		if (p_written) {
 			fix_optional(*p_written);
 		}
+	} else if (is_untyped_scenes(p_from) && p_from.kind == TypeKind::Object && is_typed_scene(p_to.unwrapped())) {
+		read_wide(p_value); // A scene of unknown root, which the roots that flow in may type (architecture §6.6).
 	} else if (downcast(p_from, p_to)) {
 		// GDScript checks it as the program runs (architecture §6.6). With
 		// `as`, None stands for GDScript's null where the value may be None,

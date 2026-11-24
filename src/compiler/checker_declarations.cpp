@@ -460,7 +460,7 @@ void Checker::check_member_declaration(size_t p_index) {
 	const std::string container = empty_container(member.initializer.get());
 	if (member.declared_type) {
 		type = resolve(*member.declared_type, false);
-		member.slot = wide_slot({ Inflows::Kind::Member, member.name }, member.name_token, *member.declared_type, type);
+		member.slot = wide_slot({ Inflows::Kind::Member, member.name }, member.name_token, *member.declared_type, type, member.is_export);
 	} else if (!member.initializer || member.initializer->kind == ExprKind::NoneLiteral || !container.empty()) {
 		member.slot = untyped_slot({ Inflows::Kind::Member, member.name, {}, 0, 0, 0, {}, {}, container }, member.name_token);
 		type = tried(member.slot);
@@ -520,11 +520,11 @@ void Checker::check_member_declaration(size_t p_index) {
 	}
 	if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
 		error(member.name_token, "An exported scene is written PackedScene[T], with the type of its root.");
-		// A migration writes the class of the roots that flow in, as for a
-		// class written too wide (architecture §6.6).
-		if (options.inflows && options.inflows->files.count(script_file(options.path))) {
-			options.inflows->widened.insert({ script_file(options.path), cls.source->tokens[member.name_token].offset });
-		}
+	}
+	// A migration writes the class of the roots that flow in, as for a class
+	// written too wide (architecture §6.6).
+	if (member.is_export && is_untyped_scenes(type) && options.inflows && options.inflows->files.count(script_file(options.path))) {
+		options.inflows->widened.insert({ script_file(options.path), cls.source->tokens[member.name_token].offset });
 	}
 	if (member.is_export && type.kind == TypeKind::Task) {
 		error(member.name_token, "Task handles cannot be exported: a scene cannot save a running coroutine.");

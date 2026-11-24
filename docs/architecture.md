@@ -815,7 +815,9 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 改窄的导出在检查器里从此只接受子类。集合外 GDScript 的赋值看不到，与其余推断相同。
   - 检查器按读出处的引用找到所读声明，下一轮起它才作槽位，未试过时与未写类型的槽位一样取 Error。所写类型的 `?` 不变，声明原本会改为 `T?` 时改窄后照样带上。
   - 成员与其具名 setter 的参数一并求解：写入属性即流入参数，所以 setter 里把参数赋给成员不算流入。成员改窄时，参数的类型写成同一个。
-  - 写作 `PackedScene` 的导出报错后（规范 §7.4），下一轮起同样作槽位。所存场景和代码所赋场景的根合并出最近公共类 `T`，写成 `PackedScene[T]`。没有流入或有根不明的场景流入时写 `PackedScene[Node]`，根不明的赋值随即报错，如 deck_builder_tutorial 从 `Array[PackedScene]` 取出的场景（`scenes/map/map_generator.gd:208`）。
+  - 写作 `PackedScene` 的导出报错后（规范 §7.4），下一轮起同样作槽位。所存场景和代码所赋场景的根合并出最近公共类 `T`，写成 `PackedScene[T]`。没有流入或有根不明的场景流入时写 `PackedScene[Node]`，根不明的赋值随即报错。
+  - 写作 `Array[PackedScene]` 的导出不报错，但同样作槽位，所存数组的各个场景和代码放入的场景是元素的流入。元素合并出 `PackedScene[T]` 才改写，否则保持原文。
+  - 写作 `PackedScene` 的其他声明，读出的值进入 `PackedScene[T]` 的位置时同样作槽位，合并不出时保持原文。deck_builder_tutorial 的 `event_rooms` 由所存两个场景写成 `Array[PackedScene[EventRoom]]`，再经 `get_random()` 的返回值传给 `Room.event_scene`（`custom_resources/event_room_pool.gd:4, 7`，`custom_resources/room.gd:15`，`scenes/map/map_generator.gd:208`）。
   - 这些场景的根把必须赋值的导出留给 `instantiate()` 时，报错带上改为 `T?` 的修复：场景只设所存的属性，GDScript 写了对象类型的成员起初为 null（`scene/resources/packed_scene.cpp:365-371`，`modules/gdscript/gdscript_compiler.cpp:2369-2393`，`ed1daf0`）。deck_builder_tutorial 的 `EnemyStats.ai` 由此写成 `PackedScene[EnemyActionPicker]`，其根的 `enemy` 和 `target` 改为可空（`custom_resources/enemy_stats.gd:4`，`scenes/enemy/enemy_action_picker.gd:4-5`）。
 
 #### 候选校验、失败撤回与数值核对
