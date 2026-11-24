@@ -1046,12 +1046,12 @@ inline std::set<std::string> names_read(const ClassDecl &p_file) {
 	return names;
 }
 
-// Whether a constant of a class of the file whose names_read() are `p_read`
-// names a script that loading the file does not load (spec §2.1): one that
-// holds a script's preload, appears only in types and is not pub, which other
-// files and GDScript read.
-inline bool type_only(const ConstDecl &p_constant, const std::set<std::string> &p_read) {
-	return !p_constant.is_pub && p_constant.value && p_constant.value->kind == ConstValue::Kind::Preload && !p_constant.value->script.empty() && !p_read.count(p_constant.name);
+// Whether a constant of a class of the file whose names_read() are `p_read`,
+// which holds a script's preload when `p_script`, names a script that loading
+// the file does not load (spec §2.1): it appears only in types and is not
+// pub, which other files and GDScript read.
+inline bool type_only(const ConstDecl &p_constant, const std::set<std::string> &p_read, bool p_script) {
+	return p_script && !p_constant.is_pub && !p_read.count(p_constant.name);
 }
 
 } // namespace petrichor::compiler

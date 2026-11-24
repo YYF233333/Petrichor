@@ -3632,7 +3632,7 @@ public:
 			if (!constant->value || (constant->value->names_enum && constant->type.kind == TypeKind::PayloadEnum)) {
 				continue;
 			}
-			if (type_only(*constant, read)) {
+			if (type_only(*constant, read, constant->value->kind == ConstValue::Kind::Preload && !constant->value->script.empty())) {
 				// An entry of its own, which no code reads.
 				bytecode::Constant entry = constant_of(*constant->value);
 				entry.type_only = true;

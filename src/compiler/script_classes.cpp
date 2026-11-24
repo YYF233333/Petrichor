@@ -664,8 +664,7 @@ std::vector<LoadEdge> load_edges(const ClassDecl &p_file, const std::string &p_p
 			}
 			held_by_constants.insert(constant.initializer.get());
 			const std::string target = held(*constant.initializer);
-			const bool type_only = is_script_file(target) && !constant.is_pub && !read.count(constant.name);
-			if (!target.empty() && !type_only) {
+			if (!target.empty() && !type_only(constant, read, is_script_file(target))) {
 				edges.push_back({ target, constant.initializer->range, false });
 			}
 		}
