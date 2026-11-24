@@ -19,7 +19,7 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
 
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
-  - The check of games renamed as they are becomes a survey, run again after each step. Three games of corpus v1 give 20 errors per 100 lines, and half of their files report only their base's errors.
+  - The survey [tool-migration](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md) measures what the tool leaves in three games of corpus v1, by cause. Rerun it after each step and add its row. At `bbdd797` they leave 10.5 errors per 100 lines.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project: 41 s for tanks-of-freedom-ii with its assets. Its 661 scenes load 6,951 files one scene at a time, 944 of them distinct. Without the assets, as in the sparse corpus clone, each missing file is a failing load, and the check takes 136 to 195 s.
   - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left: the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
   - The rewrites that the survey showed.
