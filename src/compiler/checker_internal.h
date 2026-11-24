@@ -501,12 +501,13 @@ class Checker : public ClassRelation {
 		const size_t flows;
 		const size_t calls;
 		const size_t about;
+		const size_t elements;
 		const size_t kept;
 		bool ended = false;
 
 	public:
 		explicit Tentative(Checker &r_checker) :
-				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at), flows(r_checker.options.inflows ? r_checker.options.inflows->flows.size() : 0), calls(r_checker.options.inflows ? r_checker.options.inflows->calls.size() : 0), about(r_checker.options.inflows ? r_checker.options.inflows->about.size() : 0), kept(r_checker.options.inflows ? r_checker.options.inflows->kept.size() : 0) {}
+				checker(r_checker), errors(r_checker.errors.size()), references(r_checker.references ? r_checker.references->size() : 0), node_paths(r_checker.node_paths ? r_checker.node_paths->size() : 0), warnings(r_checker.warnings ? r_checker.warnings->size() : 0), call_hint(r_checker.completion ? r_checker.completion->call_hint : std::string()), hint_at(r_checker.hint_at), flows(r_checker.options.inflows ? r_checker.options.inflows->flows.size() : 0), calls(r_checker.options.inflows ? r_checker.options.inflows->calls.size() : 0), about(r_checker.options.inflows ? r_checker.options.inflows->about.size() : 0), elements(r_checker.options.inflows ? r_checker.options.inflows->elements.size() : 0), kept(r_checker.options.inflows ? r_checker.options.inflows->kept.size() : 0) {}
 		~Tentative() { end(false); }
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
@@ -535,6 +536,7 @@ class Checker : public ClassRelation {
 					checker.options.inflows->flows.resize(flows);
 					checker.options.inflows->calls.resize(calls);
 					checker.options.inflows->about.resize(about);
+					checker.options.inflows->elements.resize(elements);
 					checker.options.inflows->kept.resize(kept);
 				}
 				checker.hint_at = hint_at;
@@ -838,6 +840,7 @@ class Checker : public ClassRelation {
 	Type fail_receiver(Expr &r_call, const std::string &p_message);
 	void about(const TokenRange &p_error, std::initializer_list<const Expr *> p_places);
 	void about_variant(const TokenRange &p_error, const Expr &p_left, const Expr &p_right);
+	void untyped_element(const Expr &p_read, const Type &p_container);
 	static int find_in(const std::vector<std::unordered_map<std::string, int>> &p_scopes, const std::string &p_name);
 	const LocalInfo *visible_local(const std::string &p_name) const;
 	int capture(const std::string &p_name);

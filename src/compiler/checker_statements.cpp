@@ -550,6 +550,7 @@ void Checker::check_for(Stmt &r_stmt) {
 	const Type iterated = check_value(*r_stmt.value);
 	scopes.emplace_back();
 	const Type element = element_type(r_stmt, iterated);
+	untyped_element(*r_stmt.value, iterated);
 	r_stmt.element = element;
 	Type type = element;
 	if (r_stmt.declared_type) {

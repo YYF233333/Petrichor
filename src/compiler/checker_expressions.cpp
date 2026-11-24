@@ -1072,6 +1072,7 @@ Type Checker::check_subscript(Expr &r_expr) {
 			return fail(*r_expr.right, "The keys of " + base.to_string() + " are " + entries->first.to_string() + ", not " + index.to_string() + ".");
 		}
 		r_expr.param_types = { entries->first };
+		untyped_element(r_expr, base);
 		return set(r_expr, entries->second);
 	}
 	// A String's elements are its characters, each a String.
@@ -1085,6 +1086,7 @@ Type Checker::check_subscript(Expr &r_expr) {
 	if (index.kind != TypeKind::Int) {
 		return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
 	}
+	untyped_element(r_expr, base);
 	return set(r_expr, *element);
 }
 

@@ -534,6 +534,7 @@ std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, con
 	r_inflows.flows.clear();
 	r_inflows.calls.clear();
 	r_inflows.about.clear();
+	r_inflows.elements.clear();
 	r_inflows.unknown.clear();
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
@@ -1117,11 +1118,19 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			});
 		}
 		// The slots whose types an error between the offsets is about: those
-		// it names, and those that the values of the locals it names do.
-		const auto involved = [&](const CompileResult &p_result, uint32_t p_begin, uint32_t p_end, std::set<Inflows::Key> &r_seen, std::set<Inflows::Key> &r_slots, const auto &p_self) -> void {
+		// it names, and those that the values of the locals it names do; not
+		// those in an element of an untyped container there.
+		const auto involved = [&](const std::string &p_path, const CompileResult &p_result, uint32_t p_begin, uint32_t p_end, std::set<Inflows::Key> &r_seen, std::set<Inflows::Key> &r_slots, const auto &p_self) -> void {
+			std::vector<Range> elements;
+			for (const auto &[file, read] : check.elements) {
+				if (file == p_path && p_begin <= read.first && read.second <= p_end) {
+					elements.push_back(read);
+				}
+			}
 			for (const Reference &reference : p_result.references) {
 				const DeclId &target = reference.target;
-				if (reference.begin < p_begin || reference.end > p_end) {
+				const auto in_element = [&](const Range &p_read) { return p_read.first <= reference.begin && reference.end <= p_read.second; };
+				if (reference.begin < p_begin || reference.end > p_end || std::any_of(elements.begin(), elements.end(), in_element)) {
 					continue;
 				}
 				if (target.kind == DeclId::Kind::Local && !target.name.empty()) {
@@ -1133,7 +1142,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 					if (written.count(local)) {
 						r_slots.insert(local);
 					} else if (value != typed_by.end() && r_seen.insert(at).second) {
-						p_self(p_result, value->second.first, value->second.second, r_seen, r_slots, p_self);
+						p_self(p_path, p_result, value->second.first, value->second.second, r_seen, r_slots, p_self);
 					}
 				}
 				const auto [first, last] = named.equal_range({ target.scope, target.name });
@@ -1156,7 +1165,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 				const auto about = std::find_if(check.about.begin(), check.about.end(), [&](const Inflows::About &p_about) { return p_about.file == path && p_about.error == Range(error.begin, error.end); });
 				std::set<Inflows::Key> seen;
 				for (const Range &range : about != check.about.end() ? about->places : std::vector<Range>{ { error.begin, error.end } }) {
-					involved(result, range.first, range.second, seen, refused, involved);
+					involved(path, result, range.first, range.second, seen, refused, involved);
 				}
 				for (const auto &[slot, at] : place) {
 					const bool bare = slot.first == path && std::any_of(at.bare.begin(), at.bare.end(), [&](const std::pair<uint32_t, uint32_t> &p_return) { return p_return.first <= begin && begin < p_return.second; });

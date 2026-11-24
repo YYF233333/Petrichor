@@ -1336,6 +1336,15 @@ void Checker::about_variant(const TokenRange &p_error, const Expr &p_left, const
 	}
 }
 
+// In a migration, that `p_read` reads an element of `p_container`. Of an
+// untyped Array or Dictionary, the element is a Variant whatever the slots
+// the read references are typed, so an error about it is not about them.
+void Checker::untyped_element(const Expr &p_read, const Type &p_container) {
+	if (options.inflows && p_container.kind == TypeKind::Builtin && (p_container.name == "Array" || p_container.name == "Dictionary") && p_container.args.empty()) {
+		options.inflows->elements.push_back({ script_file(options.path), { cls.source->begin(p_read.range), cls.source->end(p_read.range) } });
+	}
+}
+
 /* Locals and captures (spec §3.11) */
 
 int Checker::find_in(const std::vector<std::unordered_map<std::string, int>> &p_scopes, const std::string &p_name) {

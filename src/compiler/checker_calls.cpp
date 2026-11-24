@@ -1069,6 +1069,9 @@ Type Checker::check_builtin_method(Expr &r_expr, const Type &p_base, bool p_stat
 	r_expr.hash = method->hash;
 	r_expr.is_const = method->is_const;
 	r_expr.is_static = method->is_static;
+	if (r_expr.text == "get") {
+		untyped_element(r_expr, p_base);
+	}
 	return set(r_expr, result);
 }
 

@@ -81,6 +81,10 @@ struct Inflows {
 	std::vector<Flow> flows;
 	std::vector<Call> calls;
 	std::vector<About> about;
+	// The reads of an element of an untyped Array or Dictionary, by index,
+	// for or get(), by their files and ranges: a Variant whatever the slots
+	// they reference are typed, so an error about one is not about them.
+	std::vector<std::pair<std::string, Range>> elements;
 	// Members typed from the scenes and constants typed by resources that
 	// another file read without their types, which the next round takes as
 	// slots.

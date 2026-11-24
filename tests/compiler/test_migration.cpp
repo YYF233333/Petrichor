@@ -359,9 +359,9 @@ TEST_CASE("the inference reads a declaration through an error that the loop of f
 
 TEST_CASE("a type is withdrawn for an error that reaches it through the locals and loops it types") {
 	FakeProject project;
-	project.add_script("res://d.gd", "extends Node\n\n\nfunc first(values):\n\tfor each in values:\n\t\tvar copy = each\n\t\tprint(copy + 1)\n\n\nfunc _ready() -> void:\n\tfirst([1])\n\tfirst([\"a\"])\n");
+	project.add_script("res://d.gd", "extends Node\n\n\nfunc first(values):\n\tfor each in values:\n\t\tvar copy = each\n\t\tprint(copy.length())\n\n\nfunc _ready() -> void:\n\tfirst([1])\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://d.gd" }, 10);
-	CHECK(migration.texts.at("res://d.pet") == "extends Node\n\n\nfunc first(values):\n\tfor each in values:\n\t\tvar copy = each\n\t\tprint(copy + 1)\n\n\nfunc _ready() -> void:\n\tfirst([1])\n\tfirst([\"a\"])\n");
+	CHECK(migration.texts.at("res://d.pet") == "extends Node\n\n\nfunc first(values):\n\tfor each in values:\n\t\tvar copy = each\n\t\tprint(copy.length())\n\n\nfunc _ready() -> void:\n\tfirst([1])\n");
 	CHECK(migration.withdrawn == 1);
 }
 
@@ -378,8 +378,17 @@ TEST_CASE("an error about a call's receiver inside an assigned value leaves the 
 	FakeProject project;
 	project.add_script("res://g.gd", "extends Node\n\n\nfunc total(start, items):\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
-	CHECK(migration.texts.at("res://g.pet") == "extends Node\n\n\nfunc total(start: int, items) -> int:\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
-	CHECK(migration.withdrawn == 1);
+	CHECK(migration.texts.at("res://g.pet") == "extends Node\n\n\nfunc total(start: int, items: Array) -> int:\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
+	CHECK(migration.withdrawn == 0);
+}
+
+TEST_CASE("an error about an element of an untyped container leaves the slots of the container") {
+	FakeProject project;
+	project.add_script("res://g.gd", "extends Node\nvar data\n\n\nfunc fill(new_data):\n\tdata = new_data\n\tif data[\"details\"].has(\"who\"):\n\t\tprint(data[\"details\"][\"who\"])\n\tvar step = data.get(\"step\", 0)\n\tprint(step.size())\n\n\nfunc passives():\n\treturn []\n\n\nfunc total():\n\tvar sum = 0\n\tfor ability in passives():\n\t\tsum = ability.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tfill({})\n\tprint(total())\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
+	CHECK(migration.texts.at("res://g.pet") == "extends Node\nvar data: Dictionary\n\n\nfunc fill(new_data: Dictionary):\n\tdata = new_data\n\tif data[\"details\"].has(\"who\"):\n\t\tprint(data[\"details\"][\"who\"])\n\tvar step = data.get(\"step\", 0)\n\tprint(step.size())\n\n\nfunc passives() -> Array:\n\treturn []\n\n\nfunc total() -> int:\n\tvar sum = 0\n\tfor ability in passives():\n\t\tsum = ability.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tfill({})\n\tprint(total())\n");
+	CHECK(migration.withdrawn == 0);
+	CHECK(migration.errors.size() == 4);
 }
 
 TEST_CASE("an error of an operation with a Variant operand leaves the slots of the other operand") {
