@@ -454,13 +454,44 @@ TEST_CASE("a preload whose file loads the script again is an error") {
 	project.sources["res://other.gd"] = "extends Node\n\nconst BACK = preload(\"own.tscn\")\n";
 	project.add_script("res://child.pet", "extends \"res://test.pet\"\n");
 	const auto errors = [&](const std::string &p_preload) {
-		return messages(compile_in("extends Node\n\nconst S = preload(\"" + p_preload + "\")\n", project));
+		return messages(compile_in("extends Node\n\nconst S = preload(\"" + p_preload + "\")\n\n\nfunc _ready() -> void:\n\tprint(S)\n", project));
 	};
 	CHECK(errors("res://plain.tscn").empty());
 	CHECK(contains(errors("res://own.tscn"), "This preload loads this script again (res://own.tscn -> res://test.pet); load one of them with load() where it is used."));
 	CHECK(contains(errors("res://other.tscn"), "(res://other.tscn -> res://other.gd -> res://own.tscn -> res://test.pet)"));
 	CHECK(contains(errors("res://child.pet"), "(res://child.pet -> res://test.pet)"));
 	CHECK(contains(errors("res://test.pet"), "(res://test.pet)"));
+}
+
+// Spec §2.1, §7.6, in the shape of tanks-of-freedom-ii's board, which
+// preloads its abilities and passes itself to them.
+TEST_CASE("a preload constant used only as a type is no edge of a load cycle; a container built as the class loads is one") {
+	FakeProject project;
+	const std::string board = "extends Node\n\nvar abilities = preload(\"res://abilities.pet\").new(self)\n";
+	const auto board_errors = [&](const std::string &p_abilities) {
+		project.add_script("res://abilities.pet", "extends RefCounted\n\nconst Board = preload(\"res://test.pet\")\n" + p_abilities);
+		return messages(compile_in(board, project));
+	};
+	CHECK(board_errors("\nvar board: Board\n\n\npub func _init(p_board: Board) -> void:\n\tboard = p_board\n\n\nfunc is_board(x: Variant) -> bool:\n\treturn x is Board\n").empty());
+	CHECK(contains(board_errors("\n\npub func _init(_p_board: Node) -> void:\n\tprint(Board.new())\n"), "This preload loads this script again (res://abilities.pet -> res://test.pet)"));
+	CHECK(contains(board_errors("\nstatic var all: Array[Board] = []\n\n\npub func _init(_p_board: Node) -> void:\n\tpass\n"), "This preload loads this script again (res://abilities.pet -> res://test.pet)"));
+	// A static initializer builds a container of its own class once its
+	// file's script is registered; a constant cannot wait for that.
+	CHECK(messages(compile_in("extends Node\n\nconst Me = preload(\"res://test.pet\")\n\nstatic var all: Array[Me] = []\n", project)).empty());
+	CHECK(contains(messages(compile_in("extends Node\n\nconst Me = preload(\"res://test.pet\")\nconst NONE: Array[Me] = []\n", project)), "A container of this class is built as the class loads, which loads this script again (res://test.pet); build it where it is used."));
+
+	project.add_script("res://board.pet", "extends Node\n\nvar abilities = preload(\"res://test.pet\").new()\n");
+	CHECK(contains(messages(compile_in("extends RefCounted\n\nconst Board = preload(\"res://board.pet\")\n\nstatic var all: Array[Board] = []\n", project)), "A container of this class is built as the class loads, which loads this script again (res://board.pet -> res://test.pet); build it where it is used."));
+	// A constant copied from another file's preload, and a global class of
+	// this language that GDScript names, load what they name.
+	project.add_script("res://units.pet", "class_name Units extends RefCounted\n\npub const Home = preload(\"res://board.pet\")\n", "Units");
+	CHECK(contains(messages(compile_in("extends RefCounted\n\nconst Home = Units.Home\n\n\nfunc _init() -> void:\n\tprint(Home)\n", project)), "(res://board.pet -> res://test.pet)"));
+	project.global_classes["Board"] = "res://board.pet";
+	project.sources["res://hud.gd"] = "extends Node\n\nvar board: Board\n";
+	compiler::ForeignClass hud;
+	hud.native = "Node";
+	project.foreign["res://hud.gd"] = hud;
+	CHECK(contains(messages(compile_in("extends RefCounted\n\nconst Hud = preload(\"res://hud.gd\")\n\n\nfunc _init() -> void:\n\tprint(Hud)\n", project)), "(res://hud.gd -> res://board.pet -> res://test.pet)"));
 }
 
 TEST_CASE("a path that a scene using the script lacks is an error marked with that scene (spec §7.1, §7.2)") {

@@ -550,15 +550,189 @@ uint64_t ScriptClasses::source_hash(const std::string &p_file) {
 	return hashes[p_file].second;
 }
 
-std::vector<std::string> ScriptClasses::preloads(const std::string &p_file) {
-	return recorded.ask<std::vector<std::string>>("preloads of " + p_file, [p_file](const ProjectApi &p_project) {
-		std::vector<std::string> paths;
-		for (const auto &[preload, path] : p_project.literal_loads(p_file)) {
-			if (preload) {
-				paths.push_back(path);
+namespace {
+
+bool ends_with(const std::string &p_text, const std::string &p_end) {
+	return p_text.size() > p_end.size() && p_text.compare(p_text.size() - p_end.size(), p_end.size(), p_end) == 0;
+}
+
+bool is_script_file(const std::string &p_file) {
+	return ends_with(p_file, ".pet") || ends_with(p_file, ".gd") || ends_with(p_file, ".cs");
+}
+
+// The file of a path that a script at `p_from` writes: from its directory
+// when relative, the file of a uid.
+std::string file_at(const std::string &p_path, const std::string &p_from, const ProjectApi &p_project) {
+	const std::string path = resolved_path(p_path, p_from);
+	return path.rfind("uid://", 0) == 0 ? p_project.uid_path(path) : path;
+}
+
+// preload() of one literal String, as the checker takes it; "" for another.
+const std::string *preload_written(const Expr &p_expr) {
+	const bool literal = p_expr.kind == ExprKind::Call && !p_expr.base && p_expr.text == "preload" && p_expr.args.size() == 1 && p_expr.args[0]->kind == ExprKind::StringLiteral && p_expr.args[0]->op == TokenKind::String;
+	return literal ? &p_expr.args[0]->text : nullptr;
+}
+
+template <typename Node, typename Fn>
+void for_each_expr(const Node &p_node, Fn &&p_fn) {
+	const auto visit = [&](const auto &p_self, const auto &p_child) -> void {
+		if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
+			p_fn(p_child);
+		}
+		for_each_child(p_child, [&](const auto &p_next) { p_self(p_self, p_next); });
+	};
+	visit(visit, p_node);
+}
+
+template <typename Node, typename Fn>
+void for_each_type(const Node &p_node, Fn &&p_fn) {
+	const auto visit = [&](const auto &p_self, const auto &p_child) -> void {
+		if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, TypeRef>) {
+			p_fn(p_child);
+		}
+		for_each_child(p_child, [&](const auto &p_next) { p_self(p_self, p_next); });
+	};
+	visit(visit, p_node);
+}
+
+} // namespace
+
+std::vector<LoadEdge> load_edges(const ClassDecl &p_file, const std::string &p_path, const ProjectApi &p_project) {
+	const std::string file = script_file(p_path);
+	const std::set<std::string> read = names_read(p_file);
+	std::map<std::string, const ConstDecl *> constants; // Those of inner classes too, the outer first.
+	std::set<std::string> classes;
+	if (!p_file.class_name.empty()) {
+		classes.insert(p_file.class_name);
+	}
+	std::vector<const ClassDecl *> all;
+	const auto collect = [&](const auto &p_self, const ClassDecl &p_class) -> void {
+		all.push_back(&p_class);
+		for (const ConstDecl &constant : p_class.constants) {
+			constants.emplace(constant.name, &constant);
+		}
+		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+			classes.insert(inner->name);
+			p_self(p_self, *inner);
+		}
+	};
+	collect(collect, p_file);
+	// The file of the class a type or a value names by its first name.
+	const auto named_file = [&](const std::string &p_name) -> std::string {
+		const std::string head = p_name.substr(0, p_name.find('.'));
+		if (head.empty()) {
+			return std::string();
+		}
+		const auto constant = constants.find(head);
+		const std::string *preloaded = constant != constants.end() && constant->second->initializer ? preload_written(*constant->second->initializer) : nullptr;
+		if (preloaded) {
+			return file_at(*preloaded, p_path, p_project);
+		}
+		return classes.count(head) ? file : script_file(p_project.global_class_path(head));
+	};
+	// The file of the preload that a constant holds: its own, or that of a
+	// constant or an inner class of another file that it copies, as
+	// `const P = Board.Piece` does.
+	const auto held = [&](const Expr &p_value) -> std::string {
+		if (const std::string *preloaded = preload_written(p_value)) {
+			return file_at(*preloaded, p_path, p_project);
+		}
+		if (p_value.kind != ExprKind::Member || !p_value.base || p_value.base->kind != ExprKind::Name) {
+			return std::string();
+		}
+		const std::string from = named_file(p_value.base->text);
+		const std::optional<std::string> source = from.empty() || from == file || !is_script_path(from) ? std::nullopt : p_project.script_source(from);
+		if (!source) {
+			return std::string();
+		}
+		std::vector<Diagnostic> ignored;
+		const ClassDecl other = parse(*source, ignored);
+		for (const ConstDecl &constant : other.constants) {
+			const std::string *preloaded = constant.name == p_value.text && constant.initializer ? preload_written(*constant.initializer) : nullptr;
+			if (preloaded) {
+				return file_at(*preloaded, from, p_project);
 			}
 		}
-		return paths;
+		return other.find_class(p_value.text) ? from : std::string();
+	};
+	std::vector<LoadEdge> edges;
+	std::set<const Expr *> held_by_constants;
+	for (const ClassDecl *cls : all) {
+		for (const ConstDecl &constant : cls->constants) {
+			if (!constant.initializer) {
+				continue;
+			}
+			held_by_constants.insert(constant.initializer.get());
+			const std::string target = held(*constant.initializer);
+			const bool type_only = is_script_file(target) && !constant.is_pub && !read.count(constant.name);
+			if (!target.empty() && !type_only) {
+				edges.push_back({ target, constant.initializer->range, false });
+			}
+		}
+	}
+	for_each_expr(p_file, [&](const Expr &p_expr) {
+		const std::string *preloaded = held_by_constants.count(&p_expr) ? nullptr : preload_written(p_expr);
+		if (preloaded) {
+			edges.push_back({ file_at(*preloaded, p_path, p_project), p_expr.range, false });
+		}
+	});
+	// The containers built as the class loads; one of a class of the file
+	// waits for the file's script in a constant only.
+	const auto containers = [&](const auto &p_node, bool p_constant) {
+		for_each_type(p_node, [&](const TypeRef &p_type) {
+			if (p_type.name != "Array" && p_type.name != "Dictionary") {
+				return;
+			}
+			for (const TypeRef &item : p_type.args) {
+				const std::string target = named_file(item.name);
+				if (is_script_file(target) && (p_constant || target != file)) {
+					edges.push_back({ target, item.range, true });
+				}
+			}
+		});
+	};
+	for (const ClassDecl *cls : all) {
+		for (const ConstDecl &constant : cls->constants) {
+			containers(constant, true);
+		}
+		for (const VarDecl &variable : cls->static_vars) {
+			containers(variable, false);
+		}
+		for (const FuncDecl &function : cls->functions) {
+			if (function.name == "_static_init") {
+				containers(function, false);
+			}
+		}
+	}
+	return edges;
+}
+
+std::vector<std::string> ScriptClasses::loaded_files(const std::string &p_file) {
+	return recorded.ask<std::vector<std::string>>("files loaded with " + p_file, [p_file](const ProjectApi &p_project) {
+		std::vector<std::string> files;
+		if (is_script_path(p_file)) {
+			std::vector<Diagnostic> ignored;
+			for (const LoadEdge &edge : load_edges(parse(p_project.script_source(p_file).value_or(std::string()), ignored), p_file, p_project)) {
+				files.push_back(edge.file);
+			}
+			return files;
+		}
+		for (const auto &[preload, path] : p_project.literal_loads(p_file)) {
+			if (preload) {
+				files.push_back(file_at(path, p_file, p_project));
+			}
+		}
+		std::vector<Diagnostic> ignored;
+		const std::shared_ptr<const SourceFile> source = tokenize(p_project.script_source(p_file).value_or(std::string()), ignored);
+		const std::vector<Token> &tokens = source->tokens;
+		const std::map<std::string, std::string> globals = p_project.global_class_paths();
+		for (size_t i = 0; i < tokens.size(); i++) {
+			const auto global = tokens[i].kind == TokenKind::Identifier && (i == 0 || tokens[i - 1].kind != TokenKind::Period) ? globals.find(tokens[i].text) : globals.end();
+			if (global != globals.end() && is_script_file(global->second) && !ends_with(global->second, ".gd")) {
+				files.push_back(global->second);
+			}
+		}
+		return files;
 	});
 }
 

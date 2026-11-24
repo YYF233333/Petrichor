@@ -26,6 +26,19 @@ uint64_t declaration_hash(const std::optional<std::string> &p_source);
 class ScriptClasses;
 struct Inflows;
 
+// A file that loading a script of this language loads with it (spec §7.6),
+// and where the script names it: a preload, unless a constant that names a
+// script only in types holds it (§2.1), and a class of another file whose
+// typed container the class builds as it loads, in a constant, a static
+// variable or _static_init(). A container of a class of the file is
+// built once the file's script is registered, except in a constant.
+struct LoadEdge {
+	std::string file;
+	TokenRange at;
+	bool container = false;
+};
+std::vector<LoadEdge> load_edges(const ClassDecl &p_file, const std::string &p_path, const ProjectApi &p_project);
+
 // What a check read (architecture §2.1): other scripts, by declaration_hash(),
 // and each question asked of the project, with a test of whether a later pass
 // still gets the same answer.
@@ -176,9 +189,12 @@ public:
 	// all its text, read once.
 	uint64_t script_hash(const std::string &p_file);
 	uint64_t source_hash(const std::string &p_file);
-	// The String of each preload() of one literal String in the file, as
-	// written, in function bodies too (spec §7.6).
-	std::vector<std::string> preloads(const std::string &p_file);
+	// The files that loading a script loads with it besides its base (spec
+	// §7.6): for one of this language its load_edges(); for GDScript each
+	// preload() of one literal String, in function bodies too, and each
+	// global class of another language it names, which it loads as it
+	// compiles (modules/gdscript/gdscript_analyzer.cpp:802-803; ed1daf0).
+	std::vector<std::string> loaded_files(const std::string &p_file);
 	// The scene at the path as a script check reads it (architecture §6.4):
 	// its nodes, without what it stores, connects or names.
 	std::optional<Scene> scene_structure(const std::string &p_path);

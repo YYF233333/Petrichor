@@ -1,0 +1,9 @@
+extends RefCounted
+
+const Board = preload("cycle_board.pet")
+
+pub var board: Board
+
+
+pub func _init(p_board: Board) -> void:
+	board = p_board

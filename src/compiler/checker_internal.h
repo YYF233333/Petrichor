@@ -930,7 +930,7 @@ class Checker : public ClassRelation {
 	Type scene_node_type(const TokenRange &p_at, const SceneNode &p_node, const std::string &p_what);
 	static bool has_extension(const std::string &p_path, std::initializer_list<const char *> p_extensions);
 	std::string preload_path(const Expr &p_call) const;
-	void check_load_cycle(const Expr &p_preload, const std::string &p_file);
+	void check_load_cycles();
 	bool loads_this_script(const std::string &p_file, std::set<std::string> &r_seen, std::vector<std::string> &r_chain);
 	const std::vector<std::string> &loaded_with(const std::string &p_file);
 	std::string preload_file(const std::string &p_path) const;

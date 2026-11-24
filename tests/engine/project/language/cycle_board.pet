@@ -1,0 +1,9 @@
+# tanks-of-freedom-ii's board: it preloads its abilities and passes itself to
+# them, which name it only as a type (spec §2.1, §7.6).
+extends Node
+
+var abilities = preload("cycle_abilities.pet").new(self)
+
+
+pub func owns_abilities() -> bool:
+	return abilities.board == self

@@ -298,7 +298,7 @@ TEST_CASE("a script is checked again when the _init of a class it extends change
 
 TEST_CASE("a script is checked again when a file it preloads adds a preload of it in a function body") {
 	FakeProject project;
-	project.add_script("res://a.pet", "extends Node\n\nconst B = preload(\"res://b.pet\")\n");
+	project.add_script("res://a.pet", "extends Node\n\nconst B = preload(\"res://b.pet\")\n\nfunc _ready() -> void:\n\tprint(B)\n");
 	project.add_script("res://b.pet", "extends Node\n\nfunc make() -> void:\n\tpass\n");
 	Checked checked(project);
 	REQUIRE(compile_all(checked, { "res://a.pet" })[0]->ok());

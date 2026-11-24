@@ -465,20 +465,29 @@ std::string Checker::preload_path(const Expr &p_call) const {
 	return resolved_path(p_call.args[0]->text, options.path);
 }
 
-// A preload whose file loads this script again is a compile error: the
-// class loads its preloads as it loads, which that file would wait for
-// (spec §7.6).
-void Checker::check_load_cycle(const Expr &p_preload, const std::string &p_file) {
-	std::set<std::string> seen;
-	std::vector<std::string> chain;
-	if (!loads_this_script(p_file, seen, chain)) {
+// A file that the class loads as it loads and that loads this script again
+// is a compile error: that file would wait for it (spec §7.6).
+void Checker::check_load_cycles() {
+	if (!options.project || loading()) {
 		return;
 	}
-	std::string cycle;
-	for (const std::string &file : chain) {
-		cycle += file + " -> ";
+	for (const LoadEdge &edge : load_edges(cls, options.path, *options.project)) {
+		std::set<std::string> seen;
+		std::vector<std::string> chain;
+		if (!loads_this_script(edge.file, seen, chain)) {
+			continue;
+		}
+		std::string cycle;
+		for (const std::string &file : chain) {
+			cycle += file + " -> ";
+		}
+		cycle += script_file(options.path);
+		if (edge.container) {
+			error(edge.at, "A container of this class is built as the class loads, which loads this script again (" + cycle + "); build it where it is used.");
+		} else {
+			error(edge.at, "This preload loads this script again (" + cycle + "); load one of them with load() where it is used.");
+		}
 	}
-	error(p_preload.range, "This preload loads this script again (" + cycle + script_file(options.path) + "); load one of them with load() where it is used.");
 }
 
 bool Checker::loads_this_script(const std::string &p_file, std::set<std::string> &r_seen, std::vector<std::string> &r_chain) {
@@ -517,9 +526,8 @@ const std::vector<std::string> &Checker::loaded_with(const std::string &p_file) 
 		} else if (const std::optional<ForeignClass> foreign = options.project->foreign_class(p_file, false)) {
 			files.push_back(foreign->base);
 		}
-		for (const std::string &path : classes.preloads(p_file)) {
-			files.push_back(preload_file(resolved_path(path, p_file)));
-		}
+		const std::vector<std::string> loaded = classes.loaded_files(p_file);
+		files.insert(files.end(), loaded.begin(), loaded.end());
 	}
 	return loaded_files.emplace(p_file, std::move(files)).first->second;
 }
@@ -650,9 +658,6 @@ Type Checker::check_preload(Expr &r_expr) {
 			return set(r_expr, *content);
 		}
 		type = *content;
-	}
-	if (options.project && !loading()) {
-		check_load_cycle(r_expr, file);
 	}
 	refer(r_expr.name_token, language_id("@GlobalScope", "preload"));
 	check_value(*r_expr.args[0]);

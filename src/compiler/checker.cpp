@@ -1557,6 +1557,9 @@ void Checker::check_function_bodies() {
 		}
 	}
 	structure = nullptr;
+	if (!outer_checker && !completion) {
+		check_load_cycles(); // Of the file, whose classes load with it.
+	}
 }
 
 // The checks of how the scene options.scene places the class.

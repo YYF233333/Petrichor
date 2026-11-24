@@ -851,6 +851,9 @@ func _ready() -> void:
 	var preload_log: Script = load("res://language/preload_log.pet")
 	var preload_user = load("res://language/preload_user.pet").new()
 	_check(not preload_user.typed(RefCounted.new()) and preload_log.get("ran") == ["valued"], "loading a file loads a script its constant names as a value, and not one it names only in types (spec §2.1): %s" % [preload_log.get("ran")])
+	var cycle_board: Node = load("res://language/cycle_board.pet").new()
+	_check(cycle_board.owns_abilities(), "a file that a preload names only as a type preloads that file in turn, and both load and run (spec §2.1, §7.6)")
+	cycle_board.free()
 	var typed_self: Script = load("res://language/typed_self.pet")
 	_check(typed_self.get("all").get_typed_script() == typed_self and typed_self.get("by_name").get_typed_value_script() == typed_self and typed_self.get("first").get_script() == typed_self, "a static initializer makes containers of its own class typed by its script, and objects of it, while its file loads (spec §3.8)")
 
