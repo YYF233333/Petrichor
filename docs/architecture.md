@@ -800,7 +800,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 求解分两段，每段轮数上限与修复循环相同。先只试有流入的槽位直到稳定，再让其余槽位试 `Variant` 继续求解；即使第一段到上限第二段照常进行，确保每个槽位都有试用类型。
 - **合并与写回规则**：
   - `Variant` 流入不参与（GDScript 未写类型的值就是 `Variant`，只有 `Variant` 流入算作无流入）；
-  - 单一类型直接选用；有 `null` 流入写成 `T?`（流入 `T?` 算作 `T` 和 `null`）；具公共基类的几个类取最近公共基类；
+  - 单一类型直接选用；有 `null` 流入写成 `T?`（流入 `T?` 算作 `T` 和 `null`）；具公共基类的几个类取最近公共基类，几个场景取其根的最近公共类，有根不明的只得 `PackedScene`；
   - GDScript 隐式给的 `null` 也算流入：无初始值的变量合并出类时算，函数有路径只写 `return` 或走到末尾时其返回值总算。值类型变量不算，GDScript 写了类型的成员本就取类型默认值（`modules/gdscript/gdscript_compiler.cpp:2366-2391`，`ed1daf0`），只有赋值前读取才看得出差别。规范 §6.2 证明有值的成员也不算：`_init` 每条路径都赋值、场景或资源存了值的导出、祖先 `_ready` 中经场景模型可见的赋值；
     - 祖先的赋值须是 `_ready` 顶层、首个含 `await` 的语句之前的 `$Path.x = v` 或经 `@onready` 引用的 `r.x = v`。
     - 场景每次放置该类都须有 owner 且有祖先这样赋值；场景根算作实例化该场景处的放置。只有类自身的检查读场景，由它判定；
@@ -813,6 +813,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 改窄的导出在检查器里从此只接受子类。集合外 GDScript 的赋值看不到，与其余推断相同。
   - 检查器按读出处的引用找到所读声明，下一轮起它才作槽位，未试过时与未写类型的槽位一样取 Error。所写类型的 `?` 不变，声明原本会改为 `T?` 时改窄后照样带上。
   - 成员与其具名 setter 的参数一并求解：写入属性即流入参数，所以 setter 里把参数赋给成员不算流入。成员改窄时，参数的类型写成同一个。
+  - 写作 `PackedScene` 的导出报错后（规范 §7.4），下一轮起同样作槽位。所存场景和代码所赋场景的根合并出最近公共类 `T`，写成 `PackedScene[T]`。没有流入或有根不明的场景流入时写 `PackedScene[Node]`，根不明的赋值随即报错，如 deck_builder_tutorial 从 `Array[PackedScene]` 取出的场景（`scenes/map/map_generator.gd:208`）。
+  - 这些场景的根把必须赋值的导出留给 `instantiate()` 时，报错带上改为 `T?` 的修复：场景只设所存的属性，GDScript 写了对象类型的成员起初为 null（`scene/resources/packed_scene.cpp:365-371`，`modules/gdscript/gdscript_compiler.cpp:2369-2393`，`ed1daf0`）。deck_builder_tutorial 的 `EnemyStats.ai` 由此写成 `PackedScene[EnemyActionPicker]`，其根的 `enemy` 和 `target` 改为可空（`custom_resources/enemy_stats.gd:4`，`scenes/enemy/enemy_action_picker.gd:4-5`）。
 
 #### 候选校验、失败撤回与数值核对
 

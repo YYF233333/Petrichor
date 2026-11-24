@@ -1101,10 +1101,8 @@ void Checker::check_stored_exports() {
 				refer_property(name, script_id(options.path, member->name), {});
 				const TokenRange at{ member->name_token, member->name_token };
 				if (is_typed_scene(member->type) && stored.class_name == "PackedScene") {
-					const std::optional<Scene> scene = is_scene_file(stored.path) ? options.project->scene(stored.path) : std::nullopt;
-					const std::string unfit = scene ? unfit_scene(*scene, member->type) : std::string();
-					if (!unfit.empty()) {
-						error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + scene->path + ", which " + unfit);
+					if (const std::optional<Scene> scene = is_scene_file(stored.path) ? options.project->scene(stored.path) : std::nullopt) {
+						report_unfit_scene(*scene, member->type, [&](const std::string &p_why) { error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + scene->path + ", which " + p_why); });
 					}
 					continue;
 				}
@@ -1442,11 +1440,15 @@ std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_
 }
 
 // The type of a value that a scene stores: an object of the class of its
-// script, as a node's (spec §7.1, §11.1), and a typed container of the
-// types of its elements.
+// script, as a node's (spec §7.1, §11.1), a scene of its root's (§7.4), and
+// a typed container of the types of its elements.
 Type Checker::stored_type(const SceneValue &p_value) {
 	if (p_value.type == "Nil") {
 		return Type::of(TypeKind::None);
+	}
+	const std::optional<Scene> scene = p_value.class_name == "PackedScene" && is_scene_file(p_value.path) && options.project ? options.project->scene(p_value.path) : std::nullopt;
+	if (const SceneNode *root = scene ? scene->find_node(".") : nullptr) {
+		return Type::scene(stored_type(SceneValue{ "Object", root->type, root->script.empty() ? root->instance_script : root->script }));
 	}
 	if (!p_value.typed.empty()) {
 		std::vector<Type> args;

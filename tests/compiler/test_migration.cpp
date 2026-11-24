@@ -240,6 +240,31 @@ TEST_CASE("a class written wider than what flows in becomes the subclass that a 
 	CHECK(wider.texts.at("res://enemy.pet") == "extends Node\n\n\nfunc show(stats: EnemyStats) -> void:\n\tuse((stats.art as Texture2D).unwrap())\n\n\nfunc use(texture: Texture2D) -> void:\n\tpass\n");
 }
 
+TEST_CASE("an export written PackedScene takes the class of the roots of the scenes stored for it and assigned to it, or Node") {
+	FakeProject project;
+	// The scenes leave it to the code, so GDScript has it null.
+	project.add_script("res://enemy.gd", "class_name Enemy\nextends Node2D\n@export var target: Node2D\n", "Enemy");
+	project.add_script("res://boss.gd", "class_name Boss\nextends Enemy\n", "Boss");
+	project.add_script("res://stats.gd", "class_name Stats\nextends Resource\n@export var one: PackedScene\n@export var two: PackedScene\n@export var none: PackedScene\n", "Stats");
+	project.add_script("res://spawner.gd", "extends Node\n\n\nfunc arm(stats: Stats) -> void:\n\tstats.two = preload(\"res://boss.tscn\")\n");
+	compiler::Scene enemy;
+	enemy.path = "res://enemy.tscn";
+	enemy.nodes = { { ".", "Node2D", "res://enemy.gd" } };
+	compiler::Scene boss;
+	boss.path = "res://boss.tscn";
+	boss.nodes = { { ".", "Node2D", "res://boss.gd" } };
+	compiler::SceneValue stored{ "Object", "PackedScene" };
+	stored.path = enemy.path;
+	compiler::Scene bat;
+	bat.path = "res://bat.tres";
+	bat.resources = { { bat.path, "res://stats.gd", { { "one", stored }, { "two", stored } } } };
+	project.scenes = { enemy, boss, bat };
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://enemy.gd", "res://boss.gd", "res://stats.gd", "res://spawner.gd" }, 10);
+	CHECK(migration.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var one: PackedScene[Enemy]\n@export var two: PackedScene[Enemy]\n@export var none: PackedScene[Node]?\n");
+	CHECK(migration.texts.at("res://enemy.pet") == "class_name Enemy\nextends Node2D\n@export var target: Node2D?\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a member is narrowed with its setter's parameter, and an override's result apart from the method it overrides") {
 	FakeProject project;
 	project.add_script("res://button.gd", "class_name RewardButton\nextends Node\nvar icon: Resource = Texture2D.new() : set = set_icon\n\n\nfunc set_icon(new_icon: Resource) -> void:\n\ticon = new_icon\n\tshow(icon)\n\n\nfunc show(texture: Texture2D) -> void:\n\tpass\n", "RewardButton");

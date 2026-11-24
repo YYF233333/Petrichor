@@ -634,12 +634,27 @@ std::vector<Type> lineage(const Type &p_class, ScriptClasses &r_classes, const E
 	return up;
 }
 
+// The nearest class that each of the classes is, if any.
+std::optional<Type> common_class(const std::vector<Type> &p_classes, ScriptClasses &r_classes, const EngineApi &p_engine) {
+	const auto key = [](const Type &p_class) { return p_class.script.empty() ? p_class.name : p_class.script; };
+	std::vector<Type> common = lineage(p_classes[0], r_classes, p_engine);
+	for (size_t i = 1; i < p_classes.size(); i++) {
+		std::set<std::string> keys;
+		for (const Type &each : lineage(p_classes[i], r_classes, p_engine)) {
+			keys.insert(key(each));
+		}
+		common.erase(std::remove_if(common.begin(), common.end(), [&](const Type &p_each) { return !keys.count(key(p_each)); }), common.end());
+	}
+	return common.empty() ? std::nullopt : std::optional<Type>(common.front());
+}
+
 // What the types received merge into (architecture §6.6): the one type, as
 // T? with None, and a class so with the null that GDScript gives a variable
-// declared without a value; the nearest common base of classes; an untyped Array or
-// Dictionary for containers of one kind; otherwise Variant. A Variant says
-// nothing of the type. Nullopt when no type is known. `r_numbers` tells int
-// and float, which merge into float only with `p_floats`.
+// declared without a value; the nearest common base of classes, and a scene
+// of that of their roots; an untyped Array or Dictionary for containers of
+// one kind; otherwise Variant. A Variant says nothing of the type. Nullopt
+// when no type is known. `r_numbers` tells int and float, which merge into
+// float only with `p_floats`.
 std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasses &r_classes, const EngineApi &p_engine, bool &r_numbers, bool p_floats = false) {
 	r_numbers = false;
 	bool none = false;
@@ -669,20 +684,19 @@ std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasse
 		return none ? std::optional<Type>(Type::of(TypeKind::Variant)) : std::nullopt;
 	}
 	const auto all = [&](const std::function<bool(const Type &)> &p_is) { return std::all_of(types.begin(), types.end(), p_is); };
-	const auto key = [](const Type &p_class) { return p_class.script.empty() ? p_class.name : p_class.script; };
 	Type result = Type::of(TypeKind::Variant);
 	if (types.size() == 1) {
 		result = types[0];
 	} else if (all([](const Type &p_type) { return p_type.kind == TypeKind::Object && !p_type.is_interface && p_type.args.empty(); })) {
-		std::vector<Type> common = lineage(types[0], r_classes, p_engine);
-		for (size_t i = 1; i < types.size(); i++) {
-			std::set<std::string> keys;
-			for (const Type &each : lineage(types[i], r_classes, p_engine)) {
-				keys.insert(key(each));
-			}
-			common.erase(std::remove_if(common.begin(), common.end(), [&](const Type &p_each) { return !keys.count(key(p_each)); }), common.end());
+		result = common_class(types, r_classes, p_engine).value_or(result);
+	} else if (all([](const Type &p_type) { return p_type.kind == TypeKind::Object && p_type.name == "PackedScene"; })) {
+		// One of an unknown root leaves a plain PackedScene.
+		std::vector<Type> roots;
+		for (const Type &scene : types) {
+			roots.insert(roots.end(), scene.args.begin(), scene.args.end());
 		}
-		result = common.empty() ? result : common.front();
+		const std::optional<Type> root = roots.size() == types.size() ? common_class(roots, r_classes, p_engine) : std::nullopt;
+		result = root ? Type::scene(*root) : Type::object("PackedScene");
 	} else if (all([](const Type &p_type) { return p_type.kind == TypeKind::Builtin && p_type.name == "Array"; })) {
 		result = Type::builtin("Array");
 	} else if (all([](const Type &p_type) { return p_type.kind == TypeKind::Builtin && p_type.name == "Dictionary"; })) {
@@ -1101,10 +1115,18 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		return p_slot.container.empty() ? merged(p_received, classes, p_engine, r_numbers) : merged_container(p_slot.container, p_received, classes, p_engine, r_numbers);
 	};
 	// A declaration with a class written for it takes a subclass of it that
-	// what flows in merges into; otherwise it keeps the type written.
+	// what flows in merges into; otherwise it keeps the type written. An
+	// export written PackedScene takes the scene of its roots' class, or of
+	// Node without one (spec §7.4).
 	const auto narrowed = [&](const Type &p_written, const std::optional<Type> &p_merged) {
 		Type narrower = p_merged ? p_merged->unwrapped() : Type::of(TypeKind::Error);
-		if (narrower.kind != TypeKind::Object || narrower.is_interface || !narrower.args.empty()) {
+		const bool scene = narrower.kind == TypeKind::Object && narrower.name == "PackedScene" && !narrower.args.empty();
+		if (p_written.name == "PackedScene" && p_written.args.empty()) {
+			narrower = scene ? narrower : Type::scene(Type::object("Node"));
+			narrower.nullable = p_written.nullable;
+			return narrower;
+		}
+		if (narrower.kind != TypeKind::Object || narrower.is_interface || (!narrower.args.empty() && !scene)) {
 			return p_written;
 		}
 		const auto key = [](const Type &p_class) { return p_class.script.empty() ? p_class.name : p_class.script; };

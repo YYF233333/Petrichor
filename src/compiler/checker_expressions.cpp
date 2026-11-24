@@ -1822,17 +1822,16 @@ void Checker::expect_scene_fits(const Expr &p_value, const Type &p_to) {
 		expect_scene_fits(*p_value.right, p_to);
 		return;
 	}
-	const std::optional<Scene> scene = known_scene(p_value);
-	const std::string unfit = scene ? unfit_scene(*scene, p_to) : std::string();
-	if (!unfit.empty()) {
-		error(p_value.range, scene->path + " " + unfit);
+	if (const std::optional<Scene> scene = known_scene(p_value)) {
+		report_unfit_scene(*scene, p_to, [&](const std::string &p_why) { error(p_value.range, scene->path + " " + p_why); });
 	}
 }
 
-// What a scene leaves to instantiate(...) that a PackedScene[T] does not
-// ask for, as the error says it after the scene; "" for nothing. It does
-// not ask for what the _init of T assigns.
-std::string Checker::unfit_scene(const Scene &p_scene, const Type &p_to) {
+// Reports through `p_report` what a scene leaves to instantiate(...) that a
+// PackedScene[T] does not ask for, as the error says it after the scene;
+// an export so left may become T?, as GDScript leaves it null. T does not
+// ask for what its _init assigns.
+void Checker::report_unfit_scene(const Scene &p_scene, const Type &p_to, const std::function<void(const std::string &)> &p_report) {
 	const SceneNode *root = p_scene.find_node(".");
 	const std::string script = !root ? std::string() : root->script.empty() ? root->instance_script
 																			: root->script;
@@ -1842,10 +1841,13 @@ std::string Checker::unfit_scene(const Scene &p_scene, const Type &p_to) {
 	for (const VarDecl *member : made ? made->all_members : std::vector<const VarDecl *>()) {
 		const bool asked = !member->is_export && asks && !init_assigns(*asks, member->name) && find_named(asks->all_members, member->name);
 		if (member->must_assign && !init_assigns(*made, member->name) && !asked && (!member->is_export || !stored_value(p_scene, ".", member->name).value_or(false))) {
-			return "leaves \"" + member->name + "\" to instantiate(), but a " + p_to.to_string() + " does not ask for it.";
+			p_report("leaves \"" + member->name + "\" to instantiate(), but a " + p_to.to_string() + " does not ask for it.");
+			if (member->is_export && member->declared_type) {
+				fix_optional(*member->declared_type, declaring(*made, *member, &ClassDecl::members).path);
+			}
+			return;
 		}
 	}
-	return std::string();
 }
 
 // Why the engine would lose a None of a value of the type (spec §10.1), as

@@ -520,6 +520,11 @@ void Checker::check_member_declaration(size_t p_index) {
 	}
 	if (member.is_export && type.kind == TypeKind::Object && type.name == "PackedScene" && type.args.empty()) {
 		error(member.name_token, "An exported scene is written PackedScene[T], with the type of its root.");
+		// A migration writes the class of the roots that flow in, as for a
+		// class written too wide (architecture §6.6).
+		if (options.inflows && options.inflows->files.count(script_file(options.path))) {
+			options.inflows->widened.insert({ script_file(options.path), cls.source->tokens[member.name_token].offset });
+		}
 	}
 	if (member.is_export && type.kind == TypeKind::Task) {
 		error(member.name_token, "Task handles cannot be exported: a scene cannot save a running coroutine.");
