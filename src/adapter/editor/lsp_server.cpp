@@ -1056,6 +1056,16 @@ void LspServer::refresh() {
 		}
 		session = asking;
 	}
+	// The scan reads each loaded file that changed again, and fails to parse
+	// one that a writer has emptied to write it again. Godot 4.8 keeps an
+	// open scene loaded too (editor/file_system/editor_file_system.cpp:1018-1026,
+	// 1060-1063, 2450, 2493; ed1daf0; editor/editor_node.cpp:5081; c51ff06e8).
+	// So it waits until such files are written.
+	scan_waiting = scan_waiting || scan;
+	scan = scan_waiting && std::none_of(walked.begin(), walked.end(), [](const auto &p_file) {
+		return p_file.second.size == 0 && ResourceLoader::get_singleton()->has_cached(to_godot(p_file.first));
+	});
+	scan_waiting = scan_waiting && !scan;
 	if (outside.empty() && !scan) {
 		return;
 	}

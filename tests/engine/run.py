@@ -1854,7 +1854,8 @@ def check_conflicts(client, project, editor, port):
     """Files changed on disk while Godot holds unsaved changes of them
     (architecture §6.5). arena.tscn, open without unsaved changes, is reloaded
     once it changes on disk, and stays open while it is empty, as a writer that
-    truncates it leaves it. Then note.pet, given an unsaved change in a tab,
+    truncates it leaves it, also as another file written meanwhile has Godot
+    scan the files. Then note.pet, given an unsaved change in a tab,
     changed and then deleted, arena.tscn, given one, and ramp.tres, edited
     through the undo history, conflict. Each is told once to every session and
     listed on request, and a rename that must save arena.tscn is refused. A
@@ -1876,10 +1877,13 @@ def check_conflicts(client, project, editor, port):
 
     arena.write_bytes(b"")
     unsaved()
+    (project / "arena.txt").write_bytes(b"")
+    unsaved()
     emptied = hold(project, editor, "scene", b"lsp scene:")
     arena.write_bytes(saved[arena] + b'\n[node name="Extra" type="Node" parent="."]\n')
     unsaved()
     reloaded = hold(project, editor, "scene", b"lsp scene:")
+    (project / "arena.txt").unlink()
     expect("lsp: an open scene whose file is empty, as while a writer truncates it, stays open and is read once written", emptied == "false" and reloaded == "true", emptied)
     arena.write_bytes(saved[arena])
     unsaved()

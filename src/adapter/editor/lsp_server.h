@@ -107,6 +107,7 @@ private:
 	std::atomic<bool> stale{ false }; // The thread found other files.
 	std::thread walker;
 	std::optional<std::map<std::string, FileStat>> saving; // Walked as the editor saved a scene.
+	bool scan_waiting = false; // For a loaded file that is empty (refresh()).
 	// The files that changed on disk while Godot holds unsaved changes of
 	// them, as refresh() took them in (architecture §6.5).
 	std::set<std::string> conflicts;

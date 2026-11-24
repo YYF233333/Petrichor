@@ -385,7 +385,7 @@ LSP 文本同步是增量的，编辑应用到全文。按 LSP 对 `didOpen` 的
   - 人的视图会话改动与编辑器自身改动等价：停止变化 `idle_parse_delay` 秒后重检显示的标签页与节点错误（每 revision 一次），会话断开交还文件时立即重检。
   - Godot 标签页去掉回车而客户端可能保留（`scene/gui/text_edit.cpp:9253-9254`），因为回车只在行尾，行列依然一致。标签页光标与改动按行列与工作区偏移互转。
 - **外部写入读回与热重载**：服务察觉外部改动或新增脚本、场景或文本资源时（§6.5），按重构写盘后的步骤读回（§2.3）。已加载脚本先换上工作区文本（含客户端打开且改名未保存的脚本）并在一次分析中重载。随后通知文件系统重读已加载资源与场景，重载无未保存改动的已打开场景（含二进制场景）。改名文件无论何种顺序写入，资源和场景总按新脚本读回。文件系统同时记下新修改时间，避免重获焦点扫描时误按旧脚本重读。
-  - 读不出的资源不读回也不重载其已打开场景，避免重载先关场景再读文件导致场景被关掉（`editor/editor_node.cpp:7143-7146`）。空资源文件不交给引擎加载、等写入后再读，避免先截断再写引发引擎语法报错（`core/variant/variant_parser.cpp:1879-1880`，`scene/resources/resource_format_text.cpp:1143-1147`）。
+  - 读不出的资源不读回也不重载其已打开场景，避免重载先关场景再读文件导致场景被关掉（`editor/editor_node.cpp:7143-7146`）。空资源文件不交给引擎加载、等写入后再读，避免先截断再写引发引擎语法报错（`core/variant/variant_parser.cpp:1879-1880`，`scene/resources/resource_format_text.cpp:1143-1147`）。已载入的文件为空时，服务让文件系统做的扫描也等它写入后再做。扫描会重读改过的已载入文件，Godot 4.8 起打开的场景也一直载入（`editor/file_system/editor_file_system.cpp:1018-1026, 1060-1063`，`ed1daf0`；`editor/editor_node.cpp:5081`，`c51ff06e8`）。
   - 【已知限制】外部写入后、服务察觉前若 Godot 重获焦点，扫描会先按旧脚本读回一次。服务察觉后再读回一次结果正确，但在此之间按 Ctrl+S 会写掉这些值。
   - 保存的脚本继续走热重载：按磁盘文件编译字节码（保证可由磁盘源码重现），再经调试会话发出 `reload_scripts`（重构写盘同理，§2.3）。条件是脚本无错且调试菜单开着 Synchronize Script Changes（`editor/script/script_editor_plugin.cpp:776-801`，`editor/debugger/debugger_editor_plugin.cpp:238`）。
   - 其他文件增删改由服务通知工作区并让文件系统扫描（同编辑器重获焦点，`editor/editor_node.cpp:1049-1058, 1291-1323`，`editor/file_system/editor_file_system.cpp:1597-1607, 1018-1025`）。Godot 未改过的标签页换上保存文本，改过的不动、留待重获焦点时询问是否重载（`editor/script/script_editor_plugin.cpp:803-850`）。GDScript 服务器保存时直接换掉标签页文本，未保存改动会丢失（`modules/gdscript/language_server/gdscript_text_document.cpp:95-124`，`editor/script/script_editor_plugin.cpp:2535-2588`）。
