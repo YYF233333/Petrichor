@@ -1462,12 +1462,6 @@ void Checker::about_variant(const TokenRange &p_error, const Expr &p_left, const
 	}
 }
 
-// The tokens whose slots give the value its type: a call's value is its
-// callee's return, whatever its arguments are.
-TokenRange Checker::typed_by(const Expr &p_value) {
-	return p_value.kind == ExprKind::Call ? TokenRange{ p_value.range.first, p_value.name_token } : p_value.range;
-}
-
 // In a migration, that `p_read` reads an element of `p_container`. Of an
 // untyped Array or Dictionary, the element is a Variant whatever the slots
 // the read references are typed, so an error about it is not about them.

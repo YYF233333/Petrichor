@@ -366,6 +366,17 @@ struct Expr {
 	ConstPtr read_through;
 };
 
+// The tokens whose slots give a value its type, which a migration's error at
+// the value is about (architecture §6.6): the name of a member read or a
+// callee, not what it is read or called on nor the arguments; of an element,
+// its container's.
+inline TokenRange typed_by(const Expr &p_value) {
+	if (p_value.kind == ExprKind::Member || p_value.kind == ExprKind::Call) {
+		return { p_value.name_token, p_value.name_token };
+	}
+	return p_value.kind == ExprKind::Subscript ? typed_by(*p_value.base) : p_value.range;
+}
+
 // The type an element of an array literal is stored as: the array's element
 // type, or in an untyped array its own.
 inline const Type &stored_element_type(const Expr &p_array, size_t p_index) {

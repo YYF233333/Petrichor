@@ -1361,26 +1361,27 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		};
 		const std::map<std::string, CompileResult> checked = checked_with(p_engine, r_project, check);
 		// The locals typed by a value, by where each is declared in the text
-		// written, with where the value is.
+		// written, with where the tokens that give the value its type are.
 		using Range = Inflows::Range;
-		std::map<Inflows::Key, Range> typed_by;
+		std::map<Inflows::Key, Range> valued;
 		for (const auto &[path, result] : checked) {
 			std::vector<Diagnostic> ignored;
 			const ClassDecl decl = parse(r_project.script_source(path).value_or(std::string()), ignored);
 			const SourceFile &source = *decl.source;
 			each_statement(decl, [&](const Stmt &p_stmt) {
 				if ((p_stmt.kind == StmtKind::Var || p_stmt.kind == StmtKind::For) && !p_stmt.declared_type && p_stmt.value) {
-					typed_by[{ path, source.tokens[p_stmt.name_token].offset }] = Range(source.begin(p_stmt.value->range), source.end(p_stmt.value->range));
+					valued[{ path, source.tokens[p_stmt.name_token].offset }] = Range(source.begin(typed_by(*p_stmt.value)), source.end(typed_by(*p_stmt.value)));
 				}
 			});
 		}
 		// The slots whose types an error between the offsets is about: those
 		// it names, and those that the values of the locals it names do; not
-		// those in an element of an untyped container there.
+		// those in an element of an untyped container, which the offsets may
+		// lie in.
 		const auto involved = [&](const std::string &p_path, const CompileResult &p_result, uint32_t p_begin, uint32_t p_end, std::set<Inflows::Key> &r_seen, std::set<Inflows::Key> &r_slots, const auto &p_self) -> void {
 			std::vector<Range> elements;
 			for (const auto &[file, read] : check.records.elements) {
-				if (file == p_path && p_begin <= read.first && read.second <= p_end) {
+				if (file == p_path && read.first < p_end && p_begin < read.second) {
 					elements.push_back(read);
 				}
 			}
@@ -1395,10 +1396,10 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 					Inflows::Key local = { at.first, original_at(at.first, at.second).first };
 					const auto base = inflows.shared.find(local);
 					local = base == inflows.shared.end() ? local : base->second;
-					const auto value = typed_by.find(at);
+					const auto value = valued.find(at);
 					if (written.count(local)) {
 						r_slots.insert(local);
-					} else if (value != typed_by.end() && r_seen.insert(at).second) {
+					} else if (value != valued.end() && r_seen.insert(at).second) {
 						p_self(p_path, p_result, value->second.first, value->second.second, r_seen, r_slots, p_self);
 					}
 				}
@@ -1412,12 +1413,22 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		for (const auto &[path, result] : checked) {
 			for (const Diagnostic &error : result.errors) {
 				const auto [begin, inside] = original_at(path, error.begin);
-				const auto about = std::find_if(check.records.about.begin(), check.records.about.end(), [&](const Inflows::About &p_about) { return p_about.file == path && p_about.error == Range(error.begin, error.end); });
+				bool about = false;
+				bool elsewhere = false;
+				std::vector<Range> places;
+				for (const Inflows::About &each : check.records.about) {
+					if (each.file == path && each.error == Range(error.begin, error.end)) {
+						about = true;
+						elsewhere = elsewhere || each.places.empty();
+						places.insert(places.end(), each.places.begin(), each.places.end());
+					}
+				}
 				// One about no place here says that a declaration elsewhere has
-				// errors, which is no type's here. A cast is for what no type
-				// written changes.
+				// errors or is not pub, which is no type's here; so is another
+				// error at its range for now (BACKLOG.md). A cast is for what no
+				// type written changes.
 				const Fix *fix = loop_fix(error, r_project);
-				if ((fix && fix->kind != FixKind::Cast) || reported.count({ path, begin, error.message }) || (about != check.records.about.end() && about->places.empty())) {
+				if ((fix && fix->kind != FixKind::Cast) || reported.count({ path, begin, error.message }) || elsewhere) {
 					continue;
 				}
 				if (inside) {
@@ -1425,7 +1436,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 					continue;
 				}
 				std::set<Inflows::Key> seen;
-				for (const Range &range : about != check.records.about.end() ? about->places : std::vector<Range>{ { error.begin, error.end } }) {
+				for (const Range &range : about ? places : std::vector<Range>{ { error.begin, error.end } }) {
 					involved(path, result, range.first, range.second, seen, refused, involved);
 				}
 			}

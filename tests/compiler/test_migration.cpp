@@ -619,6 +619,18 @@ TEST_CASE("an assigned call that does not fit is about its callee, whatever its 
 	CHECK(migration.withdrawn == 1);
 }
 
+// tanks-of-freedom-ii's camera takes a float of the pivot's rotation into an
+// int member, and its loader uses what a call with its parameters gave
+// (scenes/camera.gd:101-102, scenes/map/loader.gd:33-34).
+TEST_CASE("an error at a value is about the slots that give it its type, not what a member is read on, nor the arguments of the call that typed a local") {
+	FakeProject project;
+	project.add_script("res://camera.gd", "extends Node\nvar pivot\nvar angle = 0\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\taim(\"a\")\n\n\nfunc find(key):\n\tprint(key)\n\treturn Node.new()\n\n\nfunc aim(key) -> void:\n\tvar turned = pivot.rotation\n\tangle = turned.y\n\tprint(angle)\n\tvar found = find(key)\n\tfound.open()\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://camera.gd" }, 10);
+	CHECK(migration.texts.at("res://camera.pet") == "extends Node\nvar pivot: Node3D?\nvar angle = 0\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\taim(\"a\")\n\n\nfunc find(key: String):\n\tprint(key)\n\treturn Node.new()\n\n\nfunc aim(key: String) -> void:\n\tvar turned = pivot.unwrap().rotation\n\tangle = turned.y\n\tprint(angle)\n\tvar found = find(key)\n\tfound.open()\n");
+	CHECK(migration.withdrawn == 1);
+	CHECK(std::any_of(migration.errors.begin(), migration.errors.end(), [](const compiler::Diagnostic &p_error) { return p_error.line == 18 && contains(p_error.message, "Cannot assign a value of type float as int"); }));
+}
+
 TEST_CASE("an error about a call's receiver inside an assigned value leaves the slots of the arguments and of the target") {
 	FakeProject project;
 	project.add_script("res://g.gd", "extends Node\n\n\nfunc total(start, items):\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
