@@ -1353,14 +1353,18 @@ void Checker::about(const TokenRange &p_error, std::initializer_list<TokenRange>
 }
 
 // The same for an error of an operation with one Variant operand, which is
-// about that operand alone: it says nothing of the other's type. A call's
-// Variant is its callee's return, whatever its arguments are.
+// about that operand alone: it says nothing of the other's type.
 void Checker::about_variant(const TokenRange &p_error, const Expr &p_left, const Expr &p_right) {
 	const bool left = p_left.type.kind == TypeKind::Variant;
 	if (left != (p_right.type.kind == TypeKind::Variant)) {
-		const Expr &operand = left ? p_left : p_right;
-		about(p_error, { operand.kind == ExprKind::Call ? TokenRange{ operand.range.first, operand.name_token } : operand.range });
+		about(p_error, { typed_by(left ? p_left : p_right) });
 	}
+}
+
+// The tokens whose slots give the value its type: a call's value is its
+// callee's return, whatever its arguments are.
+TokenRange Checker::typed_by(const Expr &p_value) {
+	return p_value.kind == ExprKind::Call ? TokenRange{ p_value.range.first, p_value.name_token } : p_value.range;
 }
 
 // In a migration, that `p_read` reads an element of `p_container`. Of an

@@ -431,6 +431,14 @@ TEST_CASE("an error that a declaration of another file has errors leaves the typ
 	CHECK(migration.errors[1].message == "Camera.speed has errors (res://camera.pet, line 3).");
 }
 
+TEST_CASE("an assigned call that does not fit is about its callee, whatever its arguments are") {
+	FakeProject project;
+	project.add_script("res://map.gd", "extends Node\nvar cell: Vector2i\n\n\nfunc to_cell(x):\n\treturn Vector2(x, x)\n\n\nfunc place(where) -> void:\n\tcell = to_cell(where.x)\n\n\nfunc _ready() -> void:\n\tplace(Vector2(1, 2))\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://map.gd" }, 10);
+	CHECK(contains(migration.texts.at("res://map.pet"), "func place(where: Vector2) -> void:"));
+	CHECK(migration.withdrawn == 1);
+}
+
 TEST_CASE("an error about a call's receiver inside an assigned value leaves the slots of the arguments and of the target") {
 	FakeProject project;
 	project.add_script("res://g.gd", "extends Node\n\n\nfunc total(start, items):\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
