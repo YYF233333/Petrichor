@@ -1038,7 +1038,8 @@ public:
 			if (parent.empty() || folder.size() <= std::string("res://").size()) {
 				break;
 			}
-			name = parent + name;
+			// A directory named as the file adds nothing.
+			name = parent == name ? name : parent + name;
 			folder = folder.substr(0, slash);
 		}
 		file.names[p_script] = std::string();

@@ -314,12 +314,15 @@ TEST_CASE("a class without a class_name is named in types by a constant that pre
 	project.add_script("res://unit.gd", "extends RefCounted\n");
 	project.add_script("res://outcomes/camera.gd", "extends Node\n");
 	project.add_script("res://camera.gd", "class_name Camera\nextends Node\n", "Camera");
-	project.add_script("res://hud.gd", "extends Node\nconst Unit = preload(\"res://unit.gd\")\nvar picked\nvar watched\n\n\nfunc _init() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.gd\").new()\n\tadd_child(watched)\n");
-	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://board/board.gd", "res://abilities/abilities.gd", "res://unit.gd", "res://outcomes/camera.gd", "res://camera.gd", "res://hud.gd" }, 10);
+	// A directory named as the file adds nothing to its name.
+	project.add_script("res://ui/online/online.gd", "extends Node\n");
+	project.add_script("res://online.gd", "class_name Online\nextends Node\n", "Online");
+	project.add_script("res://hud.gd", "extends Node\nconst Unit = preload(\"res://unit.gd\")\nvar picked\nvar watched\nvar lobby\n\n\nfunc _init() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.gd\").new()\n\tlobby = preload(\"res://ui/online/online.gd\").new()\n\tadd_child(watched)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://board/board.gd", "res://abilities/abilities.gd", "res://unit.gd", "res://outcomes/camera.gd", "res://camera.gd", "res://hud.gd", "res://ui/online/online.gd", "res://online.gd" }, 10);
 	CHECK(migration.texts.at("res://abilities/abilities.pet") == "extends RefCounted\n\nconst Board = preload(\"res://board/board.pet\")\nvar board: Board\n\n\npub func _init(p_board: Board):\n\tboard = p_board\n");
-	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n\nconst OutcomesCamera = preload(\"res://outcomes/camera.pet\")\nconst Unit = preload(\"res://unit.pet\")\nvar picked: Unit\nvar watched: OutcomesCamera\n\n\nfunc _init() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.pet\").new()\n\tadd_child(watched)\n");
+	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n\nconst OutcomesCamera = preload(\"res://outcomes/camera.pet\")\nconst UiOnline = preload(\"res://ui/online/online.pet\")\nconst Unit = preload(\"res://unit.pet\")\nvar picked: Unit\nvar watched: OutcomesCamera\nvar lobby: UiOnline\n\n\nfunc _init() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.pet\").new()\n\tlobby = preload(\"res://ui/online/online.pet\").new()\n\tadd_child(watched)\n");
 	CHECK(migration.errors.empty());
-	CHECK(std::any_of(migration.notes.begin(), migration.notes.end(), [](const compiler::Diagnostic &p_note) { return p_note.file == "res://hud.pet" && p_note.message == "Added const OutcomesCamera = preload(\"res://outcomes/camera.pet\") to name classes without a class_name in types."; }));
+	CHECK(std::any_of(migration.notes.begin(), migration.notes.end(), [](const compiler::Diagnostic &p_note) { return p_note.file == "res://hud.pet" && p_note.message == "Added const OutcomesCamera = preload(\"res://outcomes/camera.pet\"), const UiOnline = preload(\"res://ui/online/online.pet\") to name classes without a class_name in types."; }));
 }
 
 TEST_CASE("an empty container takes the types of the elements and keys put in it, or else stays untyped") {

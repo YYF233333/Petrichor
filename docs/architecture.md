@@ -801,7 +801,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 同时有 `int` 和 `float` 时，须确认每处使用对整数输入结果不变才写 `float`；
   - 合并不出或无流入时试 `Variant`，容器试无类型 `Array` 或 `Dictionary`（还原 GDScript 原意）；空容器元素与键都合并出非 `Variant` 类型才写 `Array[T]` 或 `Dictionary[K, V]`。
   - 类型写在槽位名后、返回类型写在参数表后（`var a := []` 写成 `var a: Array[int] = []`），本文件 enum 和内部类不带类名。
-  - 无 `class_name` 的类经文件里的 `preload` 常量指名，它只当类型用，不随文件加载（规范 §2.1）。文件已有该脚本的这种常量就沿用其名字；否则在类头之后按名排序补上 `const 名字 = preload("res://….pet")`，报告列出补上的常量。名字取文件名的 PascalCase（`main_menu.pet` 得 `MainMenu`）。若本文件的声明、全局类、引擎类或 autoload 已用此名，就依次在前面加上由近及远各级目录名的 PascalCase，直到不重名为止（`outcomes/camera.pet` 得 `OutcomesCamera`）。仍写不出名字的类型不写，留作编译错误并在报告写明。
+  - 无 `class_name` 的类经文件里的 `preload` 常量指名，它只当类型用，不随文件加载（规范 §2.1）。文件已有该脚本的这种常量就沿用其名字；否则在类头之后按名排序补上 `const 名字 = preload("res://….pet")`，报告列出补上的常量。名字取文件名的 PascalCase（`main_menu.pet` 得 `MainMenu`）。若本文件的声明、全局类、引擎类或 autoload 已用此名，就依次在前面加上由近及远各级目录名的 PascalCase，直到不重名为止（`outcomes/camera.pet` 得 `OutcomesCamera`）。与所加前缀的名字同名的目录跳过（`ui/online/online.pet` 得 `UiOnline`）。仍写不出名字的类型不写，留作编译错误并在报告写明。
 - **写宽了的类型**：GDScript 把父类的值赋给子类的位置时到运行时才检查，本语言在此报编译错误（规范 §3.14）。写了对象类型的参数、返回值或变量，读出的值在某处因此报错时也作槽位求解，类型仍只取自流入。流入合并出所写类型的子类，且写下后这些错误消失，就把所写类型改成它；否则原文不动，由下文的 `as` 处理。
   - deck_builder_tutorial 中 7 个导出写作 `Texture`，资源存的和代码赋的都是 `Texture2D`，读出的值又都赋给 `Texture2D` 属性（`custom_resources/stats.gd:7`、`scenes/enemy/enemy.gd:72`），改写为 `Texture2D`。`-> Resource` 而只返回 `CharacterStats` 的 `create_instance()` 同理（`custom_resources/character_stats.gd:42-50`）。
   - 改窄的导出在检查器里从此只接受子类。集合外 GDScript 的赋值看不到，与其余推断相同。
