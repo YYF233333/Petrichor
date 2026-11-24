@@ -798,6 +798,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - `Variant` 流入不参与（GDScript 未写类型的值就是 `Variant`，只有 `Variant` 流入算作无流入）；
   - 单一类型直接选用；有 `null` 流入写成 `T?`（流入 `T?` 算作 `T` 和 `null`）；具公共基类的几个类取最近公共基类；
   - GDScript 隐式给的 `null` 也算流入：无初始值的变量合并出类时算，函数有路径只写 `return` 或走到末尾时其返回值总算。值类型变量不算，GDScript 写了类型的成员本就取类型默认值（`modules/gdscript/gdscript_compiler.cpp:2366-2391`，`ed1daf0`），只有赋值前读取才看得出差别。规范 §6.2 证明有值的成员也不算：`_init` 每条路径都赋值、场景或资源存了值的导出、祖先 `_ready` 中经场景模型可见的赋值；
+    - 祖先的赋值须是 `_ready` 顶层、首个含 `await` 的语句之前的 `$Path.x = v` 或经 `@onready` 引用的 `r.x = v`。
+    - 场景每次放置该类都须有 owner 且有祖先这样赋值；场景根算作实例化该场景处的放置。只有类自身的检查读场景，由它判定；
   - 同时有 `int` 和 `float` 时，须确认每处使用对整数输入结果不变才写 `float`；
   - 合并不出或无流入时试 `Variant`，容器试无类型 `Array` 或 `Dictionary`（还原 GDScript 原意）；空容器元素与键都合并出非 `Variant` 类型才写 `Array[T]` 或 `Dictionary[K, V]`。
   - 类型写在槽位名后、返回类型写在参数表后（`var a := []` 写成 `var a: Array[int] = []`），本文件 enum 和内部类不带类名。
