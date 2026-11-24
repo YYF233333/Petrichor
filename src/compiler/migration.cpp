@@ -967,8 +967,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		return next;
 	};
 	// The slots with values of known types first, then with Variant for the
-	// others, each part in at most `p_rounds` rounds. The members that a round
-	// found read elsewhere without their types are slots from the next one.
+	// others, each part in at most `p_rounds` rounds. The members and
+	// constants that a round found read elsewhere without their types are
+	// slots from the next one.
 	for (const bool unknown : { false, true }) {
 		for (int round = 0; round < p_rounds; round++) {
 			std::map<Inflows::Key, Type> next = candidates(unknown);

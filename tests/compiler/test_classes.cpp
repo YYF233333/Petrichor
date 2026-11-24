@@ -220,11 +220,17 @@ TEST_CASE("a pub declaration shows only pub types (spec §4.2)") {
 	CHECK(contains(errors_of_class("pub var count := Coin()\n"), "the pub \"count\" shows it"));
 }
 
-TEST_CASE("a member typed from scenes is not known to other scripts") {
+TEST_CASE("a member typed from scenes and a constant typed by a resource are not known to other scripts") {
 	FakeProject classes = project();
+	classes.resources["res://style.tres"] = { "Texture2D", "" };
 	classes.add_script("res://spawner.pet", "class_name Spawner\nextends Node\n\npub var enemy_scene = preload(\"res://enemy.tscn\")\n", "Spawner");
-	const std::string result = messages(compile_in("extends Node\n\nfunc f(s: Spawner) -> void:\n\tvar scene = s.enemy_scene\n", classes));
-	CHECK(contains(result, "The type of Spawner.enemy_scene is not known here; declare it"));
+	classes.add_script("res://visuals.pet", "class_name Visuals\nextends Node\n\npub const STYLE := preload(\"res://style.tres\")\npub const STYLES = [STYLE]\n", "Visuals");
+	const auto errors = [&](const std::string &p_read) { return messages(compile_in("extends Node\n\nfunc f(s: Spawner, v: Visuals) -> void:\n\tprint(" + p_read + ")\n", classes)); };
+	CHECK(errors("s.enemy_scene") == "4:8: The type of Spawner.enemy_scene is not known here; declare it, as in `pub var enemy_scene: T`.\n");
+	CHECK(errors("Visuals.STYLE") == "4:8: The type of Visuals.STYLE is not known here; declare it, as in `pub const STYLE: T = ...`.\n");
+	CHECK(errors("v.STYLES") == "4:8: The type of Visuals.STYLES is not known here; declare it, as in `pub const STYLES: T = ...`.\n");
+	// A subclass checks its base's declarations with the resources.
+	require_ok(compile_in("extends Visuals\n\nfunc f() -> void:\n\tvar t: Texture2D = STYLE\n", classes));
 }
 
 TEST_CASE("T? and common types of a class of this language keep its class") {

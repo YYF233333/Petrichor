@@ -20,7 +20,7 @@ struct Inflows {
 	enum class Kind {
 		Parameter,
 		Return,
-		Member, // Or a static variable.
+		Member, // Or a static variable or a constant.
 		Local,
 		Signal, // A parameter of a signal.
 	};
@@ -80,8 +80,9 @@ struct Inflows {
 	std::vector<Flow> flows;
 	std::vector<Call> calls;
 	std::vector<About> about;
-	// Members typed from the scenes that another file read without their
-	// types, which the next round takes as slots.
+	// Members typed from the scenes and constants typed by resources that
+	// another file read without their types, which the next round takes as
+	// slots.
 	std::vector<Slot> unknown;
 	// The reads of variables that give for an int what the same float
 	// gives: beside a float in arithmetic, compared, or where a float is

@@ -337,6 +337,16 @@ TEST_CASE("a member that a scene types gets its type written when another file r
 	CHECK(migration.errors.empty());
 }
 
+TEST_CASE("a constant that a resource types gets its type written when another file reads it") {
+	FakeProject project;
+	project.resources["res://style.tres"] = { "Texture2D", "" };
+	project.add_script("res://card.gd", "class_name Card\nextends Node\nconst STYLE := preload(\"res://style.tres\")\nconst ICON = preload(\"res://style.tres\")\n", "Card");
+	project.add_script("res://hand.gd", "extends Node\n\n\nfunc show_on(card: Card) -> void:\n\tvar t: Texture2D = card.STYLE\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://card.gd", "res://hand.gd" }, 10);
+	CHECK(migration.texts.at("res://card.pet") == "class_name Card\nextends Node\npub const STYLE: Texture2D = preload(\"res://style.tres\")\nconst ICON = preload(\"res://style.tres\")\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("the inference reads a declaration through an error that the loop of fixes then fixes") {
 	FakeProject project;
 	project.add_script("res://state.gd", "class_name CardState\nextends Node\nenum State { BASE, CLICKED }\n@export var state: State\n", "CardState");

@@ -760,6 +760,7 @@ class Checker : public ClassRelation {
 
 	int untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token);
 	int found_slot(uint32_t p_name_token) const;
+	void read_untyped(const ClassDecl &p_owner, const std::string &p_name, uint32_t p_name_token);
 	void keep(const Expr &p_value);
 	void keep_numbers(TokenKind p_op, const Expr &p_left, const Type &p_left_type, const Expr &p_right, const Type &p_right_type);
 	static Inflows::Slot parameter_slot(const FuncDecl &p_function, size_t p_index);

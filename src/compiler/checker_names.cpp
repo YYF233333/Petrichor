@@ -108,6 +108,12 @@ void Checker::check_constant(ConstDecl &r_decl) {
 		} else {
 			r_decl.value = constant_value(*r_decl.initializer, r_decl.declared_type, r_decl.name_token, r_decl.name, r_decl.type);
 		}
+		// Another file read it without its type, so a migration took it as a
+		// slot (architecture §6.6), which takes the type it has here.
+		if (const int slot = r_decl.declared_type ? -1 : found_slot(r_decl.name_token); slot >= 0) {
+			flow(slot, r_decl.initializer->type, r_decl.initializer->range);
+			r_decl.type = r_decl.type.is_error() ? tried(slot) : r_decl.type;
+		}
 		in_constant = was_in_constant;
 	}
 	r_decl.state = ConstDecl::State::Checked;
@@ -122,6 +128,12 @@ Type Checker::use_constant(Expr &r_expr, const ConstDecl &p_decl, const ClassDec
 	r_expr.target = Target::Constant;
 	if (p_decl.state == ConstDecl::State::Checking) {
 		return fail(r_expr, "The constant \"" + p_decl.name + "\" depends on its own value.");
+	}
+	if (p_decl.type.is_error() && script_file(p_owner.path) != script_file(options.path)) {
+		// Typed by a resource, which the check of another script does not
+		// read. A migration writes its type (architecture §6.6).
+		read_untyped(p_owner, p_decl.name, p_decl.name_token);
+		return fail(r_expr, "The type of " + display_name(p_owner, p_owner.path) + "." + p_decl.name + " is not known here; declare it, as in `pub const " + p_decl.name + ": T = ...`.");
 	}
 	if (p_decl.type.is_error()) {
 		return set(r_expr, p_decl.type);
@@ -1224,9 +1236,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		if (member.type.is_error() && member.slot < 0) {
 			// Typed from the scenes, which are not read for another script, or
 			// not checked yet. A migration writes its type (architecture §6.6).
-			if (options.inflows && options.inflows->files.count(script_file(owner))) {
-				options.inflows->unknown.push_back({ Inflows::Kind::Member, member.name, {}, 0, 0, 0, { script_file(owner), declared.source->tokens[member.name_token].offset }, owner });
-			}
+			read_untyped(declared, member.name, member.name_token);
 			return fail(r_expr, "The type of " + p_class.name + "." + member.name + " is not known here; declare it, as in `pub var " + member.name + ": T`.");
 		}
 		r_expr.target = Target::ObjectProperty;

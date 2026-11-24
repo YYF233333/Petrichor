@@ -25,6 +25,16 @@ int Checker::found_slot(uint32_t p_name_token) const {
 	return found == options.inflows->found.end() ? -1 : found->second;
 }
 
+// That this file read a declaration of `p_owner`, a class in another file,
+// without its type: the one whose name is token `p_name_token` there. In a
+// migration of that file, the next round takes it as a slot.
+void Checker::read_untyped(const ClassDecl &p_owner, const std::string &p_name, uint32_t p_name_token) {
+	const std::string file = script_file(p_owner.path);
+	if (options.inflows && options.inflows->files.count(file)) {
+		options.inflows->unknown.push_back({ Inflows::Kind::Member, p_name, {}, 0, 0, 0, { file, p_owner.source->tokens[p_name_token].offset }, p_owner.path });
+	}
+}
+
 Inflows::Slot Checker::parameter_slot(const FuncDecl &p_function, size_t p_index) {
 	const int most = p_function.has_rest() ? INT32_MAX : int(p_function.params.size());
 	return { Inflows::Kind::Parameter, p_function.params[p_index].name, p_function.name, int(p_index), required_params(p_function), most };
