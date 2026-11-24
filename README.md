@@ -138,14 +138,14 @@ See the full roadmap in [Architecture](docs/architecture.md#5-推进顺序) (Chi
 
 ## How It Is Built
 
-I design the language and decide every rule in the specification. AI coding agents write most of the implementation, tests, documentation, and corpus surveys, following [AGENTS.md](AGENTS.md), and I do not review the generated code line by line. Instead, correctness relies on four checks:
+The project maintainer designs the language and decides every rule in the specification, while AI coding agents write most of the implementation, tests, documentation, and corpus surveys following [AGENTS.md](AGENTS.md). Generated code is not reviewed line by line; correctness relies on four checks:
 
 - The specification is the single source of truth; whenever the implementation disagrees with it, the implementation changes.
 - Tests are derived from the specification and Godot's actual behavior, not from the implementation.
 - Every relied-on engine behavior cites the Godot source by commit hash and line number.
 - Migrated scripts from two real projects run inside the engine.
 
-When something breaks, I am responsible for fixing it. At present, the repository accepts issues but not pull requests, because the codebase moves fast enough that external PRs usually go stale before review. File defects in Issues and share language feedback in Discussions; both receive a reply within 48 hours. Pull requests will open as 1.0 approaches.
+The maintainer is responsible for fixing whatever breaks. At present, the repository accepts issues but not pull requests, because the codebase moves fast enough that external PRs usually go stale before review. File defects in Issues and share language feedback in Discussions; both receive a reply within 48 hours. Pull requests will open as 1.0 approaches.
 
 ## Documentation
 
