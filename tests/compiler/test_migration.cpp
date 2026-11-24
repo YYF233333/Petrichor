@@ -382,6 +382,15 @@ TEST_CASE("an error about a call's receiver inside an assigned value leaves the 
 	CHECK(migration.withdrawn == 0);
 }
 
+TEST_CASE("an error of an operation with a call's Variant leaves the slots of its arguments") {
+	FakeProject project;
+	project.add_script("res://g.gd", "extends Node\nvar data: Dictionary = {}\n\n\nfunc lookup(key) -> Variant:\n\treturn data[key]\n\n\nfunc add(total, key):\n\ttotal += lookup(key)\n\treturn total\n\n\nfunc _ready() -> void:\n\tprint(add(1, \"hp\"))\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
+	CHECK(migration.texts.at("res://g.pet") == "extends Node\nvar data: Dictionary = {}\n\n\nfunc lookup(key: String) -> Variant:\n\treturn data[key]\n\n\nfunc add(total: int, key: String) -> int:\n\ttotal += lookup(key)\n\treturn total\n\n\nfunc _ready() -> void:\n\tprint(add(1, \"hp\"))\n");
+	CHECK(migration.withdrawn == 0);
+	CHECK(migration.errors.size() == 1);
+}
+
 TEST_CASE("an error about an element of an untyped container leaves the slots of the container") {
 	FakeProject project;
 	project.add_script("res://g.gd", "extends Node\nvar data\n\n\nfunc fill(new_data):\n\tdata = new_data\n\tif data[\"details\"].has(\"who\"):\n\t\tprint(data[\"details\"][\"who\"])\n\tvar step = data.get(\"step\", 0)\n\tprint(step.size())\n\n\nfunc passives():\n\treturn []\n\n\nfunc total():\n\tvar sum = 0\n\tfor ability in passives():\n\t\tsum = ability.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tfill({})\n\tprint(total())\n");

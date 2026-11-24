@@ -1308,31 +1308,33 @@ Type Checker::fail_call(Expr &r_call) {
 Type Checker::fail_receiver(Expr &r_call, const std::string &p_message) {
 	fail_call(r_call, p_message);
 	if (r_call.base) {
-		about(r_call.range, { r_call.base.get() });
+		about(r_call.range, { r_call.base->range });
 	}
 	return r_call.type;
 }
 
 // In a migration, that the error just reported at `p_error` is about the
 // places of `p_places`, not its own range (architecture §6.6).
-void Checker::about(const TokenRange &p_error, std::initializer_list<const Expr *> p_places) {
+void Checker::about(const TokenRange &p_error, std::initializer_list<TokenRange> p_places) {
 	if (!options.inflows) {
 		return;
 	}
 	const auto range = [&](const TokenRange &p_range) { return Inflows::Range(cls.source->begin(p_range), cls.source->end(p_range)); };
 	Inflows::About record{ script_file(options.path), range(p_error), {} };
-	for (const Expr *place : p_places) {
-		record.places.push_back(range(place->range));
+	for (const TokenRange &place : p_places) {
+		record.places.push_back(range(place));
 	}
 	options.inflows->about.push_back(std::move(record));
 }
 
 // The same for an error of an operation with one Variant operand, which is
-// about that operand alone: it says nothing of the other's type.
+// about that operand alone: it says nothing of the other's type. A call's
+// Variant is its callee's return, whatever its arguments are.
 void Checker::about_variant(const TokenRange &p_error, const Expr &p_left, const Expr &p_right) {
 	const bool left = p_left.type.kind == TypeKind::Variant;
 	if (left != (p_right.type.kind == TypeKind::Variant)) {
-		about(p_error, { left ? &p_left : &p_right });
+		const Expr &operand = left ? p_left : p_right;
+		about(p_error, { operand.kind == ExprKind::Call ? TokenRange{ operand.range.first, operand.name_token } : operand.range });
 	}
 }
 

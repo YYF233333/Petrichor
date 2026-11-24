@@ -838,7 +838,7 @@ class Checker : public ClassRelation {
 	Type fail_call(Expr &r_call, const std::string &p_message);
 	Type fail_call(Expr &r_call);
 	Type fail_receiver(Expr &r_call, const std::string &p_message);
-	void about(const TokenRange &p_error, std::initializer_list<const Expr *> p_places);
+	void about(const TokenRange &p_error, std::initializer_list<TokenRange> p_places);
 	void about_variant(const TokenRange &p_error, const Expr &p_left, const Expr &p_right);
 	void untyped_element(const Expr &p_read, const Type &p_container);
 	static int find_in(const std::vector<std::unordered_map<std::string, int>> &p_scopes, const std::string &p_name);

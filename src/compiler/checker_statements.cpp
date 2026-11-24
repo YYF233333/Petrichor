@@ -794,7 +794,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			expect_assignable(*r_stmt.value, value, target_type, "assign", type_written_for(target));
 			// A Variant says nothing of the target's type (architecture §6.6).
 			if (errors.size() > reported && value.kind != TypeKind::Variant) {
-				about(r_stmt.value->range, { r_stmt.value.get(), &target });
+				about(r_stmt.value->range, { r_stmt.value->range, target.range });
 			}
 			return;
 		}
