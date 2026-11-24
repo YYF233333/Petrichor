@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob d942f49dfc48619baad847ebff1e6d782314b332. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob a40aa96911a455bf925d27a96f7c49822a748a0a. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -876,7 +876,11 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 9.6 Awaiting signals
 
-- Awaiting a parameterless signal produces no value, and a single-parameter signal gives a value of that parameter's type. **[Open]** Tuples and awaiting a multi-parameter signal as a value belong to the first version, with rules not yet settled. Until then, multi-parameter signals can only be awaited as statements, and using the result is a compile error.
+- Awaiting a parameterless signal produces no value, and a single-parameter signal gives a value of that parameter's type.
+- A multi-parameter signal gives a value with one field for each parameter. The names and types of the fields come from the signal's declaration, as in `(await http.request_completed).body`:
+  - this type cannot be written, so the value can only be stored in a variable typed by its initial value. To pass it to a function or return it, declare a struct of your own;
+  - indexing it is a compile error, with a quick fix that turns a literal index into the field, as `r[3]` into `r.body`;
+  - converted to `Variant`, it is an `Array` of the arguments in parameter order, the same as in GDScript.
 - Whether a signal's signature is statically known depends on how it is accessed:
   - signals accessed through a known class (an engine ClassDB class, a class or interface of this language, or another language's class seen through reflection) have a known signature;
   - when the static type is only `Signal`, the signature is unknown: using `await` as a statement is unrestricted, while using `await` as a value gives `Variant`. At run time that is NIL for no parameters, the value for one, or an `Array` for several:
@@ -1103,7 +1107,8 @@ The following features can be added compatibly after the first version:
   - debug text that shows values as written in this language;
   - cleanup code that runs when a task is cancelled, such as `finally` or `defer`;
   - `@static_unload` unloading a class no longer used, with its static variables, for the reasons in the [design notes](design-notes.md);
-  - reentrancy annotations for coroutines and `Signal` with parameters.
+  - reentrancy annotations for coroutines and `Signal` with parameters;
+  - tuples, and `Task.all` returning the result of each task.
 - **Cross-language and tools**:
   - an optional runtime library with the compiler;
   - `Task` handles for GDScript coroutines;
@@ -1117,7 +1122,6 @@ The following features can be added compatibly after the first version:
 - When native code is generated: at run time, at export, or both.
 - The rules for `@tool` scripts running in the editor.
 - The rules for user-defined generics.
-- The rules for tuples and an `await` on a signal with several parameters, and whether `Task.all` returns a tuple.
 - The rules for members that are non-null only once ready, which await a design as a whole:
   - who assigns a member that must be assigned, and which of those assignments the compiler looks for;
   - assignments by ancestors;
