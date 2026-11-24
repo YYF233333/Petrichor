@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 755a3fb069674f4f5f92535e49c2f6e87c789c2f. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 34da42c231f9363ed275579439eae0f7a1bbccb3. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -145,6 +145,7 @@ Besides the no-silent-differences rule, this language's own operations guarantee
   ```gdscript
   var on_hit: func(int, Node3D)                 # no return value; -> void may also be written
   var score: func(Enemy) -> float
+  var on_pick: func(int, String = ...)          # the second parameter may be omitted
   var load_level: async func(String) -> Level   # a call gives Task[Level]
   var filter: (func(Enemy) -> bool)?            # nullable needs parentheses, or ? belongs to the return type
   ```
@@ -299,7 +300,8 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - An interface may declare methods, properties and signals, all as requirements on the implementing class. Unmarked properties require read and write access, and an inherited engine property can satisfy a matching requirement. A readable and writable member also satisfies `@readonly`, while a setter-less engine property satisfies only `@readonly`; using `@readonly` outside an interface is a compile error.
 - A signal of an interface is a requirement, as a property is. Signals of the same name that the class declares, inherits or has from an engine class all satisfy it. A signal declared in this language satisfies it only with `pub`. The parameter types of the satisfying signal must be exactly the same.
 - An interface may `extends` several parent interfaces, and a child interface may redeclare a parent method with a covariant return type. Incompatible signatures for same-named members in parent interfaces, or an inheritance cycle, are compile errors.
-- **[Open]** Default values of interface method parameters are settled together with optional parameters in function types. Until then, writing a default value is a compile error.
+- When a parameter of an interface method is written `why: String = ...`, a call may omit that argument. Writing a default value in an interface is a compile error.
+- The implementation must give these parameters default values. When a call through the interface omits an argument, the argument takes the implementation's default value.
 - **[Known limitation]** In the first version, interfaces have no default methods and no stateful mixins, and cannot be generic. Declaring `interface Source[T]:` is a compile error.
 
 ### 3.10 Generics
@@ -308,15 +310,28 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 3.11 Function types and Callable
 
-- A function type contains the parameter types, the return type (`void` when omitted) and whether it is `async`. A call is written `f.call(x)` and is checked statically. Writing `f(x)` is a compile error that gives `f.call(x)`.
+- A function type contains the parameter types, the return type (`void` when omitted) and whether it is `async`, and also which trailing parameters may be omitted. A call is written `f.call(x)` and is checked statically. Writing `f(x)` is a compile error that gives `f.call(x)`.
+- A parameter that may be omitted is written `T = ...`, and a function type contains no default values. When an argument is omitted, the called function computes its own default value.
+- In the type of a method value or a lambda, the parameters with default values may be omitted.
 - A position that the engine calls accepts an `async` function and runs it as a root task. These positions are signal connections in code and in scenes, and engine `Callable` parameters such as `tween_callback`.
-- A method value or a lambda handed to the engine becomes a `Callable` that points directly at the target method. It is not looked up by name. The type of `f.bind(a, b)` is the function type without the last two parameters.
+- A method value or a lambda handed to the engine becomes a `Callable` that points directly at the target method. It is not looked up by name.
+- When the result of `f.bind(a, b)` is called, the caller's arguments come first and `a` and `b` follow them, as in the engine.
+  - the result takes k arguments when `f` takes k + 2 arguments and `a` and `b` are assignable to the parameters k + 1 and k + 2 of `f`;
+  - the argument counts of the result's type are the qualifying k, taken as a contiguous run from the smallest. When no k qualifies, it is a compile error.
+
+  ```gdscript
+  func show(title: String, randomized := false): ...
+  var a := show.bind("Deck")   # func(); a.call() calls show("Deck")
+  var b := show.bind(true)     # func(String); b.call(t) calls show(t, true)
+  ```
+
 - A `Callable` that the engine passes into a position of function type has an unknown signature. Each call checks the arguments and the return value. **[Known limitation]** The first version cannot explicitly convert a value of static type `Callable` to a function type. It can be called with `call()`.
 - A method value does not keep its receiver alive, like the engine's `Callable`. After the receiver is freed, calling the method value is a program error.
   - when the receiver is a RefCounted object newly created by `T.new()`, it is a compile error;
   - a receiver held only by a temporary value stays alive at least until its statement ends, as in `g(make().hit, h())`.
-- A lambda captures by value, as in GDScript. It differs in two points:
-  - assigning inside a lambda to a captured variable, or to a value-type field of one, is a compile error. Shared mutable state must be kept in a member or a container. Because a capture cannot be reassigned, a type narrowed outside stays narrowed inside the lambda;
+- A lambda parameter may have a default value, by the rules for function parameters.
+- A lambda captures by value, as in GDScript. It differs in this:
+  - assigning inside a lambda to a captured variable, or to a value-type field of one, is a compile error. Shared mutable state must be kept in a member or a container. Because a capture cannot be reassigned, a type narrowed outside stays narrowed inside the lambda.
 
   ```gdscript
   var hits := 0
@@ -324,8 +339,6 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   var counter: Array[int] = [0]
   area.body_entered.connect(func(body): counter[0] += 1)  # legal: the container is shared
   ```
-
-  - **[Open]** Default values of lambda parameters belong to the first version. This needs optional parameters in function types, and the rules are not settled yet. Until then, writing a default value is a compile error.
 
 ### 3.12 Weak references
 
@@ -371,7 +384,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
     - `int` to `float`, and a value of an enum without payloads to `int` or `float`;
     - `Vector2i`, `Vector3i`, `Vector4i` and `Rect2i` to the corresponding float types;
     - `String` to and from `StringName` and `NodePath`;
-  - function values: both `async` or both ordinary functions, with contravariant parameters and a covariant return. A function value is also assignable to `Callable`;
+  - function values: both `async` or both ordinary functions, with contravariant parameters and a covariant return, and the function value takes every argument count that the target allows. A function value is also assignable to `Callable`;
   - `PackedScene[S]` to `PackedScene[T]`, where `S` is assignable to `T`;
   - a typed container whose elements the engine can represent, to the untyped container of the same kind. This gives an untyped view of the same container;
   - any value to `Variant`, where structs and enums with payloads are encoded by the rules of the engine boundary. There are two exceptions:
@@ -507,6 +520,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 - Signal parameters must be annotated with types, as in `pub signal died(cause: String)`.
 - `emit` and `connect` in code, and signal connections in scenes, are all checked statically for argument count and types. Engine signals are typed from ClassDB, and unaudited object parameters are taken as non-null.
+- A connected function must take the arguments that the signal passes. The binds and unbinds of a scene connection count in the engine's order, by the same rule as `bind`.
 
 ### 4.8 Static members
 
@@ -1099,7 +1113,6 @@ The following features can be added compatibly after the first version:
 - The rules for `@tool` scripts running in the editor.
 - The rules for user-defined generics.
 - The rules for tuples and an `await` on a signal with several parameters, and whether `Task.all` returns a tuple.
-- The rules for default values of lambda parameters and of interface method parameters, and for optional parameters in function types.
 - The rules for members that are non-null only once ready, which await a design as a whole:
   - who assigns a member that must be assigned, and which of those assignments the compiler looks for;
   - assignments by ancestors;

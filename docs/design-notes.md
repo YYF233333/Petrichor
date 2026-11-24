@@ -221,8 +221,18 @@ Petrichor 在普通赋值和复合赋值中都先求右边，再求目标位置�
 lambda 的三条关键限制都直接对应真实语料的用法分布：
 
 - **禁止给捕获的局部变量赋值**：v1 语料方法体里的 961 个 lambda 中没有一个改写外层局部变量，经成员或下标赋值的 15 处改的都是对象或容器（[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)）。v2 的 3,518 个 lambda 里仅确认 8 处直接改写捕获变量，其中还包含因此漏掉累加的缺陷（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
-- **lambda 默认参数依赖函数类型的可选参数**：v1 的 979 个 lambda 里，命名的有 18 个，带参数默认值的为 0 个。v2 检出 10 处带默认参数，其中 5 处经 `.call()` 少传实参且全在 `godots`（4 处删掉默认值即可，1 处用于适配任意信号）。样本外的 GodSVG 还有 1 处经存下的 Callable 少传实参。因此要支持 lambda 默认值，必须先在函数类型里引入可选参数。
+- **lambda 默认参数依赖函数类型的可选参数**：v1 的 979 个 lambda 里，命名的有 18 个，带参数默认值的为 0 个。v2 检出 10 处带默认参数，其中 5 处经 `.call()` 少传实参且全在 `godots`（4 处删掉默认值即可，1 处用于适配任意信号）。样本外的 GodSVG 还有 1 处经存下的 Callable 少传实参。因此 lambda 默认值随函数类型的可选参数一起加入。
 - **协程方法作为值**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中协程方法作值使用 91 处，其中 60 处直接用于 `connect(名字)`。
+
+#### 函数类型的可选参数（§3.9、§3.11）
+
+函数类型只记末尾哪些参数可省略，不记默认值，省略时由被调函数求值。这与 GDScript 的运行时行为一致：函数经 `Callable` 被少传实参时，补上的是被调函数自己的默认值（[引擎事实](engine-facts.md)）。Dart 的函数类型也这样做，`void Function(String, [bool])` 不带值。它的子类型规则与本语言相同，目标允许的每种实参个数都须接受（[Dart 子类型规则](https://github.com/dart-lang/language/blob/main/resources/type-system/subtyping.md)）。
+
+另外两种做法都有已知的坑。C#、C++ 和 Swift 从接收者的静态类型取默认值，经基类、接口或委托调用时会悄悄用错值，C# 为此专门设了警告 CS1066 和 CS9099（[C# 标准](https://github.com/dotnet/csharpstandard/blob/dce7bdbaa8b508adfb50889fe9eaa29e33c85b26/standard/expressions.md#L587)）。本语言的接口因此只写 `= ...`，不写值。TypeScript 只查一半：源的必填个数不超过目标的参数总数即可。于是 `(a = 1) => a` 能经 `() => number` 当作 `(a: string) => number` 使用（[TypeScript#13043](https://github.com/microsoft/TypeScript/issues/13043)）。本语言两个条件都查，第二步就会拒绝。
+
+`bind` 是 Godot 特有的难点。TypeScript 的 `bind`、Python 的 `functools.partial` 和 Haxe 都把绑定值放在前面，绑定时就定下它填哪个参数。引擎却把绑定值接在调用方的实参之后，函数有默认参数时，绑定值落在哪个参数就取决于调用方传几个。原先的规则是"去掉末尾 n 个参数"，只在调用方填满默认参数时与引擎一致。语料 v2 的 bind 中，调用方不填默认参数的有 22 处，填满的有 17 处，两种都真实存在（[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)）。现在的规则按引擎的顺序算出所有可行的调用个数。`spawn(kind := 0, count := 1).bind(3)` 不传实参时 3 填进 `kind`，传一个时填进 `count`。这个含义确定，所以不加限制，留给 lint。
+
+还否掉了一种更小的改法：只在 `connect` 里按引擎顺序检查，别处保留旧规则。那样同一个 `f.bind(x)` 写在 `connect` 里能过，存进变量就过不了。方法值原先也有这种分裂：场景连接一直算默认参数，代码里的连接不算。语料 v1 有 12 处、v2 有 74 处把方法值直接连到传参更少的信号上，如 tanks-of-freedom-ii 把无参的 `close_requested` 连到 `toggle_radial_menu(context_object=null)`（`scenes/board/board.gd:165`）。
 
 #### `Callable` 的显式转换在第一版之后（§3.11）
 

@@ -46,6 +46,7 @@
 | Dictionary 保存每个键插入时的哈希，扩容时也不重算，查找时先比较哈希再比较键 | `core/variant/dictionary.cpp:46`；`core/templates/hash_map.h:130, 149-151, 193-198` | §3.8 |
 | `make_read_only` 只作用于调用它的那个容器，没有办法让容器重新可写 | `core/variant/array.cpp:938-942`；`core/variant/dictionary.cpp:599-603` | §3.8 |
 | `bind` 把绑定的实参接在调用实参之后 | `core/variant/callable_bind.cpp:141-150` | §3.11 |
+| GDScript 函数被少传实参调用时，用自己的默认值补齐；少于必填个数时报错 | `modules/gdscript/gdscript_vm.cpp:562-577` | §3.11 |
 | 从 String 构造 StringName 需要在全局表的互斥锁下查找 | `core/string/string_name.cpp:263-285` | §10.7 |
 | JSON 中的数字都解析为浮点数 | `core/io/json.cpp:390-396` | §10.8 |
 | `JSON.stringify` 把 `Vector2` 等引擎值写成字符串。`JSON.from_native` 按类型编码，`to_native` 能还原 | `core/io/json.cpp:193-197, 675-720, 1063` | §10.8 |
