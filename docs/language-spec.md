@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 83e8e24b0ad2af07cbe8fa94134651ee71c41a09. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob eaf90724af43b9eea710b892f7b8ecb54df18a69. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -786,7 +786,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - Writing a property or calling a modifying method on a resource known to be shared gives a warning that lists the sharing sites and offers two quick fixes: setting it local to scene, or calling `duplicate()` before modifying it. Turn the warning off with `@warning_ignore` when sharing is intended; resources replaced at run time are not tracked.
 - `duplicate()` returns the static type of the receiver. The depth of the copy is stated with `duplicate_deep(mode)`.
 - A reference cycle among `preload`, exported `PackedScene` and resources is a compile error. The quick fix changes one of its edges to a runtime `load`.
-- A `preload` constant used only as a type is not an edge of a cycle. A typed container that must be built when the class loads makes edges of its element and key types, as `Array[Unit]` does in a static variable's initializer.
+- A `preload` constant used only as a type is not an edge of a cycle. A typed container that must be built when the class loads makes edges of its element and key types, as `Array[Unit]` does in a static variable's initializer. The classes of its own file are excepted, because they load with that file.
 
 ### 7.7 Connections and paths in scenes
 
