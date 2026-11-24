@@ -1081,7 +1081,7 @@ Type Checker::check_subscript(Expr &r_expr) {
 	if (!element) {
 		return fail(r_expr, "Values of type " + base.to_string() + " cannot be indexed.");
 	}
-	if (index.kind != TypeKind::Int) {
+	if (!assignable(index, Type::of(TypeKind::Int))) {
 		return fail(*r_expr.right, "An index must be int, found " + index.to_string() + ".");
 	}
 	untyped_element(r_expr, base);

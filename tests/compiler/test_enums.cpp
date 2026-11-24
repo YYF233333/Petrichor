@@ -23,7 +23,7 @@ FakeProject project() {
 } // namespace
 
 TEST_CASE("an enum's values count on from the one before, and its values are ints") {
-	CHECK(errors("var i: int = State.FALL + 1\nvar f: float = State.RUN\nn = s\nvar a: State = State(6)\nvar t: State = State(HIGH + 1)").empty());
+	CHECK(errors("var i: int = State.FALL + 1\nvar f: float = State.RUN\nn = s\nvar a: State = State(6)\nvar t: State = State(HIGH + 1)\nvar k: String = Other.keys()[s]").empty());
 	CHECK(contains(errors("var a := State(4)"), "4 is none of the values of State."));
 	CHECK(contains(errors("var a := State(HIGH)"), "4 is none of the values of State."));
 	CHECK(errors("var x: bool = s == State.RUN and s != 1 and s < State.FALL and State.RUN in [s]\nvar m: int = -s + ~State.RUN").empty());

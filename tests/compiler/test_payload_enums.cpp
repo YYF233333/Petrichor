@@ -30,6 +30,7 @@ TEST_CASE("a variant is made with its fields by name, and compares and orders as
 	CHECK(contains(errors("\tvar a := Command(1)\n\treturn 0"), "No int converts to Command, an enum with payloads."));
 	CHECK(contains(errors("\tprint(c.target)\n\treturn 0"), "The fields of a variant are read by match, as in Command.MOVE(var target, ..)."));
 	CHECK(contains(errors("\tprint(c < c)\n\treturn 0"), "Values of type Moves.Command are not ordered"));
+	CHECK(contains(errors("\treturn [1][c]"), "An index must be int, found Moves.Command."));
 }
 
 TEST_CASE("the name of an enum with payloads is no value, but a constant initialized with it names it (spec §3.7)") {

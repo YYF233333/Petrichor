@@ -326,6 +326,7 @@ TEST_CASE("Array[T] is the engine's typed array, with methods typed by T (spec Â
 	CHECK(has_error(in_function("var a: Array[int] = [1, 2.5]"), "Cannot put a value of type float in Array[int]"));
 	CHECK(has_error(in_function("var a = []"), "An empty array needs a declared type"));
 	CHECK(contains(type_of("a[\"x\"]", ints), "An index must be int, found String"));
+	CHECK(contains(type_of("a[1.0]", ints), "An index must be int, found float"));
 	CHECK(type_of("u[0]", "var u: Array = []") == "Variant");
 	// A value of a fixed size, by the engine's indexing type, though not iterated
 	// (core/variant/variant_setget.cpp:847-858; ed1daf0).
