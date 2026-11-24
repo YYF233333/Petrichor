@@ -143,6 +143,10 @@
   - 基类有错误时，子类照样检查，按以上规则使用基类的声明。所以迁移时，子类的错误不被基类的错误遮住。
   - 这时子类另在 `extends` 处报一条，如 `Base script res://base.pet has errors (line 3).`，因此不生成字节码。
   - 找不到的名字所在的类或其本语言基类的文件有语法错误时，报错附上第一处，如 `A has no method "hit()"; res://a.pet has syntax errors (line 4).`。
+- 其他脚本读到的声明不读场景和资源，只有基类的读。由场景或资源定型的声明，类型在那里未知。用到它时报错，要求写出类型：
+  - 成员、静态变量和常量，报在读取处，如 `The type of Visuals.STYLE is not known here`；
+  - 以 `:=` 由默认值定型的参数，报在调用处和取函数值处；
+  - struct 的字段，报在需要 struct 布局的语句或声明处。凡是这个 struct 的值都需要布局，所以由生成代码报出。
 - 警告经 `@warning_ignore` 过滤后显示在脚本编辑器的警告列表中。第 8 步加入的 lint 是检查器中的检查，与编译器的警告共用诊断和 `@warning_ignore`（规范 §13.2）。
 - 快速修复（第 8 步）是 token 区间上的文本替换。每个修复属于一个种类，能否自动应用按种类定，不在报错处判断。
   - 检查器在报错处生成修复，修复随诊断进入 `CompileResult`（`Diagnostic::fixes`）。

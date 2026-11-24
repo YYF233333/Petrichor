@@ -317,7 +317,12 @@ class Lowerer {
 			return type_index(ValueType::Void);
 		}
 		for (const VarDecl &field : decl->fields) {
-			type.fields.push_back({ field.name, type_index(field.type) });
+			// Typed by a resource, which the check of another script does not
+			// read (architecture §2.1); laid out as a Variant after the error.
+			if (field.type.is_error() && !module.declarations_only) {
+				error("The type of " + p_struct.name + "." + field.name + " is not known here; declare it, as in `var " + field.name + ": T = ...`.");
+			}
+			type.fields.push_back({ field.name, type_index(field.type.is_error() ? Type::of(TypeKind::Variant) : field.type) });
 		}
 		const uint32_t index = end_interning(type);
 		struct_types.emplace(index, p_struct);

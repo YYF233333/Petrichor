@@ -901,7 +901,7 @@ class Checker : public ClassRelation {
 	Type class_member_value(Expr &r_expr, const std::string &p_path, const std::string &p_class);
 	Type new_value(Expr &r_expr, const std::string &p_path);
 	Type static_value(Expr &r_expr, const FuncDecl &p_function, const std::string &p_owner);
-	Type method_value(Expr &r_expr, const FuncDecl &p_method);
+	Type method_value(Expr &r_expr, const FuncDecl &p_method, const std::string &p_owner);
 	const InterfaceDecl *interface_decl(const Type &p_interface) const;
 	std::vector<Type> interface_order(const std::vector<Type> &p_roots) const;
 	std::vector<InterfaceMember> interface_members(const std::vector<Type> &p_roots) const;
@@ -909,6 +909,7 @@ class Checker : public ClassRelation {
 	const InterfaceProperty *interface_property(const Type &p_interface, const std::string &p_name) const;
 	std::optional<Type> script_method(Expr &r_expr, const Type &p_class);
 	Type call_declared(Expr &r_expr, const FuncDecl &p_callee, const SourceFile &p_source, const Type &p_result);
+	bool unknown_param(Expr &r_expr, const FuncDecl &p_function, bool p_elsewhere);
 	Type check_engine_constant(Expr &r_expr, const std::string &p_class);
 	std::optional<Type> engine_class_value(Expr &r_expr, const std::string &p_class);
 	Type check_member_access(Expr &r_expr);

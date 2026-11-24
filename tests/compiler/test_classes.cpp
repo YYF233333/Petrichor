@@ -220,17 +220,23 @@ TEST_CASE("a pub declaration shows only pub types (spec §4.2)") {
 	CHECK(contains(errors_of_class("pub var count := Coin()\n"), "the pub \"count\" shows it"));
 }
 
-TEST_CASE("a member typed from scenes and a constant typed by a resource are not known to other scripts") {
+TEST_CASE("declarations typed by scenes or resources are not known to other scripts") {
 	FakeProject classes = project();
 	classes.resources["res://style.tres"] = { "Texture2D", "" };
 	classes.add_script("res://spawner.pet", "class_name Spawner\nextends Node\n\npub var enemy_scene = preload(\"res://enemy.tscn\")\n", "Spawner");
-	classes.add_script("res://visuals.pet", "class_name Visuals\nextends Node\n\npub const STYLE := preload(\"res://style.tres\")\npub const STYLES = [STYLE]\n", "Visuals");
+	classes.add_script("res://visuals.pet", "class_name Visuals\nextends Node\n\npub const STYLE := preload(\"res://style.tres\")\npub const STYLES = [STYLE]\n\npub struct Look:\n\tvar style = STYLE\n\n\npub static func paint(style := STYLE) -> void:\n\tpass\n", "Visuals");
 	const auto errors = [&](const std::string &p_read) { return messages(compile_in("extends Node\n\nfunc f(s: Spawner, v: Visuals) -> void:\n\tprint(" + p_read + ")\n", classes)); };
 	CHECK(errors("s.enemy_scene") == "4:8: The type of Spawner.enemy_scene is not known here; declare it, as in `pub var enemy_scene: T`.\n");
 	CHECK(errors("Visuals.STYLE") == "4:8: The type of Visuals.STYLE is not known here; declare it, as in `pub const STYLE: T = ...`.\n");
 	CHECK(errors("v.STYLES") == "4:8: The type of Visuals.STYLES is not known here; declare it, as in `pub const STYLES: T = ...`.\n");
+	// Where a call or a function value needs a parameter's type, and where
+	// the code needs a struct's layout, which a function's signature does too.
+	CHECK(errors("Visuals.paint()") == "4:8: The type of the parameter \"style\" of paint() is not known here; declare it, as in `style: T = ...`.\n");
+	CHECK(errors("v.paint") == "4:8: The type of the parameter \"style\" of paint() is not known here; declare it, as in `style: T = ...`.\n");
+	CHECK(errors("Visuals.Look() == Visuals.Look()") == "4:2: The type of Visuals.Look.style is not known here; declare it, as in `var style: T = ...`.\n");
+	CHECK(messages(compile_in("extends Node\n\nfunc f(look: Visuals.Look) -> void:\n\tpass\n", classes)) == "3:1: The type of Visuals.Look.style is not known here; declare it, as in `var style: T = ...`.\n");
 	// A subclass checks its base's declarations with the resources.
-	require_ok(compile_in("extends Visuals\n\nfunc f() -> void:\n\tvar t: Texture2D = STYLE\n", classes));
+	require_ok(compile_in("extends Visuals\n\nfunc f() -> void:\n\tvar t: Texture2D = STYLE\n\tpaint(t)\n", classes));
 }
 
 TEST_CASE("T? and common types of a class of this language keep its class") {

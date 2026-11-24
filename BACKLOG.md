@@ -356,10 +356,11 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Whether the scene index finds an inherited scene's overrides by `unique_id`, as the engine does since 4.6. After a base scene renames a node, the engine finds them by id (`scene/resources/packed_scene.cpp:286-299`, `ed1daf0`). The index merges them by path (`read_scene` in `src/adapter/editor/scene_index.cpp`). So a check may report a false error until the inherited scene is saved again.
 - The rule that keeps a member's old name in its declaration (architecture §6.4). It is proposed when a team that edits scenes in parallel needs it. Until then renaming rewrites scenes.
 - A constant named as an autoload, written in a type: a compile error for now (spec §11.1). Allow it later as the nearer name, or as the autoload as GDScript does?
-- Whether another file reads the type of a constant from its `preload`, as spec §7.4 types it by the resource's content. The check of another file reads no resources.
+- Whether another file reads a type from a `preload`, as spec §7.4 types it by the resource's content. The check of another file reads no resources.
   - So `Visuals.STYLE` of `pub const STYLE := preload("res://style.tres")` is a compile error there for now, asking for the type to be written.
   - deck_builder_tutorial reads three such constants in four places, as `card_ui.BASE_STYLEBOX`. The migration writes their types.
-  - A struct field typed so has the same gap, without the error. A module of another file that uses the struct fails verification.
+  - So are a struct field and a parameter written `style := preload(...)` (architecture §2.1). The field is an error where the other file needs the struct's layout. The parameter is one where it calls the function or takes it as a value.
+  - A subclass reads its base's declarations with the resources, but a struct by its name as other files do.
 - Members that are non-null only once the node is ready, which need a design of their own. The owner likens it to linear types. It covers these (spec §6.2, §6.4):
   - members that must be assigned, and where the compiler looks for the assignment;
   - assignments by ancestors, which the checker now assumes without looking for them:

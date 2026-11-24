@@ -1087,6 +1087,9 @@ Type Checker::struct_method_value(Expr &r_expr, const Type &p_struct, bool p_on_
 		r_expr.base = struct_self(r_expr);
 		check_value(*r_expr.base);
 	}
+	if (unknown_param(r_expr, *method, !in_this_file(p_struct.script))) {
+		return set(r_expr, Type::of(TypeKind::Error));
+	}
 	r_expr.target = Target::StructMethodValue;
 	r_expr.callee = method;
 	r_expr.owner = p_struct.script;
@@ -1192,7 +1195,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 		}
 		refer(r_expr.name_token, interface_member_id(*member));
 		if (member->method) {
-			return method_value(r_expr, *member->method);
+			return method_value(r_expr, *member->method, p_class.script);
 		}
 		if (member->signal) {
 			// Of the class, which must declare it pub (spec §3.9, §10.5).
@@ -1268,7 +1271,7 @@ std::optional<Type> Checker::script_member(Expr &r_expr, const Type &p_class) {
 			r_expr.static_on_value = true;
 			return static_value(r_expr, function, owner);
 		}
-		return method_value(r_expr, function);
+		return method_value(r_expr, function, owner);
 	}
 	return std::nullopt;
 }
@@ -1314,6 +1317,9 @@ Type Checker::new_value(Expr &r_expr, const std::string &p_path) {
 	if (!find_init(r_expr, header, p_path, init)) {
 		return r_expr.type;
 	}
+	if (init && unknown_param(r_expr, *init, !in_this_file(p_path))) {
+		return set(r_expr, Type::of(TypeKind::Error));
+	}
 	refer(r_expr.name_token, script_id(p_path, "new"));
 	r_expr.target = Target::NewValue;
 	r_expr.callee = init;
@@ -1328,6 +1334,9 @@ Type Checker::new_value(Expr &r_expr, const std::string &p_path) {
 // A static function of this language as a value (spec §3.11), called on the
 // current image of the class at `p_owner` (§12.4).
 Type Checker::static_value(Expr &r_expr, const FuncDecl &p_function, const std::string &p_owner) {
+	if (unknown_param(r_expr, p_function, !in_this_file(p_owner))) {
+		return set(r_expr, Type::of(TypeKind::Error));
+	}
 	r_expr.target = Target::StaticValue;
 	r_expr.callee = &p_function;
 	r_expr.owner = p_owner;
@@ -1336,8 +1345,8 @@ Type Checker::static_value(Expr &r_expr, const FuncDecl &p_function, const std::
 
 // A method of this language as a value (spec §3.11), found by name on the
 // object's script when it is called.
-Type Checker::method_value(Expr &r_expr, const FuncDecl &p_method) {
-	if (!receiver_kept(r_expr)) {
+Type Checker::method_value(Expr &r_expr, const FuncDecl &p_method, const std::string &p_owner) {
+	if (!receiver_kept(r_expr) || unknown_param(r_expr, p_method, !in_this_file(p_owner))) {
 		return Type::of(TypeKind::Error);
 	}
 	r_expr.target = Target::MethodValue;
@@ -1482,6 +1491,9 @@ std::optional<Type> Checker::script_method(Expr &r_expr, const Type &p_class) {
 // hint, showing `p_result`, its arguments, and the defaults it is left to
 // fill when called by name.
 Type Checker::call_declared(Expr &r_expr, const FuncDecl &p_callee, const SourceFile &p_source, const Type &p_result) {
+	if (unknown_param(r_expr, p_callee, &p_source != cls.source.get())) {
+		return fail_call(r_expr);
+	}
 	known_params(p_callee);
 	hint(r_expr, [&](int p_current) { return declared_signature(r_expr.text, p_callee, p_source, p_current, p_result); });
 	const std::vector<Type> params = param_types(p_callee.params);
@@ -1496,6 +1508,21 @@ Type Checker::call_declared(Expr &r_expr, const FuncDecl &p_callee, const Source
 	r_expr.is_vararg = rest;
 	r_expr.is_async = p_callee.is_async;
 	return set(r_expr, p_callee.is_async ? Type::task(p_result) : p_result);
+}
+
+// Whether a function of another file, called or taken as a value at
+// `r_expr`, has a parameter typed by its default value that that file's
+// check for others does not type, as a preload of a resource; reported
+// (architecture §2.1). The check of this file reports its own, and one
+// that reads no resources itself has no code that needs the type.
+bool Checker::unknown_param(Expr &r_expr, const FuncDecl &p_function, bool p_elsewhere) {
+	for (const ParamDecl &param : p_function.params) {
+		if (p_elsewhere && !loading() && param.infers_type && param.type.is_error()) {
+			error(r_expr.range, "The type of the parameter \"" + param.name + "\" of " + p_function.name + "() is not known here; declare it, as in `" + param.name + ": T = ...`.");
+			return true;
+		}
+	}
+	return false;
 }
 
 // An integer constant of an engine class, such as an enum value, which is
