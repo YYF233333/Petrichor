@@ -211,6 +211,8 @@
 | GDScript 给变量的普通赋值和复合赋值先求右边，再读出目标 | `modules/gdscript/gdscript_compiler.cpp:1251-1265, 1331-1349` | §3.6 |
 | GDScript 链式赋值的基是不带 getter 的成员时按地址原地修改。引擎属性、带 getter 的成员和静态变量先读出副本，带 setter 的成员是值类型或类型未知时也先复制 | `modules/gdscript/gdscript_compiler.cpp:292-295, 304-312, 396-407, 1082-1085` | §3.6 |
 | 成员的初始化式不经过 setter | `modules/gdscript/gdscript_compiler.cpp:2414-2430, 2603-2626` | §4.8、§6.1 |
+| GDScript 给带 setter 的成员赋值时调用 setter 并丢弃返回值，按名写入也一样 | `modules/gdscript/gdscript_compiler.cpp:1360-1365`；`modules/gdscript/gdscript.cpp:1550-1554` | §4.4 |
+| 节点首次就绪时先清除未就绪标记并发出 `NOTIFICATION_READY`，随后才发出 `ready` 信号；`is_node_ready()` 读的是这个标记 | `scene/main/node.cpp:334-337, 3555-3557` | §6.5 |
 | 构造调用不等待 `_init` 的返回值；带返回值的引擎虚函数同步读取并转换脚本返回值 | `modules/gdscript/gdscript.cpp:194`；`core/object/make_virtuals.py:1-10, 173-174` | §9.1 |
 | 静态成员初始化之后调用 `_static_init` | `modules/gdscript/gdscript_compiler.cpp:2629-2632` | §4.8 |
 | GDScript 先初始化外层类的静态成员，再依次初始化其内部类 | `modules/gdscript/gdscript.cpp:667-683` | §4.8 |

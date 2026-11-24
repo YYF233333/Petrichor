@@ -48,18 +48,6 @@ func weakest[T: Damageable](units: Array[T]) -> T?:
 - 为每个实例化合成派生类映像，还是把类映像拆成共享与特化两部分（前者需先实测内存和加载时间）；
 - 引擎边界：GDScript 不带实参调用泛型类的 `new()` 时应给出明确错误；此外，带类型参数的信号在脚本信号表中给不出具体类型。
 
-### 1.2 就绪前自动等待就绪的 setter（规范 §6.5）
-
-在真实 Godot 代码里，setter 等待节点就绪并非孤例：[属性访问器调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/property-accessors.md)检出 25 个在 setter 中写 `await ready` 的用例，v2 语料中更增至 174 个，分布在 21 个库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
-
-第一版采取保守语义：setter 立即执行，在就绪前访问 `@onready` 成员或子节点属于程序错误。这套行为日后可以兼容地放宽为由编译器自动挂起（是否采纳见 `BACKLOG.md` 待定问题），设计要点如下：
-
-- **自动挂起与静态判定**：setter 执行到第一处需要节点就绪的语句时，若节点尚未就绪就在此挂起，待就绪后从原地继续。挂起点位置在编辑器中悬停可见。静态分析将访问 `@onready` 成员、`$X`、子节点，以及调用会访问它们的本类方法（含子类覆盖）都算作需要就绪。
-- **`is_node_ready()` 保护例外**：只有在 `is_node_ready()` 为真时才执行到的访问不算需要就绪；若方法里这类访问全部受保护，调用该方法也不触发挂起。规则只认 `is_node_ready()`，因为 `is_inside_tree()` 为真时 `@onready` 成员仍可能未初始化。受保护位置的判断复用类型收窄规则（规范 §5.4），包括 `if is_node_ready():` 分支内、`if not is_node_ready(): return` 之后，以及 `is_node_ready() and …` 右侧。
-- **挂起调用的生命周期**：同一属性在就绪前再次被写入时，前一次挂起的调用立即取消，无论新写入本身是否挂起。所有挂起的调用在 `@onready` 初始化之后、`_ready` 之前按写入顺序恢复；若节点在就绪前被释放，挂起的调用随之丢弃。节点就绪之后，setter 不再挂起。
-- **挂起点之前照常执行**：setter 通常先做值变换并存下字段，再同步到子节点；挂起点之前的语句照常执行，能保证就绪前读到变换后的值。如果推迟整个 setter、只暂存原始输入，就绪前就会读到未变换的值，例如 Ring 给角色名加上【】（`Runtime/AVGRuntime/UI/UI.cs:16-35`）。
-- **无新增概念**：用户不必学习新语法。setter 中手写的 `await ready` 仍是编译错误，编译器提供快速修复直接删去。
-
 ## 2. 各节理由与语料依据
 
 ### §1–§2 交付、词法与表层语法
@@ -334,6 +322,14 @@ Petrichor 要求可遍历类自行定义 `_iter_init`、`_iter_next` 和 `_iter_
 
 [语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，在 `_ready` 里把节点登记到 autoload 成员的写法有 6 处（5 处在 Ring），`NOTIFICATION_PREDELETE` 出现 40 次（32 次在 `gdUnit4`）；v2 语料中两者分别增至 64 处（17 库）和 79 次（32 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 
+#### 等待就绪的 setter（§4.4、§6.5）
+
+场景给导出赋值时节点的子节点还不可用，要同步子节点的 setter 得等到就绪。GDScript 的通行写法是在 setter 里写 `if not is_node_ready(): await ready`：[属性访问器调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/property-accessors.md)中含 `await` 的 setter 有 30 个，其中 25 个是 `await ready`；v2 语料中分别增至 186 个（25 库）和 174 个（21 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。迁移工具在 deck_builder_tutorial 中遇到 12 个（[迁移工具调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md)）。
+
+GDScript 调用 setter 后丢弃它的返回值，setter 首次挂起时写入处就接着执行；`ready` 信号在 `_ready` 返回之后发出，setter 这时才继续（[引擎事实](engine-facts.md)）。这与 `detach` 相同，所以 setter 可以声明为 `async`，迁移这些 setter 只需补上 `async`。挂起点写在代码里。多次写入、节点提前释放和任务失败都按协程已有的规则处理，不另设规则。getter 必须当场给出值，所以仍不能是协程。
+
+代价是写入处看不出 setter 稍后才完成，`async` 只写在声明上。GDScript 中同样如此。
+
 #### `_init` 参数（§6.2）
 
 Petrichor 不为 `Node` 和 `Resource` 脚本的 `_init` 另设必须无参的特例。引擎经无参途径构造时，通用规则已经会报程序错误，场景里的不当用法则会在编译期直接拦截。
@@ -399,7 +395,7 @@ GDScript 运行出错后会放任调用方继续执行：debug 构建返回类�
 
 #### 协程的快速修复（§9.1）
 
-- **补上 `async`**：GDScript 中只要函数体含 `await` 就是协程，因此提供补写 `async` 的修复；但它会连带影响调用方和覆盖方法，不自动应用。覆盖须保持 `async` 的错误也给出相同修复。签名不允许声明为 `async` 的地方（如 `_init`、属性访问器和覆盖非 `async` 方法的函数）不提供该修复。
+- **补上 `async`**：GDScript 中只要函数体含 `await` 就是协程，因此提供补写 `async` 的修复；但它会连带影响调用方和覆盖方法，不自动应用。覆盖须保持 `async` 的错误也给出相同修复。签名不允许声明为 `async` 的地方（如 `_init`、getter 和覆盖非 `async` 方法的函数）不提供该修复。
 - **独立调用协程**：GDScript 里作为语句调用的协程会独立运行，因此 `.detach()` 排在第一并自动应用；`await` 会把控制流改为等待，排在第二。
 
 #### 引擎边界（§10.2–§10.6）
@@ -476,7 +472,8 @@ Petrichor 沿用 GDScript 的做法，允许把 autoload 名直接写在类型�
 | 可空链 `?.`、默认值 `??`、后缀 `!` | 与 Result 的短路返回合用时，`x?.y` 的含义要看 x 的类型；Option 的操作用方法就够了 | §3.4、§8.2 |
 | Swift 式的 `try` 覆盖整条表达式 | 要按类型决定哪些子表达式被解开；Rust 的后缀 `?` 更直接 | §8.2 |
 | Result 也支持链式的 `?.` | 两种类型嵌套时，一个运算符无法说明处理的是哪一层 | §8.2 |
-| 在属性中另设 `apply:` 块，存放须等到节点就绪才执行的代码 | 让用户思考逻辑在何时执行、执行几次；自动挂起可以由编译器完成 | §6.5 |
+| 在属性中另设 `apply:` 块，存放须等到节点就绪才执行的代码 | 让用户思考逻辑在何时执行、执行几次；`async` setter 中的 `await ready` 已能表达 | §6.5 |
+| 就绪前由编译器自动挂起 setter，挂起点由静态分析确定 | 挂起点不写在代码里，读 setter 看不出它分两段执行。设计还在两处偏离 GDScript：再次写入时取消前一次挂起的调用，并在 `_ready` 之前恢复，所以迁移不能照搬手写的 `await ready` | §4.4、§6.5 |
 | 就绪前只记下 setter 的原始输入 | 先变换再存储的 setter（如给角色名加【】）就绪前会读到未变换的值 | §6.5 |
 | `@late`（类似 `lateinit`） | 需要它的写法很少见；父节点配置子节点已由祖先赋值的规则覆盖 | §6.2 |
 | 在最后一次使用后释放，如 Objective-C ARC 和 5.7 之前的 Swift | 守卫写法失效，要另给延长寿命的写法，如 `objc_precise_lifetime` | §6.8 |
