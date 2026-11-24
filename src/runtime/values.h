@@ -325,12 +325,18 @@ using InnerScriptResolver = godot::Variant (*)(const godot::Variant &p_script, c
 using ScriptPathResolver = godot::String (*)(const godot::Ref<godot::Script> &p_script);
 void set_inner_script_resolvers(InnerScriptResolver p_inner, ScriptPathResolver p_path);
 godot::String script_path(const godot::Ref<godot::Script> &p_script);
+// The script of a class by its path. The engine gives none for a file that is
+// loading on this thread (core/io/resource_loader.cpp:1046-1056; ed1daf0),
+// whose static initialization can make objects and containers of its classes:
+// a class of this language comes from the loading registry then.
+godot::Variant class_script(const godot::String &p_path);
 // A new empty array, typed with the element type and the class of object
-// elements, and for a class of this language with its script too (spec §3.8);
-// untyped for Void.
-godot::Array typed_array(bytecode::ValueType p_element, const godot::StringName &p_class, const godot::String &p_script);
+// elements, and for a class of a script with the script too (spec §3.8);
+// untyped for Void. False when the script cannot be loaded, which `r_error`
+// then says: the engine would type the array by the engine class alone.
+bool typed_array(bytecode::ValueType p_element, const godot::StringName &p_class, const godot::String &p_script, godot::Array &r_array, godot::String &r_error);
 // A new empty Dictionary, typed as the check says, or untyped (spec §3.8).
-godot::Dictionary typed_dictionary(const ValueCheck &p_check);
+bool typed_dictionary(const ValueCheck &p_check, godot::Dictionary &r_dictionary, godot::String &r_error);
 
 // A Dictionary keeps a key as a copy in which every Array and Dictionary is
 // read-only, so that the hash it keeps stays right; one this language

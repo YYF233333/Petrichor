@@ -890,7 +890,11 @@ static bool decode_kept(const TypeImage &p_type, const Variant &p_value, bool p_
 static bool decode_container(const TypeImage &p_type, const Variant &p_value, uint8_t *p_slot) {
 	if (p_type.storage == ValueType::Array && type_of(p_value) == Variant::ARRAY) {
 		const Array source = p_value;
-		Array decoded = typed_array(p_type.check.element, p_type.check.class_name, p_type.check.script);
+		Array decoded;
+		String error;
+		if (!typed_array(p_type.check.element, p_type.check.class_name, p_type.check.script, decoded, error)) {
+			return false;
+		}
 		for (int64_t i = 0; i < source.size(); i++) {
 			Variant element;
 			if (!decode_kept(*p_type.item, source[i], false, element)) {
@@ -904,7 +908,11 @@ static bool decode_container(const TypeImage &p_type, const Variant &p_value, ui
 	if (p_type.storage == ValueType::Dictionary && type_of(p_value) == Variant::DICTIONARY) {
 		const Dictionary source = p_value;
 		const Array keys = source.keys();
-		Dictionary decoded = typed_dictionary(p_type.check);
+		Dictionary decoded;
+		String error;
+		if (!typed_dictionary(p_type.check, decoded, error)) {
+			return false;
+		}
 		for (int64_t i = 0; i < keys.size(); i++) {
 			Variant key;
 			Variant value;
@@ -1884,20 +1892,48 @@ Variant load_resource(const String &p_path) {
 	return script;
 }
 
-Array typed_array(ValueType p_element, const StringName &p_class, const String &p_script) {
-	Array array;
-	if (p_element != ValueType::Void) {
-		array.set_typed(uint32_t(variant_type(p_element)), p_class, load_resource(p_script));
-	}
-	return array;
+Variant class_script(const String &p_path) {
+	const std::shared_ptr<const ClassImage> loading = loading_image(p_path);
+	return loading ? held_script(*loading) : load_resource(p_path);
 }
 
-Dictionary typed_dictionary(const ValueCheck &p_check) {
-	Dictionary dictionary;
-	if (p_check.key != ValueType::Void) {
-		dictionary.set_typed(uint32_t(variant_type(p_check.key)), p_check.key_class_name, load_resource(p_check.key_script), uint32_t(variant_type(p_check.element)), p_check.class_name, load_resource(p_check.script));
+static bool element_script(const String &p_path, Variant &r_script, String &r_error) {
+	if (p_path.is_empty()) {
+		return true;
 	}
-	return dictionary;
+	r_script = class_script(p_path);
+	if (r_script.get_type() == Variant::OBJECT && r_script.booleanize()) {
+		return true;
+	}
+	r_error = vformat("Cannot load %s, which types the container.", p_path);
+	return false;
+}
+
+bool typed_array(ValueType p_element, const StringName &p_class, const String &p_script, Array &r_array, String &r_error) {
+	r_array = Array();
+	Variant script;
+	if (p_element == ValueType::Void) {
+		return true;
+	}
+	if (!element_script(p_script, script, r_error)) {
+		return false;
+	}
+	r_array.set_typed(uint32_t(variant_type(p_element)), p_class, script);
+	return true;
+}
+
+bool typed_dictionary(const ValueCheck &p_check, Dictionary &r_dictionary, String &r_error) {
+	r_dictionary = Dictionary();
+	Variant key_script;
+	Variant script;
+	if (p_check.key == ValueType::Void) {
+		return true;
+	}
+	if (!element_script(p_check.key_script, key_script, r_error) || !element_script(p_check.script, script, r_error)) {
+		return false;
+	}
+	r_dictionary.set_typed(uint32_t(variant_type(p_check.key)), p_check.key_class_name, key_script, uint32_t(variant_type(p_check.element)), p_check.class_name, script);
+	return true;
 }
 
 Variant frozen_copy(const Variant &p_key) {

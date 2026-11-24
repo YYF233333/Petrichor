@@ -594,7 +594,10 @@ void report_argument(const ClassImage &p_image, const bytecode::Function &p_func
 // (§8.1). False with what entry_check() gives on a mismatch in `r_error`.
 template <typename Argument>
 bool fill_rest(const TypeImage &p_type, uint8_t *p_slot, size_t p_count, Argument p_argument, String &r_error) {
-	Array rest = typed_array(p_type.check.element, p_type.check.class_name, p_type.check.script);
+	Array rest;
+	if (!typed_array(p_type.check.element, p_type.check.class_name, p_type.check.script, rest, r_error)) {
+		return false;
+	}
 	for (size_t i = 0; i < p_count; i++) {
 		const Variant value = p_argument(i);
 		if (!p_type.item) {
@@ -874,7 +877,7 @@ PETRICHOR_NOINLINE bool new_object(const ClassImage &p_image, uint32_t p_class, 
 	if (!p_image.class_scripts[p_class].is_empty()) {
 		Object *made = object.get_validated_object();
 		ScriptedObject instance;
-		if (!attach_script(made, load_resource(p_image.class_scripts[p_class]), p_without_init, instance, r_initialized)) {
+		if (!attach_script(made, class_script(p_image.class_scripts[p_class]), p_without_init, instance, r_initialized)) {
 			if (!Object::cast_to<RefCounted>(made)) {
 				memdelete(made);
 			}
@@ -1461,7 +1464,7 @@ class Execution {
 	}
 
 	PETRICHOR_NOINLINE bool op_get_script(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
-		const Variant script = load_resource(image.class_scripts[p_op[1]]);
+		const Variant script = class_script(image.class_scripts[p_op[1]]);
 		if (script.get_type() != Variant::OBJECT || !script.booleanize()) {
 			return fail(p_fn, p_line, vformat("Cannot load the script of %s.", image.class_scripts[p_op[1]]));
 		}
@@ -1620,13 +1623,11 @@ class Execution {
 		*reinterpret_cast<uint64_t *>(p_frame + p_op[1]) = object && extends_script(object->get_script(), ObjectView(p_frame + p_op[3]).get()) ? 1 : 0;
 	}
 
-	PETRICHOR_NOINLINE void op_new_container(const uint32_t *p_op, uint8_t *p_frame) {
+	PETRICHOR_NOINLINE bool op_new_container(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		const TypeImage &type = image.types[p_op[1]];
-		if (type.storage == ValueType::Dictionary) {
-			*reinterpret_cast<Dictionary *>(p_frame + p_op[2]) = typed_dictionary(type.check);
-		} else {
-			*reinterpret_cast<Array *>(p_frame + p_op[2]) = typed_array(type.check.element, type.check.class_name, type.check.script);
-		}
+		String error;
+		const bool made = type.storage == ValueType::Dictionary ? typed_dictionary(type.check, *reinterpret_cast<Dictionary *>(p_frame + p_op[2]), error) : typed_array(type.check.element, type.check.class_name, type.check.script, *reinterpret_cast<Array *>(p_frame + p_op[2]), error);
+		return made || fail(p_fn, p_line, error);
 	}
 
 	// As the engine takes the state back (core/variant/variant_setget.cpp:1389-1394, 1623-1628; ed1daf0).
@@ -1656,7 +1657,8 @@ class Execution {
 		Array frames;
 		if (!printed) {
 			const TypeImage &type = image.types[p_op[1]];
-			frames = typed_array(type.check.element, type.check.class_name, type.check.script);
+			String unscripted; // Array[Dictionary]
+			typed_array(type.check.element, type.check.class_name, type.check.script, frames, unscripted);
 		}
 		for (size_t level = 0; level < stack.size(); level++) {
 			const StackFrame &frame = stack[stack.size() - 1 - level];
@@ -2550,7 +2552,8 @@ class Execution {
 			write[i] = int64_t(uint64_t(from) + i * uint64_t(step));
 		}
 		Array &result = *reinterpret_cast<Array *>(p_frame + p_op[2]);
-		result = typed_array(type.check.element, type.check.class_name, type.check.script);
+		String unscripted; // Array[int]
+		typed_array(type.check.element, type.check.class_name, type.check.script, result, unscripted);
 		result.assign(Array(values));
 		return true;
 	}
@@ -3000,7 +3003,9 @@ public:
 					op_cast_object(code + pc, frame);
 					NEXT(CAST_OBJECT);
 				case Op::NEW_CONTAINER:
-					op_new_container(code + pc, frame);
+					if (!op_new_container(code + pc, frame, fn, record.line)) {
+						return false;
+					}
 					NEXT(NEW_CONTAINER);
 				case Op::GET_INDEX:
 					if (!op_get_index(code + pc, frame, fn, record.line)) {

@@ -50,6 +50,8 @@ std::shared_ptr<const ClassImage> script_image(const godot::String &p_path);
 // initialization runs then (spec §4.8). Nested loads end in reverse order.
 void begin_loading(const std::shared_ptr<const ClassImage> &p_image);
 void end_loading();
+// A class of such a file by its path; null for any other.
+std::shared_ptr<const ClassImage> loading_image(const godot::String &p_path);
 
 // Whether the object's script of this language implements the interface,
 // named "script::Name" (spec §3.9).

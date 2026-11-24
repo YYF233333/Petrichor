@@ -132,11 +132,18 @@ void set_script_resolver(ScriptResolver p_resolver) {
 	script_resolver = p_resolver;
 }
 
-std::shared_ptr<const ClassImage> script_image(const String &p_path) {
+std::shared_ptr<const ClassImage> loading_image(const String &p_path) {
 	for (auto it = loading_files.rbegin(); it != loading_files.rend(); ++it) {
 		if (std::shared_ptr<const ClassImage> found = (*it)->find_class(p_path)) {
 			return found;
 		}
+	}
+	return nullptr;
+}
+
+std::shared_ptr<const ClassImage> script_image(const String &p_path) {
+	if (std::shared_ptr<const ClassImage> found = loading_image(p_path)) {
+		return found;
 	}
 	return script_resolver ? script_resolver(p_path) : nullptr;
 }

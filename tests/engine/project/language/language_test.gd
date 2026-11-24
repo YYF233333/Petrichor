@@ -848,6 +848,8 @@ func _ready() -> void:
 	var unload_user = load("res://language/static_unload_user.pet").new()
 	var bumps := [unload_user.bump(), unload_user.bump(), unload_user.bump()]
 	_check(bumps == ["1ab", "2abb", "3abbb"], "a class marked @static_unload stays loaded, with its static variables (spec §4.8): %s" % [bumps])
+	var typed_self: Script = load("res://language/typed_self.pet")
+	_check(typed_self.get("all").get_typed_script() == typed_self and typed_self.get("by_name").get_typed_value_script() == typed_self and typed_self.get("first").get_script() == typed_self, "a static initializer makes containers of its own class typed by its script, and objects of it, while its file loads (spec §3.8)")
 
 	# Variant (spec §3.13), untyped containers (§3.8).
 	var variants := VariantCheck.new()

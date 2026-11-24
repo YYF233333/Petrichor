@@ -1,0 +1,6 @@
+class_name TypedSelf extends RefCounted
+# Its static initializers make containers and an object of its own class while
+# its file loads, which the engine does not give yet (spec §3.8, §4.8).
+pub static var all: Array[TypedSelf] = []
+pub static var by_name: Dictionary[String, TypedSelf] = {}
+pub static var first: TypedSelf = TypedSelf.new()

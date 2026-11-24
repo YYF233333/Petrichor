@@ -583,7 +583,10 @@ bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_const
 	}
 	if (type == ValueType::Array) {
 		const ValueCheck &check = p_types[p_constant.type].check;
-		Array array = typed_array(check.element, check.class_name, check.script);
+		Array array;
+		if (!typed_array(check.element, check.class_name, check.script, array, r_error)) {
+			return false;
+		}
 		for (const bytecode::Constant &element : p_constant.args) {
 			Variant value;
 			if (!constant_value(p_image, element, value, r_error)) {
@@ -595,7 +598,10 @@ bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_const
 		return true;
 	}
 	if (type == ValueType::Dictionary) {
-		Dictionary dictionary = typed_dictionary(p_types[p_constant.type].check);
+		Dictionary dictionary;
+		if (!typed_dictionary(p_types[p_constant.type].check, dictionary, r_error)) {
+			return false;
+		}
 		for (size_t i = 0; i + 1 < p_constant.args.size(); i += 2) {
 			Variant key;
 			Variant value;
@@ -683,6 +689,18 @@ void ClassImage::adopt_statics(const ClassImage &p_previous) const {
 		if (const std::shared_ptr<const ClassImage> previous = p_previous.find_class(inner->path)) {
 			inner->adopt_statics(*previous);
 		}
+	}
+}
+
+void ClassImage::clear_statics() const {
+	if (statics) {
+		// The values go once the variables hold defaults, in case releasing
+		// one runs code that reads them.
+		Statics cleared(statics->layout);
+		std::swap(cleared.data, statics->data);
+	}
+	for (const std::shared_ptr<const ClassImage> &inner : inner_classes) {
+		inner->clear_statics();
 	}
 }
 
