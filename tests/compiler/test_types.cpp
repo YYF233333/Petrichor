@@ -232,8 +232,10 @@ TEST_CASE("T? of a value type is an Option (spec §3.4)") {
 	CHECK(type_of("s.expect(\"a name\")", "var s: String? = \"x\"") == "String");
 	CHECK(type_of("v.unwrap().y", "var v: Vector3? = Vector3.UP") == "float");
 	CHECK(contains(type_of("a + 1", "var a: int? = 5"), "may be None (int?); unwrap it first"));
-	CHECK(contains(type_of("s.length()", "var s: String? = \"x\""), "may be None (String?); check it before calling"));
-	CHECK(contains(type_of("v.y", "var v: Vector3? = Vector3.UP"), "may be None (Vector3?); check it before reading"));
+	// An error, after which what it gives unwrapped goes on.
+	CHECK(has_error(in_function("var v: Vector3? = Vector3.UP\nprint(v.y)"), "may be None (Vector3?); check it before reading"));
+	CHECK(type_of("v.y", "var v: Vector3? = Vector3.UP") == "float");
+	CHECK(type_of("s.length()", "var s: String? = \"x\"") == "int");
 	CHECK(fixed(in_function("var s: String? = \"x\"\nprint(s.length())"), "Write s.unwrap()") == in_function("var s: String? = \"x\"\nprint(s.unwrap().length())"));
 	CHECK(fixed(in_function("var a: Array[int]? = []\nprint(a[0])"), "Write a.unwrap()") == in_function("var a: Array[int]? = []\nprint(a.unwrap()[0])"));
 	CHECK(type_of("a.unwrap_or(0) + a.unwrap_or_else(func(): return 1)", "var a: int? = 5") == "int");
@@ -545,7 +547,7 @@ TEST_CASE("as converts objects to T? (spec §5.3)") {
 	const char *setup = "var n: Node = Node3D.new()";
 	CHECK(type_of("n as Node3D", setup) == "Node3D?");
 	CHECK(type_of("(n as Node3D).unwrap().position", setup) == "Vector3");
-	CHECK(contains(type_of("(n as Node3D).position", setup), "may be None (Node3D?)"));
+	CHECK(has_error(in_function(std::string(setup) + "\nprint((n as Node3D).position)"), "may be None (Node3D?)"));
 	// Already a Node: nothing can fail.
 	CHECK(type_of("Node3D.new() as Node") == "Node");
 	CHECK(type_of("get_parent() as Node") == "Node?");

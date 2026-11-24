@@ -794,7 +794,9 @@ Type Checker::check_language_method(Expr &r_expr, const Type &p_base, const Type
 	}
 	if (!method) {
 		fail_receiver(r_expr, "The value may be None (" + p_base.to_string() + "); check it before calling \"" + name + "()\".");
-		fix_unwrap(r_expr.base, [&] { return !type_method_call(r_expr, p_expected).is_error(); });
+		// The check goes on with what it gives unwrapped (architecture §2.1).
+		Type given = Type::of(TypeKind::Error);
+		fix_unwrap(r_expr.base, [&] { return !(given = type_method_call(r_expr, p_expected)).is_error(); });
 		// GDScript calls a method that the class does not have by name.
 		const Type inner = p_base.unwrapped();
 		const ClassDecl *decl = is_script_path(inner.script) ? script_decl(inner.script) : nullptr;
@@ -802,7 +804,7 @@ Type Checker::check_language_method(Expr &r_expr, const Type &p_base, const Type
 		if (inner.kind == TypeKind::Variant || (inner.kind == TypeKind::Object && !known)) {
 			call_by_name(r_expr);
 		}
-		return set(r_expr, Type::of(TypeKind::Error));
+		return set(r_expr, given);
 	}
 	refer(r_expr.name_token, language_id(of_result ? "Result" : "Option", name));
 	r_expr.target = Target::LanguageMethod;

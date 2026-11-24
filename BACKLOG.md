@@ -19,7 +19,8 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project. A pass now holds what it loads, so a check of tanks-of-freedom-ii with its assets takes 17 s, from 47 to 50 s. Without the assets, as in the sparse corpus clone, each missing file is still a failing load in every scene that names it. Its migration dry run takes 90 s there, from 119 s.
   - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left:
     - the class that narrows a declaration written too wide when what flows in is narrower than what its reads need (architecture §6.6). deck_builder_tutorial's `Texture` exports store PNGs, which load as `CompressedTexture2D`, while their reads need `Texture2D`. The inflows alone now give `CompressedTexture2D`, so the inspector then refuses an `AtlasTexture` there; the owner decides;
-    - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
+    - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete;
+    - which slots an error of the candidate check is about behind a read through a `T?`, which the check now follows unwrapped (architecture §2.1). tanks-of-freedom-ii withdraws `camera_pivot` for `camera_angle_y = pivot_rotation.y`, a float into an int member (`scenes/camera.gd:101-102`). A local's whole initializer, arguments included, is blamed too (`scenes/map/loader.gd:33-34`). The owner decides.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).

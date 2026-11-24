@@ -1638,8 +1638,10 @@ Type Checker::check_member_access(Expr &r_expr) {
 	}
 	if (base_type.is_optional()) {
 		fail(r_expr, "The value may be None (" + base_type.to_string() + "); check it before reading \"" + r_expr.text + "\".");
-		fix_unwrap(r_expr.base, [&] { return !check_member_access(r_expr).is_error(); });
-		return set(r_expr, Type::of(TypeKind::Error));
+		// The check goes on with what it reads unwrapped (architecture §2.1).
+		Type read = Type::of(TypeKind::Error);
+		fix_unwrap(r_expr.base, [&] { return !(read = check_member_access(r_expr)).is_error(); });
+		return set(r_expr, read);
 	}
 	if (base_type.kind == TypeKind::Variant) {
 		return fail(r_expr, "Cannot read \"" + r_expr.text + "\" of a Variant." + variant_hint());

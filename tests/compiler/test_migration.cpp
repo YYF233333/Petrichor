@@ -359,6 +359,17 @@ TEST_CASE("a variable declared without a value starts as null in GDScript, which
 	CHECK(migration.errors.empty());
 }
 
+// The read stays an error, which the loop of fixes unwraps after the
+// inference. tanks-of-freedom-ii's camera angle takes a float so
+// (scenes/camera.gd:101-102).
+TEST_CASE("a read or a call through a T? receiver gives what it gives unwrapped to the slot it flows into") {
+	FakeProject project;
+	project.add_script("res://camera.gd", "extends Node\nvar pivot\nvar rng\nvar angle\nvar spin\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\trng = RandomNumberGenerator.new()\n\n\nfunc aim() -> void:\n\tangle = pivot.rotation.y\n\tspin = rng.randf_range(0.0, 1.0)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://camera.gd" }, 10);
+	CHECK(migration.texts.at("res://camera.pet") == "extends Node\nvar pivot: Node3D?\nvar rng: RandomNumberGenerator?\nvar angle: float\nvar spin: float\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\trng = RandomNumberGenerator.new()\n\n\nfunc aim() -> void:\n\tangle = pivot.unwrap().rotation.y\n\tspin = rng.unwrap().randf_range(0.0, 1.0)\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("the loop of fixes makes a type T? where the original assigns or returns null") {
 	FakeProject project;
 	project.add_script("res://picker.gd", "extends Node\nvar selected: Node = self\n\n\nfunc pick(nodes: Array[Node]) -> Node:\n\tfor node in nodes:\n\t\treturn node\n\treturn null\n\n\nfunc last(nodes: Array[Node]) -> Node:\n\tif nodes.is_empty():\n\t\treturn\n\treturn nodes.back()\n\n\nfunc choose(nodes: Array[Node]) -> void:\n\tselected = null\n\tvar chosen: Node = pick(nodes)\n\tprint(chosen.name)\n");
