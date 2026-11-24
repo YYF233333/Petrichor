@@ -316,6 +316,12 @@ lambda 的三条关键限制都直接对应真实语料的用法分布：
 - **`Variant`**：不提供修复。严格保义的 `bool(type_convert(v, TYPE_BOOL))` 并非惯用写法，而 `v != None` 遇到 `0`、`""` 或空值时语义会变化。
 - **其余值类型的 `T?`**（如 `Vector2?` 和容器的 `T?`）：暂无修复。
 
+#### 循环变量标注子类（§5.7）
+
+`for player: AudioStreamPlayer in get_children()` 是常见写法，`get_children()` 的元素类型却只是 `Node`。迁移工具在 deck_builder_tutorial 中留下的 60 个隐式向下转换里，这种循环变量占 44 个（[迁移工具调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md)）。GDScript 对它每次迭代做一次带检查的赋值，元素类型不符时报运行时错误（[引擎事实](engine-facts.md)）。C# 的 `foreach` 同样把每个元素显式转换为循环变量的类型。
+
+这不违背"不做隐式向下转换"（§3.14）：写在 `for` 上的类型就是作者显式的要求，不是赋值时悄悄收窄。跳过类型不符的元素会与 GDScript 悄悄不同；让迁移改写成 `as` 加判断，写法更长，出错时的行为也变了。所以按 GDScript 的做法检查，不符时报程序错误。元素为 `Variant` 的情形不在此列，它属于从 `Variant` 的转换。
+
 #### 遍历对象（§5.7）
 
 Petrichor 要求可遍历类自行定义 `_iter_init`、`_iter_next` 和 `_iter_get` 三个方法，也不支持遍历 `PackedDataContainer`。GDScript 编译时只查 `_iter_get`，缺少另两个方法要到运行时才报错；再加上编辑器构建中 `Object` 自带这三个虚函数，`for x in node` 竟然也能通过编译（[引擎事实](engine-facts.md)）。引擎内置类里只有已经弃用的 `PackedDataContainer` 定义了这组方法，因此不必兼容。

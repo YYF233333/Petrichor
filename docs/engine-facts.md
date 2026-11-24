@@ -53,6 +53,7 @@
 | 资源按路径缓存，`load` 默认复用缓存 | `core/io/resource_loader.cpp:800-810`；`core/io/resource_loader.h:259` | §7.6 |
 | 资源的循环加载返回 null | `core/io/resource_loader.cpp:1049-1056` | §7.6 |
 | GDScript 之间的 `preload` 可以成环：分析器绕过 `ResourceLoader` 取浅脚本，编译完再补全依赖 | `modules/gdscript/gdscript_analyzer.cpp:4755-4764`；`modules/gdscript/gdscript_cache.cpp:303-343, 352-368, 423-447` | §2.1、§7.6 |
+| GDScript 的循环变量标注的类型比元素类型窄时，每次迭代做一次带检查的赋值 | `modules/gdscript/gdscript_analyzer.cpp:2353-2356`；`modules/gdscript/gdscript_compiler.cpp:2101` | §5.7 |
 | GDScript 的静态初始化在脚本编译完后进行，依赖先于拥有者 | `modules/gdscript/gdscript.cpp:849, 882-887` | §2.1 |
 | 带类型的容器持有元素类型的 Script 对象，按指针比较；收到空脚本时只按原生类定型 | `core/variant/container_type_validate.h:43-47, 121-141, 186-191`；`core/variant/array.cpp:885-897` | §2.1、§7.6 |
 | 方法的反射信息中没有协程性 | `core/object/method_info.h:37-44` | §9.8 |

@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 2a47153b013fd1adc0deec80265609c4001f6084. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 83e8e24b0ad2af07cbe8fa94134651ee71c41a09. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -627,6 +627,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 5.7 Loops
 
 - The type annotated on a loop variable must be the element type or a supertype of it. Iterating over a `float` or a vector is a compile error, and the quick fix changes it to `range(...)`.
+- When the element type is an object type, a loop variable may also be annotated with a subclass of it, or with the type without `?`, as in `for player: AudioStreamPlayer in get_children()`. Each iteration then checks the element. An element that is not of that type is a program error, and so are `None` and a freed object.
 - The arguments of `range(...)` must be `int`, and the result is `Array[int]`. When `for` iterates over it, it only counts and builds no array.
 - A step of 0 in `range(...)` is a program error, in a `for` as well. When the step is known to be 0, it is a compile error.
 - When a class of this or another language defines `_iter_init`, `_iter_next` and `_iter_get`, its objects can be iterated over. The element type is the return type of `_iter_get`. When any of the three is missing, it is a compile error.
