@@ -1205,16 +1205,24 @@ Type Checker::check_dictionary_literal(Expr &r_expr, const Type &p_expected) {
 	return set(r_expr, expected);
 }
 
-// `x as T` (spec §5.3).
-Type Checker::check_cast(Expr &r_expr) {
-	const Type from = check_value(*r_expr.left);
+// `x as T` (spec §5.3). GDScript gives a literal the container type it is
+// cast to (modules/gdscript/gdscript_analyzer.cpp:3808-3815; ed1daf0), which
+// it takes here from a place that expects that type.
+Type Checker::check_cast(Expr &r_expr, const Type &p_expected) {
 	const Type to = resolve(r_expr.cast_type, false);
+	const bool literal = r_expr.left->kind == ExprKind::ArrayLiteral || r_expr.left->kind == ExprKind::DictionaryLiteral;
+	const Type from = check_value(*r_expr.left, literal ? to : Type::of(TypeKind::Error));
 	if (from.is_error() || to.is_error()) {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	if (to.kind != TypeKind::Object) {
 		const std::string name = to.unwrapped().to_string();
-		return fail(r_expr, "as only converts objects; convert to " + name + " with " + name + "(x) or " + name + ".try_from(x).");
+		fail(r_expr, "as only converts objects; convert to " + name + " with " + name + "(x) or " + name + ".try_from(x).");
+		if (literal && to == p_expected.unwrapped()) {
+			fix({ { r_expr.range, cls.source->text_of(r_expr.left->range) } }, FixKind::LiteralCast);
+			return set(r_expr, to);
+		}
+		return r_expr.type;
 	}
 	if (from.kind == TypeKind::Variant) {
 		// None also when it holds no object (spec §5.3).
@@ -1666,7 +1674,7 @@ Type Checker::type_expr(Expr &r_expr, const Type &p_expected) {
 		case ExprKind::GetNode:
 			return check_get_node(r_expr);
 		case ExprKind::Cast:
-			return check_cast(r_expr);
+			return check_cast(r_expr, p_expected);
 		case ExprKind::ArrayLiteral:
 			return check_array_literal(r_expr, p_expected);
 		case ExprKind::DictionaryLiteral:

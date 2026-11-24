@@ -36,6 +36,7 @@ enum class FixKind {
 	Autoload, // Its name for a literal path from the root to it.
 	PackedArray, // The conversion of an Array where a packed array is expected.
 	ArgumentField, // The field for a literal index of a signal's arguments.
+	LiteralCast, // A literal for one cast to the container type its place expects.
 	// The ones offered for the user to choose.
 	FloatResult, // float arguments where the result's type or value then changes.
 	Unwrap,
@@ -67,6 +68,7 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ true, "Reach the autoload by its name" },
 	{ true, "Convert to the packed array" },
 	{ true, "Read the argument by its name" },
+	{ true, "Write the literal without as" },
 	{ false, "Write the int arguments as float" },
 	{ false, "Write .unwrap()" },
 	{ false, "Make the type T?" },

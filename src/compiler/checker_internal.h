@@ -1001,7 +1001,7 @@ class Checker : public ClassRelation, private CheckContext {
 	Type check_array_literal(Expr &r_expr, const Type &p_expected);
 	std::optional<Type> common_element(std::vector<std::unique_ptr<Expr>> &r_values, size_t p_first, size_t p_step, const std::string &p_what);
 	Type check_dictionary_literal(Expr &r_expr, const Type &p_expected);
-	Type check_cast(Expr &r_expr);
+	Type check_cast(Expr &r_expr, const Type &p_expected);
 	Type check_super(Expr &r_expr);
 	std::string no_await() const;
 	void fix_async(FuncDecl &r_function);

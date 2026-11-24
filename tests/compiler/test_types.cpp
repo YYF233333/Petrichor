@@ -552,6 +552,12 @@ TEST_CASE("as converts objects to T? (spec §5.3)") {
 	CHECK(contains(type_of("n as RandomNumberGenerator", setup), "Node and RandomNumberGenerator are unrelated classes; as would always give None."));
 	CHECK(contains(type_of("n as int", setup), "as only converts objects; convert to int with int(x)"));
 	CHECK(contains(type_of("5 as Node"), "as only converts objects, not int"));
+	// A literal takes the container type of a place that expects it, as
+	// GDScript types it by the cast: deck_builder_tutorial's
+	// scenes/map/map_generator.gd:135.
+	const std::string rooms = "var rooms: Array[Node] = []\nvar names: Dictionary[String, int]\n";
+	CHECK(fixed_all(in_function(rooms + "rooms = [] as Array[Node]\nnames = {} as Dictionary[String, int]"), compiler::FixKind::LiteralCast) == in_function(rooms + "rooms = []\nnames = {}"));
+	CHECK(fixed(in_function("var rooms = [] as Array[Node]"), "Write []") == "no such fix");
 }
 
 // Spec §10.2: what the engine passes in is T; a parameter may accept more (§4.6).

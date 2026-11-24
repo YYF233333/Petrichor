@@ -153,6 +153,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
     - packed 数组位置上的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）；
     - 多参信号结果的字面量下标改为它所指的字段（§6.6）；
+    - 位置期望的正是 `as` 所转的容器类型时，去掉字面量上的 `as`。字面量本就取位置的类型，GDScript 也把它定为所转类型（`modules/gdscript/gdscript_analyzer.cpp:3808-3815`，`ed1daf0`）；
     - 补上 `pub`（若声明会因此露出不带 `pub` 的类型，则不提供）。
   - 其余种类（如 `.unwrap()`、改为 `T?`、补上 `async`、`await`、null 模式和写 `as`）只作备选；自动修复排在首位且无需输入。
   - `int` 位置上的 `float` 套上 `int(x)` 也只作备选，因为本语言写的代码在这里更常是该把变量写成 `float`。GDScript 在它写了类型（含 `:=`）的位置向零取整转换并给出警告（`modules/gdscript/gdscript_analyzer.cpp:3062-3064, 6370-6374`，`modules/gdscript/gdscript_byte_codegen.cpp:934-939, 992-997`，`modules/gdscript/gdscript_vm.cpp:1433-1438`，`core/variant/variant_construct.cpp:69`，`ed1daf0`），迁移因此直接应用它（§6.6）。检查器同样按已经套上继续检查。复合赋值不提供：GDScript 转换的是运算结果（`modules/gdscript/gdscript_compiler.cpp:1346-1381`）。以值定型、没写 `:=` 的变量也不提供，它在 GDScript 中是 `Variant`，照存 `float`。
