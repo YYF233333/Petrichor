@@ -1000,10 +1000,6 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 			toast(vformat("Cannot write %s, so nothing was changed.", to_godot(failed)), EditorToaster::SEVERITY_WARNING);
 			return false;
 		}
-		for (const auto &[file, text] : texts) {
-			file_seen(file);
-			client_reloads(file);
-		}
 	}
 	std::set<std::string> files;
 	for (const auto &[file, text] : texts) {
@@ -1037,19 +1033,27 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 			code_edit->tag_saved_version();
 		}
 	}
-	reload_written(files);
-	if (!one_tab) {
-		scripts_saved(files);
+	if (one_tab) {
+		reload_written(files);
+	} else {
+		files_written(files);
 	}
 	return true;
 }
 
-// As the editor saves a script, for a tab: the script editor's record of when
+// After the editor wrote the files: it has seen them, an LSP client that has
+// one open takes its text, and they are read back (reload_written()). Then,
+// as the editor saves a script, for a tab: the script editor's record of when
 // the file changed follows, so that it does not take the file as changed
 // elsewhere, and a running game reloads the script (editor/editor_node.cpp:1774, 8664-8665,
 // editor/script/script_editor_plugin.cpp:723-742, 803-850,
 // editor/script/script_editor_base.cpp:91-93, 570-573; ed1daf0).
-void PetEditorPlugin::scripts_saved(const std::set<std::string> &p_files) {
+void PetEditorPlugin::files_written(const std::set<std::string> &p_files) {
+	for (const std::string &file : p_files) {
+		file_seen(file);
+		client_reloads(file);
+	}
+	reload_written(p_files);
 	Node *editor_node = EditorInterface::get_singleton()->get_base_control()->get_parent();
 	for (const std::string &file : p_files) {
 		const String path = to_godot(file);
@@ -1401,10 +1405,7 @@ void PetEditorPlugin::list_fixes(Object *p_code_edit) {
 	}
 }
 
-// The fixes of the errors on the caret's line: first of those that hold the
-// caret, then of the others by position. Apart, fixing all of each automatic
-// kind among them, where the script's own check has more than one fix of it
-// that changes only this script, as fixing all takes them (architecture §2.1).
+// The fixes of the errors on the caret's line (quick_fixes()).
 void PetEditorPlugin::list_fixes_at(CodeEdit *p_code_edit, const Vector2 &p_position) {
 	const std::optional<std::pair<String, uint32_t>> at = at_caret(p_code_edit);
 	if (!at || p_code_edit != fixing_code_edit()) {
@@ -1420,25 +1421,18 @@ void PetEditorPlugin::list_fixes_at(CodeEdit *p_code_edit, const Vector2 &p_posi
 			errors.push_back(&error);
 		}
 	}
-	std::stable_partition(errors.begin(), errors.end(), [&](const compiler::Diagnostic *p_error) { return p_error->begin <= caret && caret <= p_error->end; });
+	const QuickFixes fixes = quick_fixes(errors, caret, caret, fixing.errors, fixing.path);
 	listed.clear();
 	fix_list->clear();
-	for (const compiler::Diagnostic *error : errors) {
-		for (const compiler::Fix &fix : error->fixes) {
-			if (std::none_of(listed.begin(), listed.end(), [&](const auto &p_listed) { return same_fix(p_listed.second, fix); })) {
-				fix_list->add_item(to_godot(fix.title), int32_t(listed.size()));
-				listed.emplace_back(*error, fix);
-			}
-		}
+	for (const auto &[error, fix] : fixes.fixes) {
+		fix_list->add_item(to_godot(fix->title), int32_t(listed.size()));
+		listed.emplace_back(*error, *fix);
 	}
-	std::set<compiler::FixKind> kinds;
-	for (const auto &[error, fix] : listed) {
-		if (fix.automatic() && kinds.insert(fix.kind).second && fixes_all(fixing.errors, fixing.path, fix.kind)) {
-			if (fix_list->get_item_count() == int32_t(listed.size())) {
-				fix_list->add_separator();
-			}
-			fix_list->add_item(vformat("Fix all '%s' in file", compiler::FIX_KINDS[size_t(fix.kind)].name), int32_t(listed.size() + size_t(fix.kind)));
-		}
+	if (!fixes.all.empty()) {
+		fix_list->add_separator();
+	}
+	for (const compiler::FixKind kind : fixes.all) {
+		fix_list->add_item(vformat("Fix all '%s' in file", compiler::FIX_KINDS[size_t(kind)].name), int32_t(listed.size() + size_t(kind)));
 	}
 	if (fix_list->get_item_count() == 0) {
 		toast("No quick fixes on this line.");
@@ -1749,8 +1743,6 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 	std::set<std::string> reread;
 	for (const std::string &file : written) {
 		if (!renamed.count(file)) {
-			file_seen(file);
-			client_reloads(file);
 			reread.insert(file);
 		}
 	}
@@ -1760,8 +1752,7 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 		for (const auto &[file, migrated] : renamed) {
 			EditorInterface::get_singleton()->get_resource_filesystem()->update_file(to_godot(file));
 		}
-		reload_written(reread);
-		scripts_saved(reread);
+		files_written(reread);
 	}
 	return { output, 0 };
 }
@@ -1830,13 +1821,8 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 		failed++;
 		output += relative(file) + ": error: " + error + "\n";
 	}
-	for (const std::string &file : written) {
-		file_seen(file);
-		client_reloads(file);
-	}
 	if (lsp) {
-		reload_written(written);
-		scripts_saved(written);
+		files_written(written);
 	}
 	output += to_utf8(vformat("petrichor format: %d script(s), %d %s, %d with errors", int(paths.size()), check ? unformatted : int(written.size()), check ? "not formatted" : "formatted", failed));
 	return std::make_pair(output, failed > 0 || unformatted > 0 ? 1 : 0);

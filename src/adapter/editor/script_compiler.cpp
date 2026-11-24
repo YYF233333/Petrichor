@@ -371,6 +371,9 @@ std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_er
 	return found;
 }
 
+namespace {
+
+// The same fix, as two errors on a line can offer.
 bool same_fix(const compiler::Fix &p_a, const compiler::Fix &p_b) {
 	return p_a.title == p_b.title && std::equal(p_a.edits.begin(), p_a.edits.end(), p_b.edits.begin(), p_b.edits.end(), [](const compiler::Fix::Edit &p_x, const compiler::Fix::Edit &p_y) {
 		return p_x.file == p_y.file && p_x.change.begin == p_y.change.begin && p_x.change.end == p_y.change.end && p_x.change.new_text == p_y.change.new_text;
@@ -388,6 +391,25 @@ bool fixes_all(const std::vector<compiler::Diagnostic> &p_fixable, const std::st
 		}
 	}
 	return found.size() > 1;
+}
+
+} // namespace
+
+QuickFixes quick_fixes(std::vector<const compiler::Diagnostic *> p_errors, uint32_t p_from, uint32_t p_to, const std::vector<compiler::Diagnostic> &p_fixable, const std::string &p_path) {
+	std::stable_partition(p_errors.begin(), p_errors.end(), [&](const compiler::Diagnostic *p_error) { return p_error->begin <= p_to && p_from <= p_error->end; });
+	QuickFixes listed;
+	for (const compiler::Diagnostic *error : p_errors) {
+		for (const compiler::Fix &fix : error->fixes) {
+			if (std::any_of(listed.fixes.begin(), listed.fixes.end(), [&](const auto &p_listed) { return same_fix(*p_listed.second, fix); })) {
+				continue;
+			}
+			listed.fixes.emplace_back(error, &fix);
+			if (fix.automatic() && std::find(listed.all.begin(), listed.all.end(), fix.kind) == listed.all.end() && fixes_all(p_fixable, p_path, fix.kind)) {
+				listed.all.push_back(fix.kind);
+			}
+		}
+	}
+	return listed;
 }
 
 FileEdits fix_again(const std::string &p_path, const compiler::Stamp &p_stamp, const compiler::Diagnostic *p_error, const std::string &p_title, compiler::FixKind p_kind) {

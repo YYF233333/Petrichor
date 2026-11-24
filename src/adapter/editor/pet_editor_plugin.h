@@ -163,7 +163,7 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void apply_previewed();
 	void apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record, bool p_undo);
 	godot::String rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates, bool p_undo, bool p_apply);
-	void scripts_saved(const std::set<std::string> &p_files);
+	void files_written(const std::set<std::string> &p_files);
 	void run_headless(const godot::String &p_command);
 	std::pair<std::string, int> migrate(const std::vector<std::string> &p_args);
 	std::optional<std::pair<std::string, int>> run_command(const std::string &p_command, const std::vector<std::string> &p_args, const std::set<std::string> &p_conflicts);

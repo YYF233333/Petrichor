@@ -105,12 +105,17 @@ compiler::Completion completion(const godot::String &p_path, const std::string &
 // position, each edit naming its file. Those of the scenes count with fixes
 // in this script only.
 std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_errors, const std::string &p_path);
-// The same fix, as two errors on a line can offer.
-bool same_fix(const compiler::Fix &p_a, const compiler::Fix &p_b);
-// Whether fixing all of the kind in the script is offered: its own check has
-// more than one fix of it that changes only this script, as fixing all takes
-// them (architecture §2.1). `p_fixable` is what fixable() gave.
-bool fixes_all(const std::vector<compiler::Diagnostic> &p_fixable, const std::string &p_path, compiler::FixKind p_kind);
+// The quick fixes that the script editor and the LSP server list for
+// `p_errors`, those of `p_fixable` on the lines asked for (architecture
+// §2.4): first the fixes of the errors that meet the range from `p_from` to
+// `p_to`, then of the others by position, each once. Apart, each automatic
+// kind among them where the script's own check has more than one fix of it
+// that changes only this script, as fixing all takes them (§2.1).
+struct QuickFixes {
+	std::vector<std::pair<const compiler::Diagnostic *, const compiler::Fix *>> fixes;
+	std::vector<compiler::FixKind> all;
+};
+QuickFixes quick_fixes(std::vector<const compiler::Diagnostic *> p_errors, uint32_t p_from, uint32_t p_to, const std::vector<compiler::Diagnostic> &p_fixable, const std::string &p_path);
 
 // Edits, each in the text of the file it changes, by its path.
 using FileEdits = std::map<std::string, std::vector<compiler::CheckedEdit>>;

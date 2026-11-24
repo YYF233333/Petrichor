@@ -9,7 +9,6 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
   - A design proposal comes first. The stored format changes, and the editor would run the initializers of constants in scripts without `@tool`.
   - It must land before the bytecode format gets its version, with Mod (architecture §6.1).
-- One list of an error's quick fixes for the editor and the LSP server, about 30 lines less. Which fixes are listed, in what order and without duplicates is written twice, kept alike by a comment (`src/adapter/editor/lsp_server.cpp`, `src/adapter/editor/pet_editor_plugin.cpp`). The steps after a write to disk are written three times in the plugin.
 - The migration's helpers, about 20 lines less. `file_name` and `class_type` repeat the checker's (`src/compiler/migration.cpp`), and `Tentative` rolls back the five vectors of `Inflows` by hand (`src/compiler/checker_internal.h`).
 - The files of tools out of the compiler's identity, with no lines less (`COMPILER_ID`, `SConstruct`). A change to the migration, navigation, completion or warnings now refuses every cached bytecode file (`src/adapter/pet_compiled.cpp`). Leave out only a file that changes neither the module nor the errors of a compile, checked one by one.
 

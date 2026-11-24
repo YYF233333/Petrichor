@@ -1728,10 +1728,7 @@ Variant LspServer::on_formatting(const Dictionary &p_params) {
 	return result;
 }
 
-// The quick fixes on the lines of the range, as the script editor lists them
-// (PetEditorPlugin::list_fixes_at()): first those of the errors the range
-// meets, then of the others by position, each once; after them, fixing all
-// of each automatic kind among them where the editor offers it.
+// The quick fixes on the lines of the range (quick_fixes()).
 Variant LspServer::on_code_action(const Dictionary &p_params) {
 	const std::optional<Place> at = place_of(*view, p_params, false);
 	const Dictionary span = dictionary(p_params.get("range", Variant()));
@@ -1764,7 +1761,6 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 			on_lines.push_back(&error);
 		}
 	}
-	std::stable_partition(on_lines.begin(), on_lines.end(), [&](const compiler::Diagnostic *p_error) { return p_error->begin <= to && from <= p_error->end; });
 	// `p_data` names the fix, which the stamp of the check and the files it
 	// edits complete for codeAction/resolve. One refused for unsaved files
 	// says so in its title and has no edit: VS Code does not show a disabled
@@ -1794,36 +1790,24 @@ Variant LspServer::on_code_action(const Dictionary &p_params) {
 		}
 		actions.push_back(action);
 	};
-	std::vector<const compiler::Fix *> listed;
-	std::vector<compiler::FixKind> kinds;
-	for (const compiler::Diagnostic *error : on_lines) {
-		for (const compiler::Fix &fix : error->fixes) {
-			if (std::any_of(listed.begin(), listed.end(), [&](const compiler::Fix *p_listed) { return same_fix(*p_listed, fix); })) {
-				continue;
-			}
-			listed.push_back(&fix);
-			FileEdits edits;
-			for (const compiler::Fix::Edit &edit : fix.edits) {
-				edits[edit.file].push_back(edit.change);
-			}
-			Dictionary data;
-			data["title"] = to_godot(fix.title);
-			data["begin"] = int64_t(error->begin);
-			data["end"] = int64_t(error->end);
-			data["message"] = to_godot(error->message);
-			data["file"] = to_godot(error->file);
-			add(to_godot(fix.title), edits, error, fix.automatic(), data);
-			if (fix.automatic() && std::find(kinds.begin(), kinds.end(), fix.kind) == kinds.end()) {
-				kinds.push_back(fix.kind);
-			}
+	const QuickFixes listed = quick_fixes(on_lines, from, to, errors, at->path);
+	for (const auto &[error, fix] : listed.fixes) {
+		FileEdits edits;
+		for (const compiler::Fix::Edit &edit : fix->edits) {
+			edits[edit.file].push_back(edit.change);
 		}
+		Dictionary data;
+		data["title"] = to_godot(fix->title);
+		data["begin"] = int64_t(error->begin);
+		data["end"] = int64_t(error->end);
+		data["message"] = to_godot(error->message);
+		data["file"] = to_godot(error->file);
+		add(to_godot(fix->title), edits, error, fix->automatic(), data);
 	}
-	for (const compiler::FixKind kind : kinds) {
-		if (fixes_all(errors, at->path, kind)) {
-			Dictionary data;
-			data["kind"] = int64_t(kind);
-			add(vformat("Fix all '%s' in file", compiler::FIX_KINDS[size_t(kind)].name), { { at->path, compiler::fix_all(*result, kind) } }, nullptr, false, data);
-		}
+	for (const compiler::FixKind kind : listed.all) {
+		Dictionary data;
+		data["kind"] = int64_t(kind);
+		add(vformat("Fix all '%s' in file", compiler::FIX_KINDS[size_t(kind)].name), { { at->path, compiler::fix_all(*result, kind) } }, nullptr, false, data);
 	}
 	return actions;
 }
