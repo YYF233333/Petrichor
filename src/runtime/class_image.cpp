@@ -290,14 +290,15 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	// Each constant once (spec §4.5), its containers read-only at every level,
 	// as GDScript makes them (modules/gdscript/gdscript_analyzer.cpp:5318-5367).
 	// A scalar the engine computed is written into the constant, which the
-	// instructions for scalars read. Resources load with the class, except in
-	// a class that describes a script the editor is loading, which reads none
-	// (pub_constant()).
+	// instructions for scalars read. Resources load with the class, except a
+	// script that a constant only names in types, which no code reads (spec
+	// §2.1), and in a class that describes a script the editor is loading,
+	// which reads none (pub_constant()).
 	for (size_t i = 0; i < module.constants.size(); i++) {
 		bytecode::Constant &constant = image->module.constants[i];
 		const ValueType storage = types[constant.type].storage;
 		image->values.emplace_back();
-		const bool deferred = module.declarations_only && loads_resource(constant);
+		const bool deferred = constant.type_only || (module.declarations_only && loads_resource(constant));
 		if (!deferred && !constant_value(*image, constant, image->values.back(), r_error)) {
 			return nullptr;
 		}

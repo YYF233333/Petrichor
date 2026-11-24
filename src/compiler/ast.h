@@ -1025,4 +1025,29 @@ void for_each_child(const Node &p_node, Fn &&p_fn) {
 	}
 }
 
+// The names that the file's expressions read, as names, members or callees.
+// A constant among them is used as a value (spec §2.1), also where another
+// declaration of that name hides it.
+inline std::set<std::string> names_read(const ClassDecl &p_file) {
+	std::set<std::string> names;
+	const auto visit = [&](const auto &p_self, const auto &p_node) -> void {
+		if constexpr (std::is_same_v<std::decay_t<decltype(p_node)>, Expr>) {
+			if (p_node.kind == ExprKind::Name || p_node.kind == ExprKind::Member || p_node.kind == ExprKind::Call) {
+				names.insert(p_node.text);
+			}
+		}
+		for_each_child(p_node, [&](const auto &p_child) { p_self(p_self, p_child); });
+	};
+	visit(visit, p_file);
+	return names;
+}
+
+// Whether a constant of a class of the file whose names_read() are `p_read`
+// names a script that loading the file does not load (spec §2.1): one that
+// holds a script's preload, appears only in types and is not pub, which other
+// files and GDScript read.
+inline bool type_only(const ConstDecl &p_constant, const std::set<std::string> &p_read) {
+	return !p_constant.is_pub && p_constant.value && p_constant.value->kind == ConstValue::Kind::Preload && !p_constant.value->script.empty() && !p_read.count(p_constant.name);
+}
+
 } // namespace petrichor::compiler

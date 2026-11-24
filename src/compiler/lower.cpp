@@ -122,6 +122,7 @@ class Lowerer {
 	bytecode::Module &module;
 	std::vector<Diagnostic> &errors;
 	const StructLookup &structs;
+	const std::set<std::string> &read; // names_read() of the file.
 	std::unordered_map<uint32_t, Type> struct_types; // By their index in the type table.
 	// The structs and enums with payloads whose fields are being interned,
 	// and those interned, by "script::Name".
@@ -3513,8 +3514,8 @@ class Lowerer {
 	}
 
 public:
-	Lowerer(const ClassDecl &p_class, bytecode::Module &r_module, std::vector<Diagnostic> &r_errors, const StructLookup &p_structs) :
-			cls(p_class), module(r_module), errors(r_errors), structs(p_structs) {}
+	Lowerer(const ClassDecl &p_class, bytecode::Module &r_module, std::vector<Diagnostic> &r_errors, const StructLookup &p_structs, const std::set<std::string> &p_read) :
+			cls(p_class), module(r_module), errors(r_errors), structs(p_structs), read(p_read) {}
 
 	void run(bool p_declarations_only) {
 		// Type 0, which a result that is not there has.
@@ -3611,7 +3612,15 @@ public:
 		// The constants the engine and GDScript read by name (spec §10.5, §11.3).
 		for (const ConstDecl *constant : cls.all_constants) {
 			// One naming an enum with payloads has no value (spec §3.7).
-			if (constant->value && !(constant->value->names_enum && constant->type.kind == TypeKind::PayloadEnum)) {
+			if (!constant->value || (constant->value->names_enum && constant->type.kind == TypeKind::PayloadEnum)) {
+				continue;
+			}
+			if (type_only(*constant, read)) {
+				// An entry of its own, which no code reads.
+				bytecode::Constant entry = constant_of(*constant->value);
+				entry.type_only = true;
+				module.named_constants.push_back({ constant->name, add_constant(entry), false });
+			} else {
 				module.named_constants.push_back({ constant->name, shared_constant(*constant->value), constant->is_pub });
 			}
 		}
@@ -3737,15 +3746,19 @@ public:
 
 } // namespace
 
-bytecode::Module lower(const ClassDecl &p_class, bool p_declarations_only, std::vector<Diagnostic> &r_errors, const StructLookup &p_structs) {
+static bytecode::Module lower_class(const ClassDecl &p_class, bool p_declarations_only, std::vector<Diagnostic> &r_errors, const StructLookup &p_structs, const std::set<std::string> &p_read) {
 	bytecode::Module module;
-	Lowerer(p_class, module, r_errors, p_structs).run(p_declarations_only);
+	Lowerer(p_class, module, r_errors, p_structs, p_read).run(p_declarations_only);
 	module.name = p_class.name;
 	module.is_pub = p_class.is_pub;
 	for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
-		module.inner_classes.push_back(lower(*inner, p_declarations_only, r_errors, p_structs));
+		module.inner_classes.push_back(lower_class(*inner, p_declarations_only, r_errors, p_structs, p_read));
 	}
 	return module;
+}
+
+bytecode::Module lower(const ClassDecl &p_class, bool p_declarations_only, std::vector<Diagnostic> &r_errors, const StructLookup &p_structs) {
+	return lower_class(p_class, p_declarations_only, r_errors, p_structs, names_read(p_class));
 }
 
 } // namespace petrichor::compiler

@@ -1,0 +1,5 @@
+# The static initializations of preload_typed.pet and preload_valued.pet, in
+# the order they run (spec §2.1).
+extends RefCounted
+
+pub static var ran: Array[String] = []

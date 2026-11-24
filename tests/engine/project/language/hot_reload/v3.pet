@@ -8,6 +8,8 @@ var origin := Vector3(1, 2, 3)
 pub static var hits := 0
 # Compared by its bits, as NAN equals nothing (spec §12.4).
 pub const LIMIT := NAN
+# A type in version 1 and a value in version 2, which is a body change (spec §2.1, §12.4).
+const Grid = preload("res://language/preload_grid.pet")
 static var inits := 0
 
 static func _static_init() -> void:
@@ -19,6 +21,9 @@ pub func hit() -> int:
 
 pub func value() -> int:
 	return 3
+
+func gridded(g: Variant) -> bool:
+	return g is Grid
 
 pub signal tick
 pub async func delayed() -> int:

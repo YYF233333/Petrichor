@@ -1,0 +1,4 @@
+extends RefCounted
+
+static func _static_init() -> void:
+	preload("preload_log.pet").ran.append("typed")

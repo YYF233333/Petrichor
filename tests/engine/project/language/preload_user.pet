@@ -1,0 +1,14 @@
+# Loads preload_valued.pet with itself, and preload_typed.pet, which it names
+# only in types, not (spec §2.1).
+extends RefCounted
+
+const Typed = preload("preload_typed.pet")
+const Valued = preload("preload_valued.pet")
+
+
+pub func typed(x: Variant) -> bool:
+	return x is Typed
+
+
+pub func valued() -> RefCounted:
+	return Valued.new()
