@@ -398,6 +398,24 @@ TEST_CASE("an int joins a float in a member by its reads in every file, but not 
 	CHECK(compiler::migrate(fake_engine(), project, { "res://meter.gd", "res://gauge.gd" }, 10).numbers == 2);
 }
 
+// GDScript converts a float that goes where it wrote int, as int(x) does
+// (modules/gdscript/gdscript_analyzer.cpp:3062-3064, 6370-6374,
+// gdscript_vm.cpp:1433-1438; ed1daf0), and the result of a compound
+// assignment, not its right side (gdscript_compiler.cpp:1346-1381). A
+// variable declared with an int value and no type holds the float.
+TEST_CASE("a float into an int that GDScript wrote is converted, and a float joins an int value where every read keeps") {
+	FakeProject project;
+	project.add_script("res://base.gd", "extends Node\nvar delay = 0\nvar steps = 0\n\n\nfunc run() -> void:\n\tvar t := 0\n\tt = 1.5\n\tt += 0.5\n\tsteps = 2.5\n\tprint(t, delay > 0, Vector2(delay, 0), steps / 2)\n");
+	project.add_script("res://lock.gd", "extends \"res://base.gd\"\n\n\nfunc _init() -> void:\n\tself.delay = 0.3\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://base.gd", "res://lock.gd" }, 10);
+	CHECK(migration.texts.at("res://base.pet") == "extends Node\nvar delay: float = 0\nvar steps = 0\n\n\nfunc run() -> void:\n\tvar t := 0\n\tt = int(1.5)\n\tt += 0.5\n\tsteps = 2.5\n\tprint(t, delay > 0, Vector2(delay, 0), steps / 2)\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::IntConversion, 1 } });
+	CHECK(migration.numbers == 1);
+	REQUIRE(migration.errors.size() == 2);
+	CHECK(contains(migration.errors[0].message, "Cannot assign a value of type float as int"));
+	CHECK(contains(migration.errors[1].message, "Cannot assign a value of type float as int"));
+}
+
 TEST_CASE("an int joins a float by the reads of the last round only, not one beside a float that a later round makes an int") {
 	FakeProject project;
 	project.add_script("res://d.gd", "extends Node\n\n\nfunc f(x, y):\n\tprint(x / y)\n\n\nfunc g(k):\n\tf(1, k)\n\n\nfunc _ready() -> void:\n\tf(1.5, 2.0)\n\tg(2)\n");

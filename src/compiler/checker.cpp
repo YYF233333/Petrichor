@@ -15,6 +15,14 @@ int Checker::untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token) {
 	return options.inflows->slot(p_slot);
 }
 
+// The slot of a variable declared with an int value and no type: GDScript
+// holds it as a Variant, which a float may join (architecture §6.6). It
+// stays an int as the checks go.
+int Checker::valued_slot(Inflows::Slot p_slot, uint32_t p_name_token) {
+	p_slot.valued = true;
+	return untyped_slot(p_slot, p_name_token);
+}
+
 // The slot found already at the declaration whose name is token
 // `p_name_token`, or -1.
 int Checker::found_slot(uint32_t p_name_token) const {
@@ -431,6 +439,18 @@ const TypeRef *Checker::type_written_for(const Expr &p_target) const {
 		return is_own(*variable, p_checker->cls.members) || is_own(*variable, p_checker->cls.static_vars);
 	});
 	return here && variable->declared_type ? &*variable->declared_type : nullptr;
+}
+
+// Whether `p_target` names a variable that GDScript holds as a Variant: one
+// declared with a value and neither a type nor `:=`, which this language
+// types by the value (spec §4.3).
+bool Checker::variant_in_gdscript(const Expr &p_target) const {
+	if (p_target.target == Target::Local) {
+		const LocalInfo &local = function->locals[p_target.index];
+		return !local.written && cls.source->tokens[local.token + 1].kind != TokenKind::Colon;
+	}
+	const VarDecl *variable = p_target.target == Target::Member ? cls.all_members[p_target.index] : (p_target.target == Target::StaticVar || p_target.target == Target::ObjectProperty ? p_target.variable : nullptr);
+	return variable && !variable->declared_type && !variable->infers_type;
 }
 
 /* References (architecture §2.1) */

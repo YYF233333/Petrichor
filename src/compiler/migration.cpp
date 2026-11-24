@@ -1144,6 +1144,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		std::map<Inflows::Key, Type> next;
 		const std::vector<std::vector<Received>> flowed = received(inflows);
 		for (size_t i = 0; i < flowed.size(); i++) {
+			if (inflows.slots[i].valued) {
+				continue; // An int as the checks go.
+			}
 			bool numbers = false;
 			const std::optional<Type> type = merge(inflows.slots[i], flowed[i], numbers);
 			const auto wide = inflows.wide.find(inflows.slots[i].key);
@@ -1185,6 +1188,8 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	// The slots that received int and float tried Variant, so the reads beside
 	// a float that the last check found are beside floats in GDScript too.
 	std::optional<Uses> uses;
+	// One declared with an int value has a type tried only where a float
+	// joins it.
 	for (size_t i = 0; i < slots.size(); i++) {
 		bool numbers = false;
 		merge(slots[i], flowed[i], numbers);
@@ -1264,8 +1269,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	};
 	for (const Inflows::Slot &slot : slots) {
 		const auto found = tried.find(slot.key);
-		// A class written stays unless a subclass of it was found.
-		if (wide(slot.key) && (found == tried.end() || found->second == wide(slot.key)->type)) {
+		// A class written stays unless a subclass of it was found, and an int
+		// value's type unless a float joined it.
+		if ((wide(slot.key) && (found == tried.end() || found->second == wide(slot.key)->type)) || (slot.valued && found == tried.end())) {
 			continue;
 		}
 		Type type = found == tried.end() ? Type::of(TypeKind::Error) : found->second;

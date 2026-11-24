@@ -126,7 +126,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - a scene that nothing references lacking a node or a value for a must-assign export. A lacking node is now an error, as for a scene used as a root (Language);
   - writes to a resource known to be shared.
 - The error explaining why a GDScript file cannot extend a class of this language (spec §11.2).
-- A quick fix adding the constructor for the other implicit conversions of GDScript that this language drops, as `int(x)` for a float (spec §3.14). An Array into a packed array has one.
+- A quick fix adding the constructor for the other implicit conversions of GDScript that this language drops, as `Vector2i(v)` for a Vector2 (spec §3.14). An Array into a packed array and a float into an int have one.
 - The quick fix of spec §7.2 for a `$X` that no scene has: store the node in a typed member where it is added, as `var tetromino: Tetromino?`. No fix is offered now. The places that add the node are not known to the check.
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
 - With the lints of 0.3, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6, design-notes).

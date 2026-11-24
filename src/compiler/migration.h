@@ -41,6 +41,9 @@ struct Inflows {
 		// A variable that starts as an empty container, whose elements are the
 		// slot: "Array" or "Dictionary".
 		std::string container;
+		// A variable declared with an int value and no type, which GDScript
+		// holds as a Variant: an int unless a float joins it.
+		bool valued = false;
 	};
 	// A value into a slot, at an offset of a file, or the arguments of a call by
 	// name, on a value whose class is not known to have the method. One into

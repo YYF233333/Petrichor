@@ -152,6 +152,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - `.detach()`，以及字面量名字改用方法或信号本身；
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
     - packed 数组位置上的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）；
+    - `int` 位置上的 `float` 套上 `int(x)`。GDScript 在它写了类型（含 `:=`）的位置同样向零取整转换并给出警告（`modules/gdscript/gdscript_analyzer.cpp:3062-3064, 6370-6374`，`modules/gdscript/gdscript_byte_codegen.cpp:934-939, 992-997`，`modules/gdscript/gdscript_vm.cpp:1433-1438`，`core/variant/variant_construct.cpp:69`，`ed1daf0`）。复合赋值不提供：GDScript 转换的是运算结果（`modules/gdscript/gdscript_compiler.cpp:1346-1381`）。以值定型、没写 `:=` 的变量也不提供，它在 GDScript 中是 `Variant`，照存 `float`；
     - 多参信号结果的字面量下标改为它所指的字段（§6.6）；
     - 补上 `pub`（若声明会因此露出不带 `pub` 的类型，则不提供）。
   - 其余种类（如 `.unwrap()`、改为 `T?`、补上 `async`、`await`、null 模式和写 `as`）只作备选；自动修复排在首位且无需输入。
@@ -786,6 +787,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 没写 `->` 而有 `return` 值的函数返回值；
   - 没写类型、无初始值或初始值为 `null` 的成员、静态变量和局部变量；
   - 没写类型、以 `[]` 或 `{}` 初始化的上述变量，槽位是其元素和键；
+  - 没写类型也没写 `:=`、以 `int` 值初始化的上述变量，GDScript 中它是 `Variant`。初始值算一个流入，推断中它始终按 `int` 检查，只在 `float` 按下文规则并入时写下 `float`。tanks-of-freedom-ii 的子类给 `var delay = 0` 赋 `0.3`，由此写成 `var delay: float = 0`（`scenes/board/logic/scripting/outcomes/base_outcome.gd:3`）；未并入的保持 `int`，留下的赋值错误不套 `int(x)`（§2.1）；
   - 由场景定型且被其他文件读取的成员（如 `@onready var camera = $Camera`，§2.4；只由本文件读则仍由场景定型，规范 §7.1）；
   - 由资源定型且被其他文件读取的常量（如 `const STYLE := preload("res://style.tres")`）。
 - **流入证据**：

@@ -489,10 +489,10 @@ void Checker::check_member_declaration(size_t p_index) {
 		} else {
 			type = inferred(value, member.name_token, member.name);
 			expect_scene_fits(*member.initializer, type);
-			// Another file read it without its type from the scenes, so a
-			// migration took it as a slot (architecture §6.6), which takes the
-			// type it has here.
-			member.slot = found_slot(member.name_token);
+			// A migration takes it as a slot (architecture §6.6): an int, or one
+			// that another file read without its type from the scenes, which
+			// takes the type it has here.
+			member.slot = type.kind == TypeKind::Int && !member.infers_type ? valued_slot({ Inflows::Kind::Member, member.name }, member.name_token) : found_slot(member.name_token);
 			flow(member.slot, value, member.initializer->range);
 			type = member.slot >= 0 && type.is_error() ? tried(member.slot) : type;
 		}
@@ -747,6 +747,10 @@ void Checker::check_static_declaration(size_t p_index) {
 		} else {
 			type = inferred(value, variable.name_token, variable.name);
 			expect_scene_fits(*variable.initializer, type);
+			if (type.kind == TypeKind::Int && !variable.infers_type) {
+				variable.slot = valued_slot({ Inflows::Kind::Member, variable.name }, variable.name_token);
+				flow(variable.slot, value, variable.initializer->range);
+			}
 		}
 	} else if (!typed) {
 		error(variable.name_token, "\"" + variable.name + "\" needs a type or an initial value.");

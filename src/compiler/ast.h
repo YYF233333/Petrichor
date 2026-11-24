@@ -518,6 +518,7 @@ struct VarDecl {
 	bool is_static = false; // Of the class, not of an instance (spec §4.8).
 	std::vector<Annotation> annotations;
 	std::optional<TypeRef> declared_type;
+	bool infers_type = false; // Written `name := value`, which GDScript types too.
 	std::unique_ptr<Expr> initializer;
 	// Its setter and getter, by function name (spec §4.4): `@set_x` and
 	// `@get_x` for inline ones, which the parser adds to the functions.

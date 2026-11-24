@@ -1902,8 +1902,9 @@ std::string Checker::callable_refusal(const Type &p_function) const {
 }
 
 // `p_written` is the type of where the value goes, as written in this file
-// for a variable or a parameter.
-void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written) {
+// for a variable or a parameter; `p_converts`, whether GDScript converts the
+// value to its type there.
+void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written, bool p_converts) {
 	if (p_to.kind == TypeKind::Float) {
 		keep(p_value);
 	}
@@ -1936,6 +1937,12 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 	error(p_value.range, message);
 	if (p_to.kind == TypeKind::Variant && lost_in_encoding(p_from, *this, false) == p_from) {
 		fix({ { p_value.range, operand(p_value) + fitting_call(p_from) } }, FixKind::BothLevels);
+	} else if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int && p_converts) {
+		// GDScript converts it as int(x) does, toward zero
+		// (modules/gdscript/gdscript_byte_codegen.cpp:934-939, 992-997,
+		// gdscript_vm.cpp:1433-1438, core/variant/variant_construct.cpp:69;
+		// ed1daf0).
+		fix({ { p_value.range, "int(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::IntConversion);
 	} else if (p_from.kind == TypeKind::Builtin && p_from.name == "Array" && p_to.kind == TypeKind::Builtin && p_to.name.rfind("Packed", 0) == 0) {
 		// GDScript takes it and converts it element by element, as the
 		// engine's constructor does (core/variant/variant.cpp:814-819,

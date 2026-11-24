@@ -721,6 +721,10 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				} else {
 					type = inferred(value, r_stmt.name_token, r_stmt.name);
 					expect_scene_fits(*r_stmt.value, type);
+					if (type.kind == TypeKind::Int && cls.source->tokens[r_stmt.name_token + 1].kind != TokenKind::Colon) {
+						slot = valued_slot({ Inflows::Kind::Local, r_stmt.name }, r_stmt.name_token);
+						flow(slot, value, r_stmt.value->range);
+					}
 				}
 			} else if (!typed) {
 				error(r_stmt.name_token, "\"" + r_stmt.name + "\" needs a type or an initial value.");
@@ -811,7 +815,9 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				return;
 			}
 			const size_t reported = errors.size();
-			expect_assignable(*r_stmt.value, value, target_type, "assign", type_written_for(target));
+			// GDScript converts what a compound assignment computes, not its
+			// right side.
+			expect_assignable(*r_stmt.value, value, target_type, "assign", type_written_for(target), !compound && !variant_in_gdscript(target));
 			// A Variant says nothing of the target's type (architecture §6.6).
 			if (errors.size() > reported && value.kind != TypeKind::Variant) {
 				about(r_stmt.value->range, { typed_by(*r_stmt.value), target.range });

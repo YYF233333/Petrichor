@@ -739,6 +739,7 @@ class Checker : public ClassRelation, private CheckContext {
 	/* checker.cpp */
 
 	int untyped_slot(Inflows::Slot p_slot, uint32_t p_name_token);
+	int valued_slot(Inflows::Slot p_slot, uint32_t p_name_token);
 	int found_slot(uint32_t p_name_token) const;
 	void read_untyped(const ClassDecl &p_owner, const std::string &p_name, uint32_t p_name_token);
 	int wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type);
@@ -773,6 +774,7 @@ class Checker : public ClassRelation, private CheckContext {
 	std::optional<Fix::Edit> line_after(const TokenRange &p_range, uint32_t p_indented, const std::string &p_line) const;
 	void fix_optional(const TypeRef &p_written, const std::string &p_owner = std::string());
 	const TypeRef *type_written_for(const Expr &p_target) const;
+	bool variant_in_gdscript(const Expr &p_target) const;
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);
 	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target);
 	void refer_local(uint32_t p_token, const Type &p_type, bool p_constant = false);
@@ -1021,7 +1023,7 @@ class Checker : public ClassRelation, private CheckContext {
 	static std::string fitting_call(const Type &p_two_level);
 	std::string variant_refusal(const Type &p_type) const;
 	std::string callable_refusal(const Type &p_function) const;
-	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written = nullptr);
+	void expect_assignable(const Expr &p_value, const Type &p_from, const Type &p_to, const char *p_action, const TypeRef *p_written = nullptr, bool p_converts = true);
 	bool downcast(const Type &p_from, const Type &p_to) const;
 	void expect_condition(Expr &r_condition);
 

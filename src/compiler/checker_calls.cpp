@@ -797,6 +797,9 @@ Type Checker::check_constructor(Expr &r_expr, const builtin::Class &p_type) {
 		r_expr.param_types.push_back(param);
 		// Chosen by its own type, a string literal is built as the parameter's.
 		Expr &arg = *r_expr.args[a];
+		if (param.kind == TypeKind::Float) {
+			keep(arg);
+		}
 		if (arg.kind == ExprKind::StringLiteral && literal_type(arg, param) != arg.type) {
 			arg.constant = nullptr;
 			check_expr(arg, param);

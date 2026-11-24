@@ -1865,8 +1865,11 @@ class Parser {
 			// Without a type, the accessors may follow the colon, as in GDScript
 			// (modules/gdscript/gdscript_parser.cpp:1249-1270).
 			const bool untyped = check(TokenKind::Colon) && (peek(1).kind == TokenKind::Newline || is_word(peek(1), "set") || is_word(peek(1), "get"));
-			if (!untyped && match(TokenKind::Colon) && !check(TokenKind::Equal)) {
-				decl.declared_type = type_ref();
+			if (!untyped && match(TokenKind::Colon)) {
+				decl.infers_type = check(TokenKind::Equal);
+				if (!decl.infers_type) {
+					decl.declared_type = type_ref();
+				}
 			}
 			if (match(TokenKind::Equal)) {
 				decl.initializer = expression();
