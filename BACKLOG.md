@@ -6,7 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- One list of the tokens, about 200 lines less. Now the enum, `token_name()` and the keyword table each repeat them (`src/compiler/lexer.h`, `src/compiler/lexer.cpp`). Messages then quote `await` and `super`, as they quote the other keywords.
 - One struct for the checker's mutable context, saved and restored whole, and one per-function state for lowering. About 70 lines less.
   - Now seven places of the checker save parts of its context.
   - Lowering also gets one setup path for methods and lambdas (`src/compiler/lower.cpp`).

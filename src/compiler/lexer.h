@@ -10,106 +10,105 @@
 
 namespace petrichor::compiler {
 
+// The tokens, each with what messages call it: X by what it is, K (keyword)
+// and P (punctuation) by its spelling, which messages quote. The keywords this
+// language adds, and `match` and `when`, are identifiers (is_word()).
+#define PETRICHOR_TOKENS(X, K, P) \
+	X(EndOfFile, "end of file") \
+	X(Newline, "line break") \
+	X(Indent, "indent") \
+	X(Dedent, "dedent") \
+	X(Identifier, "identifier") \
+	X(Int, "integer") \
+	X(Float, "float") \
+	X(String, "string") \
+	X(StringName, "StringName") /* `&"…"` */ \
+	X(NodePath, "NodePath") /* `^"…"` */ \
+	K(Await, "await") \
+	K(And, "and") \
+	K(As, "as") \
+	K(Assert, "assert") \
+	K(Break, "break") \
+	K(Breakpoint, "breakpoint") \
+	K(Class, "class") \
+	K(ClassName, "class_name") \
+	K(Const, "const") \
+	K(Continue, "continue") \
+	K(Elif, "elif") \
+	K(Else, "else") \
+	K(Enum, "enum") \
+	K(Extends, "extends") \
+	K(False, "false") \
+	K(For, "for") \
+	K(Func, "func") \
+	K(If, "if") \
+	K(In, "in") \
+	K(Is, "is") \
+	K(Not, "not") \
+	K(Null, "null") \
+	K(Or, "or") \
+	K(Pass, "pass") \
+	K(Return, "return") \
+	K(Self, "self") \
+	K(Super, "super") \
+	K(Signal, "signal") \
+	K(Static, "static") \
+	K(True, "true") \
+	K(Var, "var") \
+	K(While, "while") \
+	P(At, "@") \
+	P(Dollar, "$") \
+	P(Question, "?") \
+	P(Bang, "!") \
+	P(Colon, ":") \
+	P(Semicolon, ";") \
+	P(Comma, ",") \
+	P(Period, ".") \
+	P(Ellipsis, "...") \
+	P(ParenOpen, "(") \
+	P(ParenClose, ")") \
+	P(BracketOpen, "[") \
+	P(BracketClose, "]") \
+	P(BraceOpen, "{") \
+	P(BraceClose, "}") \
+	P(Arrow, "->") \
+	P(Plus, "+") \
+	P(Minus, "-") \
+	P(Star, "*") \
+	P(StarStar, "**") \
+	P(Slash, "/") \
+	P(Percent, "%") \
+	P(Equal, "=") \
+	P(PlusEqual, "+=") \
+	P(MinusEqual, "-=") \
+	P(StarEqual, "*=") \
+	P(StarStarEqual, "**=") \
+	P(SlashEqual, "/=") \
+	P(PercentEqual, "%=") \
+	P(AmpersandEqual, "&=") \
+	P(PipeEqual, "|=") \
+	P(CaretEqual, "^=") \
+	P(ShiftLeftEqual, "<<=") \
+	P(ShiftRightEqual, ">>=") \
+	P(EqualEqual, "==") \
+	P(BangEqual, "!=") \
+	P(Less, "<") \
+	P(LessEqual, "<=") \
+	P(Greater, ">") \
+	P(GreaterEqual, ">=") \
+	P(Ampersand, "&") \
+	P(Pipe, "|") \
+	P(Caret, "^") \
+	P(Tilde, "~") \
+	P(ShiftLeft, "<<") \
+	P(ShiftRight, ">>") \
+	X(Comment, "comment") /* trivia from here on, which the parser does not read */ \
+	X(LineContinuation, "line continuation") /* a backslash that continues a line */ \
+	X(Invalid, "invalid character") /* a character that begins no token, or a closing bracket that closes none */
+
+#define PETRICHOR_TOKEN_ENUM(m_name, m_text) m_name,
 enum class TokenKind {
-	EndOfFile,
-	Newline,
-	Indent,
-	Dedent,
-
-	Identifier,
-	Int,
-	Float,
-	String,
-	StringName, // `&"…"`
-	NodePath, // `^"…"`
-
-	// Keywords. Those this language adds, and `match` and `when`, are
-	// identifiers (is_word()).
-	Await,
-	And,
-	As,
-	Assert,
-	Break,
-	Breakpoint,
-	Class,
-	ClassName,
-	Const,
-	Continue,
-	Elif,
-	Else,
-	Enum,
-	Extends,
-	False,
-	For,
-	Func,
-	If,
-	In,
-	Is,
-	Not,
-	Null,
-	Or,
-	Pass,
-	Return,
-	Self,
-	Super,
-	Signal,
-	Static,
-	True,
-	Var,
-	While,
-
-	// Punctuation and operators.
-	At,
-	Dollar,
-	Question,
-	Bang,
-	Colon,
-	Semicolon,
-	Comma,
-	Period,
-	Ellipsis,
-	ParenOpen,
-	ParenClose,
-	BracketOpen,
-	BracketClose,
-	BraceOpen,
-	BraceClose,
-	Arrow,
-	Plus,
-	Minus,
-	Star,
-	StarStar,
-	Slash,
-	Percent,
-	Equal,
-	PlusEqual,
-	MinusEqual,
-	StarEqual,
-	StarStarEqual,
-	SlashEqual,
-	PercentEqual,
-	AmpersandEqual,
-	PipeEqual,
-	CaretEqual,
-	ShiftLeftEqual,
-	ShiftRightEqual,
-	EqualEqual,
-	BangEqual,
-	Less,
-	LessEqual,
-	Greater,
-	GreaterEqual,
-	Ampersand,
-	Pipe,
-	Caret,
-	Tilde,
-	ShiftLeft,
-	ShiftRight,
-
-	// Trivia, which the parser does not read.
-	Comment,
-	LineContinuation, // A backslash that continues a line.
-	Invalid, // A character that begins no token, or a closing bracket that closes none.
+	PETRICHOR_TOKENS(PETRICHOR_TOKEN_ENUM, PETRICHOR_TOKEN_ENUM, PETRICHOR_TOKEN_ENUM)
 };
 
 const char *token_name(TokenKind p_kind);

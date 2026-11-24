@@ -7,196 +7,19 @@
 #include <locale>
 #include <optional>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 
 namespace petrichor::compiler {
 
+#define PETRICHOR_TOKEN_NONE(m_name, m_text)
+#define PETRICHOR_TOKEN_NAME(m_name, m_text) m_text,
+#define PETRICHOR_TOKEN_QUOTED(m_name, m_text) "\"" m_text "\"",
+#define PETRICHOR_TOKEN_SPELLING(m_name, m_text) { m_text, TokenKind::m_name },
+
 const char *token_name(TokenKind p_kind) {
-	switch (p_kind) {
-		case TokenKind::EndOfFile:
-			return "end of file";
-		case TokenKind::Newline:
-			return "line break";
-		case TokenKind::Indent:
-			return "indent";
-		case TokenKind::Dedent:
-			return "dedent";
-		case TokenKind::Identifier:
-			return "identifier";
-		case TokenKind::Int:
-			return "integer";
-		case TokenKind::Float:
-			return "float";
-		case TokenKind::String:
-			return "string";
-		case TokenKind::StringName:
-			return "StringName";
-		case TokenKind::NodePath:
-			return "NodePath";
-		case TokenKind::Await:
-			return "await";
-		case TokenKind::And:
-			return "\"and\"";
-		case TokenKind::As:
-			return "\"as\"";
-		case TokenKind::Assert:
-			return "\"assert\"";
-		case TokenKind::Break:
-			return "\"break\"";
-		case TokenKind::Breakpoint:
-			return "\"breakpoint\"";
-		case TokenKind::Class:
-			return "\"class\"";
-		case TokenKind::ClassName:
-			return "\"class_name\"";
-		case TokenKind::Const:
-			return "\"const\"";
-		case TokenKind::Continue:
-			return "\"continue\"";
-		case TokenKind::Elif:
-			return "\"elif\"";
-		case TokenKind::Else:
-			return "\"else\"";
-		case TokenKind::Enum:
-			return "\"enum\"";
-		case TokenKind::Extends:
-			return "\"extends\"";
-		case TokenKind::False:
-			return "\"false\"";
-		case TokenKind::For:
-			return "\"for\"";
-		case TokenKind::Func:
-			return "\"func\"";
-		case TokenKind::If:
-			return "\"if\"";
-		case TokenKind::In:
-			return "\"in\"";
-		case TokenKind::Is:
-			return "\"is\"";
-		case TokenKind::Null:
-			return "\"null\"";
-		case TokenKind::Not:
-			return "\"not\"";
-		case TokenKind::Or:
-			return "\"or\"";
-		case TokenKind::Pass:
-			return "\"pass\"";
-		case TokenKind::Return:
-			return "\"return\"";
-		case TokenKind::Super:
-			return "super";
-		case TokenKind::Self:
-			return "\"self\"";
-		case TokenKind::Signal:
-			return "\"signal\"";
-		case TokenKind::Static:
-			return "\"static\"";
-		case TokenKind::True:
-			return "\"true\"";
-		case TokenKind::Var:
-			return "\"var\"";
-		case TokenKind::While:
-			return "\"while\"";
-		case TokenKind::At:
-			return "\"@\"";
-		case TokenKind::Dollar:
-			return "\"$\"";
-		case TokenKind::Question:
-			return "\"?\"";
-		case TokenKind::Bang:
-			return "\"!\"";
-		case TokenKind::Colon:
-			return "\":\"";
-		case TokenKind::Semicolon:
-			return "\";\"";
-		case TokenKind::Comma:
-			return "\",\"";
-		case TokenKind::Period:
-			return "\".\"";
-		case TokenKind::Ellipsis:
-			return "\"...\"";
-		case TokenKind::ParenOpen:
-			return "\"(\"";
-		case TokenKind::ParenClose:
-			return "\")\"";
-		case TokenKind::BracketOpen:
-			return "\"[\"";
-		case TokenKind::BracketClose:
-			return "\"]\"";
-		case TokenKind::BraceOpen:
-			return "\"{\"";
-		case TokenKind::BraceClose:
-			return "\"}\"";
-		case TokenKind::Arrow:
-			return "\"->\"";
-		case TokenKind::Plus:
-			return "\"+\"";
-		case TokenKind::Minus:
-			return "\"-\"";
-		case TokenKind::Star:
-			return "\"*\"";
-		case TokenKind::StarStar:
-			return "\"**\"";
-		case TokenKind::Slash:
-			return "\"/\"";
-		case TokenKind::Percent:
-			return "\"%\"";
-		case TokenKind::Equal:
-			return "\"=\"";
-		case TokenKind::PlusEqual:
-			return "\"+=\"";
-		case TokenKind::MinusEqual:
-			return "\"-=\"";
-		case TokenKind::StarEqual:
-			return "\"*=\"";
-		case TokenKind::StarStarEqual:
-			return "\"**=\"";
-		case TokenKind::SlashEqual:
-			return "\"/=\"";
-		case TokenKind::PercentEqual:
-			return "\"%=\"";
-		case TokenKind::AmpersandEqual:
-			return "\"&=\"";
-		case TokenKind::PipeEqual:
-			return "\"|=\"";
-		case TokenKind::CaretEqual:
-			return "\"^=\"";
-		case TokenKind::ShiftLeftEqual:
-			return "\"<<=\"";
-		case TokenKind::ShiftRightEqual:
-			return "\">>=\"";
-		case TokenKind::EqualEqual:
-			return "\"==\"";
-		case TokenKind::BangEqual:
-			return "\"!=\"";
-		case TokenKind::Less:
-			return "\"<\"";
-		case TokenKind::LessEqual:
-			return "\"<=\"";
-		case TokenKind::Greater:
-			return "\">\"";
-		case TokenKind::GreaterEqual:
-			return "\">=\"";
-		case TokenKind::Ampersand:
-			return "\"&\"";
-		case TokenKind::Pipe:
-			return "\"|\"";
-		case TokenKind::Caret:
-			return "\"^\"";
-		case TokenKind::Tilde:
-			return "\"~\"";
-		case TokenKind::ShiftLeft:
-			return "\"<<\"";
-		case TokenKind::ShiftRight:
-			return "\">>\"";
-		case TokenKind::Comment:
-			return "comment";
-		case TokenKind::LineContinuation:
-			return "line continuation";
-		case TokenKind::Invalid:
-			return "invalid character";
-	}
-	return "?";
+	static const char *const names[] = { PETRICHOR_TOKENS(PETRICHOR_TOKEN_NAME, PETRICHOR_TOKEN_QUOTED, PETRICHOR_TOKEN_QUOTED) };
+	return names[int(p_kind)];
 }
 
 std::vector<uint32_t> line_starts_of(const std::string &p_text) {
@@ -332,40 +155,7 @@ bool ends_operand(TokenKind p_kind) {
 namespace {
 
 const std::unordered_map<std::string, TokenKind> &keywords() {
-	static const std::unordered_map<std::string, TokenKind> table = {
-		{ "await", TokenKind::Await },
-		{ "and", TokenKind::And },
-		{ "as", TokenKind::As },
-		{ "assert", TokenKind::Assert },
-		{ "break", TokenKind::Break },
-		{ "breakpoint", TokenKind::Breakpoint },
-		{ "class", TokenKind::Class },
-		{ "class_name", TokenKind::ClassName },
-		{ "const", TokenKind::Const },
-		{ "continue", TokenKind::Continue },
-		{ "elif", TokenKind::Elif },
-		{ "else", TokenKind::Else },
-		{ "enum", TokenKind::Enum },
-		{ "extends", TokenKind::Extends },
-		{ "false", TokenKind::False },
-		{ "for", TokenKind::For },
-		{ "func", TokenKind::Func },
-		{ "if", TokenKind::If },
-		{ "in", TokenKind::In },
-		{ "is", TokenKind::Is },
-		{ "null", TokenKind::Null },
-		{ "not", TokenKind::Not },
-		{ "or", TokenKind::Or },
-		{ "pass", TokenKind::Pass },
-		{ "return", TokenKind::Return },
-		{ "self", TokenKind::Self },
-		{ "super", TokenKind::Super },
-		{ "signal", TokenKind::Signal },
-		{ "static", TokenKind::Static },
-		{ "true", TokenKind::True },
-		{ "var", TokenKind::Var },
-		{ "while", TokenKind::While },
-	};
+	static const std::unordered_map<std::string, TokenKind> table = { PETRICHOR_TOKENS(PETRICHOR_TOKEN_NONE, PETRICHOR_TOKEN_SPELLING, PETRICHOR_TOKEN_NONE) };
 	return table;
 }
 
@@ -948,153 +738,61 @@ class Lexer {
 		const uint32_t start = at;
 		const unsigned char c = peek();
 		const unsigned char next = peek(1);
-		auto one = [&](TokenKind p_kind) {
-			advance();
-			push(p_kind, start);
-		};
-		auto two = [&](TokenKind p_kind) {
-			advance();
-			advance();
-			push(p_kind, start);
-		};
-		auto three = [&](TokenKind p_kind) {
-			advance();
-			advance();
-			advance();
-			push(p_kind, start);
-		};
-		switch (c) {
-			case '@':
-				one(TokenKind::At);
+		if (c == '.' && is_digit(next)) {
+			number();
+			return;
+		}
+		if ((c == '&' || c == '^') && (next == '"' || next == '\'')) {
+			string(c == '&' ? TokenKind::StringName : TokenKind::NodePath);
+			return;
+		}
+		static constexpr std::pair<std::string_view, TokenKind> spellings[] = { PETRICHOR_TOKENS(PETRICHOR_TOKEN_NONE, PETRICHOR_TOKEN_NONE, PETRICHOR_TOKEN_SPELLING) };
+		TokenKind kind = TokenKind::Invalid;
+		size_t length = 0;
+		for (const auto &[spelling, candidate] : spellings) {
+			if (spelling.size() > length && source.compare(at, spelling.size(), spelling) == 0) {
+				kind = candidate;
+				length = spelling.size();
+			}
+		}
+		// && and || are GDScript's spellings of and and or.
+		if ((c == '&' || c == '|') && next == c) {
+			kind = c == '&' ? TokenKind::And : TokenKind::Or;
+			length = 2;
+		}
+		switch (kind) {
+			case TokenKind::Invalid:
+				advance();
+				trivia(TokenKind::Invalid, start);
+				error(start, at, std::string("Unexpected character \"") + char(c) + "\".");
 				return;
-			case '$':
-				one(TokenKind::Dollar);
-				return;
-			case '?':
-				one(TokenKind::Question);
-				return;
-			case ':':
-				one(TokenKind::Colon);
-				return;
-			case ';':
-				one(TokenKind::Semicolon);
-				return;
-			case ',':
+			case TokenKind::Comma:
 				// Also after a statement of the block's first level, where no
 				// pattern of a match can be, as GDScript ends a lambda at what
 				// follows a statement (modules/gdscript/gdscript_parser.cpp:673-690; ed1daf0).
 				if (!lambda_blocks.empty() && at_statement() && (rest_of_line_empty(at + 1) || indents.size() <= 2)) {
 					close_lambda_block();
 				}
-				one(TokenKind::Comma);
-				return;
-			case '.':
-				if (is_digit(next)) {
-					number();
-				} else {
-					next == '.' && peek(2) == '.' ? three(TokenKind::Ellipsis) : one(TokenKind::Period);
-				}
-				return;
-			case '(':
-				open_bracket();
-				one(TokenKind::ParenOpen);
-				return;
-			case ')':
-				close_bracket() ? one(TokenKind::ParenClose) : unmatched(start);
-				return;
+				break;
 			// Line breaks inside brackets are ignored too, as in GDScript.
-			case '[':
+			case TokenKind::ParenOpen:
+			case TokenKind::BracketOpen:
+			case TokenKind::BraceOpen:
 				open_bracket();
-				one(TokenKind::BracketOpen);
-				return;
-			case ']':
-				close_bracket() ? one(TokenKind::BracketClose) : unmatched(start);
-				return;
-			case '{':
-				open_bracket();
-				one(TokenKind::BraceOpen);
-				return;
-			case '}':
-				close_bracket() ? one(TokenKind::BraceClose) : unmatched(start);
-				return;
-			case '+':
-				next == '=' ? two(TokenKind::PlusEqual) : one(TokenKind::Plus);
-				return;
-			case '-':
-				if (next == '>') {
-					two(TokenKind::Arrow);
-				} else {
-					next == '=' ? two(TokenKind::MinusEqual) : one(TokenKind::Minus);
+				break;
+			case TokenKind::ParenClose:
+			case TokenKind::BracketClose:
+			case TokenKind::BraceClose:
+				if (!close_bracket()) {
+					unmatched(start);
+					return;
 				}
-				return;
-			case '*':
-				if (next == '*') {
-					peek(2) == '=' ? three(TokenKind::StarStarEqual) : two(TokenKind::StarStar);
-				} else {
-					next == '=' ? two(TokenKind::StarEqual) : one(TokenKind::Star);
-				}
-				return;
-			case '/':
-				next == '=' ? two(TokenKind::SlashEqual) : one(TokenKind::Slash);
-				return;
-			case '%':
-				next == '=' ? two(TokenKind::PercentEqual) : one(TokenKind::Percent);
-				return;
-			case '=':
-				next == '=' ? two(TokenKind::EqualEqual) : one(TokenKind::Equal);
-				return;
-			case '!':
-				next == '=' ? two(TokenKind::BangEqual) : one(TokenKind::Bang);
-				return;
-			// && and || are GDScript's spellings of and and or.
-			case '&':
-				if (next == '&' || next == '=') {
-					two(next == '&' ? TokenKind::And : TokenKind::AmpersandEqual);
-				} else if (next == '"' || next == '\'') {
-					string(TokenKind::StringName);
-				} else {
-					one(TokenKind::Ampersand);
-				}
-				return;
-			case '|':
-				if (next == '|' || next == '=') {
-					two(next == '|' ? TokenKind::Or : TokenKind::PipeEqual);
-				} else {
-					one(TokenKind::Pipe);
-				}
-				return;
-			case '^':
-				if (next == '=') {
-					two(TokenKind::CaretEqual);
-				} else if (next == '"' || next == '\'') {
-					string(TokenKind::NodePath);
-				} else {
-					one(TokenKind::Caret);
-				}
-				return;
-			case '~':
-				one(TokenKind::Tilde);
-				return;
-			case '<':
-				if (next == '<') {
-					peek(2) == '=' ? three(TokenKind::ShiftLeftEqual) : two(TokenKind::ShiftLeft);
-				} else {
-					next == '=' ? two(TokenKind::LessEqual) : one(TokenKind::Less);
-				}
-				return;
-			case '>':
-				if (next == '>') {
-					peek(2) == '=' ? three(TokenKind::ShiftRightEqual) : two(TokenKind::ShiftRight);
-				} else {
-					next == '=' ? two(TokenKind::GreaterEqual) : one(TokenKind::Greater);
-				}
-				return;
+				break;
 			default:
 				break;
 		}
-		advance();
-		trivia(TokenKind::Invalid, start);
-		error(start, at, std::string("Unexpected character \"") + char(c) + "\".");
+		at += uint32_t(length);
+		push(kind, start);
 	}
 
 public:
