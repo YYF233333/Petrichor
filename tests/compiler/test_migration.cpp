@@ -397,6 +397,19 @@ TEST_CASE("the loop of fixes makes a signal's parameter T? where the original em
 	CHECK(migration.errors.empty());
 }
 
+// GDScript calls a bare new() on the script that runs it: in static code the
+// class, in a method the script of self, which may be a subclass
+// (modules/gdscript/gdscript_compiler.cpp:654-661, gdscript_vm.cpp:656-666;
+// ed1daf0).
+TEST_CASE("a bare new() in static code constructs the class by its name, and one in a method stays an error") {
+	FakeProject project;
+	project.add_script("res://modifier.gd", "class_name Modifier\nextends Node\nvar source := \"\"\n\n\nstatic func create(from: String) -> Modifier:\n\tvar made := new()\n\tmade.source = from\n\treturn made\n\n\nfunc copy() -> Modifier:\n\treturn new()\n\n\nclass Part:\n\tstatic func make() -> Part:\n\t\treturn new()\n", "Modifier");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://modifier.gd" }, 10);
+	CHECK(migration.texts.at("res://modifier.pet") == "class_name Modifier\nextends Node\nvar source := \"\"\n\n\nstatic func create(from: String) -> Modifier:\n\tvar made := Modifier.new()\n\tmade.source = from\n\treturn made\n\n\nfunc copy() -> Modifier:\n\treturn new()\n\n\nclass Part:\n\tstatic func make() -> Part:\n\t\treturn Part.new()\n");
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].line == 13);
+}
+
 TEST_CASE("a literal path from the root to an autoload becomes its name, whose class the inference reads") {
 	FakeProject project;
 	project.add_script("res://audio.gd", "extends Node\n\n\nfunc play(sound):\n\tprint(sound)\n");

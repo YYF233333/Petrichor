@@ -1831,7 +1831,18 @@ Type Checker::type_call(Expr &r_expr, const Type &p_expected) {
 		}
 	}
 
-	return fail_call(r_expr, missing("Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".", options.path));
+	const std::string message = missing("Function \"" + name + "()\" not found in the class or its base " + cls.extends + ".", options.path);
+	// GDScript calls a bare new() on the script that runs it, which in static
+	// code is the class (modules/gdscript/gdscript_compiler.cpp:654-661,
+	// gdscript_vm.cpp:656-666, gdscript.cpp:928-947; ed1daf0). A class without
+	// a class_name has no name to write.
+	const std::string &own = cls.name.empty() ? cls.class_name : cls.name;
+	if (!r_expr.base && name == "new" && (function ? function->is_static : static_initializing >= 0) && !own.empty() && !declares(own)) {
+		error(r_expr.range, message);
+		fix({ { { r_expr.name_token, r_expr.name_token }, own + ".new" } }, FixKind::OwnClass);
+		return check_class_call(r_expr, options.path);
+	}
+	return fail_call(r_expr, message);
 }
 
 // A direct call of a built-in type's constructor, of preload(), a keyword in
