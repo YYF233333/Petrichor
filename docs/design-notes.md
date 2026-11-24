@@ -398,6 +398,8 @@ GDScript 运行出错后会放任调用方继续执行：debug 构建返回类�
 
 - **lambda 中的 `await`**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)里 979 个 lambda 有 35 个含 `await`（其中 33 个在 `gdUnit4` 测试里）；v2 的 3,518 个 lambda 中有 125 个，分布在 11 库。
 - **`await` 多参数或未知签名信号**：[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果，也只有 1 个使用了签名未知的 `Signal` 结果。后者位于 `godot_dialogue_manager` `:1956`，经 `RefCounted` 接收者等待 C# 两参数信号。v2 中使用多参数信号结果增至 24 处，分布在 9 库，其中 15 处接收者签名静态已知（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
+  - 这些代码拿到数组后都在给各项起名字：godot-tiny-mmo 把 `args[0]` 到 `args[3]` 逐个存进带类型的局部变量（`source/client/gateway/gateway.gd:342`），godots 把数组包进类再写访问方法（`src/http_client.gd:29`），material-maker 直接读 `result[1]` 和 `result[3]`（`addons/material_maker/engine/loader.gd:81`）。信号的声明已经给出每个参数的名字和类型，所以结果按参数名给出字段。
+  - 它转为 `Variant` 时仍是 GDScript 给出的数组（[引擎事实](engine-facts.md)）。按 struct 的规则编码成字典，会让同样的写法悄悄不同。
 
 #### 协程的快速修复（§9.1）
 
@@ -505,7 +507,8 @@ Petrichor 沿用 GDScript 的做法，允许把 autoload 名直接写在类型�
 | int 与 float 混用的工具函数统一提升为 float | GDScript 原样返回实参，结果会悄悄不同 | §10.3 |
 | `pop_front()` 在空数组上是程序错误 | 引擎在这里返回 null 而不报错，会悄悄不同 | §3.8 |
 | `pop_at` 与 `pop_back` 一样返回 `T?` | 真实代码都按已知的下标用 `pop_at` 移出元素，不判断结果为空。返回 `T?` 让每处都要解开，而越界本身就是错误 | §3.8 |
-| await 多参数信号得到无类型 Array，与 GDScript 相同 | 会丢失各参数的静态类型。第一版拟改用元组承接 | §9.6 |
+| await 多参数信号得到无类型 Array，与 GDScript 相同 | 会丢失各参数的静态类型，结果改为按参数名给出字段 | §9.6 |
+| await 多参数信号得到元组，或只用于 await 的解构绑定 | 按位置取值会留下 `r[3]` 这类写法，而信号的声明已有各参数的名字。元组是整套新写法，作为独立的功能以后再议 | §9.6 |
 | 引擎属性照 GDScript 按名读写，对象脚本的 `_get`、`_set` 可以拦截 | 每次访问都要先问对象有没有脚本。经 GDExtension 问一次，就抵掉了直接调用的大部分收益；GDScript 自己调 setter 时也不经拦截 | §10.5 |
 | 以 if/else 块为值 | 与条件表达式重复 | §5.5 |
 | 为基类要求的、可选的和运行时添加的子节点各设一种声明 | 按使用方式的检查和 `get_node_or_null` 已经覆盖这三种情况，新的声明只会增加概念 | §7.2 |

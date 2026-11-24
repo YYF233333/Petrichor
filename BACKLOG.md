@@ -37,6 +37,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 
 ## Language
 
+- The value of awaiting a signal with several parameters (spec §9.6): one field for each parameter, named and typed by the signal's declaration. It is a struct that the compiler declares, with no type kind or instruction of its own. As a `Variant` it is the `Array` of the arguments. Its literal index gets the automatic fix to the field, which the migration applies and the reverse conversion undoes (architecture §6.6). It is one of the designs settled before the freeze, which ship with the release after they are settled (architecture §5).
 - The error on an index, member or call of a `Variant` names only the conversion `T(v)` and `is` (spec §3.13). It should also name decoding into a struct with `T.try_from(v)`, which the restriction is for (design notes). tanks-of-freedom-ii meets it 697 times, 446 of them an index on the result of another index, as `trigger_data["details"]["unit"][0]` (`scenes/map_editor/story/triggers/types/move.gd:44`).
 - Load cycles the check misses (spec §7.6): a subclass in another file that uses its base's `preload` constant as a value, and a constant copied through two or more constants. Both load the script at run time without an edge (`load_edges()` in `src/compiler/script_classes.cpp`); the old token scan missed them too.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
@@ -340,8 +341,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Before 0.9: the text that `str`, `print` and `%` give for values of this language (spec §5.1). Showing them as written is a later addition (spec §14.2). After the freeze it would change what legal code does.
 - Before 0.9: a design on paper for the cleanup code of a cancelled task, a later addition (spec §9.4, §14.2). It must fit `cancel()` releasing the frame at once (spec §9.3).
 - After 0.3 and before 0.9: user-defined generics (spec §3.10, §14.3, design-notes §1.1). Their definitions stay in their own modules (architecture §6.1).
-- After 0.3 and before 0.9: tuples for multi-parameter signal `await` (spec §9.6, §14.3). Decide then whether `await Task.all([...])` also returns a tuple of heterogeneous results (§9.5).
-  - About half of the uses in corpus v2 await `HTTPRequest.request_completed`, often reading `[3]`. Fields named by the signal's parameters, as `.body`, are a candidate besides tuples.
+- Tuples as a feature of their own, and whether `await Task.all([...])` then returns the results of its tasks (spec §9.5, §14.2). No real code asks for them yet.
   - Before them, `AWAIT_TASK` and `AWAIT_SIGNAL` must carry the type of their result, as other instructions with a result do. Now the VM searches the frame's slots on each resume.
 - Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
