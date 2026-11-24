@@ -163,6 +163,6 @@ Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/
 文档写法应匹配各自的角色。提交钩子 `tools/check_doc_style.py` 会标记改动行里超过 60 字或 40 词的句子（状态标记不计入）。它用来防多条意思挤在一句里，不是要求拆碎自然句子；发布说明、报告等一次性文本不受此限。
 
 - 规范与速查表：一句只讲一件事，条件放在结果前面，句内并列或连串的“或”改写成列表。
-- `README`、`docs/design-notes.md`、`docs/architecture.md` 和 `docs/development.md`：优先使用节奏自然的短散文段落，避免大段条目；列表留给并列项、步骤或对照，长实现段落用子标题分组。
+- `README`、`docs/getting-started.md`（含中文版）、`docs/design-notes.md`、`docs/architecture.md` 和 `docs/development.md`：优先使用节奏自然的短散文段落，避免大段条目；列表留给并列项、步骤或对照，长实现段落用子标题分组。
 - 通用要求：用具体主语与主动动词，避免宣传或居高临下的空话，`path:line` 出处与链接放在句末括号里。
 - 规范内引用其他规则时写概念名（如“比较规则”），不写章节号。

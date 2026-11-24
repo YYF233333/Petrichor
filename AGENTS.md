@@ -17,12 +17,13 @@ The target engine is Godot 4.7. Check engine behavior against the Godot source c
 ## Documentation
 
 - Each document holds one kind of content:
+  - `docs/getting-started.md` / `docs/getting-started.zh.md`: user-facing setup, editor, CLI and workflow guide;
   - `docs/language-spec.zh.md`: concise normative rules, without engine `path:line` citations or review history (regenerate `docs/language-spec.md` via `tools/spec_translation.md`);
   - `docs/design-notes.md`: detailed rationales, corpus counts, post-v1 designs and rejected alternatives;
   - `docs/engine-facts.md`: engine citations;
   - `docs/architecture.md`: implementation decisions, the constraints they keep and the roadmap, without progress notes;
   - `BACKLOG.md`: unfinished work and open questions.
-- Keep `README.md` and `README.zh.md` aligned in facts, scope and commitments, written natively rather than mirrored line for line. Other files under `docs/` are Chinese only.
+- Keep user-facing pairs (`README.md` / `README.zh.md`, `docs/getting-started.md` / `docs/getting-started.zh.md`, and later user guides) aligned in facts, scope and commitments, written natively rather than mirrored line for line. Other design and implementation files under `docs/` are Chinese only.
 - When a rule changes first-version scope or open questions, update spec §14. Follow the house style in `docs/development.md` (文档).
 
 ## Code and tests

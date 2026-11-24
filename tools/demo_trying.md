@@ -8,7 +8,7 @@ This is Kenney's Starter Kit FPS with its eight scripts translated to Petrichor.
 2. Wait for the import to end. The first session also compiles the scripts.
 3. Press F5.
 
-On macOS, first run the `xattr` command from the [README](https://github.com/YYF233333/Petrichor#trying-it).
+On macOS, first run the `xattr` command from [Getting Started](https://github.com/YYF233333/Petrichor/blob/main/docs/getting-started.md#macos-quarantine).
 
 ## Things to try
 

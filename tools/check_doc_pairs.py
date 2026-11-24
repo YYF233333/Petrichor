@@ -3,7 +3,10 @@ import sys
 
 import check_spec_translation
 
-README = ("README.zh.md", "README.md")
+PAIRS = (
+    ("README.zh.md", "README.md"),
+    ("docs/getting-started.zh.md", "docs/getting-started.md"),
+)
 
 
 def git(*args):
@@ -13,10 +16,11 @@ def git(*args):
 def main():
     staged = set(git("diff", "--cached", "--name-only", "-z").split("\0")) - {""}
     errors = []
-    for path in sorted(staged & set(README)):
-        other = README[1 - README.index(path)]
-        if other not in staged:
-            errors.append(f"{path} is staged without {other}; change both versions in the same commit.")
+    for pair in PAIRS:
+        for path in sorted(staged & set(pair)):
+            other = pair[1 - pair.index(path)]
+            if other not in staged:
+                errors.append(f"{path} is staged without {other}; change both versions in the same commit.")
     for error in errors:
         print(error, file=sys.stderr)
     spec_stale = check_spec_translation.SOURCE in staged and check_spec_translation.main()
