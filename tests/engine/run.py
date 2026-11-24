@@ -1170,7 +1170,9 @@ def check_migrate(godot):
                 and after["boss.pet.uid"] == before["boss.gd.uid"].decode()
                 and 'path="res://boss.pet"' in after["level.tscn"] and 'path="res://stats.pet"' in after["stats.tres"] and 'Game="*res://game.pet"' in after["project.godot"]
                 and 'preload("res://boss.pet")' in after["tool.gd"] and 'preload("res://game.pet")' in after["hud.pet"]
-                and "pub func hit(amount: int)" in after["enemy.pet"] and "async func roar" in after["boss.pet"] and "get_parent().unwrap()" in after["game.pet"],
+                and "pub func hit(amount: int)" in after["enemy.pet"] and "async func roar" in after["boss.pet"] and "get_parent().unwrap()" in after["game.pet"]
+                # A resource file gives the export a value, which it keeps its class for.
+                and "@export var curve: Curve\n" in after["stats.pet"],
                 out + err,
             )
             code, out, err = pet("check")

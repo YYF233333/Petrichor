@@ -220,6 +220,16 @@ void read_resources(const String &p_file, const Variant &p_value, const std::set
 	// Its placeholder then lists no property the file stores.
 	const PetScript *pet = Object::cast_to<PetScript>(script.ptr());
 	read.unread = pet && !pet->_is_valid();
+	// GDScript's placeholder lists the exports as they are declared, without
+	// PROPERTY_USAGE_SCRIPT_VARIABLE (modules/gdscript/gdscript.cpp:457-469,
+	// 550-569; core/object/script_language.cpp:731-742; ed1daf0).
+	std::set<std::string> variables;
+	if (ours && !pet) {
+		const TypedArray<Dictionary> declared = script->get_script_property_list();
+		for (int64_t i = 0; i < declared.size(); i++) {
+			variables.insert(to_utf8(String(Dictionary(declared[i]).get("name", String()))));
+		}
+	}
 	const TypedArray<Dictionary> properties = resource->get_property_list();
 	for (int64_t i = 0; i < properties.size(); i++) {
 		const Dictionary property = properties[i];
@@ -238,7 +248,7 @@ void read_resources(const String &p_file, const Variant &p_value, const std::set
 		compiler::SceneValue stored = scene_value(value);
 		std::vector<std::string> scenes;
 		stored.add_scenes(scenes);
-		if (stored.type != "Nil" && ((ours && (usage & PROPERTY_USAGE_SCRIPT_VARIABLE)) || !scenes.empty())) {
+		if (stored.type != "Nil" && ((ours && ((usage & PROPERTY_USAGE_SCRIPT_VARIABLE) || variables.count(to_utf8(name)))) || !scenes.empty())) {
 			read.properties.emplace_back(to_utf8(name), std::move(stored));
 		}
 	}
