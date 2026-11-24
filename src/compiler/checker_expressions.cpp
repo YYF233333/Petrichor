@@ -1920,6 +1920,12 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 	error(p_value.range, message);
 	if (p_to.kind == TypeKind::Variant && lost_in_encoding(p_from, *this, false) == p_from) {
 		fix({ { p_value.range, operand(p_value) + fitting_call(p_from) } }, FixKind::BothLevels);
+	} else if (p_from.kind == TypeKind::Builtin && p_from.name == "Array" && p_to.kind == TypeKind::Builtin && p_to.name.rfind("Packed", 0) == 0) {
+		// GDScript takes it and converts it element by element, as the
+		// engine's constructor does (core/variant/variant.cpp:814-819,
+		// 2076-2084, 2185-2191, core/variant/variant_construct.h:637-655;
+		// ed1daf0).
+		fix({ { p_value.range, p_to.name + "(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::PackedArray);
 	} else if (p_from.kind == TypeKind::None && p_written) {
 		fix_optional(*p_written); // As GDScript holds the null.
 	} else if (p_from.is_optional() && !p_to.is_optional() && assignable(p_from.unwrapped(), p_to)) {

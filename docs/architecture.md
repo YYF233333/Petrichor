@@ -161,6 +161,7 @@
     - 两层 Option 当作 GDScript 的 null，如与 null 比较和传给 `Variant`；
     - `.detach()`，以及字面量名字改用方法或信号本身；
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
+    - packed 数组的位置上的 `Array` 套上该类型的构造，如 `PackedVector2Array(points)`。GDScript 也接受它，同样逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）；
     - 补上 `pub`。声明会因此露出不带 `pub` 的类型时，不提供这个修复。
   - 其余种类只作备选，如 `.unwrap()`、改为 `T?`、补上 `async`、`await` 和 null 模式。
   - 自动的修复排在第一，且无需输入。
