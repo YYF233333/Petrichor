@@ -39,6 +39,7 @@ enum class FixKind {
 	FloatResult, // float arguments where the result's type or value then changes.
 	Unwrap,
 	Optional,
+	ReturnNone, // Where a function that may return None returns nothing.
 	Async,
 	Await,
 	NullPattern,
@@ -64,6 +65,7 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ false, "Write the int arguments as float" },
 	{ false, "Write .unwrap()" },
 	{ false, "Make the type T?" },
+	{ false, "Write return None" },
 	{ false, "Write async func" },
 	{ false, "Write await" },
 	{ false, "Match both levels of null" },

@@ -50,6 +50,19 @@ void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflo
 	}
 }
 
+// A variable declared without a value, which GDScript starts as null
+// (architecture §6.6): its slot receives that null, and a class type written
+// for it becomes T?.
+void Checker::starts_null(int p_slot, const TypeRef *p_written, const Type &p_type, uint32_t p_name_token) {
+	const std::string file = script_file(options.path);
+	if (p_slot >= 0) {
+		flow(p_slot, Type::of(TypeKind::None), TokenRange{ p_name_token, p_name_token }, Inflows::Part::Implicit);
+	} else if (p_written && p_type.kind == TypeKind::Object && !p_type.is_optional() && options.inflows && options.inflows->files.count(file)) {
+		const Fix::Edit edit = optional_edit(*cls.source, *p_written);
+		options.inflows->optional[{ file, edit.change.begin }] = { edit.change.end, edit.change.new_text };
+	}
+}
+
 // A use of the value that gives for an int what the same float gives
 // (architecture §6.6), when the value reads a variable named in the source.
 void Checker::keep(const Expr &p_value) {
@@ -278,8 +291,9 @@ std::string Checker::operand(const Expr &p_expr) const {
 
 // Gives the error reported last the fix that unwraps `r_value`, a T? (spec
 // §3.4), which fails where GDScript fails on null, when `p_check` checks the
-// code again without errors with the value unwrapped: as a place too, where
-// it is a part of what is assigned.
+// code again with the value unwrapped without errors but those that an
+// automatic fix or another unwrap fixes, as a member that is not pub: as a
+// place too, where it is a part of what is assigned.
 void Checker::fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check) {
 	// Completion shows no errors, and checking again would complete again.
 	if (completion) {
@@ -294,7 +308,7 @@ void Checker::fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<boo
 	unwrapped->base = std::move(r_value);
 	r_value = std::move(unwrapped);
 	Tentative tried(*this);
-	const bool clean = p_check() && (!written || check_place(*written)) && tried.clean();
+	const bool clean = p_check() && (!written || check_place(*written)) && tried.fixed();
 	tried.end(false);
 	r_value = std::move(r_value->base);
 	if (clean) {
@@ -302,11 +316,19 @@ void Checker::fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<boo
 	}
 }
 
+// The edit that makes the type written at `p_written` a T?.
+Fix::Edit Checker::optional_edit(const SourceFile &p_source, const TypeRef &p_written) {
+	const std::string text = p_source.text_of(p_written.range);
+	return { std::string(), { p_source.begin(p_written.range), p_source.end(p_written.range), text, (p_written.is_function ? "(" + text + ")" : text) + "?" } };
+}
+
 // Gives the error reported last the fix that makes the type written at
-// `p_written` a T?.
-void Checker::fix_optional(const TypeRef &p_written) {
-	const std::string text = cls.source->text_of(p_written.range);
-	fix({ { p_written.range, (p_written.is_function ? "(" + text + ")" : text) + "?" } }, FixKind::Optional);
+// `p_written` a T?, in the file of the class at `p_owner` if another.
+void Checker::fix_optional(const TypeRef &p_written, const std::string &p_owner) {
+	const std::string file = p_owner.empty() || in_this_file(script_file(p_owner)) ? std::string() : script_file(p_owner);
+	Fix::Edit edit = optional_edit(file.empty() ? *cls.source : *script_header(file)->source, p_written);
+	edit.file = file;
+	fix(Fix{ "Write " + edit.change.new_text, FixKind::Optional, { edit } });
 }
 
 // The type written in this file for the local, member or static variable
@@ -1542,6 +1564,16 @@ void Checker::check_function_bodies() {
 		return;
 	}
 	check_init();
+	// Spec §6.2 shows a member assigned when _init assigns it on every path,
+	// and an export when the scene or the resource stores it, which their
+	// checks look at.
+	for (const auto *list : { &cls.members, &cls.static_vars }) {
+		for (const VarDecl &variable : *list) {
+			if (!variable.initializer && !variable.is_export && (list == &cls.static_vars || !init_assigns(cls, variable.name))) {
+				starts_null(variable.slot, variable.declared_type ? &*variable.declared_type : nullptr, variable.type, variable.name_token);
+			}
+		}
+	}
 	for (FuncDecl &fn : cls.functions) {
 		if (is_declared(fn) && fn.name != "_init") {
 			check_body(fn);

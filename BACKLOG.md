@@ -21,7 +21,10 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - The migration tool, forward, entered through the executable (Editor). Its steps, in order:
   - The survey [tool-migration](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md) measures what the tool leaves in three games of corpus v1, by cause. Rerun it after each step and add its row. At `bbdd797` they leave 10.5 errors per 100 lines.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project. A pass now holds what it loads, so a check of tanks-of-freedom-ii with its assets takes 17 s, from 47 to 50 s. Without the assets, as in the sparse corpus clone, each missing file is still a failing load in every scene that names it. Its migration dry run takes 90 s there, from 119 s.
-  - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left: GDScript's implicit `null` as evidence, declarations written wider than what flows in and `as` at the remaining implicit downcasts (architecture §6.6), and the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
+  - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left:
+    - an ancestor's `_ready` as proof that a member is assigned (architecture §6.6). Without it such members become `T?`;
+    - declarations written wider than what flows in, and `as` at the remaining implicit downcasts (architecture §6.6);
+    - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete.
   - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).

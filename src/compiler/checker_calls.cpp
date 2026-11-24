@@ -1704,6 +1704,9 @@ void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_in
 		}
 		if (member->is_export) {
 			error(r_call.range, "instantiate() needs " + member->name + " = ..., an export of " + p_made.to_string() + " that must be assigned and " + p_scene->path + " does not assign.");
+			if (member->declared_type) {
+				fix_optional(*member->declared_type, declaring(*decl, *member, &ClassDecl::members).path);
+			}
 		} else if (const auto refusal = hidden(*member, declaring(*decl, *member, &ClassDecl::members).path, [&] { return "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value."; })) {
 			error(r_call.range, *refusal);
 		} else {

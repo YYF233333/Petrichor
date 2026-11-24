@@ -185,30 +185,47 @@ TEST_CASE("a function with an await is made async though its parameter is left w
 
 TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null") {
 	FakeProject project;
-	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\nvar holder: RefCounted\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");
+	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");
 	project.add_script("res://hud.gd", "extends Node\n@export var icon: Texture2D\n");
+	// Reported where the scene is made.
+	project.add_script("res://badge.gd", "extends Node\n@export var art: Texture2D\n");
+	project.add_script("res://shelf.gd", "extends Node\n\n\nfunc add() -> void:\n\tadd_child(preload(\"res://badge.tscn\").instantiate())\n");
 	compiler::Scene hero;
 	hero.path = "res://hero.tres";
 	hero.resources = { { hero.path, "res://stats.gd", {} } };
 	compiler::Scene main;
 	main.path = "res://main.tscn";
 	main.nodes = { { ".", "Node", "res://hud.gd" } };
-	project.scenes = { hero, main };
+	compiler::Scene badge;
+	badge.path = "res://badge.tscn";
+	badge.nodes = { { ".", "Node", "res://badge.gd" } };
+	project.scenes = { hero, main, badge };
 	project.main = main.path;
-	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://stats.gd", "res://hud.gd" }, 10);
-	CHECK(migration.texts.at("res://stats.pet") == "extends Resource\n@export var portrait: Texture2D?\nvar holder: RefCounted\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.unwrap().duplicate()\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://stats.gd", "res://hud.gd", "res://badge.gd", "res://shelf.gd" }, 10);
+	CHECK(migration.texts.at("res://stats.pet") == "extends Resource\n@export var portrait: Texture2D?\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.unwrap().duplicate()\n");
 	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n@export var icon: Texture2D?\n");
-	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 1 }, { compiler::FixKind::Optional, 2 } });
-	REQUIRE(migration.errors.size() == 1);
-	CHECK(migration.errors[0].message == "res://hero.tres: the resource has no value for \"holder\", which must be assigned and is not exported.");
+	CHECK(migration.texts.at("res://badge.pet") == "extends Node\n@export var art: Texture2D?\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 1 }, { compiler::FixKind::Optional, 3 } });
+	CHECK(migration.errors.empty());
+}
+
+TEST_CASE("a variable declared without a value starts as null in GDScript, which makes a class T? unless _init assigns it") {
+	FakeProject project;
+	project.add_script("res://deck.gd", "class_name Deck\nextends Resource\nvar pile: Node\nvar keeper: Node\nvar count\nvar picked\n\n\nfunc _init() -> void:\n\tkeeper = Node.new()\n\n\nfunc fill() -> void:\n\tpile = Node.new()\n\tcount = 0\n\tpicked = Node.new()\n\n\nfunc show() -> void:\n\tvar shown := pile.name\n\tprint(shown, keeper.name, count)\n\n\nfunc pick(nodes: Array[Node], at: int):\n\tvar left: Node\n\tif at > 0:\n\t\tleft = nodes[at - 1]\n\tif left and left.name != \"\":\n\t\treturn left\n", "Deck");
+	// Read through a member that is not pub yet, and passed unwrapped to a call on another.
+	project.add_script("res://table.gd", "extends Node\n\n\nfunc clear(deck: Deck, other: Deck) -> Array[Node]:\n\tdeck.pile.add_child(other.pile)\n\treturn [deck.pile]\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://deck.gd", "res://table.gd" }, 10);
+	CHECK(migration.texts.at("res://table.pet") == "extends Node\n\n\nfunc clear(deck: Deck, other: Deck) -> Array[Node]:\n\tdeck.pile.unwrap().add_child(other.pile.unwrap())\n\treturn [deck.pile.unwrap()]\n");
+	CHECK(migration.texts.at("res://deck.pet") == "class_name Deck\nextends Resource\npub var pile: Node?\nvar keeper: Node\nvar count: int\nvar picked: Node?\n\n\nfunc _init() -> void:\n\tkeeper = Node.new()\n\n\nfunc fill() -> void:\n\tpile = Node.new()\n\tcount = 0\n\tpicked = Node.new()\n\n\nfunc show() -> void:\n\tvar shown := pile.unwrap().name\n\tprint(shown, keeper.name, count)\n\n\nfunc pick(nodes: Array[Node], at: int) -> Node?:\n\tvar left: Node?\n\tif at > 0:\n\t\tleft = nodes[at - 1]\n\tif left != None and left.name != \"\":\n\t\treturn left\n\treturn None\n");
+	CHECK(migration.errors.empty());
 }
 
 TEST_CASE("the loop of fixes makes a type T? where the original assigns or returns null") {
 	FakeProject project;
-	project.add_script("res://picker.gd", "extends Node\nvar selected: Node = self\n\n\nfunc pick(nodes: Array[Node]) -> Node:\n\tfor node in nodes:\n\t\treturn node\n\treturn null\n\n\nfunc choose(nodes: Array[Node]) -> void:\n\tselected = null\n\tvar chosen: Node = pick(nodes)\n\tprint(chosen.name)\n");
+	project.add_script("res://picker.gd", "extends Node\nvar selected: Node = self\n\n\nfunc pick(nodes: Array[Node]) -> Node:\n\tfor node in nodes:\n\t\treturn node\n\treturn null\n\n\nfunc last(nodes: Array[Node]) -> Node:\n\tif nodes.is_empty():\n\t\treturn\n\treturn nodes.back()\n\n\nfunc choose(nodes: Array[Node]) -> void:\n\tselected = null\n\tvar chosen: Node = pick(nodes)\n\tprint(chosen.name)\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://picker.gd" }, 10);
-	CHECK(migration.texts.at("res://picker.pet") == "extends Node\nvar selected: Node? = self\n\n\nfunc pick(nodes: Array[Node]) -> Node?:\n\tfor node in nodes:\n\t\treturn node\n\treturn null\n\n\nfunc choose(nodes: Array[Node]) -> void:\n\tselected = null\n\tvar chosen: Node = pick(nodes).unwrap()\n\tprint(chosen.name)\n");
-	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 1 }, { compiler::FixKind::Optional, 2 } });
+	CHECK(migration.texts.at("res://picker.pet") == "extends Node\nvar selected: Node? = self\n\n\nfunc pick(nodes: Array[Node]) -> Node?:\n\tfor node in nodes:\n\t\treturn node\n\treturn null\n\n\nfunc last(nodes: Array[Node]) -> Node?:\n\tif nodes.is_empty():\n\t\treturn None\n\treturn nodes.back()\n\n\nfunc choose(nodes: Array[Node]) -> void:\n\tselected = null\n\tvar chosen: Node = pick(nodes).unwrap()\n\tprint(chosen.name)\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 1 }, { compiler::FixKind::Optional, 3 }, { compiler::FixKind::ReturnNone, 1 } });
 	CHECK(migration.errors.empty());
 }
 
@@ -297,10 +314,10 @@ TEST_CASE("a class without a class_name is named in types by a constant that pre
 	project.add_script("res://unit.gd", "extends RefCounted\n");
 	project.add_script("res://outcomes/camera.gd", "extends Node\n");
 	project.add_script("res://camera.gd", "class_name Camera\nextends Node\n", "Camera");
-	project.add_script("res://hud.gd", "extends Node\nconst Unit = preload(\"res://unit.gd\")\nvar picked\nvar watched\n\n\nfunc _ready() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.gd\").new()\n\tadd_child(watched)\n");
+	project.add_script("res://hud.gd", "extends Node\nconst Unit = preload(\"res://unit.gd\")\nvar picked\nvar watched\n\n\nfunc _init() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.gd\").new()\n\tadd_child(watched)\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://board/board.gd", "res://abilities/abilities.gd", "res://unit.gd", "res://outcomes/camera.gd", "res://camera.gd", "res://hud.gd" }, 10);
 	CHECK(migration.texts.at("res://abilities/abilities.pet") == "extends RefCounted\n\nconst Board = preload(\"res://board/board.pet\")\nvar board: Board\n\n\npub func _init(p_board: Board):\n\tboard = p_board\n");
-	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n\nconst OutcomesCamera = preload(\"res://outcomes/camera.pet\")\nconst Unit = preload(\"res://unit.pet\")\nvar picked: Unit\nvar watched: OutcomesCamera\n\n\nfunc _ready() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.pet\").new()\n\tadd_child(watched)\n");
+	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n\nconst OutcomesCamera = preload(\"res://outcomes/camera.pet\")\nconst Unit = preload(\"res://unit.pet\")\nvar picked: Unit\nvar watched: OutcomesCamera\n\n\nfunc _init() -> void:\n\tpicked = Unit.new()\n\twatched = preload(\"res://outcomes/camera.pet\").new()\n\tadd_child(watched)\n");
 	CHECK(migration.errors.empty());
 	CHECK(std::any_of(migration.notes.begin(), migration.notes.end(), [](const compiler::Diagnostic &p_note) { return p_note.file == "res://hud.pet" && p_note.message == "Added const OutcomesCamera = preload(\"res://outcomes/camera.pet\") to name classes without a class_name in types."; }));
 }

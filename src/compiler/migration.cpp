@@ -518,11 +518,12 @@ Type Inflows::type(int p_slot) const {
 namespace {
 
 // The fix of the error that the loop of fixes applies: the first of the
-// automatic kinds, Async, Unwrap or Optional, unless it edits a file outside
-// those migrated. Optional comes first only for a value that a scene lacks
-// and for a null assigned or returned where a type is written.
+// automatic kinds, Async, Unwrap, Optional or ReturnNone, unless it edits a
+// file outside those migrated. Optional comes first only for a value that a
+// scene or a creator lacks and for a null assigned or returned where a type
+// is written; ReturnNone where GDScript returns null.
 const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
-	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::Optional; });
+	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::Optional || p_fix.kind == FixKind::ReturnNone; });
 	const bool inside = fix != p_error.fixes.end() && std::all_of(fix->edits.begin(), fix->edits.end(), [&](const Fix::Edit &p_edit) { return p_project.texts.count(p_edit.file.empty() ? p_error.file : p_edit.file) > 0; });
 	return inside ? &*fix : nullptr;
 }
@@ -648,17 +649,20 @@ std::vector<Type> lineage(const Type &p_class, ScriptClasses &r_classes, const E
 }
 
 // What the types received merge into (architecture §6.6): the one type, as
-// T? with None; the nearest common base of classes; an untyped Array or
+// T? with None, and a class so with the null that GDScript gives a variable
+// declared without a value; the nearest common base of classes; an untyped Array or
 // Dictionary for containers of one kind; otherwise Variant. A Variant says
 // nothing of the type. Nullopt when no type is known. `r_numbers` tells int
 // and float, which merge into float only with `p_floats`.
 std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasses &r_classes, const EngineApi &p_engine, bool &r_numbers, bool p_floats = false) {
 	r_numbers = false;
 	bool none = false;
+	bool implicit = false;
 	std::vector<Type> types;
 	for (const Received &each : p_received) {
 		Type type = each.type;
-		if (type.is_error() || type.kind == TypeKind::Void || type.kind == TypeKind::Variant) {
+		implicit = implicit || each.part == Inflows::Part::Implicit;
+		if (type.is_error() || type.kind == TypeKind::Void || type.kind == TypeKind::Variant || each.part == Inflows::Part::Implicit) {
 			continue;
 		}
 		if (type.is_optional() || type.kind == TypeKind::None) {
@@ -701,6 +705,7 @@ std::optional<Type> merged(const std::vector<Received> &p_received, ScriptClasse
 		r_numbers = types.size() == 2 && all([](const Type &p_type) { return p_type.is_numeric(); });
 		result = r_numbers && p_floats ? Type::of(TypeKind::Float) : result;
 	}
+	none = none || (implicit && result.kind == TypeKind::Object);
 	return none && result.kind != TypeKind::Variant ? optional_of(result) : result;
 }
 
@@ -756,14 +761,12 @@ std::string spelled(const Type &p_type, const std::string &p_file) {
 
 // Where the type of each slot of a file is written: after its name, over
 // the colon of `:=`, or after the parameters of the function whose return it
-// is; with the ranges of that function's bare returns, which report a
-// return type that does not fit.
+// is.
 struct Place {
 	uint32_t at = 0;
 	uint32_t end = 0;
 	std::string before = ": ";
 	std::string after;
-	std::vector<std::pair<uint32_t, uint32_t>> bare;
 };
 
 // Each statement of the block, and of the blocks in it.
@@ -822,11 +825,6 @@ std::map<Inflows::Key, Place> places(const std::string &p_file, const std::strin
 					break;
 				}
 			}
-			each_statement(function.body, [&](const Stmt &p_stmt) {
-				if (p_stmt.kind == StmtKind::Return && !p_stmt.value) {
-					place.bare.emplace_back(decl.source->begin(p_stmt.range), decl.source->end(p_stmt.range));
-				}
-			});
 		}
 		for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
 			p_self(*inner, p_self);
@@ -1232,6 +1230,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			refusals[slot.key] = "no type was tried for it in " + std::to_string(p_rounds) + " rounds";
 		}
 	}
+	if (!inflows.optional.empty()) {
+		r_result.fixes[FixKind::Optional] += int(inflows.optional.size());
+	}
 	Inflows check;
 	check.files = inflows.files;
 	for (int pass = 0;; pass++) {
@@ -1248,6 +1249,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			if (!text.empty()) {
 				insertions[file].push_back({ at, at, text, { file, UINT32_MAX } });
 			}
+		}
+		for (const auto &[at, edit] : inflows.optional) {
+			insertions[at.first].push_back({ at.second, edit.first, edit.second, at });
 		}
 		for (auto &[file, text] : r_project.texts) {
 			std::vector<Written> &in_file = insertions[file];
@@ -1340,12 +1344,6 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 				for (const Range &range : about != check.about.end() ? about->places : std::vector<Range>{ { error.begin, error.end } }) {
 					involved(path, result, range.first, range.second, seen, refused, involved);
 				}
-				for (const auto &[slot, at] : place) {
-					const bool bare = slot.first == path && std::any_of(at.bare.begin(), at.bare.end(), [&](const std::pair<uint32_t, uint32_t> &p_return) { return p_return.first <= begin && begin < p_return.second; });
-					if (bare && written.count(slot)) {
-						refused.insert(slot);
-					}
-				}
 			}
 		}
 		bool withdrew = false;
@@ -1365,7 +1363,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		std::string by_name;
 		std::string variants;
 		for (const Received &each : flowed[index]) {
-			const char *const PARTS[] = { "", "an element ", "a key " };
+			const char *const PARTS[] = { "", "an element ", "a key ", "the implicit " };
 			if (each.type.is_error()) {
 				continue;
 			}

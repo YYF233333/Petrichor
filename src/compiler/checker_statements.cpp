@@ -716,6 +716,9 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			} else if (!has_value_without_initializer(type)) {
 				error(r_stmt.name_token, "\"" + r_stmt.name + "\" of type " + type.to_string() + " needs an initial value.");
 			}
+			if (!r_stmt.value) {
+				starts_null(slot, r_stmt.declared_type ? &*r_stmt.declared_type : nullptr, type, r_stmt.name_token);
+			}
 			declare_local(r_stmt, type);
 			function->locals[r_stmt.local].slot = slot;
 			narrow_by_value(r_stmt.local, value);
@@ -845,8 +848,15 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			}
 			const Type expected = function->return_type;
 			if (!r_stmt.value) {
+				// GDScript returns null (architecture §6.6).
+				flow(function->slot, Type::of(TypeKind::None), r_stmt.range);
 				if (expected.kind != TypeKind::Void && !expected.is_error()) {
 					error(r_stmt.range, function_label() + " must return a value of type " + expected.to_string() + ".");
+					if (assignable(Type::of(TypeKind::None), expected)) {
+						fix({ { r_stmt.range, "return None" } }, FixKind::ReturnNone);
+					} else if (function->return_type_ref && expected.kind == TypeKind::Object) {
+						fix_optional(*function->return_type_ref);
+					}
 				}
 				return;
 			}

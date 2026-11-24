@@ -828,11 +828,12 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 
 修复循环复用编辑器的快速修复（§2.1），每个错误取第一个符合条件的修复（含场景检查给出的修复，如给信号方法补 `pub`）。单轮修复按 `compiler::fixed_together()` 一并应用，改到集合外文件的修复跳过；不再应用修复或达到 10 轮上限时停止（达上限在报告写明）。
 
-- **原文定意的三类备选修复**：以下备选修复在原文写法已定下意图时直接应用：
+- **原文定意的四类备选修复**：以下备选修复在原文写法已定下意图时直接应用：
   - **补 `async`**：原文含 `await` 的函数只要签名不多出错误就补 `async`（参数缺类型也照补）。覆盖链上方法同步补齐以保持一致，顶端覆盖有返回值引擎虚函数或 `_init` 时不提供（规范 §9.1）。丢弃结果的调用随后由自动修复补 `.detach()`：GDScript 协程运行到第一处挂起就返回、调用方接着执行，与 `detach` 相同（`modules/gdscript/gdscript_vm.cpp:2586-2597, 2641-2654`，`ed1daf0`）。反向转换去掉 `async` 和 `.detach()`，无 `await` 函数在 GDScript 中照常运行到底。
   - **补 `.unwrap()`**：原文未判空就使用的值补 `.unwrap()`，与 GDScript 在同一处出错。
-  - **改为 `T?`**：场景或资源未给值的导出改为 `T?`（GDScript 运行时给 `null`，后续未判空使用照样补 `.unwrap()`，反向转换写回 `T`）。原文把字面量 `null` 赋给 `T` 变量、从 `-> T` 函数返回或只写 `return` 时同样改为 `T?`，因为 GDScript 接受 `null` 作为任何对象类型（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。写了对象类型而无初始值的声明也改为 `T?`，规范 §6.2 证明有值的除外，与推断同一规则：deck_builder_tutorial 中 `create_instance()` 之后才赋值的 `var deck: CardPile`（`custom_resources/character_stats.gd:17`）写成 `CardPile?`。
-- **隐式向下转换写 `as`**：改不了声明的（上文“写宽了的类型”）在值上写 `as`，结果是否可空随值而定。值非空写 `(x as T).unwrap()`，得 `T`；值可空写 `x as T`，得 `T?`，再按流入和上面三类处理。
+  - **改为 `T?`**：场景、资源或 `instantiate()` 未给值的导出改为 `T?`（GDScript 运行时给 `null`，后续未判空使用照样补 `.unwrap()`，反向转换写回 `T`）。原文把字面量 `null` 赋给 `T` 变量、从 `-> T` 函数返回或只写 `return` 时同样改为 `T?`，因为 GDScript 接受 `null` 作为任何对象类型（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。写了对象类型而无初始值的声明也改为 `T?`，规范 §6.2 证明有值的除外，与推断同一规则：deck_builder_tutorial 中 `create_instance()` 之后才赋值的 `var deck: CardPile`（`custom_resources/character_stats.gd:17`）写成 `CardPile?`。这条由推断在写类型时一并写下，不等检查报错，因为挂在场景节点上的成员按祖先赋值处理、不报错。
+  - **补 `return None`**：返回 `T?` 或 `Variant` 的函数中，只写的 `return` 改为 `return None`；走到末尾的路径在函数体末尾另起一行补上 `return None`。两者都是 GDScript 返回的 `null`。
+- **隐式向下转换写 `as`**：改不了声明的（上文“写宽了的类型”）在值上写 `as`，结果是否可空随值而定。值非空写 `(x as T).unwrap()`，得 `T`；值可空写 `x as T`，得 `T?`，再按流入和上面几类处理。
   - GDScript 给带类型变量赋值时放过 `null`，类不符时调试版报错，发布版不检查（`modules/gdscript/gdscript_vm.cpp:1533-1625`，`ed1daf0`）。值非空时与 GDScript 在同一处出错；值可空时类不符得 `None`，到使用处才出错。
   - deck_builder_tutorial 中 `stats = value.create_instance()` 由 `Stats` 到 `EnemyStats`（`scenes/enemy/enemy.gd:30`），`target = get_tree().get_first_node_in_group("player")` 由 `Node?` 到 `Node2D`（`scenes/enemy/enemy_action_picker.gd:11`）。
   - 信号参数比所连函数的参数宽时不改，留作编译错误（`scenes/relic_handler/relic_handler.gd:14, 78`）：放宽参数要另起名字，包一层 lambda 则 `disconnect` 找不到原函数。

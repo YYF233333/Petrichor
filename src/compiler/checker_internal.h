@@ -511,6 +511,13 @@ class Checker : public ClassRelation {
 		~Tentative() { end(false); }
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
+		// Nothing but errors with an automatic fix or one that unwraps, after
+		// which the check goes on as if it were applied (architecture §2.1).
+		bool fixed() const {
+			return std::all_of(checker.errors.begin() + std::ptrdiff_t(errors), checker.errors.end(), [](const Diagnostic &p_error) {
+				return std::any_of(p_error.fixes.begin(), p_error.fixes.end(), [](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Unwrap; });
+			});
+		}
 		// What the name at `p_begin` was found to refer to since it began.
 		std::optional<DeclId> referred_at(uint32_t p_begin) const {
 			const auto found = std::find_if(checker.references->begin() + std::ptrdiff_t(references), checker.references->end(), [&](const Reference &p_reference) { return p_reference.begin == p_begin; });
@@ -762,6 +769,7 @@ class Checker : public ClassRelation {
 	static Inflows::Slot parameter_slot(const FuncDecl &p_function, size_t p_index);
 	Type tried(int p_slot) const;
 	void flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflows::Part p_part = Inflows::Part::Whole);
+	void starts_null(int p_slot, const TypeRef *p_written, const Type &p_type, uint32_t p_name_token);
 	int slot_of(const Expr &p_target) const;
 	int container_slot(const Expr &p_expr) const;
 	bool fill_container(const Expr &p_base, const Expr &p_call);
@@ -780,7 +788,8 @@ class Checker : public ClassRelation {
 	TokenRange unparenthesized(TokenRange p_range) const;
 	std::string operand(const Expr &p_expr) const;
 	void fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check);
-	void fix_optional(const TypeRef &p_written);
+	static Fix::Edit optional_edit(const SourceFile &p_source, const TypeRef &p_written);
+	void fix_optional(const TypeRef &p_written, const std::string &p_owner = std::string());
 	const TypeRef *type_written_for(const Expr &p_target) const;
 	Reference *refer(uint32_t p_token, const DeclId &p_target, std::optional<SymbolKind> p_declares = std::nullopt, const std::optional<DeclId> &p_overrides = std::nullopt);
 	Reference *refer_bytes(uint32_t p_begin, uint32_t p_end, const DeclId &p_target);

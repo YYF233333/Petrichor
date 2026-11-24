@@ -1103,6 +1103,9 @@ Type Checker::check_array_literal(Expr &r_expr, const Type &p_expected) {
 		r_expr.param_types.push_back(element);
 		if (!assignable(type, element)) {
 			error(arg->range, "Cannot put a value of type " + type.to_string() + " in " + expected.to_string() + ".");
+			if (type.is_optional() && assignable(type.unwrapped(), element)) {
+				fix({ { arg->range, operand(*arg) + ".unwrap()" } }, FixKind::Unwrap);
+			}
 		} else {
 			expect_implemented(*arg, type, element);
 			expect_scene_fits(*arg, element);

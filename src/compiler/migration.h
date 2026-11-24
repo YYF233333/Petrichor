@@ -43,11 +43,14 @@ struct Inflows {
 	};
 	// A value into a slot, at an offset of a file, or the arguments of a call by
 	// name, on a value whose class is not known to have the method. One into
-	// an empty container may be an element, or a key of a Dictionary.
+	// an empty container may be an element, or a key of a Dictionary. The
+	// null that GDScript gives a variable declared without a value counts for
+	// a class only.
 	enum class Part {
 		Whole,
 		Element,
 		Key,
+		Implicit,
 	};
 	struct Flow {
 		int slot = -1;
@@ -94,6 +97,10 @@ struct Inflows {
 	// gives: beside a float in arithmetic, compared, or where a float is
 	// expected. Each by where its name is, with where it begins.
 	std::vector<std::pair<Key, uint32_t>> kept;
+	// The class types written for variables declared without a value, which
+	// GDScript starts as null, and nothing shows assigned before a read: by
+	// where each begins, with its end and its text as T?.
+	std::map<Key, std::pair<uint32_t, std::string>> optional;
 
 	// The slot's index, once found.
 	int slot(const Slot &p_slot);
