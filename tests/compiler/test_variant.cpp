@@ -23,7 +23,7 @@ const char *const HOLDS_INT = "var v: Variant = 1";
 } // namespace
 
 TEST_CASE("a Variant is used only after a conversion (spec §3.14)") {
-	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = v.hp"), "Cannot read \"hp\" of a Variant. Convert it first with T(v), or narrow it with `if v is T:`."));
+	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = v.hp"), "Cannot read \"hp\" of a Variant. Convert it first with T(v), decode it into a struct with T.try_from(v), or narrow it with `if v is T:`."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = v + 1"), "Cannot use \"+\" on a Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nvar n = v[0]"), "Cannot index a Variant."));
 	CHECK(has_error(in_function(std::string(HOLDS_INT) + "\nfor x in v:\n\tpass"), "Cannot iterate over a Variant."));

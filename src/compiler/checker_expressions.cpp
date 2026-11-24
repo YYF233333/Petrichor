@@ -1715,6 +1715,10 @@ std::string Checker::variant_hint(const Type &p_to) {
 	if (is_typed_container(p_to)) {
 		return " Narrow it first with `if v is " + p_to.to_string() + ":`.";
 	}
+	if (p_to.is_error()) {
+		// Data whose shape is known decodes into a struct once (spec §3.13).
+		return " Convert it first with T(v), decode it into a struct with T.try_from(v), or narrow it with `if v is T:`.";
+	}
 	const std::string name = p_to.kind == TypeKind::Builtin || p_to.is_primitive() ? p_to.to_string() : "T";
 	return " Convert it first with " + name + "(v), or narrow it with `if v is " + name + ":`.";
 }
