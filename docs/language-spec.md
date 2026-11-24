@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob eaf90724af43b9eea710b892f7b8ecb54df18a69. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob d942f49dfc48619baad847ebff1e6d782314b332. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -466,7 +466,8 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 4.4 Property accessors
 
-- Inline `set(value):` / `get:` and named `set = f` / `get = g` follow GDScript. Inside an accessor the property name refers to the backing field, whereas reads and writes elsewhere in the class go through the accessors. Initializers bypass the setter, and neither setters nor getters can be coroutines.
+- Inline `set(value):` / `get:` and named `set = f` / `get = g` follow GDScript. Inside an accessor the property name refers to the backing field, whereas reads and writes elsewhere in the class go through the accessors. Initializers bypass the setter.
+- A setter may be a coroutine: an inline one is written `async set(value):`, and a named one points to an `async func`. Writing the property starts it and runs it to its first suspension. It then keeps running as after `detach`, and the write does not wait. A getter cannot be a coroutine.
 
 ### 4.5 Constants
 
@@ -681,7 +682,9 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 6.5 Setters before ready
 
-- A setter runs immediately; before ready, accessing an `@onready` member or child node is a program error stating its name. A node-syncing setter should store the value first, sync when `is_node_ready()` is true, and sync once in `_ready`. Writing `await ready` in a setter is a compile error.
+- A setter runs immediately; before ready, accessing an `@onready` member or child node is a program error stating its name. A node-syncing setter is written in one of two ways:
+  - it stores the value first, syncs when `is_node_ready()` is true, and syncs once in `_ready`;
+  - it is declared `async` and writes `if not is_node_ready(): await ready` before it accesses the nodes, so the statements after that run only once the node is ready.
 - For a property without a backing field whose getter reads a child node directly, reading it before ready is a program error stating the unready node. A property that is never written does not run its setter at ready, and an exported property whose default value bypasses a node-syncing setter gives a hint.
 
 ### 6.6 Destruction
@@ -839,7 +842,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 9.1 async and Task
 
-- A function or a lambda that contains `await` must write `async func` in its signature, as in `button.pressed.connect(async func(): await fade_out())`. Without it, it is a compile error, with a quick fix that adds `async`.
+- A function or a lambda that contains `await` must write `async func` in its signature, as in `button.pressed.connect(async func(): await fade_out())`; an inline setter writes `async set(value):`. Without it, it is a compile error, with a quick fix that adds `async`.
 - Only engine virtual functions returning `void` can be declared `async`. Both `async func _init()` and an `async` override of a non-`void` engine virtual function (even omitting its return type) are compile errors.
 - Calling an `async` function starts it immediately, runs it to its first suspension and returns `Task[T]` (or `Task[void]` when there is no return value; `void` is allowed as a type argument only in `Task[void]`). A bare `Task` is a compile error, while `await f()` and `await t` give `T`.
 - Discarding the result of an `async` call is a compile error. To not wait deliberately, write `f().detach()`.
@@ -1096,7 +1099,6 @@ The following features can be added compatibly after the first version:
   - spreading into rest parameters at the call site, and rest parameters in function types;
   - field narrowing/conditional binding;
   - type patterns of `match`, `match` expressions and bindings in multiple patterns;
-  - setters that suspend automatically before ready, with their design in the [design notes](design-notes.md);
   - always-on assertions;
   - debug text that shows values as written in this language;
   - cleanup code that runs when a task is cancelled, such as `finally` or `defer`;

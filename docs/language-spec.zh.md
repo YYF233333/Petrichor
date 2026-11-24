@@ -464,7 +464,8 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 
 ### 4.4 属性访问器
 
-- 内联 `set(value):`、`get:` 与具名 `set = f`、`get = g` 沿用 GDScript。在访问器内部，属性名指存储字段，而类内其他位置的读写均经访问器。初始化式不经 setter，且 setter 与 getter 不能是协程。
+- 内联 `set(value):`、`get:` 与具名 `set = f`、`get = g` 沿用 GDScript。在访问器内部，属性名指存储字段，而类内其他位置的读写均经访问器。初始化式不经 setter。
+- setter 可以是协程：内联的写作 `async set(value):`，具名的指向 `async func`。写入属性即启动它并运行到首次挂起，随后如同 `detach` 继续运行，写入处不等待。getter 不能是协程。
 
 ### 4.5 常量
 
@@ -679,7 +680,9 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 
 ### 6.5 就绪前的 setter
 
-- setter 立即执行。就绪前访问 `@onready` 成员或子节点报程序错误，并写明成员或节点名。需要同步节点的 setter 应先存值、在 `is_node_ready()` 为真时同步，并在 `_ready` 中同步一次。setter 内写 `await ready` 报编译错误。
+- setter 立即执行。就绪前访问 `@onready` 成员或子节点报程序错误，并写明成员或节点名。需要同步节点的 setter 有两种写法：
+  - 先存值、在 `is_node_ready()` 为真时同步，并在 `_ready` 中同步一次；
+  - 声明为 `async`，在访问节点之前写 `if not is_node_ready(): await ready`，其后的语句到节点就绪后才执行。
 - 无存储字段、getter 直接读子节点的属性在就绪前读取报程序错误并写明未就绪节点。从未写入的属性在就绪时不跑 setter。导出属性默认值不经同步节点的 setter 时给出提示。
 
 ### 6.6 析构
@@ -837,7 +840,7 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 
 ### 9.1 async 与 Task
 
-- 函数和 lambda 含 `await` 时须在签名写 `async func`，如 `button.pressed.connect(async func(): await fade_out())`。未写时报编译错误，并提供补 `async` 的快速修复。
+- 函数和 lambda 含 `await` 时须在签名写 `async func`，如 `button.pressed.connect(async func(): await fade_out())`；内联 setter 写 `async set(value):`。未写时报编译错误，并提供补 `async` 的快速修复。
 - 只有返回 `void` 的引擎虚函数可声明为 `async`；`async func _init()` 以及对非 `void` 引擎虚函数的 `async` 覆盖（省略返回类型时也一样）均报编译错误。
 - 调用 `async` 函数立即启动并运行到首次挂起，返回 `Task[T]`。无返回值时为 `Task[void]`；`void` 仅在 `Task[void]` 中可作类型实参。裸写 `Task` 报编译错误。`await f()` 和 `await t` 得 `T`。
 - 丢弃 `async` 调用结果报编译错误；有意不等待写 `f().detach()`。
@@ -1094,7 +1097,6 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
   - 调用处展开剩余参数、函数类型中的剩余参数；
   - 字段收窄/条件绑定；
   - `match` 的类型模式、`match` 表达式与多模式绑定；
-  - 就绪前自动挂起 setter，设计见[设计说明](design-notes.md)；
   - 常驻断言；
   - 按本语言写法显示值的调试文本；
   - 任务取消时运行的清理代码，如 `finally` 或 `defer`；
