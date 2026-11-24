@@ -53,5 +53,6 @@ The target engine is Godot 4.7. Check engine behavior against the Godot source c
   - any new component, pass or process.
 - Decide the rest yourself and list it in the report for the owner to overrule: cases settled by the spec, cases left open (as compile errors recorded as open questions) and details of an agreed design.
 - Work on the current release's gating list first (`docs/architecture.md` §5, `BACKLOG.md`). Do not close a step or propose a milestone instead; report when its acceptance measure stops moving.
+- Each minor release includes one batch that only removes code. It takes `BACKLOG.md`'s First in order and adds no feature.
 - End-of-day report covers: release-list movement and blockers, work outside the list, self-made decisions (each new rule with real code that meets it) and items waiting for the owner.
 - Reviewers follow `REVIEW.md` and upstream scans follow `WATCH.md`. Treat root `review-*.md` and `watch-*.md` findings as leads to verify against code, spec and engine source rather than tasks to argue one by one, and propose deleting a file once nothing remains.

@@ -4,7 +4,7 @@
 
 ## First
 
-Refactorings that remove code, taken in this order. The line counts are estimates from reading the code.
+Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
 - One list of the tokens, about 200 lines less. Now the enum, `token_name()` and the keyword table each repeat them (`src/compiler/lexer.h`, `src/compiler/lexer.cpp`). Messages then quote `await` and `super`, as they quote the other keywords.
 - One struct for the checker's mutable context, saved and restored whole, and one per-function state for lowering. About 70 lines less.
@@ -13,6 +13,10 @@ Refactorings that remove code, taken in this order. The line counts are estimate
 - Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
   - A design proposal comes first. The stored format changes, and the editor would run the initializers of constants in scripts without `@tool`.
   - It must land before the bytecode format gets its version, with Mod (architecture §6.1).
+- One line for each opcode that calls a helper, about 120 lines less. About 40 cases of the dispatch repeat the same five lines: call `op_x`, return on failure, go to the next (`src/runtime/vm.cpp`). A macro expands to the same code.
+- One list of an error's quick fixes for the editor and the LSP server, about 30 lines less. Which fixes are listed, in what order and without duplicates is written twice, kept alike by a comment (`src/adapter/editor/lsp_server.cpp`, `src/adapter/editor/pet_editor_plugin.cpp`). The steps after a write to disk are written three times in the plugin.
+- The migration's helpers, about 20 lines less. `file_name` and `class_type` repeat the checker's (`src/compiler/migration.cpp`), and `Tentative` rolls back the five vectors of `Inflows` by hand (`src/compiler/checker_internal.h`).
+- The files of tools out of the compiler's identity, with no lines less (`COMPILER_ID`, `SConstruct`). A change to the migration, navigation, completion or warnings now refuses every cached bytecode file (`src/adapter/pet_compiled.cpp`). Leave out only a file that changes neither the module nor the errors of a compile, checked one by one.
 
 ## Next release
 
