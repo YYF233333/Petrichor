@@ -127,7 +127,7 @@ Petrichor is in its 0.x preview series (following the initial 0.1 release) to ga
 
 - Suited to projects that already rely heavily on typed GDScript and can accommodate code changes during 0.x.
 - Not yet suited to projects exporting to Android, iOS, or Web. Those export libraries begin arriving in 0.4, starting with the platforms verified to work.
-- Before 0.9, language semantics may still change, and release notes list every breaking change. From 0.9 onward, any change in code meaning surfaces as a compile error, while runtime-only fixes are listed separately.
+- Before 0.9, language semantics may still change, and release notes list every breaking change. From 0.9 onward, upgrades do not silently change what existing code means; any breaking semantic change turns the old form into a compile error.
 - A few constructs deliberately behave differently from GDScript without a compile error. The [spec](docs/language-spec.md#12-relation-to-gdscript) lists each one, and they stay open for feedback until 0.9.
 - Compiled bytecode is not compatible across builds, so upgrading recompiles every script.
 - Editor lints are not implemented yet and are planned for 0.3.
