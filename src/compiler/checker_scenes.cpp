@@ -1056,8 +1056,8 @@ void Checker::check_parent_scenes() {
 
 // The keys and values that the scene stores for this class's exports: each
 // key as a reference (architecture §2.1), each value as the engine writes it
-// into the member (spec §4.3), and exported scenes, which may leave to
-// instantiate(...) only what PackedScene[T] asks for (§7.4). On the nodes
+// into the member (spec §4.3), and the scenes it holds for a PackedScene[T],
+// which may leave to instantiate(...) only what that asks for (§7.4). On the nodes
 // with the class, on the instances of scenes whose root has it, on the nodes
 // with it inside instanced scenes that the scene changes, and on the
 // resources with it that the scene or resource file holds.
@@ -1105,12 +1105,6 @@ void Checker::check_stored_exports() {
 				}
 				refer_property(name, script_id(options.path, member->name), {});
 				const TokenRange at{ member->name_token, member->name_token };
-				if (is_typed_scene(member->type) && stored.class_name == "PackedScene") {
-					if (const std::optional<Scene> scene = is_scene_file(stored.path) ? options.project->scene(stored.path) : std::nullopt) {
-						report_unfit_scene(*scene, member->type, [&](const std::string &p_why) { error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + scene->path + ", which " + p_why); });
-					}
-					continue;
-				}
 				// The check of a missing value reports it (spec §7.5).
 				if (stored.type == "Nil" && member->must_assign) {
 					continue;

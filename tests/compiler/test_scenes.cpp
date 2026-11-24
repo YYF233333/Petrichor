@@ -434,6 +434,8 @@ TEST_CASE("instantiate() of a scene known statically takes the exports it does n
 	CHECK(spawner.errors[0].message == "res://level.tscn: \"wave\" of Spawner holds res://enemy.tscn, which leaves \"target\" to instantiate(), but a PackedScene[Node3D] does not ask for it.");
 	CHECK((spawner.errors[0].scene == level.path && spawner.errors[0].node == "Spawner"));
 	CHECK(check_scenes_in("extends Node\n@export pub var wave: PackedScene[Enemy]\n", project).errors.empty());
+	// Nor one whose root is no T.
+	CHECK(messages(check_scenes_in("extends Node\n@export pub var wave: PackedScene[Timer]\n", project)) == "2:17: res://level.tscn: the value stored for \"wave\" of Spawner does not fit its type: expected PackedScene[Timer], found PackedScene[Enemy].\n");
 }
 
 // Spec §7.6.
