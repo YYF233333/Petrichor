@@ -409,7 +409,11 @@ TEST_CASE("for over an array, and over a Dictionary's keys") {
 	CHECK(has_error(in_function("var d: Dictionary[String, int] = {}\nfor k: int in d:\n\tpass"), "The elements are String"));
 	CHECK(errors_of(in_function("var a: Array[int] = [1, 2]\nvar total := 0\nfor x in a:\n\ttotal += x")).empty());
 	CHECK(errors_of(in_function("var a: Array[Node3D] = []\nfor n: Node in a:\n\tn.queue_free()")).empty());
-	CHECK(has_error(in_function("var a: Array[Node] = []\nfor n: Node3D in a:\n\tpass"), "The elements are Node, which the loop variable of type Node3D cannot hold."));
+	// A class of the elements' class, or their type without `?`, which each
+	// iteration checks; not as T?, and not from Variant.
+	CHECK(errors_of(in_function("var a: Array[Node] = []\nfor n: Node3D in a:\n\tpass\nvar b: Array[Node?] = []\nfor n: Node in b:\n\tpass")).empty());
+	CHECK(has_error(in_function("var a: Array[Node] = []\nfor n: Node3D? in a:\n\tpass"), "The elements are Node, which the loop variable of type Node3D? cannot hold."));
+	CHECK(has_error(in_function("var a: Array = []\nfor n: Node in a:\n\tpass"), "The elements are Variant, which the loop variable of type Node cannot hold."));
 	CHECK(errors_of(in_function("for s in \"a,b\".split(\",\"):\n\tprint(s)")).empty());
 	CHECK(has_error(in_function("var u: Array = []\nfor x in u:\n\tvar n: int = x"), "Cannot assign a value of type Variant as int."));
 	CHECK(fixed(in_function("var a: Array[int]? = []\nfor x in a:\n\tprint(x)"), "Write a.unwrap()") == in_function("var a: Array[int]? = []\nfor x in a.unwrap():\n\tprint(x)"));

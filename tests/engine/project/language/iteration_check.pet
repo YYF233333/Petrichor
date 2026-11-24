@@ -95,6 +95,22 @@ pub func ranges() -> Array:
 	return [seen, range(3), range(-1, -7, -2), range(4, 1)]
 
 
+# A loop variable of a class of the elements, or of their type without `?`,
+# checks each element.
+pub func players(holder: Node) -> int:
+	var count := 0
+	for player: AudioStreamPlayer in holder.get_children():
+		count += 1
+	return count
+
+
+pub func present(nodes: Array[Node?]) -> int:
+	var count := 0
+	for node: Node in nodes:
+		count += 1
+	return count
+
+
 pub func counted_by(step: int) -> Array[int]:
 	var seen: Array[int] = []
 	for i in range(0, 3, step):

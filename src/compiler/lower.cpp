@@ -1264,6 +1264,13 @@ class Lowerer {
 		}
 	}
 
+	// An element in a loop variable whose type is narrower (spec §5.7), an
+	// error of the for's line.
+	void check_element(const Stmt &p_for, uint32_t p_local) {
+		instr(Op::LINE, NO_REG, NO_REG, NO_REG, uint32_t(cls.source->line(p_for.range.first)));
+		instr(Op::CHECK_ELEMENT, NO_REG, p_local, NO_REG, class_index(decl->locals[p_for.local].type));
+	}
+
 	/* Containers */
 
 	void new_container(uint32_t p_dst) {
@@ -2893,8 +2900,12 @@ class Lowerer {
 		current = body_block;
 		const uint32_t local = reg_of(p_stmt.local);
 		const uint32_t got = uint32_t(fn.regs.size());
-		move(local, convert(lower_expr(get), get.type, decl->locals[p_stmt.local].type));
+		const uint32_t element = lower_expr(get);
+		move(local, p_stmt.narrows ? element : convert(element, get.type, decl->locals[p_stmt.local].type));
 		release(temps_since(got));
+		if (p_stmt.narrows) {
+			check_element(p_stmt, local);
+		}
 		loops.push_back({ step_block, end_block, scopes.size() });
 		lower_block(p_stmt.body, { local });
 		loops.pop_back();
@@ -3253,7 +3264,9 @@ class Lowerer {
 				} else if (counting && !counts_in_local) {
 					move(local, counter);
 				}
-				if (!counting) {
+				if (p_stmt.narrows) {
+					check_element(p_stmt, local);
+				} else if (!counting) {
 					check_object(local, p_stmt.element);
 				}
 				loops.push_back({ step_block, end_block, scopes.size() });

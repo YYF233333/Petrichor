@@ -1586,11 +1586,11 @@ class Execution {
 		return true;
 	}
 
-	PETRICHOR_NOINLINE bool op_check_object(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+	PETRICHOR_NOINLINE bool op_check_object(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line, bool p_live) {
 		ObjectView view(p_frame + p_op[2]);
 		const Variant &value = view.get();
 		const Object *object = value.get_validated_object();
-		if (is_none(value) || (object && !image.fits_class(object, p_op[1]))) {
+		if (is_none(value) || (object ? !image.fits_class(object, p_op[1]) : p_live)) {
 			const String mismatch = entry_mismatch(ValueType::Object, value, class_check(image, p_op[1]));
 			return fail(p_fn, p_line, mismatch.substr(0, 1).to_upper() + mismatch.substr(1) + ".");
 		}
@@ -2981,10 +2981,15 @@ public:
 					NEXT(CHECK_RANGE);
 				}
 				case Op::CHECK_OBJECT:
-					if (!op_check_object(code + pc, frame, fn, record.line)) {
+					if (!op_check_object(code + pc, frame, fn, record.line, false)) {
 						return false;
 					}
 					NEXT(CHECK_OBJECT);
+				case Op::CHECK_ELEMENT:
+					if (!op_check_object(code + pc, frame, fn, record.line, true)) {
+						return false;
+					}
+					NEXT(CHECK_ELEMENT);
 				case Op::CHECK_LIVE:
 					if (!is_live_object(frame + code[pc + 1])) {
 						return fail_freed(fn, record.line, "The object given to the engine was freed.", *reinterpret_cast<const uint64_t *>(frame + code[pc + 1]));

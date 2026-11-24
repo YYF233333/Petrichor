@@ -415,6 +415,7 @@ struct Stmt {
 	int local = -1; // Var, Const and For: the declared local; Match: the matched value.
 	Type compound_result; // Assign with a compound operator: the type of `target op value`.
 	Type element; // For: the type of what is iterated over, before it goes into the variable.
+	bool narrows = false; // For: the variable's class extends the elements', or is theirs without `?`, so that each is checked (spec §5.7).
 	// For over an object: its _iter_init(), _iter_next() and _iter_get(), each
 	// called on a local without a name that holds the object, with one that
 	// holds the Array or the state (spec §5.7).

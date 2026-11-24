@@ -124,6 +124,7 @@ namespace petrichor::bytecode {
 	X(STRUCT_METHOD_VALUE, "IDA", ".c.") /* method call (of a struct's instance method, on its class's current image), dst (Callable), struct: the method with a copy of the struct (spec §3.11) */ \
 	X(GET_SIGNAL, "IDA", ".gO") /* name constant, dst, object (NO_SLOT: self) */ \
 	X(CHECK_OBJECT, "IA", "Co") /* class, slot: not None, of the class */ \
+	X(CHECK_ELEMENT, "IA", "Co") /* class, slot: as CHECK_OBJECT, and not freed: an element for a loop variable of a narrower type (spec §5.7) */ \
 	X(CHECK_LIVE, "A", "o") /* slot: an object the engine takes is not freed */ \
 	X(CHECK_MUST, "I", "@.") /* member: one that tracks it has been assigned, before it is read (spec §6.2, §6.3) */ \
 	X(MARK_ASSIGNED, "I", "@.") /* member: one that tracks it is assigned from now on */ \

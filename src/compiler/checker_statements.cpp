@@ -555,8 +555,12 @@ void Checker::check_for(Stmt &r_stmt) {
 	Type type = element;
 	if (r_stmt.declared_type) {
 		const Type declared = resolve(*r_stmt.declared_type, false);
-		// The elements' type or a class they extend, without conversions.
-		const bool fits = declared == element || (declared.kind == TypeKind::Object && element.kind == TypeKind::Object && assignable(element, declared));
+		// The elements' type or a class they extend, without conversions; of
+		// object elements also a class that extends theirs, or their type
+		// without `?`, which each iteration checks.
+		const bool objects = declared.kind == TypeKind::Object && element.kind == TypeKind::Object;
+		r_stmt.narrows = objects && !declared.nullable && !declared.is_interface && !element.is_interface && declared.args.empty() && !assignable(element, declared) && assignable(declared, element);
+		const bool fits = declared == element || (objects && assignable(element, declared)) || r_stmt.narrows;
 		if (!declared.is_error() && !element.is_error() && !fits) {
 			error(r_stmt.declared_type->range, "The elements are " + element.to_string() + ", which the loop variable of type " + declared.to_string() + " cannot hold.");
 		}

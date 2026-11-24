@@ -741,8 +741,21 @@ func _ready() -> void:
 	_check(ranges[0] == [2, 5, 8, 11, 5, 3, 1, 0, 1, 2, 9223372036854775805] and ranges[1] == [0, 1, 2] and ranges[2] == [-1, -3, -5] and ranges[3] == [], "range() gives what GDScript's gives, for counting from its bounds and step as they were on entry")
 	_check(ranges[1].get_typed_builtin() == TYPE_INT, "range() gives an Array[int]")
 	var by_zero = [iteration.counted_by(0), iteration.listed_by(0)]
-	_check_errors(["iteration_check.pet:100: The step of range() is 0.", "iteration_check.pet:106: The step of range() is 0."], "a step of 0 is a program error, also in a for, which GDScript runs zero times")
+	_check_errors(["iteration_check.pet:116: The step of range() is 0.", "iteration_check.pet:122: The step of range() is 0."], "a step of 0 is a program error, also in a for, which GDScript runs zero times")
 	_check(by_zero == [[], []], "a program error in range() ends the caller")
+	var sounds := Node.new()
+	sounds.add_child(AudioStreamPlayer.new())
+	sounds.add_child(AudioStreamPlayer.new())
+	var players: int = iteration.players(sounds)
+	sounds.add_child(Node2D.new())
+	var one: Array[Node] = [sounds]
+	var some: Array[Node] = [sounds, null]
+	var left: Array[Node] = [Node.new()]
+	left[0].free()
+	var mixed = [iteration.players(sounds), iteration.present(one), iteration.present(some), iteration.present(left)]
+	_check_errors(["iteration_check.pet:102: Expected AudioStreamPlayer, found Node2D.", "iteration_check.pet:109: Expected Node, found None.", "iteration_check.pet:109: Expected Node, found a freed object."], "an element that is not of the loop variable's type is a program error, None and a freed object too")
+	_check(players == 2 and mixed == [0, 1, 0, 0], "a loop variable of a class of the elements, or of their type without ?, takes the elements of its type")
+	sounds.free()
 
 	# Lambdas (spec §3.11).
 	var lambdas := LambdaCheck.new()
