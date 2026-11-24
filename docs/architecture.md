@@ -796,6 +796,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **合并与写回规则**：
   - `Variant` 流入不参与（GDScript 未写类型的值就是 `Variant`，只有 `Variant` 流入算作无流入）；
   - 单一类型直接选用；有 `null` 流入写成 `T?`（流入 `T?` 算作 `T` 和 `null`）；具公共基类的几个类取最近公共基类；
+  - GDScript 隐式给的 `null` 也算流入：无初始值的变量合并出类时算，函数有路径只写 `return` 或走到末尾时其返回值总算。值类型变量不算，GDScript 写了类型的成员本就取类型默认值（`modules/gdscript/gdscript_compiler.cpp:2366-2391`，`ed1daf0`），只有赋值前读取才看得出差别。规范 §6.2 证明有值的成员也不算：`_init` 每条路径都赋值、场景或资源存了值的导出、祖先 `_ready` 中经场景模型可见的赋值；
   - 同时有 `int` 和 `float` 时，须确认每处使用对整数输入结果不变才写 `float`；
   - 合并不出或无流入时试 `Variant`，容器试无类型 `Array` 或 `Dictionary`（还原 GDScript 原意）；空容器元素与键都合并出非 `Variant` 类型才写 `Array[T]` 或 `Dictionary[K, V]`。
   - 类型写在槽位名后、返回类型写在参数表后（`var a := []` 写成 `var a: Array[int] = []`），本文件 enum 和内部类不带类名。
@@ -826,7 +827,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **原文定意的三类备选修复**：以下备选修复在原文写法已定下意图时直接应用：
   - **补 `async`**：原文含 `await` 的函数只要签名不多出错误就补 `async`（参数缺类型也照补）。覆盖链上方法同步补齐以保持一致，顶端覆盖有返回值引擎虚函数或 `_init` 时不提供（规范 §9.1）。丢弃结果的调用随后由自动修复补 `.detach()`：GDScript 协程运行到第一处挂起就返回、调用方接着执行，与 `detach` 相同（`modules/gdscript/gdscript_vm.cpp:2586-2597, 2641-2654`，`ed1daf0`）。反向转换去掉 `async` 和 `.detach()`，无 `await` 函数在 GDScript 中照常运行到底。
   - **补 `.unwrap()`**：原文未判空就使用的值补 `.unwrap()`，与 GDScript 在同一处出错。
-  - **改为 `T?`**：场景或资源未给值的导出改为 `T?`（GDScript 运行时给 `null`，后续未判空使用照样补 `.unwrap()`，反向转换写回 `T`）。原文把字面量 `null` 赋给 `T` 变量或从 `-> T` 函数返回时同样改为 `T?`（无初始值声明不算），因为 GDScript 接受 `null` 作为任何对象类型（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。
+  - **改为 `T?`**：场景或资源未给值的导出改为 `T?`（GDScript 运行时给 `null`，后续未判空使用照样补 `.unwrap()`，反向转换写回 `T`）。原文把字面量 `null` 赋给 `T` 变量、从 `-> T` 函数返回或只写 `return` 时同样改为 `T?`，因为 GDScript 接受 `null` 作为任何对象类型（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。写了对象类型而无初始值的声明也改为 `T?`，规范 §6.2 证明有值的除外，与推断同一规则：deck_builder_tutorial 中 `create_instance()` 之后才赋值的 `var deck: CardPile`（`custom_resources/character_stats.gd:17`）写成 `CardPile?`。
 - **从根取 autoload 改用名字**：字面量路径如 `$"/root/Audio"` 由自动修复改用其名字（规范 §7.3），反向转换保留名字（GDScript 带 `*` 的 autoload 同为全局名）。
   - 节点在树中时两者取到同一节点：GDScript 的 `$` 是在自己上调 `get_node()`（`modules/gdscript/gdscript_compiler.cpp:743-756`，`ed1daf0`）。绝对路径从最上层须名为 `root` 的祖先（场景树根窗口）走起（`scene/main/node.cpp:1918-1921, 1938`，`scene/main/scene_tree.cpp:2071`），本语言名字在这个根下按名查找。所有 autoload 先挂到根下再入树，就绪时彼此均已在树中（`main/main.cpp:4562-4564`，`scene/main/scene_tree.cpp:586-591`）。
   - 节点不在树中时 GDScript 报错得 `null`，本语言照样取到 autoload（`scene/main/node.cpp:1910`），但真实代码不这样用：tanks-of-freedom-ii 的 125 处都是 `@onready` 初始值，就绪时节点总在树中。`get_node_or_null()` 与另一接收者上的 `get_node()` 只报错不改（前者找不到得 `None`，后者接收者要求值）。
