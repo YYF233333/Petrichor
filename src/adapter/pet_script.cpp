@@ -4,6 +4,7 @@
 #include "adapter/pet_instance.h"
 #include "adapter/pet_language.h"
 #include "adapter/pet_placeholder.h"
+#include "runtime/method_callable.h"
 #include "runtime/text.h"
 
 #ifdef TOOLS_ENABLED
@@ -357,6 +358,18 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, cons
 		}
 	}
 	update_inner_scripts(p_image);
+	// Once the file's scripts hold its images, the constants that hold
+	// containers of its classes find them as it loads (spec §7.6). Those hold
+	// the script, so it stays until the language clears them at exit.
+	if (p_image && inner_path.is_empty() && p_image->waits()) {
+		begin_loading(p_image);
+		String error;
+		if (!p_image->finish_constants(error)) {
+			ERR_PRINT(vformat("%s %s", p_image->path, error));
+		}
+		end_loading();
+		PetLanguage::get_singleton()->keep_loaded(Ref<PetScript>(this));
+	}
 	if (p_image) {
 		update_placeholders();
 	}

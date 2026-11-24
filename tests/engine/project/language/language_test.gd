@@ -774,6 +774,8 @@ func _ready() -> void:
 	var mixed = [iteration.players(sounds), iteration.present(one), iteration.present(some), iteration.present(left)]
 	_check_errors(["iteration_check.pet:102: Expected AudioStreamPlayer, found Node2D.", "iteration_check.pet:109: Expected Node, found None.", "iteration_check.pet:109: Expected Node, found a freed object."], "an element that is not of the loop variable's type is a program error, None and a freed object too")
 	_check(players == 2 and mixed == [0, 1, 0, 0], "a loop variable of a class of the elements, or of their type without ?, takes the elements of its type")
+	var own_typed: Array = iteration.own_containers()
+	_check(own_typed[0].get_typed_script() == iteration.get_script() and own_typed[0].is_read_only() and own_typed[1].get_typed_value_script() != null and own_typed[1].is_empty(), "a constant holds a container of a class of its own file, built as the file loads (spec §7.6)")
 	sounds.free()
 
 	# Lambdas (spec §3.11).

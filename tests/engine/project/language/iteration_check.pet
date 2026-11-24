@@ -120,3 +120,13 @@ pub func counted_by(step: int) -> Array[int]:
 
 pub func listed_by(step: int) -> Array[int]:
 	return range(0, 3, step)
+
+
+# Containers of the file's own classes, built as it loads (spec §7.6).
+const Me = preload("iteration_check.pet")
+const NO_CHECKS: Array[Me] = []
+const NO_COUNTDOWNS: Dictionary[String, Countdown] = {}
+
+
+pub func own_containers() -> Array:
+	return [NO_CHECKS, NO_COUNTDOWNS]

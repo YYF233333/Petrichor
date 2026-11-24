@@ -475,10 +475,9 @@ TEST_CASE("a preload constant used only as a type is no edge of a load cycle; a 
 	CHECK(board_errors("\nvar board: Board\n\n\npub func _init(p_board: Board) -> void:\n\tboard = p_board\n\n\nfunc is_board(x: Variant) -> bool:\n\treturn x is Board\n").empty());
 	CHECK(contains(board_errors("\n\npub func _init(_p_board: Node) -> void:\n\tprint(Board.new())\n"), "This preload loads this script again (res://abilities.pet -> res://test.pet)"));
 	CHECK(contains(board_errors("\nstatic var all: Array[Board] = []\n\n\npub func _init(_p_board: Node) -> void:\n\tpass\n"), "This preload loads this script again (res://abilities.pet -> res://test.pet)"));
-	// A static initializer builds a container of its own class once its
-	// file's script is registered; a constant cannot wait for that.
-	CHECK(messages(compile_in("extends Node\n\nconst Me = preload(\"res://test.pet\")\n\nstatic var all: Array[Me] = []\n", project)).empty());
-	CHECK(contains(messages(compile_in("extends Node\n\nconst Me = preload(\"res://test.pet\")\nconst NONE: Array[Me] = []\n", project)), "A container of this class is built as the class loads, which loads this script again (res://test.pet); build it where it is used."));
+	// A container of a class of its own file is built once the file's
+	// scripts are registered, in a static initializer or a constant.
+	CHECK(messages(compile_in("extends Node\n\nconst Me = preload(\"res://test.pet\")\n\nstatic var all: Array[Me] = []\nconst NONE: Array[Me] = []\n", project)).empty());
 
 	project.add_script("res://board.pet", "extends Node\n\nvar abilities = preload(\"res://test.pet\").new()\n");
 	CHECK(contains(messages(compile_in("extends RefCounted\n\nconst Board = preload(\"res://board.pet\")\n\nstatic var all: Array[Board] = []\n", project)), "A container of this class is built as the class loads, which loads this script again (res://board.pet -> res://test.pet); build it where it is used."));

@@ -67,6 +67,9 @@ void PetLanguage::_finish() {
 
 void PetLanguage::keep_loaded(const Ref<Script> &p_script) {
 	std::lock_guard<std::mutex> lock(kept_mutex);
+	if (std::find(kept_scripts.begin(), kept_scripts.end(), p_script) != kept_scripts.end()) {
+		return;
+	}
 	kept_scripts.push_back(p_script);
 }
 

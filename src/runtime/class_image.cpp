@@ -294,10 +294,19 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	// script that a constant only names in types, which no code reads (spec
 	// §2.1), and in a class that describes a script the editor is loading,
 	// which reads none (pub_constant()).
+	const String file = p_path.get_slice("::", 0);
 	for (size_t i = 0; i < module.constants.size(); i++) {
 		bytecode::Constant &constant = image->module.constants[i];
 		const ValueType storage = types[constant.type].storage;
 		image->values.emplace_back();
+		const ValueCheck &check = types[constant.type].check;
+		const bool container = storage == ValueType::Array || storage == ValueType::Dictionary;
+		if (container && (check.script.get_slice("::", 0) == file || check.key_script.get_slice("::", 0) == file)) {
+			image->strings.emplace_back();
+			image->waiting.emplace_back(i, image->natives.emplace_back(storage).data());
+			image->native_values.push_back(image->waiting.back().second);
+			continue;
+		}
 		const bool deferred = constant.type_only || (module.declarations_only && loads_resource(constant));
 		if (!deferred && !constant_value(*image, constant, image->values.back(), r_error)) {
 			return nullptr;
@@ -684,6 +693,26 @@ int ClassImage::find_static(const StringName &p_name) const {
 	return index ? *index : -1;
 }
 
+bool ClassImage::finish_constants(String &r_error) const {
+	for (const auto &[index, slot] : waiting) {
+		Variant &value = values[index];
+		// Once, though the image is set again.
+		if (value.get_type() != Variant::NIL) {
+			continue;
+		}
+		if (!constant_value(*this, module.constants[index], value, r_error)) {
+			return false;
+		}
+		freeze(value);
+		from_variant(types[module.constants[index].type], value, slot, false);
+	}
+	return std::all_of(inner_classes.begin(), inner_classes.end(), [&](const std::shared_ptr<const ClassImage> &p_inner) { return p_inner->finish_constants(r_error); });
+}
+
+bool ClassImage::waits() const {
+	return !waiting.empty() || std::any_of(inner_classes.begin(), inner_classes.end(), [](const std::shared_ptr<const ClassImage> &p_inner) { return p_inner->waits(); });
+}
+
 void ClassImage::adopt_statics(const ClassImage &p_previous) const {
 	statics = p_previous.statics;
 	for (const std::shared_ptr<const ClassImage> &inner : inner_classes) {
@@ -699,6 +728,12 @@ void ClassImage::clear_statics() const {
 		// one runs code that reads them.
 		Statics cleared(statics->layout);
 		std::swap(cleared.data, statics->data);
+	}
+	for (const auto &[index, slot] : waiting) {
+		const ValueType storage = types[module.constants[index].type].storage;
+		values[index] = Variant();
+		destroy_value(storage, slot);
+		construct_value(storage, slot);
 	}
 	for (const std::shared_ptr<const ClassImage> &inner : inner_classes) {
 		inner->clear_statics();

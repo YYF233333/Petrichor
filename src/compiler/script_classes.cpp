@@ -676,16 +676,16 @@ std::vector<LoadEdge> load_edges(const ClassDecl &p_file, const std::string &p_p
 			edges.push_back({ file_at(*preloaded, p_path, p_project), p_expr.range, false });
 		}
 	});
-	// The containers built as the class loads; one of a class of the file
-	// waits for the file's script in a constant only.
-	const auto containers = [&](const auto &p_node, bool p_constant) {
+	// The containers built as the class loads, but of the file's own classes,
+	// whose scripts the loading file gives them (spec §7.6).
+	const auto containers = [&](const auto &p_node) {
 		for_each_type(p_node, [&](const TypeRef &p_type) {
 			if (p_type.name != "Array" && p_type.name != "Dictionary") {
 				return;
 			}
 			for (const TypeRef &item : p_type.args) {
 				const std::string target = named_file(item.name);
-				if (is_script_file(target) && (p_constant || target != file)) {
+				if (is_script_file(target) && target != file) {
 					edges.push_back({ target, item.range, true });
 				}
 			}
@@ -693,14 +693,14 @@ std::vector<LoadEdge> load_edges(const ClassDecl &p_file, const std::string &p_p
 	};
 	for (const ClassDecl *cls : all) {
 		for (const ConstDecl &constant : cls->constants) {
-			containers(constant, true);
+			containers(constant);
 		}
 		for (const VarDecl &variable : cls->static_vars) {
-			containers(variable, false);
+			containers(variable);
 		}
 		for (const FuncDecl &function : cls->functions) {
 			if (function.name == "_static_init") {
-				containers(function, false);
+				containers(function);
 			}
 		}
 	}

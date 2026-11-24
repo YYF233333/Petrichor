@@ -110,10 +110,15 @@ public:
 	godot::HashMap<godot::StringName, int> static_lookup;
 
 	std::vector<godot::String> strings; // String constants, by constant index.
-	std::vector<godot::Variant> values; // Other constants, by constant index.
+	// Other constants, by constant index; those that wait are written once.
+	mutable std::vector<godot::Variant> values;
 	// By constant index: one of a built-in type in that type's own layout, as
 	// CONST_VALUE copies it; null for others.
 	std::vector<const uint8_t *> native_values;
+	// The constants that hold containers of a class of this file, which wait
+	// for the file's scripts (spec §7.6): by index, with where their native
+	// values go.
+	std::vector<std::pair<size_t, uint8_t *>> waiting;
 	std::vector<godot::StringName> engine_methods;
 	std::vector<godot::StringName> engine_static_classes; // Empty for a method called on an object.
 	// By engine call index: the MethodBind of a method called through it, with
@@ -189,6 +194,12 @@ public:
 	static std::shared_ptr<const ClassImage> load(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error, const std::shared_ptr<const ClassImage> &p_base = {}, const BaseLoader &p_bases = {});
 	// This class or an inner class of it by its path; null when there is none.
 	std::shared_ptr<const ClassImage> find_class(const godot::String &p_path) const;
+	// Computes the constants that wait, of this class and its inner classes,
+	// once the file's scripts hold the images and the loading registry has
+	// them; false with r_error as load() fails.
+	bool finish_constants(godot::String &r_error) const;
+	// Whether it or an inner class has such constants.
+	bool waits() const;
 
 	int find_function(const godot::StringName &p_name) const;
 	int find_member(const godot::StringName &p_name) const;
@@ -196,7 +207,8 @@ public:
 	// This image and its inner classes take the static variables of
 	// `p_previous`, an image of the same class with the same declarations.
 	void adopt_statics(const ClassImage &p_previous) const;
-	// Its static variables and its inner classes' back to their defaults.
+	// Its static variables and its inner classes' back to their defaults, and
+	// the constants that wait empty, which may hold the script.
 	void clear_statics() const;
 
 	// Whether the two differ only in function bodies, so that instances of
