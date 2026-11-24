@@ -449,7 +449,7 @@ const EnumDecl *Checker::named_enum(Expr &r_name, bool p_call) {
 			refer(r_name.name_token, aliased ? alias_id(name) : enum_id(*decl));
 		}
 		if (decl && !aliased && classes.errors_in(decl)) {
-			error(r_name.range, *broken(decl, display_name(*script_header(decl->script), decl->script) + "." + name));
+			error_elsewhere(r_name.range, *broken(decl, display_name(*script_header(decl->script), decl->script) + "." + name));
 		}
 		return decl;
 	}
@@ -477,7 +477,7 @@ const EnumDecl *Checker::named_enum(Expr &r_name, bool p_call) {
 	if (const auto refusal = hidden(*found, found->script, [&] { return "The enum " + named->name + "." + found->name + " is not pub."; })) {
 		error(r_name.range, *refusal);
 	} else if (const auto message = local ? std::nullopt : broken(found, named->name + "." + found->name)) {
-		error(r_name.range, *message);
+		error_elsewhere(r_name.range, *message);
 	}
 	refer(r_name.name_token, script_id(found->script, found->name));
 	return found;

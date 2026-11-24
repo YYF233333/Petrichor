@@ -1332,14 +1332,16 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		for (const auto &[path, result] : checked) {
 			for (const Diagnostic &error : result.errors) {
 				const auto [begin, inside] = original_at(path, error.begin);
-				if (loop_fix(error, r_project) || reported.count({ path, begin, error.message })) {
+				const auto about = std::find_if(check.about.begin(), check.about.end(), [&](const Inflows::About &p_about) { return p_about.file == path && p_about.error == Range(error.begin, error.end); });
+				// One about no place here says that a declaration elsewhere has
+				// errors, which is no type's here.
+				if (loop_fix(error, r_project) || reported.count({ path, begin, error.message }) || (about != check.about.end() && about->places.empty())) {
 					continue;
 				}
 				if (inside) {
 					refused.insert(*inside);
 					continue;
 				}
-				const auto about = std::find_if(check.about.begin(), check.about.end(), [&](const Inflows::About &p_about) { return p_about.file == path && p_about.error == Range(error.begin, error.end); });
 				std::set<Inflows::Key> seen;
 				for (const Range &range : about != check.about.end() ? about->places : std::vector<Range>{ { error.begin, error.end } }) {
 					involved(path, result, range.first, range.second, seen, refused, involved);

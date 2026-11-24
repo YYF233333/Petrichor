@@ -233,8 +233,16 @@ std::optional<Fix> Checker::pub_fix(const std::string &p_owner, uint32_t p_name,
 }
 
 void Checker::error(const TokenRange &p_range, const Refusal &p_refusal) {
-	error(p_range, p_refusal.message);
+	error_elsewhere(p_range, p_refusal.message);
 	fix(p_refusal.pub);
+}
+
+// An error about a declaration of another file, hidden or with errors of
+// its own, which no type that a migration tries here causes (architecture
+// §6.6).
+void Checker::error_elsewhere(const TokenRange &p_range, const std::string &p_message) {
+	error(p_range, p_message);
+	about(p_range, {});
 }
 
 // Reports why code here cannot use a declaration, if it cannot; whether the
@@ -895,7 +903,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 	// while it has errors.
 	const auto constant = constant_index.find(head);
 	if (const auto message = !alias && constant != constant_index.end() ? broken_in(cls, *cls.all_constants[constant->second], &ClassDecl::constants) : std::nullopt) {
-		error(p_ref.range, *message);
+		error_elsewhere(p_ref.range, *message);
 		return Type::of(TypeKind::Error);
 	}
 	std::string path = alias ? alias->script : scope_class(head);
@@ -998,7 +1006,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 				return Type::of(TypeKind::Error);
 			}
 			if (const auto message = broken(&interface, display_name(*header, path) + "." + inner)) {
-				error(p_ref.range, *message);
+				error_elsewhere(p_ref.range, *message);
 				return Type::of(TypeKind::Error);
 			}
 			refer(at, script_id(path, inner));
@@ -1014,7 +1022,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 		const ClassDecl *checked = script_decl(path);
 		const StructDecl *checked_struct = checked ? checked->find_struct(inner) : nullptr;
 		if (const auto message = broken(checked_struct ? checked_struct : found, display_name(*header, path) + "." + inner)) {
-			error(p_ref.range, *message);
+			error_elsewhere(p_ref.range, *message);
 			return Type::of(TypeKind::Error);
 		}
 		refer(at, script_id(path, inner));
@@ -1031,7 +1039,7 @@ std::optional<Type> Checker::script_type(const TypeRef &p_ref) {
 			return Type::of(TypeKind::Error);
 		}
 		if (const auto message = broken(found, display_name(*header, path) + "." + inner)) {
-			error(p_ref.range, *message);
+			error_elsewhere(p_ref.range, *message);
 			return Type::of(TypeKind::Error);
 		}
 		refer(at, script_id(found->script, inner));

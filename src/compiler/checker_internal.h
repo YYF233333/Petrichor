@@ -784,6 +784,7 @@ class Checker : public ClassRelation {
 	void fix(std::optional<Fix> p_fix);
 	std::optional<Fix> pub_fix(const std::string &p_owner, uint32_t p_name, const TokenRange &p_range = TokenRange()) const;
 	void error(const TokenRange &p_range, const Refusal &p_refusal);
+	void error_elsewhere(const TokenRange &p_range, const std::string &p_message);
 	bool refuse(const TokenRange &p_range, const std::optional<Refusal> &p_refusal);
 	TokenRange unparenthesized(TokenRange p_range) const;
 	std::string operand(const Expr &p_expr) const;

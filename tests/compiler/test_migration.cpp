@@ -417,6 +417,17 @@ TEST_CASE("an error about an override's parameter withdraws the type of its base
 	CHECK(migration.withdrawn == 1);
 }
 
+TEST_CASE("an error that a declaration of another file has errors leaves the type that reads it") {
+	FakeProject project;
+	project.add_script("res://camera.gd", "class_name Camera\nextends Node\nvar speed: int = \"fast\"\n", "Camera");
+	project.add_script("res://map.gd", "extends Node\n\n\nfunc follow(camera) -> int:\n\treturn camera.speed\n\n\nfunc _ready() -> void:\n\tprint(follow(Camera.new()))\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://camera.gd", "res://map.gd" }, 10);
+	CHECK(migration.texts.at("res://map.pet") == "extends Node\n\n\nfunc follow(camera: Camera) -> int:\n\treturn camera.speed\n\n\nfunc _ready() -> void:\n\tprint(follow(Camera.new()))\n");
+	CHECK(migration.withdrawn == 0);
+	REQUIRE(migration.errors.size() == 2);
+	CHECK(migration.errors[1].message == "Camera.speed has errors (res://camera.pet, line 3).");
+}
+
 TEST_CASE("an error about a call's receiver inside an assigned value leaves the slots of the arguments and of the target") {
 	FakeProject project;
 	project.add_script("res://g.gd", "extends Node\n\n\nfunc total(start, items):\n\tvar sum = start\n\tfor each in items:\n\t\tsum = each.added_to(sum)\n\treturn sum\n\n\nfunc _ready() -> void:\n\tprint(total(1, []))\n");
