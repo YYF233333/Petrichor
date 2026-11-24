@@ -1,22 +1,22 @@
 # Petrichor
 
-Petrichor 是一门面向 Godot 4 的静态类型脚本语言，沿用 GDScript 的写法。与 GDScript 写法相同的代码，除规范点名的几处差异外，要么行为一致，要么在编译期报错并给出改法。它以 GDExtension 交付，装进官方编辑器即可使用。导出用官方模板，不需要自己编译引擎。
+Petrichor 是一门面向 Godot 4 的静态类型脚本语言，沿用 GDScript 的写法。它以标准 GDExtension 交付，装进官方编辑器即可使用，导出也复用官方模板，无需自编译引擎。除语言规范明确列出的几处差异外，按 GDScript 习惯写出的代码要么行为一致，要么在编译期报错并给出修改建议。
 
-0.2.1 已发布。1.0 之前语义仍可能调整，详见[状态与限制](#状态与限制)。
+当前版本：**0.2.1**。1.0 之前语义仍可能调整，详见[状态与限制](#状态与限制)。
 
 English: [README.md](README.md)
 
-![脚本中的节点路径对不上节点时，场景面板在用到它的节点上标出错误](docs/images/scene-error.png)
+![脚本中的节点路径对不上节点时，场景面板会在对应节点上标出错误](docs/images/scene-error.png)
 
 ## 为什么
 
-Godot 项目变大以后，重构越来越依赖运行时才暴露的错误。GDScript 的类型是渐进的。即使脚本写满类型，场景中的节点路径、信号连接和导出属性仍是动态的。对象引用默认可为空，运行时出错后调用方仍会拿到假值。C# 有静态类型，但桥接层有不少暗坑（[调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md)）。
+Godot 项目变大之后，重构越来越依赖运行游戏后才冒出来的报错。GDScript 采用渐进类型，即便脚本写满类型注解，场景里的节点路径、信号连接和导出属性依然是动态的。同时，对象引用默认可为空，运行时出错后调用方往往还会拿到一个兜底值继续执行。C# 虽然有静态类型，但跨引擎桥接层暗坑不少（[调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md)）。
 
-Petrichor 把静态检查延伸到场景，并让空值和失败在编译期可见。
+Petrichor 把静态检查延伸进场景，可空类型和可预期的失败都写在类型签名里，由编译器在使用处检查。
 
 ## 和 GDScript 的区别
 
-下面的 GDScript 能通过检查，却会在运行时出错：场景里的 `Camera` 改了名，或者 `target` 是 null。
+下面这段 GDScript 能通过静态检查，但如果场景里的 `Camera` 改了名，或者 `target` 为 `null`，运行时就会报错：
 
 ```gdscript
 @onready var camera: Camera3D = $Head/Camera
@@ -26,7 +26,7 @@ func aim():
     camera.look_at(target.global_position)
 ```
 
-在 Petrichor 中，`camera` 的类型由挂载脚本的场景推出。在场景面板中给节点改名，路径随之更新。对不上节点的路径在编译期报错。`target` 写成 `Node3D?`，读取前要先检查：
+在 Petrichor 里，`camera` 会自动从挂载的场景推导出类型：在场景面板重命名节点时路径会同步更新，路径对不上任何节点则会直接报编译错误。`target` 声明为可空的 `Node3D?`，不经检查直接访问同样无法通过编译：
 
 ```gdscript
 @onready var camera = $Head/Camera
@@ -37,6 +37,8 @@ func aim():
     # 编译错误：The value may be None (Node3D?); check it before reading "global_position".
 ```
 
+先判空收窄类型，调用就能通过编译：
+
 ```gdscript
 func aim():
     var t := target
@@ -44,103 +46,117 @@ func aim():
         camera.look_at(t.global_position)
 ```
 
-其余的区别：
+其余主要差异：
 
-- 信号连接和导出属性也按场景检查，错误标在场景节点上。
-- 对象类型默认非空。已释放的对象在 `T?` 上读作 `None`。
-- 预期内的失败用 `Option` 和 `Result[T, E]` 表示，后缀 `?` 提前返回。
-- 有值语义的 `struct`、带载荷的 `enum`、穷尽的 `match`、接口和嵌套的带类型容器。
-- `async func` 返回有归属的 `Task`。所属对象被释放时，协程随之取消。等待它的一方得到取消或程序错误，不会永远挂起。
-- 可以与 GDScript 插件和 C# 代码混用。
-- 编辑器提供补全、悬停类型、跳转、查找引用、重命名、快速修复、格式化、断点和函数体热重载。在场景面板中给节点改名或移动节点时，脚本中到它的路径随之更新。
+- 信号连接和导出属性同样按场景做静态检查，报错直接标在对应的场景节点上。
+- 对象类型默认非空，已释放的对象通过 `T?` 读取时会变成 `None`。
+- 预期内的失败用 `Option` 和 `Result[T, E]` 表达，配合后缀 `?` 提前返回。
+- 提供值语义的 `struct`、带载荷的 `enum`、穷尽检查的 `match`、接口以及嵌套带类型容器。
+- `async func` 返回有归属的 `Task`：所属对象被释放后协程会自动取消，await 它的地方会收到取消或触发程序错误，不会无限挂起。
+- 支持与项目里的 GDScript 插件和 C# 代码直接混用。
+- 编辑器支持补全、悬停类型、跳转定义、查找引用、重命名、快速修复、格式化、断点和函数体热重载。在场景面板重命名或移动节点时，脚本里的对应路径也会同步更新。
 
 完整规则见[语言规范](docs/language-spec.zh.md)。
 
-在微基准上，纯计算比 GDScript 快 1.2 到 3.5 倍，读写引擎属性快约 1.6 倍。调用引擎方法、发信号和创建对象时，时间主要花在引擎里，两者相近。项目启动时间持平（[基准](docs/architecture.md#4-性能)）。
+在微基准测试中，纯计算比 GDScript 快 1.2 到 3.5 倍，读写引擎属性快约 1.6 倍。调用引擎方法、发信号和创建对象这类操作主要耗时在引擎内部，两者表现相近，项目启动时间也持平（[基准数据](docs/architecture.md#4-性能)）。
 
-两个真实项目迁移后的脚本已能运行：Kenney 的 FPS 起步工程和 Ring 中的打砖块小游戏（[迁移调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)）。
+两个真实项目迁移后的脚本已经能端到端跑通：Kenney 的 FPS 起步工程，以及 Ring 里的打砖块小游戏（[迁移调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)）。
 
 ## 试用
 
-需要官方的 Godot 4.7 编辑器，标准版和 .NET 版都可以。[Releases](https://github.com/YYF233333/Petrichor/releases) 页面提供两个包：
+运行 Petrichor 需要官方的 Godot 4.7 编辑器（标准版或 .NET 版均可）。从 [Releases](https://github.com/YYF233333/Petrichor/releases) 页面按需下载以下压缩包（同一页面也提供下文的 VS Code 扩展）：
 
-- 演示包 `petrichor-<版本>-demo.zip`：FPS 起步工程加迁移后的脚本。解压后用编辑器打开，导入结束后即可运行。
-- 插件包 `petrichor-<版本>-addon.zip`：解压到项目根目录，得到 `addons/petrichor/`。重启编辑器后就能新建 `.pet` 脚本。
+- 演示包（`petrichor-<版本>-demo.zip`）：包含 Kenney FPS 起步工程与迁移后的脚本。解压后用 Godot 打开，等资源导入完成就能直接运行。
+- 插件包（`petrichor-<版本>-addon.zip`）：解压到项目根目录生成 `addons/petrichor/`，重启编辑器即可新建 `.pet` 脚本。
 
-升级时先关闭编辑器，再用新版的 `addons/petrichor/` 替换旧的。之后从编辑器运行一次项目，脚本会全部重新编译。
+升级插件时，先关闭编辑器，用新版本的 `addons/petrichor/` 覆盖旧目录，再从编辑器运行一次项目，让全部脚本重新编译。
 
-macOS 上的库只有临时签名，没有公证。浏览器下载的包带有隔离标记，系统会拒绝加载其中的库。解压后在项目目录运行：
+macOS 上的预编译库仅做了临时签名、未经公证，浏览器下载后会被系统打上隔离标记而拒绝加载。解压后在项目目录下执行以下命令即可解除隔离：
 
 ```sh
 xattr -dr com.apple.quarantine addons/petrichor
 ```
 
-要在 VS Code 中编辑脚本，再从同一页面下载 `petrichor-<版本>.vsix`，经 Extensions: Install from VSIX… 安装。Godot 编辑器打开项目后，在 VS Code 中打开项目的文件夹。VS Code 连上这个编辑器，得到它的诊断和各项工具，断点除外。在 VS Code 中保存脚本，运行中的游戏随之热重载，与在 Godot 中保存相同。在 VS Code 中撤销重命名后，要保存它改过的文件：VS Code 重命名后自动保存，撤销后却不保存。检查要经引擎读取场景和类，所以 Godot 编辑器没有运行时只有语法高亮。显示脚本时，状态栏标出 VS Code 是否已连上。Godot 在后台时每帧睡 100 毫秒，补全等请求最多因此晚这么久。嫌慢时，调低编辑器设置 Interface → Editor → Timers 中的 Unfocused Low Processor Mode Sleep (µsec)，代价是更耗电。
+### VS Code
 
-每个版本都在 CI 中用官方编辑器和官方导出模板测试：编辑、运行、导出 debug 包和 release 包。
+如果想在 VS Code 里写 `.pet` 脚本，从同一个 Releases 页面下载 `petrichor-<版本>.vsix`，在 VS Code 中执行 **Extensions: Install from VSIX…** 安装。先用 Godot 编辑器打开项目，再在 VS Code 中打开同一项目目录。VS Code 会自动连上该编辑器，提供诊断以及除断点外的全部语言工具。在 VS Code 中保存脚本，同样会触发运行中游戏的热重载。
+
+使用 VS Code 时有几点需要注意：
+
+- 静态检查要通过引擎读取场景和类，所以未打开 Godot 编辑器时只有语法高亮。当前标签页为 `.pet` 脚本时，底部状态栏会显示连接状态。
+- 在 VS Code 中撤销重命名后需要手动保存被改回的文件（VS Code 重命名后会自动保存，但撤销重命名不会）。
+- Godot 切到后台后默认每帧休眠 100 毫秒，补全等请求可能因此产生对应延迟。如果觉得响应偏慢，可以调低编辑器设置 **Interface → Editor → Timers → Unfocused Low Processor Mode Sleep (µsec)**，代价是后台更耗电。
+
+### 支持的平台
+
+每次发布都会在 CI 中使用官方编辑器和官方导出模板做完整验证，覆盖编辑、运行以及 debug / release 导出。
 
 | 平台 | 库 | 测试环境 |
 |---|---|---|
 | Windows | x86_64 | Windows Server 2022 |
-| Linux | x86_64，需要 glibc 2.35 或更新 | Ubuntu 22.04 |
-| macOS | x86_64 和 arm64 合一，需要 macOS 11 或更新 | macOS 15，arm64；x86_64 经 Rosetta 运行 |
+| Linux | x86_64（需要 glibc 2.35 及以上） | Ubuntu 22.04 |
+| macOS | 通用二进制（x86_64 与 arm64，需要 macOS 11 及以上） | macOS 15（arm64；x86_64 经 Rosetta 运行） |
 
-在项目的根目录下，命令行工具 `pet` 检查、构建和格式化整个项目：
+### 命令行工具
+
+在项目根目录运行 `pet`，可以对整个项目做检查、构建或格式化：
 
 ```sh
-addons/petrichor/pet check            # 检查磁盘上的文件，不写字节码
+addons/petrichor/pet check            # 检查磁盘上的文件，不写出字节码
 addons/petrichor/pet build            # 检查并写出字节码
-addons/petrichor/pet format --check   # 列出未格式化的脚本，不带 --check 时格式化它们
-addons/petrichor/pet lsp              # 经 stdio 为 Neovim、Helix 等 LSP 客户端转接
+addons/petrichor/pet format --check   # 列出未格式化的脚本；不带 --check 则直接就地格式化
+addons/petrichor/pet lsp              # 经 stdio 桥接 Neovim、Helix 等 LSP 客户端
 ```
 
-在 Windows 上写作 `addons\petrichor\pet`。Godot 编辑器开着这个项目时，命令在其中运行，不另起进程。否则 `pet` 运行无界面的 Godot，即编辑器上次打开项目时记下的那个。没有记下时，用 `--godot <path>` 指定，在 CI 中就是这样：
+Windows 下命令路径为 `addons\petrichor\pet`。如果 Godot 编辑器正开着当前项目，`pet` 会直接复用该编辑器进程执行，不另起实例。否则 `pet` 会按上次打开该项目时记录的路径启动无界面 Godot。如果没有记录（例如在 CI 中），用 `--godot <path>` 手动指定即可：
 
 ```sh
 addons/petrichor/pet build --godot <godot>
 addons/petrichor/pet format --check --godot <godot>
 ```
 
-每个错误占一行，如 `player.pet:12:5: error: ...`。退出码 0 表示没有错误，1 表示有错误或有未格式化的脚本，2 表示没能运行。代理写完文件后运行 `pet check`，得到的就是磁盘上此刻的结果。
+每条诊断占一行（如 `player.pet:12:5: error: ...`）。退出码 `0` 表示通过，`1` 表示存在错误或未格式化脚本，`2` 表示未能正常执行。由于 `pet check` 直接读取磁盘上的当前文件，AI 编码代理改完代码后运行它，就能立刻拿到最新检查结果。
 
-从源码构建需要 C++17 工具链和 SCons。先运行 `git submodule update --init`，再运行 `scons`。
+### 从源码构建
+
+从源码构建需要 C++17 工具链和 SCons，先执行 `git submodule update --init`，再运行 `scons`。
 
 ## 状态与限制
 
-0.1 是首次公开发布，目的是在 1.0 之前收集对语义的反馈。
+Petrichor 目前处于 0.x 预览阶段（自首个公开版 0.1 起），目标是在 1.0 之前收集语言语义上的反馈。
 
-- 适合：已大量使用带类型 GDScript、愿意随 0.x 调整代码的项目。
-- 暂不适合：要导出到 Android、iOS 或 Web 的项目。这些平台的库从 0.4 起提供，先提供试通的平台。
-- 0.9 之前，语言语义可能调整，不兼容的改动都在发布说明中列出。0.9 起，改变代码含义的改动都以编译错误出现。只改运行时行为的修正，在发布说明中单独列出。
-- 少数写法在设计需要之处与 GDScript 行为不同，却不报编译错误。[规范](docs/language-spec.zh.md#12-与-gdscript-的关系)逐一点名，0.9 之前仍征求意见。
-- 字节码不跨构建兼容，所以升级后脚本要全部重新编译。
-- 编辑器还没有 lint。它排在 0.3。
-- 还没有 GDScript 迁移工具。手工迁移每百行要改二十多处，所以真实项目最好等 0.3 的迁移工具再试。工具是双向的。不用 GDScript 所缺特性的文件，在本项目停止维护后也能转回 GDScript。用到这些特性（如 struct、`Result`）的文件不转换，工具只列出位置。
+- 适合：已经大量使用带类型 GDScript、能接受 0.x 期间代码随语义调整的项目。
+- 暂不适合：需要导出到 Android、iOS 或 Web 的项目。这些平台的导出库将从 0.4 起陆续提供，优先发布已验证跑通的平台。
+- 0.9 之前，语言语义仍可能调整，所有不兼容改动都会列在发布说明里。从 0.9 起，凡是会改变现有代码含义的改动都会直接报编译错误，只涉及运行时行为的修正则会在发布说明中单独列出。
+- 少数写法出于设计需要与 GDScript 行为不同，且不报编译错误。[语言规范](docs/language-spec.zh.md#12-与-gdscript-的关系)逐一列出了这些差异，0.9 之前均开放讨论。
+- 字节码不跨构建版本兼容，升级后需要重新编译全部脚本。
+- 编辑器暂未提供 lint，计划在 0.3 加入。
+- 暂未提供 GDScript 自动迁移工具。手工迁移平均每百行要改二十多处，真实项目建议等 0.3 的双向迁移工具发布后再试。仅使用 GDScript 兼容特性的文件，即使本项目停止维护也能转回 GDScript。用到了 `struct`、`Result` 等独有特性的文件会跳过转换，由工具列出具体位置。
 - 支持 Godot 4.7 及之后的版本。
 
-完整路线见[实现架构](docs/architecture.md#5-推进顺序)，未完成的工作见 [BACKLOG.md](BACKLOG.md)。
+完整路线图见[实现架构](docs/architecture.md#5-推进顺序)，未完成事项见 [BACKLOG.md](BACKLOG.md)。
 
 ## 开发方式
 
-Petrichor 的语言设计和每条规范由作者决定。实现、测试、文档和语料调查主要由 AI 编码代理完成。作者不逐行审阅代码。代理遵循仓库中的 [AGENTS.md](AGENTS.md)。正确性靠下面几点保证：
+Petrichor 的语言设计与每一条规范规则都由我本人定夺。实现、测试、文档和语料调查主要由 AI 编码代理按照 [AGENTS.md](AGENTS.md) 完成。我不会逐行审阅生成的代码，而是靠四条约束保障正确性：
 
-- 规范是唯一的规则来源。实现与规范不符时，改的是实现。
-- 测试从规范和引擎行为推出，不从实现推出。
-- 引擎行为逐条对照 Godot 源码，并记下提交和行号。
-- 两个真实项目迁移后的脚本在引擎中运行。
+- 语言规范是唯一权威来源，实现一旦与规范不符，改的永远是实现。
+- 测试直接从规范和 Godot 引擎行为推导，不照着实现反推。
+- 依赖的每一条引擎行为都对照 Godot 源码，并注明提交哈希与行号。
+- 两个真实项目迁移后的脚本都在引擎里实际跑通。
 
-出了问题由作者负责修复。0.1 期间只接受 issue，不接受 PR。开发进展很快，PR 等到审阅时多半已经过时。缺陷请提 issue，对语言规则的意见请发到 Discussions，都会在 48 小时内回复。接近 1.0 时再开放 PR。
+出了问题由我负责修复。目前仓库只接受 issue、暂不接受 PR，因为当前迭代很快，外部 PR 等到审阅时多半已经过时。遇到缺陷请提 issue，对语言规则有想法请发到 Discussions，两边都会在 48 小时内回复。随着 1.0 临近，仓库会开放 PR。
 
 ## 文档
 
 - [语言规范](docs/language-spec.zh.md)
 - [实现架构](docs/architecture.md)
-- [设计说明](docs/design-notes.md)：规则背后的取舍、语料计数和被否决的方案
-- [引擎事实](docs/engine-facts.md)：依赖的引擎行为及其源码出处
-- [开发说明](docs/development.md)：构建、测试和调试中的坑
-- [语料调查](https://github.com/YYF233333/petrichor-corpus)：基于语料 v1 的 20 个和 v2 的 200 个 Godot 4 项目，每份附复现脚本，并有从每条规则到其依据的索引
+- [设计说明](docs/design-notes.md)：规则背后的取舍、语料计数与被否决的方案
+- [引擎事实](docs/engine-facts.md)：所依赖的引擎行为及源码出处
+- [开发说明](docs/development.md)：构建、测试与调试中的常见问题
+- [语料调查](https://github.com/YYF233333/petrichor-corpus)：覆盖语料 v1（20 个 Godot 4 项目）与 v2（200 个项目），附复现脚本与规则依据索引
 
-`docs/` 下的文档为中文。语言规范另有[英文版](docs/language-spec.md)，由中文版生成，两者不一致时以中文版为准。
+`docs/` 下的文档以中文维护。语言规范另附由中文版生成的[英文版](docs/language-spec.md)，两版有出入时以中文版为准。
 
 ## 许可证
 

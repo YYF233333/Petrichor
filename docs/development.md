@@ -1,137 +1,139 @@
 # 开发说明
 
-构建、测试和调试中反复踩到的坑。
+本文记录在本地构建、测试、调试和打包 Petrichor 时反复踩过的坑，面向直接动源码的贡献者。基础构建命令见仓库根目录的 `AGENTS.md`。
 
 ## 构建
 
-- 目标文件和静态库在 `build/` 下（`SConstruct` 的 VariantDir）。
-- 源码旁出现 `.obj` 时要删掉，例如构建过旧提交之后。否则 SCons 把它们当作已构建，跳过编译。
-- 测试正在用 DLL 时不要构建。
-- 后台 `scons` 在编译时，不要改头文件。
-- 同一棵树里不要同时跑两个 SCons，它们共用 `.sconsign`。
-- 切换 `debug_symbols` 会重编整个 godot-cpp，全核约 90 秒，少做。
-- `scons` 也构建 `pet`，`scons pet` 只构建它。
-- 构建标识取 HEAD 的提交，所以提交后的第一次构建要重编 `lsp_server.cpp`。
-- 用 MinGW 完整编译 `src/pet/pet.cpp` 时，加上 `-municode -lws2_32`。它在 Windows 上的入口是 `wmain`。
+构建产物中的目标文件和静态库统一输出在 `build/` 目录（由 `SConstruct` 的 `VariantDir` 控制）。日常增量构建注意避开几类会污染缓存或锁文件的操作：
+
+- 如果源码目录旁遗留了旧提交生成的 `.obj` 文件，必须先删掉，否则 SCons 会误判为已构建并跳过编译。
+- 不要在测试仍占用 DLL 时触发构建，也不要在后台 `scons` 编译过程中修改头文件。
+- 同一份代码树里不能并行跑两个 SCons 进程，它们会争用同一个 `.sconsign` 文件。
+- 切换 `debug_symbols` 会触发整个 `godot-cpp` 重编（全核耗时约 90 秒），平时尽量保持不变。
+
+其余构建细节：
+
+- 默认 `scons` 会一并构建命令行工具 `pet`，只编它时运行 `scons pet`。
+- 扩展的构建标识直接取自 `HEAD` 的提交哈希，所以每次新提交后的首次构建都会重编 `lsp_server.cpp`。
+- 用 MinGW 单独完整编译 `src/pet/pet.cpp` 时需要加上 `-municode -lws2_32`，因为它在 Windows 上的入口函数是 `wmain`。
 
 ## 代码
 
-- godot-cpp 的值（String、StringName、Variant 等）不能放进命名空间作用域或 `thread_local` 的全局变量。
-  - 它们在 DLL 加载时构造，早于 godot-cpp 初始化，Windows 于是以 Error 1114 拒绝加载。
-  - 症状是间接的：测试报 “No loader found for resource: res://*.pet”，场景不退出。
-  - 全局状态改用 std 类型或函数内的 static。扩展突然加载不了时，先查新加的全局变量。
-- 不要调用 `GDExtensionManager::get_extension()`，godot-cpp 会为返回的 GDExtension 建包装。
-  - 引擎先关闭本库，再释放这个包装，回调落在已卸载的库里（`core/extension/gdextension.cpp:877-880`、`core/object/object.cpp:2363`，`ed1daf0`）。
-  - 症状是编辑器退出时崩溃，退出码 0xC0000005，没有回溯。
-  - 要找本扩展的 `.gdextension`，在 `get_loaded_extensions()` 给出的路径里按 `entry_symbol` 找。
-- 按路径加载资源只用 `load_resource()`（`src/runtime/values.h`），不要自己把 `load()` 的结果装进 Variant。
-- godot-cpp 的 String 没有 `quote()` 和 `find_char()`。
-- godot-cpp 移动 Variant 时整块交换字节，函数不在头文件中（`thirdparty/godot-cpp/src/variant/variant.cpp:90-92`）。
-  - 刚分字段写好的 Variant 一被移动，读取就因存储转发失败而停顿。
-  - 热路径上按值返回 Variant 时，写成 if/return，让复制消除生效。
-  - 返回带名字的 Variant 的函数只留这一个 return，NRVO 才会生效。
-- godot-cpp 的一些便捷接口放在热路径上很贵：
-  - `StringName::is_empty()` 和 `Object::get_instance_id()` 各是一次对引擎的调用。
-  - `ObjectDB::get_instance()` 和 Variant 转 `Object *` 都要找到或建出包装对象，并持有对象的锁（`thirdparty/godot-cpp/include/godot_cpp/core/object.hpp:110-116`）。
-  - 只要引擎的指针或 ID 时，用 `object_pointer()`、`object_id_of()` 或 `object_get_instance_from_id()`。
-  - `CallableCustom` 默认的 `is_valid()` 也经过包装对象，本库的 Callable 都覆盖它。
+### godot-cpp 生命周期与接口坑
+
+- 不要把 godot-cpp 值类型（`String`、`StringName`、`Variant` 等）放进命名空间作用域或 `thread_local` 全局变量。它们会在 DLL 加载时构造，早于 godot-cpp 初始化，Windows 随即以 Error 1114 拒绝加载扩展。症状通常是间接的，例如测试报 “No loader found for resource: res://*.pet” 且场景不退出。全局状态改用标准库类型或函数内 `static`；扩展突然加载失败时，先排查新加的全局变量。
+- 不要调用 `GDExtensionManager::get_extension()`。godot-cpp 会为返回的 `GDExtension` 创建包装对象，但引擎先卸载本库再释放该包装，回调会落到已卸载的库里（`core/extension/gdextension.cpp:877-880`、`core/object/object.cpp:2363`，`ed1daf0`）。典型表现是编辑器退出时崩溃（退出码 `0xC0000005`）且没有回溯。需要定位本扩展的 `.gdextension` 时，改在 `get_loaded_extensions()` 返回的路径里按 `entry_symbol` 查找。
+- 按路径加载资源统一使用 `load_resource()`（`src/runtime/values.h`），不要自己把 `load()` 的结果再装进 `Variant`。
+- godot-cpp 的 `String` 没有 `quote()` 和 `find_char()` 方法。
+
+### 热路径性能约束
+
+- godot-cpp 移动 `Variant` 时会跨编译单元整块交换字节（`thirdparty/godot-cpp/src/variant/variant.cpp:90-92`）。刚分字段写好的 `Variant` 如果立刻被移动，后续读取会因存储转发失败而停顿。热路径按值返回 `Variant` 时尽量写成 `if`/`return` 让复制消除生效；返回具名 `Variant` 的函数只留一个 `return`，NRVO 才会触发。
+- godot-cpp 的几个便捷接口放在热路径上开销很大：
+  - `StringName::is_empty()` 和 `Object::get_instance_id()` 各对应一次引擎调用。
+  - `ObjectDB::get_instance()` 以及 `Variant` 转 `Object *` 都要查找或新建包装对象，并持有对象锁（`thirdparty/godot-cpp/include/godot_cpp/core/object.hpp:110-116`）。如果只需要引擎原始指针或实例 ID，直接调用 `object_pointer()`、`object_id_of()` 或 `object_get_instance_from_id()`。
+  - `CallableCustom` 默认的 `is_valid()` 也会经过包装对象，本库自定义的 Callable 都会覆盖它。
   - `Callable::get_custom()` 带一次 `dynamic_cast`（`thirdparty/godot-cpp/src/variant/callable_custom.cpp:122-125`）。
-- checker 给出 Error 类型而没有诊断时，lowering 拿到 `NO_REG` 会崩溃。
-- clang-format 按 Godot 的 `.clang-format`（ColumnLimit 0）会把以下写法排得难以阅读：
+
+### 编译器约定与代码格式
+
+- 如果 checker 给出 `Error` 类型却没有附带诊断，lowering 拿到 `NO_REG` 后会直接崩溃。
+- 仓库沿用 Godot 的 `.clang-format`（`ColumnLimit 0`），以下三种写法格式化后会变得很难阅读：
   - 不加括号的嵌套三元表达式，如 `a ? 1 : b ? -1 : 0`；
   - 混有多行 lambda 的 `&&` 链；
-  - 写在一行的 `enum class E { A, B } field = E::A;` 成员。
-- 遇到这些写法，改用 if/else、具名临时变量或辅助函数；enum 单独声明，成员另起一行。
-- 提交新 C++ 之前，在新文件里搜 `\?[^;]*:[^;]*\?`，把命中的改掉。
-- Godot 的 pre-commit 检查中，这些没有采用：ruff 和 mypy、codespell、clang-tidy、版权、头文件守卫和 include 检查。
+  - 写在一行的 `enum class E { A, B } field = E::A;` 成员声明。
+
+  遇到这类写法请改用 `if`/`else`、具名临时变量或辅助函数，enum 单独声明并把成员另起一行。提交新 C++ 代码前，建议在新文件里搜索 `\?[^;]*:[^;]*\?` 清掉命中的嵌套三元式。
+- Godot 上游的 pre-commit 检查中，本项目没有采用 ruff、mypy、codespell、clang-tidy、版权头、头文件守卫和 include 检查。
 
 ## 测试
 
-- 编译器测试和引擎测试都在内存与时间看门狗下运行，不要裸跑。
-  - 编译器测试超过 1–2 GB，godot 超过约 6 GB，或者超时，就杀掉进程。
-  - 引擎测试组被杀时，所有 `godot*` 进程一并杀掉。
-  - 做法：PowerShell 用 Start-Process 启动，每 100 ms 读一次 `PrivateMemorySize64`，超限即 `Kill()`。
-  - 原因：编译器测试把每份测试源码在每一行截断后再解析（`check_recovery`）。
-  - 解析器的恢复路径若不前进，就会无限分配节点，曾两次让整机黑屏。
-  - 所以任何不消耗 token 就返回的恢复路径都要有上界。
-- doctest 的 `-tc` 按逗号切分名字，用 `*part*` 匹配。
-- 只跑改动涉及的测试组。FPS 和 Ring 迁移组占了套件的大部分时间。
-- 计时前先确认接着交流电源（`Get-CimInstance Win32_Battery`，BatteryStatus 为 2）。用电池时测得的数字偏差很大。
-- 优化之前先测时间花在哪里（`scons --debug=time`，或在 `tests/engine/run.py` 的 `run.run` 外包一层计时）。
-- 跑基准用普通的 `scons` 构建。`debug_symbols=yes` 让链接器带上 `/DEBUG`，它改变 `/OPT` 的默认值和代码布局。
-- CPU 混有两种核心时，不固定核心的计时分成两档。手动比较时用 `cmd /c start /affinity 4 /wait /b "" <godot> ...` 固定。
-- 纯计算组的数字随代码布局变化，只作记录（architecture §4）。
-  - 要比较两个提交时，在 `git worktree` 中构建另一个提交，不要在共享的工作区里切换。
-  - 判断一个变化是否来自布局：改动解释器之前无关的代码再测一次。
-- 运行时的热点用 samply 采样，它需要管理员权限。
-  - 先用 `scons debug_symbols=yes` 构建，DLL 才有 PDB。
-  - 只跑一个用例的项目，用 `samply record --save-only --unstable-presymbolicate -o <名字>.json.gz -- <godot> --headless --path <项目>` 运行。
-  - 符号在旁边的 `.syms.json` 中，按帧地址查表即得函数名；`llvm-symbolizer` 给出行号。
-  - 官方的 Godot 没有符号。用 `llvm-objdump -d` 按 ImageBase 加地址反汇编，看是哪个函数。
-  - 停顿的样本常落在停顿指令的下一条上。
+### 内存与时间看门狗
+
+编译器测试和引擎测试一律在内存与时间看门狗下运行，切勿裸跑。编译器测试的 `check_recovery` 会把每份测试源码逐行截断并重新解析。历史上解析器恢复路径一旦卡住不前，就会无限分配节点，曾两次把整机内存吃光黑屏。因此，任何不消耗 token 就返回的恢复路径都必须设置上界。
+
+看门狗的具体约定如下：
+
+- 编译器测试超过 1–2 GB、Godot 进程超过约 6 GB 或运行超时时立即终止进程。
+- 引擎测试组被强杀后，需要把残留的 `godot*` 进程一并清理掉。
+- Windows 下可用 PowerShell 的 `Start-Process` 拉起测试，每 100 ms 轮询一次 `PrivateMemorySize64`，超限即调用 `Kill()`。
+
+### 过滤与增量运行
+
+- doctest 的 `-tc` 参数按逗号切分用例名，带逗号的名称用 `*part*` 通配匹配。
+- 迭代期间只跑改动涉及的测试组，因为 FPS 和 Ring 两个迁移组占了整套测试的大部分时间。
+
+### 基准测量与性能分析
+
+做耗时优化前，先量化时间花在哪里（例如 `scons --debug=time`，或在 `tests/engine/run.py` 的 `run.run` 外层包一段计时）。跑基准时注意排除环境干扰：
+
+- 计时前先确认机器接着交流电源（检查 `Get-CimInstance Win32_Battery` 的 `BatteryStatus` 为 2），电池模式下的数字偏差很大。
+- 基准必须使用普通 `scons` 构建。`debug_symbols=yes` 会给链接器加上 `/DEBUG`，连带改变 `/OPT` 默认行为和代码布局。
+- 在大小核混合 CPU 上不绑核会导致计时分成两档，手动对比时用 `cmd /c start /affinity 4 /wait /b "" <godot> ...` 固定核心。
+- 纯计算组的耗时对代码布局非常敏感，只作记录参考（architecture §4）。比较两个提交时请另开 `git worktree` 构建，不要在共享工作区里来回切换；如果想确认波动是否来自布局，改动解释器之前一段无关代码再重测即可。
+
+采样运行时热点使用 `samply`（需要管理员权限）：
+
+- 先用 `scons debug_symbols=yes` 构建，确保 DLL 附带 PDB。
+- 对只跑单个用例的项目执行 `samply record --save-only --unstable-presymbolicate -o <名字>.json.gz -- <godot> --headless --path <项目>`。
+- 符号表保存在旁边的 `.syms.json` 中，按帧地址查表可得函数名，再用 `llvm-symbolizer` 还原行号。
+- 官方 Godot 二进制不带符号，可用 `llvm-objdump -d` 按 `ImageBase` 加偏移反汇编确认函数；注意停顿采样点常落在停顿指令的下一条上。
 
 ## 调试
 
-- DLL 内的崩溃：回溯里出现 `petrichor.windows.editor.x86_64.dll+0x…` 时，Godot 不会解析这个 DLL 的 PDB。
-  - 先用 `scons debug_symbols=yes` 构建。
-  - 再运行 `llvm-symbolizer --obj=tests/engine/project/bin/petrichor.windows.editor.x86_64.dll --relative-address 0x<offset>`。
-- 挂起或残留的 godot 进程：
-  - `quit()` 之前的 GDScript 错误会让运行挂住，并锁住 DLL。
-  - 把原生进程的输出接到 `Select-Object -First N` 时，读取停止，进程却还在运行。
-  - 用 `Get-CimInstance Win32_Process -Filter "Name like 'godot%'"` 检查，只停自己启动的 `--headless` 进程。
-  - 手动运行游戏时，放进 `Start-Job`，再用 `Wait-Job -Timeout` 限时。
-- 新副本第一次 `--import`，编辑器退出时可能崩溃（Godot #111048，见 `import_project()`）。
-  - 新副本上任何很快退出的编辑器运行也会这样，退出码 0xC0000005，没有回溯。
-  - 所以需要检查的运行都从已导入的副本开始。
-- FPS 结果有差异时，先判断问题在本项目还是在 kit：
-  - 在 scratchpad 用 `run.prepare_fps(p)` 做两份副本，其中一份再用 `run.migrate(p, run.FPS_MIGRATED)` 换上迁移后的脚本。
-  - 两份各自 `--import`，再 `-e -- --petrichor-build`，然后运行同一个 fps_check.gd，比较调试输出。
-  - GDScript 协程中的错误只结束那个协程，所以检查出错时 “fps original run” 仍可能通过。fps_check.gd 因此用 “finish” 哨兵。
-  - fps_check.gd 的同一函数里若有与前面同名的变量，它就加载失败，所有 fps 检查随之失败。
-- 读真实的字节码：在临时 doctest 中反序列化 `.godot/petrichor/<path>.petc`，再用 `bytecode::disassemble` 反汇编。FakeEngine 缺大多数引擎类。
-- 语言服务器：
-  - 在项目副本上启动：`godot --headless -e --path <副本> -- --petrichor-lsp`。副本先 `--import`，理由同上。
-  - 端口在副本的 `.godot/petrichor/lsp.json` 中。编辑器正常退出时删掉它，被杀掉时留下。
-  - 手动收发用 `tests/engine/run.py` 的 `LspClient`：`LspClient(port).initialize()`，再 `open()`、`notify()` 和 `take()`。
-  - 不要在 `tests/engine/project` 上开有界面的编辑器调试它。测试同时运行时，后开的进程加载不了扩展。
-  - 无界面编辑器不会重获焦点，引擎自己不扫描磁盘。服务器每秒比较一次项目的文件，读回改动。发 `didSave` 或 `didChangeWatchedFiles` 让它立即比较。
-  - 诊断在工作区停止变化 `idle_parse_delay` 秒后才发，默认 1.5 秒。刚打开的文件立即发。
+### 崩溃符号化与残留进程
+
+- **DLL 内崩溃**：回溯里出现 `petrichor.windows.editor.x86_64.dll+0x…` 时，Godot 不会解析扩展 DLL 的 PDB。先用 `scons debug_symbols=yes` 重新构建，再运行 `llvm-symbolizer --obj=tests/engine/project/bin/petrichor.windows.editor.x86_64.dll --relative-address 0x<offset>` 解析源码位置。
+- **挂起或残留的 Godot 进程**：`quit()` 之前的 GDScript 报错会让测试挂起并锁住 DLL；把原生进程输出管道接到 `Select-Object -First N` 时，读取停了但进程还在后台跑。用 `Get-CimInstance Win32_Process -Filter "Name like 'godot%'"` 排查，只杀自己启动的 `--headless` 进程；手动跑游戏建议放进 `Start-Job` 并配合 `Wait-Job -Timeout` 限时。
+
+### 导入崩溃与 FPS 差异排查
+
+- **首次 `--import` 退出崩溃**：新副本第一次执行 `--import`（或任何很快退出的编辑器运行）时，Godot 退出阶段可能崩溃且无回溯，退出码为 `0xC0000005`（Godot #111048，见 `import_project()`）。因此所有需要检查结果的运行都从已经导入过的副本开始。
+- **定位 FPS 行为差异**：先确认差异出在本项目还是原版 kit。在临时目录里用 `run.prepare_fps(p)` 准备两份副本，其中一份再用 `run.migrate(p, run.FPS_MIGRATED)` 换上迁移后的脚本；两份各自执行 `--import` 和 `-e -- --petrichor-build`，再运行同一份 `fps_check.gd` 对比调试输出。
+  - GDScript 协程里的报错只会中止当前协程，“fps original run” 仍可能误报通过，所以 `fps_check.gd` 依赖 “finish” 哨兵确认完整跑完。
+  - `fps_check.gd` 的同一个函数里如果出现与前文同名的变量，脚本会直接加载失败，连带导致全部 fps 检查失败。
+
+### 字节码与语言服务器
+
+- **查看真实字节码**：由于 `FakeEngine` 缺少大多数引擎类，排查字节码时可在临时 doctest 中反序列化 `.godot/petrichor/<path>.petc`，再用 `bytecode::disassemble` 反汇编。
+- **调试语言服务器**：
+  - 在已导入的项目副本上启动 `godot --headless -e --path <副本> -- --petrichor-lsp`（先 `--import` 原因同上）。
+  - 监听端口写在副本的 `.godot/petrichor/lsp.json` 里；编辑器正常退出时会清理该文件，被强杀则会残留。
+  - 手动收发协议消息可用 `tests/engine/run.py` 里的 `LspClient`：先 `LspClient(port).initialize()`，再调用 `open()`、`notify()` 和 `take()`。
+  - 不要直接在 `tests/engine/project` 上开图形界面编辑器调试，测试并行跑起时后开的进程会无法加载扩展。
+  - 无界面编辑器不会重新获得窗口焦点，引擎本身不主动扫盘。服务器每秒比对一次项目文件来读取改动，发送 `didSave` 或 `didChangeWatchedFiles` 可立即触发比对。
+  - 刚打开文件会立刻推送诊断；后续修改的诊断会在工作区静止 `idle_parse_delay` 秒后发送（默认 1.5 秒）。
 
 ## 发布包
 
-- 打包：`python tools/package.py <库目录> <版本> <输出目录>`。
-  - 库目录可以是 `gh run download` 取下的 CI 产物，库在哪一层都行。
-  - 本地只有本机的库，所以加 `--allow-missing`。不加时缺一个库就失败。
-  - 加 `--godot <编辑器>` 时，用它格式化演示包里的 `.pet` 文件。
-    - `tests/engine/fps/` 中的脚本保持手写的样子，fps 组要格式化它们。
-    - 这时库目录中必须有本机的 editor 库。
-    - 格式化时编辑器导入项目，并写出 `.uid` 文件。演示包只取改过的 `.pet` 文件。
-- 验收：`python tests/acceptance/run.py <官方编辑器> <模板目录> <插件包> [<演示包>]`。
-  - 模板取自官方的 `Godot_v4.7.2-stable_export_templates.tpz`。它是 zip，只需解压本机的模板。
-  - 脚本把模板写进预设的 `custom_template`，不装进编辑器的数据目录。
+- **打包**：运行 `python tools/package.py <库目录> <版本> <输出目录>`。
+  - `<库目录>` 可直接传入 `gh run download` 拉下的 CI 产物目录，库文件嵌套在任意层级都行。
+  - 默认只要缺少任一平台库就会失败；本地只有本机库时加上 `--allow-missing`。
+  - 传入 `--godot <编辑器>` 可顺便格式化演示包里的 `.pet` 文件（要求 `<库目录>` 中包含本机 editor 库）。仓库里的 `tests/engine/fps/` 保持手写格式，因为 fps 测试组会验证格式化结果；编辑器格式化时会导入项目并生成 `.uid` 文件，打包脚本只取改动后的 `.pet` 文件。
+- **验收**：运行 `python tests/acceptance/run.py <官方编辑器> <模板目录> <插件包> [<演示包>]`。
+  - 导出模板取自官方 `Godot_v4.7.2-stable_export_templates.tpz`（本质是 zip，只需解压当前平台的模板）。
+  - 验收脚本会把模板直接写进导出预设的 `custom_template`，不会改动编辑器的数据目录。
 
 ## VS Code 扩展
 
-- 打包：在 `editors/vscode/` 中运行 `npm ci`，再运行 `npm run package -- <版本>`，得到 `petrichor-<版本>.vsix`。
-  - 不给版本时为 0.0.0。
-  - `vsce` 要求扩展目录中有许可证，`vscode:prepublish` 把仓库根的 `LICENSE` 复制过来。
-  - npm 把输出中像 UUID 的路径段换成 `***`，`vsce` 于是找不到文件。所以不在这样的目录中打包，如 scratchpad。
-- 依赖固定版本，只取发布满两周的版本，传递依赖也是：`npm install --save-exact --before=<两周前的日期>`。
-- 试用时装进隔离的配置，不碰自己的 VS Code：
-  - `code --user-data-dir <目录> --extensions-dir <目录> --install-extension <vsix>`，再用同样的两个参数打开项目；
-  - 或者不装，用 `code --extensionDevelopmentPath=<仓库>/editors/vscode <项目>`。
-- 无界面编辑器开的服务器（见上文“语言服务器”），VS Code 照样连上。
-- 看收发的消息：在输出面板中选 Petrichor，把它的日志级别设为 Trace。`petrichor.trace.server` 为 `verbose` 时带上消息的内容。
+- **打包**：在 `editors/vscode/` 中依次运行 `npm ci` 和 `npm run package -- <版本>`，产出 `petrichor-<版本>.vsix`（版本号默认为 `0.0.0`）。
+  - `vsce` 要求扩展目录包含许可证，`vscode:prepublish` 会自动从仓库根目录复制 `LICENSE`。
+  - npm 会把输出里形似 UUID 的路径段脱敏成 `***`，导致 `vsce` 找不到文件，因此不要在路径含 UUID 的临时目录里打包。
+- **依赖策略**：全部直接和传递依赖均固定精确版本，且只选用发布满两周的版本：`npm install --save-exact --before=<两周前的日期>`。
+- **本地隔离试用**（不污染日常 VS Code 配置）：
+  - 用 `code --user-data-dir <目录> --extensions-dir <目录> --install-extension <vsix>` 安装，再用同样的两个参数打开项目；
+  - 或者免安装，直接跑 `code --extensionDevelopmentPath=<仓库>/editors/vscode <项目>`。
+- **连接与协议日志**：VS Code 同样可以连上无界面编辑器拉起的 LSP 服务器（见上文“字节码与语言服务器”）。排查收发消息时，在输出面板切到 Petrichor 并把日志级别调成 Trace；将 `petrichor.trace.server` 设为 `verbose` 即可打印完整消息体。
 
 ## Godot 二进制
 
-- 按用途选二进制：
-  - 引擎测试用优化过的 dev 编辑器，在 Godot 源码树中用 `scons platform=windows target=editor dev_build=yes optimize=speed_trace extra_suffix=opt` 构建；
-  - 调试崩溃用未优化的 dev 编辑器；
-  - 基准用官方 4.7.2-stable 发布版，dev 构建会扭曲与 GDScript 的比较；
-  - dotnet 测试组和手动带 C# 运行 Ring 用官方 .NET 版。PATH 上还要有 .NET SDK 8 或更新的版本。
-- 没有要求时不要重建引擎。
+按开发任务选用对应的 Godot 二进制，没有明确需要时不要重新编译引擎：
+
+- **引擎测试**：使用带优化的 dev 编辑器，在 Godot 源码树中以 `scons platform=windows target=editor dev_build=yes optimize=speed_trace extra_suffix=opt` 构建。
+- **调试崩溃**：使用未优化的 dev 编辑器。
+- **性能基准**：必须使用官方 `4.7.2-stable` 发布版，因为 dev 构建会扭曲与 GDScript 的对比结果。
+- **C# 互操作**：跑 dotnet 测试组或带 C# 手动运行 Ring 时使用官方 .NET 版，并确保 `PATH` 中有 .NET SDK 8 或更新版本。
 
 ## 语料
 
-- 取语料和复跑调查，见 [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) 的 README。
+获取语料库和复跑各项调查的步骤，见 [petrichor-corpus](https://github.com/YYF233333/petrichor-corpus) 的 README。

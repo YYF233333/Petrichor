@@ -23,7 +23,7 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
 
 ## Documentation
 
-- The README is in Chinese and English. Both versions say the same thing and change in the same commit. The documents under `docs/` are in Chinese only, except the English spec. Commits that change the Chinese spec regenerate the English one by `tools/spec_translation.md`.
+- The README is in Chinese and English and both versions change in the same commit. They keep the same facts, scope and commitments, but each is written natively rather than mirrored line for line. The documents under `docs/` are in Chinese only, except the English spec; commits that change the Chinese spec regenerate the English one by `tools/spec_translation.md`.
 - Each document holds one kind of content:
   - the spec: concise normative rules, without engine `path:line` citations or review history;
   - `docs/design-notes.md`: detailed rationales, corpus counts, post-v1 designs and rejected alternatives;
@@ -31,10 +31,10 @@ The target engine is Godot 4.7. Check engine behavior against the `4.7.2-stable`
   - `docs/architecture.md`: implementation decisions, the constraints they keep and the roadmap, without progress notes;
   - `BACKLOG.md`: unfinished work and open questions.
 - Decided content carries no marker. Non-normative status is marked 【待定】/[Open] or 【已知限制】/[Known limitation] where it applies. Additions after the first version are listed only in spec §14.2. When a rule changes the first-version scope or open questions, update spec §14.
-- Write one idea per sentence. `tools/check_doc_style.py` flags sentences over 60 字 or 30 words in the lines a commit changes. It catches several ideas piled into one, and does not ask for natural sentences to be split. One-off texts, such as release notes and reports, are not held to it.
-  - Turn an embedded list or a chain of "or" into a list.
-  - Put the condition before the result.
-  - Put `path:line` citations and links at the end, in brackets.
+- Match style to the document's role. `tools/check_doc_style.py` flags sentences over 60 字 or 40 words in the lines a commit changes (status markers are excluded). It guards against ideas piled into one sentence, not against natural phrasing; one-off texts, such as release notes and reports, are not held to it.
+  - In the spec and lookup tables, write one idea per sentence, put the condition before the result, and turn embedded lists or chains of "or" into lists.
+  - In `README`, `docs/design-notes.md`, `docs/architecture.md` and `docs/development.md`, prefer natural short prose paragraphs with varied sentence rhythm over walls of bullets; reserve lists for parallel items, steps or comparisons, and group long implementation sections under subheadings.
+  - Use concrete subjects and active verbs, avoid marketing or condescending filler, and put `path:line` citations and links at the end in brackets.
   - In the spec, refer to another rule by its concept, such as "the comparison rules", not by section number.
 
 ## Code and tests

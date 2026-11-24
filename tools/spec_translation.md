@@ -12,14 +12,14 @@
 
 ## Rules
 
-- Keep the structure: every heading, list item, table row, code block and example, in the same order. Headings keep their section numbers.
-  - One line of the Chinese edition is one line of the English edition.
-  - After the title block, line n of the Chinese is line n + 2 of the English.
+- Keep the structure: every section, heading, paragraph or rule item, table row, code block and example, in the same order. Headings keep their section numbers.
+  - Match the Chinese at the section, paragraph and rule-item level rather than enforcing a strict 1:1 line count.
+  - Within an item, English may combine choppy sentences, reorder modifiers naturally, or split an overloaded item when it improves clarity without changing meaning or normative force.
 - Add nothing, drop nothing, and keep the normative force.
   - A definition (即, 指) keeps an explicit "that is" or "means".
   - A reason (因为, 因此, 所以) keeps an explicit "because" or "so", also after a split.
   - A condition stays next to what it limits: write "Before ready, reading X is an error".
-  - A split-off condition starts with "Suppose" or "When", never with "may" or "can", which read as permission.
+  - Express conditions with natural specification English ("When ...", "If ...", or an integrated clause) rather than mechanical "Suppose ..." openers, and never with "may" or "can", which read as permission.
   - 须 and 必须 are "must". 可 is "may" or "can". 应 is "should". 不能 is "cannot".
   - 报编译错误 is "is a compile error". 报程序错误 is "is a program error".
   - 给出警告 is "gives a warning". 给出提示 is "gives a hint".
@@ -30,11 +30,9 @@
   - Leave identifiers and string literals as they are, Chinese string literals included.
 - Translate Chinese placeholders in inline code, such as `expect(消息)` to `expect(message)`.
 - Follow the house style of `AGENTS.md`, "Documentation".
-  - Write one idea per sentence. The style check flags sentences over 30 words.
-  - Where one Chinese sentence needs more, split it into two sentences without changing the meaning.
-  - A parenthesis that makes a sentence too long becomes the next sentence.
-  - The words of a status marker count toward the sentence that follows it.
-  - Do not turn running text into new list items: the two editions keep the same lines.
+  - Write clear, idiomatic specification English. The style check flags sentences over 40 words, excluding status markers (`**[Open]**` and `**[Known limitation]**`).
+  - Where one sentence would still pile up ideas, split it cleanly without changing the meaning.
+  - Integrate short parenthetical examples naturally into their sentence rather than breaking them out into mechanical "Examples are ..." sentences.
   - Put the condition before the result.
   - Put links at the end of the sentence.
   - Refer to another rule by its concept or its section title, never by section number.
@@ -56,7 +54,7 @@
 1. Read `AGENTS.md`, `README.md` and this file.
 2. Read the recorded blob id from the comment in `docs/language-spec.md`.
 3. Run `git diff <recorded blob id> docs/language-spec.zh.md` to see what changed in the Chinese edition.
-4. For each changed hunk, find the same item in the English edition: same heading, same position in its list.
+4. For each changed hunk, find the corresponding item in the English edition under the same heading and matching paragraph or rule item.
 5. When a hunk brings a new recurring term, add it to the glossary first.
    - Look for the term in `README.md` and in the compiler diagnostics before choosing one.
 6. Translate only the changed items again, with the glossary. Leave the other items untouched.
@@ -70,17 +68,14 @@ With no previous output, translate every section in order, in one session, and b
 - `python tools/check_doc_style.py --all docs/language-spec.md tools/spec_translation.md` reports nothing.
 - Once both editions are staged, `python tools/check_spec_translation.py` exits with zero.
 - These counts are equal in the two editions:
-  - lines, apart from the two lines of the recorded source;
   - headings, per level;
-  - list items;
   - fenced code blocks;
   - table rows, per table;
   - 【待定】 against `**[Open]**`, and 【已知限制】 against `**[Known limitation]**`.
-- Each line has the same inline code as its Chinese line, apart from translated placeholders.
-- Each line has the same numbers and the same link targets as its Chinese line.
+- Each section preserves the same inline code (apart from translated placeholders), numbers and link targets as the Chinese.
 - Outside code blocks, the English edition has no Chinese character.
 - Inside code blocks, only comments differ between the two editions.
-- Reread the changed sections against the Chinese, sentence by sentence.
+- Reread the changed sections against the Chinese to verify every rule and edge case.
 
 ## Glossary
 
@@ -351,7 +346,7 @@ One Chinese term has one English term. A term from Godot or GDScript keeps its o
 | 途径 | route | |
 | 由……提供 | provided by | |
 | 所在语句, 所在场景 | its statement, its scene | |
-| 如, 例如 | such as; as in; for example | "Examples are" when the list becomes a sentence. |
+| 如, 例如 | such as; as in; for example | Integrate into the sentence rather than splitting out "Examples are ...". |
 | 等 | and so on | |
 | 同样如此, 同理 | the same holds for | |
 | 除外 | is excepted | |

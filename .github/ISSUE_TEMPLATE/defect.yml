@@ -1,33 +1,32 @@
-name: Defect
-description: A script that behaves differently from what the spec says, or a crash.
+name: Bug report
+description: Report a crash, a mismatch with the spec, or an editor, LSP, or CLI bug.
 body:
   - type: textarea
     id: script
     attributes:
-      label: Script
-      description: The smallest `.pet` script that shows it, and the scene if one is needed.
-      render: gdscript
+      label: Reproduction
+      description: For language or runtime bugs, share the smallest `.pet` script (and scene, if needed). For editor, LSP, or CLI issues, list the steps to reproduce.
     validations:
       required: true
   - type: textarea
     id: observed
     attributes:
-      label: What happens
-      description: The output or the diagnostic, copied as text.
+      label: What happened
+      description: Paste the output, diagnostic, or error message as text.
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: What should happen
-      description: Name the spec section when you know it.
+      label: What you expected
+      description: Describe the expected behavior, and mention the relevant spec section if you know it.
     validations:
       required: true
   - type: input
     id: versions
     attributes:
       label: Versions
-      description: Petrichor, Godot and the operating system.
-      placeholder: Petrichor 0.1, Godot 4.7.2-stable, Windows 11
+      description: Petrichor version, Godot version, and operating system.
+      placeholder: Petrichor 0.2.1, Godot 4.7.2-stable, Windows 11
     validations:
       required: true

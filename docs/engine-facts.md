@@ -94,7 +94,7 @@
 | 移动节点时，编辑器在动作内部不发出信号 | `editor/docks/scene_tree_dock.cpp:2535-2677` | §13.3 |
 | 提交动作时先退出动作再执行，执行中不能再追加操作 | `core/object/undo_redo.cpp:313-332` | §13.3 |
 | 编辑器的撤销管理器在提交后发出 `history_changed` | `editor/editor_undo_redo_manager.cpp:298` | §13.3 |
-| 同名、`backward_undo_ops` 相同、合并方式为 `MERGE_ALL`、距前一个动作创建或上次并入不到 800 毫秒的动作并入前一个动作，保留其原有的操作。每次并入都重新计时 | `core/object/undo_redo.cpp:97, 116-117, 122` | §13.3 |
+| 若新动作与前一动作同名、`backward_undo_ops` 相同、合并方式为 `MERGE_ALL`，且距其创建或上次并入不足 800 毫秒，就并入前一动作并保留原有操作。每次并入都会重新计时 | `core/object/undo_redo.cpp:97, 116-117, 122` | §13.3 |
 | 撤销管理器按动作的上下文对象选择撤销历史，被编辑场景中的节点进入该场景的历史 | `editor/editor_undo_redo_manager.cpp:63-105, 149-156` | §13.3 |
 | Web 导出开启 Extensions Support 时使用带动态链接的模板；跨域隔离响应头只在开启线程支持时需要 | `platform/web/export/export_plugin.cpp:374`；`platform/web/export/export_plugin.h:59-73`；`platform/web/doc_classes/EditorExportPlatformWeb.xml:93-95` | §1.3 |
 | 导出插件的钩子都不能使导出失败 | `editor/export/editor_export_platform.cpp:2568-2576`；`editor/export/editor_export_plugin.h:120-122` | §7.5 |
@@ -103,7 +103,7 @@
 | GDScript 对 self 和内置类型以外的对象调用未知方法，只给不安全访问的警告 | `modules/gdscript/gdscript_analyzer.cpp:3750-3757` | §10.1 |
 | GDScript 解析 `extends 全局类名` 时把基类文件当作 GDScript 解析，失败时只报“Could not resolve super class” | `modules/gdscript/gdscript_analyzer.cpp:469-485`（报错在 `:477, 483`）；`modules/gdscript/gdscript_cache.cpp:83-92` | §11.2 |
 | GDScript 要求具体子类实现抽象方法，禁止构造抽象类和经 `super` 调用抽象方法 | `modules/gdscript/gdscript_analyzer.cpp:1533-1552, 3630-3643` | §4.1 |
-| GDScript 的覆盖检查允许返回类型协变、参数类型逆变。覆盖接受的实参个数须包含被覆盖方法接受的，因此可多出带默认值的参数或剩余参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` | §4.6 |
+| GDScript 的覆盖检查允许返回类型协变、参数类型逆变。覆盖方法能接受的实参个数须涵盖原方法，因此可多出带默认值的参数或剩余参数 | `modules/gdscript/gdscript_analyzer.cpp:1895-1936` | §4.6 |
 | GDScript 的静态检查要求带类型的 Array、Dictionary 的元素类型完全相同，一边没有类型时不检查 | `modules/gdscript/gdscript_analyzer.cpp:6379-6393` | §3.8 |
 | GDScript 的单引号和双引号字符串可以跨行 | `modules/gdscript/gdscript_tokenizer.cpp:1086-1098` | §2.2 |
 | GDScript 把以 `##` 开头的注释行（含 `###`）当作文档。紧贴在声明或其注解上方的一段，或写在声明同一行之后的一条，说明该声明。局部变量和常量也是如此。第一个成员之前的第一段说明类 | `modules/gdscript/gdscript_parser.cpp:842-862, 1068-1101, 2195-2228, 4066-4075` | §2.2 |
@@ -111,14 +111,14 @@
 | GDScript 直接调用一个名字时，依次找内置类型构造、GDScript 自有工具函数和引擎工具函数，最后才找类的成员。同名的类方法要写出接收者才能调到 | `modules/gdscript/gdscript_analyzer.cpp:3269-3280, 3451, 3502, 3568-3571` | §2.6 |
 | GDScript 的 `Color8`、`convert`、`type_exists`、`inst_to_dict`、`dict_to_inst` 在禁用弃用功能的构建中不存在，文档给出替代写法 | `modules/gdscript/gdscript_utility_functions.cpp:572-585`；`modules/gdscript/doc_classes/@GDScript.xml:14, 61, 77, 106, 269` | §2.6 |
 | GDScript 的 `is_instance_of` 的第二个参数可以是 `TYPE_*` 常量、原生类或脚本，三者都可以是变量中的值 | `modules/gdscript/gdscript_utility_functions.cpp:454-506` | §2.6 |
-| GDScript 的 `is_instance_of` 的第二个参数是 `TYPE_*` 常量时，只比较值的 Variant 类型，不查对象是否已释放，所以 `is_instance_of(freed, TYPE_OBJECT)` 为真。第二个参数是类或脚本时，对已释放的值报错。值为 null 或不是对象时得到假，此前不查第二个参数是不是类或脚本 | `modules/gdscript/gdscript_utility_functions.cpp:457-462, 471-477, 479-505` | §2.6 |
+| GDScript 中 `is_instance_of` 的第二个参数是 `TYPE_*` 常量时，只比较值的 Variant 类型，不查对象是否已释放，所以 `is_instance_of(freed, TYPE_OBJECT)` 为真。第二个参数是类或脚本时，对已释放的值报错。值为 null 或不是对象时得到假，此前不查第二个参数是不是类或脚本 | `modules/gdscript/gdscript_utility_functions.cpp:457-462, 471-477, 479-505` | §2.6 |
 | `typeof` 只返回 Variant 中记下的类型，所以已释放对象仍得 `TYPE_OBJECT`。已释放对象转为文本是 `<Freed Object>` | `core/variant/variant_utility.cpp:845-847`；`core/variant/variant.h:381-383`；`core/variant/variant.cpp:1712-1715` | §2.6、§3.3 |
-| 由空的 Object 指针构造的 Variant，类型也是 OBJECT。所以引擎给出的空对象 `typeof` 得 `TYPE_OBJECT`，GDScript 的 `is_instance_of(它, TYPE_OBJECT)` 为真 | `core/variant/variant.cpp:2507-2511`；`modules/gdscript/gdscript_utility_functions.cpp:457-462` | §2.6 |
+| 由空 Object 指针构造的 Variant，类型仍是 OBJECT。因此引擎返回的空对象 `v` 经 `typeof(v)` 得 `TYPE_OBJECT`，GDScript 的 `is_instance_of(v, TYPE_OBJECT)` 也为真 | `core/variant/variant.cpp:2507-2511`；`modules/gdscript/gdscript_utility_functions.cpp:457-462` | §2.6 |
 | GDScript 中作为值的原生类是 `GDScriptNativeClass` 对象，这个类不登记也不暴露给扩展 | `modules/gdscript/gdscript_compiler.cpp:109-113` | §2.6 |
 | GDScript 的 `@warning_ignore` 遇到不认识的警告名时报错 | `modules/gdscript/gdscript_parser.cpp:5126-5128` | §2.3 |
 | GDScript 的 `@warning_ignore` 按行忽略警告，从注解所在行到所注语句或声明的开头部分结束；`@warning_ignore_start` 忽略到同名的 `@warning_ignore_restore` | `modules/gdscript/gdscript_parser.cpp:291-294, 5131-5189, 5199-5228` | §2.3 |
 | GDScript 的静态检查允许 String 与 StringName、NodePath 双向隐式转换，不允许 StringName 与 NodePath 之间转换 | `modules/gdscript/gdscript_analyzer.cpp:6370-6374`；`core/variant/variant.cpp:579-587, 735-750` | §10.7 |
-| GDScript 不允许元素类型本身是带类型容器的带类型容器 | `modules/gdscript/gdscript_parser.cpp:3903-3904` | §3.8 |
+| GDScript 不允许带类型容器嵌套，即元素类型不能再是带类型容器 | `modules/gdscript/gdscript_parser.cpp:3903-3904` | §3.8 |
 | GDScript 的剩余参数只能是元素为 Variant 的 Array | `modules/gdscript/gdscript_analyzer.cpp:1803-1810` | §4.6 |
 | GDScript 从其他语言的方法信息中读取 `METHOD_FLAG_VARARG` | `modules/gdscript/gdscript_analyzer.cpp:6052-6055` | §4.6 |
 | GDScript 的方法信息不列剩余参数，只带 `METHOD_FLAG_VARARG`。函数入口把多出的实参装进新的 Array | `modules/gdscript/gdscript_compiler.cpp:2352-2355`；`modules/gdscript/gdscript_vm.cpp:634-643` | §4.6 |
@@ -135,13 +135,13 @@
 | GDScript 实例从自己的脚本往上按名字查找方法，包括静态函数 | `modules/gdscript/gdscript.cpp:1948-1966` | §4.8、§6.3 |
 | 在实例上调用静态方法，GDScript 默认只给警告 | `modules/gdscript/gdscript_analyzer.cpp:3699-3703`；`modules/gdscript/gdscript_warning.h:131` | §4.8 |
 | GDScript 把 enum 的值转为 int 不提示，把 int 转为 enum 给出默认开启的警告。它不把一个 enum 转为另一个。`as` 把 int 转为 enum 时不做检查 | `modules/gdscript/gdscript_analyzer.cpp:3826-3829, 6326-6336, 6375-6378, 6397-6406`；`modules/gdscript/gdscript_warning.h:140` | §3.7、§5.3 |
-| GDScript 把 enum 名作为从各值的名字（String）到值的只读 Dictionary，没有值 0 的 enum 的变量从 0 开始并给出警告 | `modules/gdscript/gdscript_analyzer.cpp:1159-1197, 2207-2217` | §3.7 |
+| GDScript 把 enum 名作为从各值的名字（String）到值的只读 Dictionary；若 enum 不含值 0，其变量仍默认从 0 开始并给出警告 | `modules/gdscript/gdscript_analyzer.cpp:1159-1197, 2207-2217` | §3.7 |
 | `get_keycode_with_modifiers()` 给出带修饰键位的 Key，不在 enum 的值之中 | `core/input/input_event.cpp:394-396` | §3.7 |
 | GDScript 把作为值的脚本定型为它的类，以 preload 脚本初始化的常量可作类型 | `modules/gdscript/gdscript_analyzer.cpp:873-892, 5776-5786` | §2.1 |
 | GDScript 中作为值使用的 GDScript 类是 GDScript 对象 | `modules/gdscript/gdscript_analyzer.cpp:6447-6449` | §2.1 |
 | 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:800-826` | §11.3 |
-| GDScript 不能在类型标注中引用其他语言的类中的类型 | `modules/gdscript/gdscript_analyzer.cpp:935-937` | §11.3 |
-| GDScript 不把其他语言的类的常量当作常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` | §11.3 |
+| GDScript 的类型标注不能引用其他语言类所定义的类型 | `modules/gdscript/gdscript_analyzer.cpp:935-937` | §11.3 |
+| GDScript 不把其他语言类的常量当作常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` | §11.3 |
 | GDScript 的常量初始化式必须是常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:2124-2131` | §4.5 |
 | GDScript 在编译期求值两边都是常量的运算，求值无效时报错 | `modules/gdscript/gdscript_analyzer.cpp:3139-3157` | §4.5 |
 | GDScript 在编译期对常量取下标，取不到时报错；字典字面量中重复的常量键是编译错误 | `modules/gdscript/gdscript_analyzer.cpp:3854-3856, 4920-4927` | §4.5 |
@@ -188,7 +188,7 @@
 | PackedDataContainer 是引擎中唯一定义 `_iter_*` 的类，已标为弃用 | `core/io/packed_data_container.cpp:359-361, 386-388`；`doc/classes/PackedDataContainer.xml:2` | §5.7 |
 | GDScript 的 `assert` 失败时报“Assertion failed” | `modules/gdscript/gdscript_vm.cpp:3876-3902` | §8.3 |
 | GDScript 的 await 接受任意 Signal 值 | `modules/gdscript/gdscript_vm.cpp:2586-2600` | §9.8 |
-| GDScript 对返回类型既不是协程、也不是 Variant 或 Signal 的调用的 await 给出“多余的 await”警告 | `modules/gdscript/gdscript_analyzer.cpp:3102-3107` | §9.8 |
+| 在 GDScript 中，对返回类型既非协程、也非 Variant 或 Signal 的调用使用 await 会触发“多余的 await”警告 | `modules/gdscript/gdscript_analyzer.cpp:3102-3107` | §9.8 |
 | await 的结果不经检查写入按被等待者返回类型定型的临时变量 | `modules/gdscript/gdscript_vm.cpp:2667-2668`；`modules/gdscript/gdscript_compiler.cpp:766` | §9.8 |
 | Variant 赋给有类型的变量时，只在 debug 构建中检查类型 | `modules/gdscript/gdscript_vm.cpp:1433-1444` | §9.8 |
 | 挂起的 GDScript 函数状态不复制 self，只以裸指针指向实例 | `modules/gdscript/gdscript_vm.cpp:2609-2625` | §9.4 |
@@ -235,5 +235,5 @@
 | GDScript 重新加载时把 lambda 换成新版本中同一位置的 lambda，lambda 的个数、捕获或参数不同时使它失效 | `modules/gdscript/gdscript_compiler.cpp:3217-3254`；`modules/gdscript/gdscript.cpp:1411-1421` | §12.4 |
 | GDScript 的 LSP 是编辑器插件 | `modules/gdscript/language_server/gdscript_language_server.h:35`；`modules/gdscript/register_types.cpp:167` | §13.1 |
 | 编辑器默认用制表符缩进。在开括号后换行时多缩进一层；闭括号紧随光标时移到下一行，回到原来的缩进 | `editor/settings/editor_settings.cpp:830`；`scene/gui/code_edit.cpp:1349-1385, 4128-4131` | §13.2 |
-| 编辑器注释选中的行时，把 `#` 插在每行的缩进之后，空行的插在行首 | `editor/gui/code_editor.cpp:1356-1371`；`scene/gui/text_edit.cpp:4194-4202` | §13.2 |
+| 编辑器注释选中的行时，把 `#` 插在每行的缩进之后，空行则插在行首 | `editor/gui/code_editor.cpp:1356-1371`；`scene/gui/text_edit.cpp:4194-4202` | §13.2 |
 | GDScript 导出时至多把源码转为词法单元，加载时才解析和编译 | `modules/gdscript/register_types.cpp:99-116`；`modules/gdscript/gdscript_cache.cpp:373-379, 392` | §1.3、§4.5 |

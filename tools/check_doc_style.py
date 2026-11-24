@@ -2,12 +2,13 @@ import re
 import subprocess
 import sys
 
-ZH_LIMIT, EN_LIMIT = 60, 30
+ZH_LIMIT, EN_LIMIT = 60, 40
 CJK = re.compile(r"[㐀-鿿豈-﫿]")
 WORD = re.compile(r"[A-Za-z0-9_]+(?:['.\-][A-Za-z0-9_]+)*")
 ZH_END = re.compile(r"(?<=[。！？])")
 EN_END = re.compile(r"(?<=[.!?])\s+")
 ABBREVIATIONS = re.compile(r"\b(e\.g|i\.e|etc|vs|cf)\.")
+STATUS = re.compile(r"\[(?:Known limitation|Open)\]|【(?:已知限制|待定)】")
 SECTION = re.compile(r"§\d")
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
@@ -31,7 +32,8 @@ def plain(text):
     text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"https?://\S+", "U", text)
     text = re.sub(r"^\s*(?:[-*>]|\d+\.)\s+", "", text)
-    return text.replace("**", "")
+    text = text.replace("**", "")
+    return STATUS.sub(" ", text)
 
 
 def too_long(sentence):
