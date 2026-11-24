@@ -382,6 +382,15 @@ TEST_CASE("an error about a call's receiver inside an assigned value leaves the 
 	CHECK(migration.withdrawn == 1);
 }
 
+TEST_CASE("an error of an operation with a Variant operand leaves the slots of the other operand") {
+	FakeProject project;
+	project.add_script("res://g.gd", "extends Node\nvar data: Dictionary = {}\n\n\nfunc count():\n\treturn 3\n\n\nfunc _ready() -> void:\n\tvar n = count()\n\tn += data[\"k\"]\n\tif count() == 0 and data[\"b\"]:\n\t\tprint(count() >= data[\"n\"])\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
+	CHECK(migration.texts.at("res://g.pet") == "extends Node\nvar data: Dictionary = {}\n\n\nfunc count() -> int:\n\treturn 3\n\n\nfunc _ready() -> void:\n\tvar n = count()\n\tn += data[\"k\"]\n\tif count() == 0 and data[\"b\"]:\n\t\tprint(count() >= data[\"n\"])\n");
+	CHECK(migration.withdrawn == 0);
+	CHECK(migration.errors.size() == 3);
+}
+
 TEST_CASE("a call by name flows into every function so named, and the report marks the type it gives") {
 	FakeProject project;
 	project.add_script("res://enemy.gd", "extends Node\n\n\nfunc take_damage(amount):\n\tprint(amount)\n");

@@ -753,7 +753,11 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			const bool place = !target_type.is_error() && check_place(target);
 			if (compound && place) {
 				keep_numbers(compound_operator(r_stmt.assign_op), target, read_type, *r_stmt.value, value);
+				const size_t before = errors.size();
 				value = binary_type(compound_operator(r_stmt.assign_op), read_type, value, r_stmt.range);
+				if (errors.size() > before) {
+					about_variant(r_stmt.range, target, *r_stmt.value);
+				}
 				r_stmt.compound_result = value;
 			}
 			flow(slot_of(target), value, r_stmt.value->range);
@@ -789,7 +793,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			expect_assignable(*r_stmt.value, value, target_type, "assign", type_written_for(target));
 			// A Variant says nothing of the target's type (architecture §6.6).
 			if (errors.size() > reported && value.kind != TypeKind::Variant) {
-				about(*r_stmt.value, { r_stmt.value.get(), &target });
+				about(r_stmt.value->range, { r_stmt.value.get(), &target });
 			}
 			return;
 		}

@@ -62,8 +62,9 @@ struct Inflows {
 		std::vector<Key> at;
 	};
 	// An error about other places than its own range, by its file and range:
-	// an assigned value that does not fit is about its target too, and a call
-	// that fails for its receiver only about the receiver.
+	// an assigned value that does not fit is about its target too, a call
+	// that fails for its receiver only about the receiver, and an operation
+	// that fails with one Variant operand only about that operand.
 	using Range = std::pair<uint32_t, uint32_t>;
 	struct About {
 		std::string file;

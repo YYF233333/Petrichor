@@ -346,6 +346,7 @@ Type Checker::check_binary(Expr &r_expr) {
 			}
 		}
 		error(r_expr.range, std::string(token_name(r_expr.op)) + " requires bool operands, found " + left.to_string() + " and " + right.to_string() + "." + hint);
+		about_variant(r_expr.range, *r_expr.left, *r_expr.right);
 		return set(r_expr, fix_truth(tested, false));
 	} else if (r_expr.op == TokenKind::Percent && is_format_string(left)) {
 		// The values to format, of any types (spec §5.1).
@@ -357,7 +358,11 @@ Type Checker::check_binary(Expr &r_expr) {
 	}
 	keep_numbers(r_expr.op, *r_expr.left, left, *r_expr.right, right);
 	Type compared = Type::of(TypeKind::Error);
+	const size_t reported = errors.size();
 	const Type type = binary_type(r_expr.op, left, right, r_expr.range, &compared);
+	if (errors.size() > reported) {
+		about_variant(r_expr.range, *r_expr.left, *r_expr.right);
+	}
 	const bool variant = compared.kind == TypeKind::Variant;
 	r_expr.target = variant ? Target::VariantEqual : Target::None;
 	r_expr.param_types = variant || compared.is_error() ? std::vector<Type>() : std::vector<Type>{ compared, compared };
