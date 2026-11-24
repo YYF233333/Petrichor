@@ -203,6 +203,15 @@ TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves w
 	CHECK(migration.errors[0].message == "res://hero.tres: the resource has no value for \"holder\", which must be assigned and is not exported.");
 }
 
+TEST_CASE("the loop of fixes makes a type T? where the original assigns or returns null") {
+	FakeProject project;
+	project.add_script("res://picker.gd", "extends Node\nvar selected: Node = self\n\n\nfunc pick(nodes: Array[Node]) -> Node:\n\tfor node in nodes:\n\t\treturn node\n\treturn null\n\n\nfunc choose(nodes: Array[Node]) -> void:\n\tselected = null\n\tvar chosen: Node = pick(nodes)\n\tprint(chosen.name)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://picker.gd" }, 10);
+	CHECK(migration.texts.at("res://picker.pet") == "extends Node\nvar selected: Node? = self\n\n\nfunc pick(nodes: Array[Node]) -> Node?:\n\tfor node in nodes:\n\t\treturn node\n\treturn null\n\n\nfunc choose(nodes: Array[Node]) -> void:\n\tselected = null\n\tvar chosen: Node = pick(nodes).unwrap()\n\tprint(chosen.name)\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 1 }, { compiler::FixKind::Optional, 2 } });
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a literal path from the root to an autoload becomes its name, whose class the inference reads") {
 	FakeProject project;
 	project.add_script("res://audio.gd", "extends Node\n\n\nfunc play(sound):\n\tprint(sound)\n");

@@ -518,10 +518,11 @@ Type Inflows::type(int p_slot) const {
 namespace {
 
 // The fix of the error that the loop of fixes applies: the first of the
-// automatic kinds, Async or Unwrap, or Optional for a value that a scene
-// lacks, unless it edits a file outside those migrated.
+// automatic kinds, Async, Unwrap or Optional, unless it edits a file outside
+// those migrated. Optional comes first only for a value that a scene lacks
+// and for a null assigned or returned where a type is written.
 const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
-	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || (p_fix.kind == FixKind::Optional && p_error.runs); });
+	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::Optional; });
 	const bool inside = fix != p_error.fixes.end() && std::all_of(fix->edits.begin(), fix->edits.end(), [&](const Fix::Edit &p_edit) { return p_project.texts.count(p_edit.file.empty() ? p_error.file : p_edit.file) > 0; });
 	return inside ? &*fix : nullptr;
 }

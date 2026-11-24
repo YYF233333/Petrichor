@@ -856,7 +856,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				error(r_stmt.value->range, function_label() + " returns void. Declare its return type, for example -> " + (value.is_error() ? std::string("int") : value.to_string()) + ".");
 				return;
 			}
-			expect_assignable(*r_stmt.value, value, expected, "return");
+			expect_assignable(*r_stmt.value, value, expected, "return", function->return_type_ref ? &*function->return_type_ref : nullptr);
 			return;
 		}
 		case StmtKind::Assert: {

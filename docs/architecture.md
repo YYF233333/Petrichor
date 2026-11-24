@@ -1211,7 +1211,9 @@ struct 和带载荷 enum 的成员可以 `@export`，存进场景和 `.tres`（�
     - 丢弃结果的调用随后由自动修复补 `.detach()`。GDScript 的协程运行到第一处挂起就返回，调用方接着执行，与 `detach` 相同（`modules/gdscript/gdscript_vm.cpp:2586-2597, 2641-2654`，`ed1daf0`）。
     - 反向转换去掉 `async` 和 `.detach()`。没有 `await` 的函数在 GDScript 中不是协程，调用照样运行到底。
   - 原文没判空就使用的值补 `.unwrap()`，与 GDScript 在同一处出错；
-  - 场景或资源没给值的导出改为 `T?`，因为 GDScript 在运行时给它 `null`。此后没判空的使用照样补 `.unwrap()`。反向转换写回 `T`。- 修复的应用：
+  - 场景或资源没给值的导出改为 `T?`，因为 GDScript 在运行时给它 `null`。此后没判空的使用照样补 `.unwrap()`。反向转换写回 `T`。
+  - 原文把字面量 `null` 赋给写了类型 `T` 的变量，或从声明 `-> T` 的函数返回它时，类型也改为 `T?`。原文已明写了 `null`，GDScript 接受它作为任何对象类型的值（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。没有初始值的声明不算。
+- 修复的应用：
   - 每个错误取第一个这样的修复。场景的检查也给出修复，如信号所连的方法补 `pub`。
   - 一轮的修复一起应用，规则与一键修复相同（`compiler::fixed_together()`）。
   - 改到集合之外文件的修复不应用，如给另一个 GDScript 文件或本语言文件补 `pub`。

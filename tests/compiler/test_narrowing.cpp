@@ -116,6 +116,7 @@ TEST_CASE("None goes where a T? is expected") {
 	const std::string member = "extends Node\nvar tween: Tween\n\nfunc f(n: Node = null) -> void:\n\ttween = null\n";
 	CHECK(fixed(member, "Write Node?") == "extends Node\nvar tween: Tween\n\nfunc f(n: Node? = null) -> void:\n\ttween = null\n" + std::string("5:10: Cannot assign a value of type None as Tween.\n"));
 	CHECK(contains(fixed("extends Node\nvar tween: Tween\n\nfunc f() -> void:\n\ttween = null\n", "Write Tween?"), "var tween: Tween?"));
+	CHECK(fixed("extends Node\n\nfunc f() -> Tween:\n\treturn null\n", "Write Tween?") == "extends Node\n\nfunc f() -> Tween?:\n\treturn null\n");
 	CHECK(fixed(in_function("var q := Node.new()\nq = None")) == "no such fix");
 	// A narrowed local is declared T? already.
 	CHECK(fixed(in_function("var q: Node? = get_parent()\nif q != None and q == null:\n\tpass"), "Write Node??") == "no such fix");
