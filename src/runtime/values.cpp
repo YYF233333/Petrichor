@@ -267,7 +267,9 @@ bool holds_containers(const TypeImage &p_type) {
 }
 
 const BoxType *box_type(const std::vector<bytecode::TypeDesc> &p_types, uint32_t p_type) {
-	const std::string key = bytecode::type_key(p_types, p_type);
+	// The function types share one, as a value of one goes as it is where
+	// another is expected (spec §3.14), and calls check the signature.
+	const std::string key = p_types[p_type].kind == bytecode::TypeKind::Value ? std::string("function") : bytecode::type_key(p_types, p_type);
 	std::lock_guard<std::recursive_mutex> lock(box_mutex);
 	if (!box_types) {
 		box_types = new std::unordered_map<std::string, std::shared_ptr<BoxType>>();

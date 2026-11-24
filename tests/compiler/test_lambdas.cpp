@@ -40,6 +40,13 @@ TEST_CASE("a lambda's types: parameters written or from where it goes, the retur
 	CHECK(has_error("extends Node\nconst F = func(): pass\n", "A lambda is not a constant expression."));
 }
 
+TEST_CASE("a function type is a type of its own where modules meet, as hot reload compares them (spec §12.4)") {
+	const compiler::CompileResult result = compile("extends Node\nvar a: Callable\nvar b: func() = func(): pass\n");
+	require_ok(result);
+	const auto key = [&](const char *p_member) { return bytecode::type_key(result.module.types, member_named(result.module, p_member).type); };
+	CHECK(key("a") != key("b"));
+}
+
 TEST_CASE("a lambda passed to an Array method takes the elements (spec §3.8, §4.6)") {
 	CHECK(type_of("a.filter(func(x): return x > 1)", "var a: Array[int] = [1, 2]") == "Array[int]");
 	CHECK(type_of("a.map(func(x): return x.length())", "var a: Array[String] = []") == "Array");

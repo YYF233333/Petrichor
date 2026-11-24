@@ -344,7 +344,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Before them, `AWAIT_TASK` and `AWAIT_SIGNAL` must carry the type of their result, as other instructions with a result do. Now the VM searches the frame's slots on each resume.
 - After 0.3 and before 0.9: default values of lambda parameters and of interface method parameters, with optional parameters in function types (spec §3.9, §3.11, §14.3).
   - Before them, one `Signature` value should serve overriding, implementing, signal handlers and function-type conversion. Now each repeats the rules of compatibility and argument counts.
-  - Before them, hot reload must tell function types apart. `type_key` erases them, so a change from `Callable` to `func() -> void` counts as a body change.
 - Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
   - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).

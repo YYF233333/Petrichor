@@ -269,7 +269,8 @@ static std::string type_key(const std::vector<TypeDesc> &p_types, uint32_t p_typ
 	std::string key;
 	switch (type.kind) {
 		case TypeKind::Value:
-			key = "v" + std::to_string(int(type.value));
+			// A function type as written, as each is a type of its own (spec §3.11).
+			key = "v" + std::to_string(int(type.value)) + (type.name.empty() ? std::string() : text(type.name));
 			break;
 		case TypeKind::Object:
 			key = std::string(type.nullable ? "o?" : "o") + text(type.object.name) + text(type.object.script) + text(type.object.interface_name) + text(type.task_result);
