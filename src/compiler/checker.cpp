@@ -50,6 +50,67 @@ void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflo
 	}
 }
 
+// The slot of a declaration with a class written for it, `r_type`, whose
+// value a read in the last round found where a subclass is expected
+// (architecture §6.6); it then has the type tried for it. -1 for any other.
+int Checker::wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type) {
+	if (!options.inflows || r_type.kind != TypeKind::Object) {
+		return -1;
+	}
+	const auto wide = options.inflows->wide.find({ script_file(options.path), cls.source->tokens[p_name_token].offset });
+	if (wide == options.inflows->wide.end()) {
+		return -1;
+	}
+	wide->second = { r_type, { cls.source->begin(p_written.range), cls.source->end(p_written.range) } };
+	const int slot = untyped_slot(p_slot, p_name_token);
+	r_type = tried(slot);
+	return slot;
+}
+
+bool Checker::is_wide(int p_slot) const {
+	if (p_slot < 0) {
+		return false;
+	}
+	const auto wide = options.inflows->wide.find(options.inflows->slots[size_t(p_slot)].key);
+	return wide != options.inflows->wide.end() && wide->second.type.kind == TypeKind::Object;
+}
+
+// That a value read where a subclass of its class is expected reads a
+// declaration of a migrated file: what its name refers to, a member, a
+// parameter, a local or what a function returns.
+void Checker::read_wide(const Expr &p_value) {
+	if (!options.inflows || !references || p_value.name_token >= cls.source->tokens.size()) {
+		return;
+	}
+	const uint32_t offset = cls.source->tokens[p_value.name_token].offset;
+	const auto read = std::find_if(references->rbegin(), references->rend(), [&](const Reference &p_reference) { return p_reference.begin == offset && !p_reference.declares; });
+	if (read == references->rend()) {
+		return;
+	}
+	const DeclId &target = read->target;
+	std::optional<Inflows::Key> key;
+	if (target.kind == DeclId::Kind::Local && !target.name.empty()) {
+		key = Inflows::Key{ script_file(target.scope), uint32_t(std::stoul(target.name)) };
+	} else if (const ClassDecl *owner = target.kind == DeclId::Kind::Script ? script_header(target.scope) : nullptr) {
+		const auto at = [&](uint32_t p_name_token) { key = Inflows::Key{ script_file(target.scope), owner->source->tokens[p_name_token].offset }; };
+		for (const auto *list : { &owner->members, &owner->static_vars }) {
+			for (const VarDecl &variable : *list) {
+				if (variable.name == target.name) {
+					at(variable.name_token);
+				}
+			}
+		}
+		for (const FuncDecl &function : owner->functions) {
+			if (function.name == target.name) {
+				at(function.name_token);
+			}
+		}
+	}
+	if (key && options.inflows->files.count(key->first)) {
+		options.inflows->widened.insert(*key);
+	}
+}
+
 // A variable declared without a value, which GDScript starts as null
 // (architecture §6.6): its slot receives that null, and a class type written
 // for it becomes T?.
@@ -57,7 +118,8 @@ void Checker::starts_null(int p_slot, const TypeRef *p_written, const Type &p_ty
 	const std::string file = script_file(options.path);
 	if (p_slot >= 0) {
 		flow(p_slot, Type::of(TypeKind::None), TokenRange{ p_name_token, p_name_token }, Inflows::Part::Implicit);
-	} else if (p_written && p_type.kind == TypeKind::Object && !p_type.is_optional() && options.inflows && options.inflows->files.count(file)) {
+	}
+	if (p_written && p_type.kind == TypeKind::Object && !p_type.is_optional() && options.inflows && options.inflows->files.count(file)) {
 		const Fix::Edit edit = optional_edit(*cls.source, *p_written);
 		options.inflows->optional[{ file, edit.change.begin }] = { edit.change.end, edit.change.new_text };
 	}

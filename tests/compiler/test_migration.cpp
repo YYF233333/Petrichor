@@ -193,6 +193,54 @@ TEST_CASE("a setter with an await is made async, and a member made T? makes its 
 	CHECK(migration.errors.empty());
 }
 
+// GDScript checks a value of a class where a subclass is expected as the
+// program runs; the migration narrows the declaration written for it, or
+// writes `as`.
+TEST_CASE("a class written wider than what flows in becomes the subclass that a read expects") {
+	const auto migrated = [](const std::string &p_art) {
+		FakeProject project;
+		project.add_script("res://stats.gd", "class_name Stats\nextends Resource\n@export var art: Resource\n", "Stats");
+		project.add_script("res://enemy_stats.gd", "class_name EnemyStats\nextends Stats\n", "EnemyStats");
+		project.add_script("res://enemy.gd", "extends Node\n\n\nfunc show(stats: EnemyStats) -> void:\n\tuse(stats.art)\n\n\nfunc use(texture: Texture2D) -> void:\n\tpass\n");
+		compiler::Scene bat;
+		bat.path = "res://bat.tres";
+		bat.resources = { { bat.path, "res://enemy_stats.gd", { { "art", compiler::SceneValue{ "Object", p_art } } } } };
+		project.scenes = { bat };
+		return compiler::migrate(fake_engine(), project, { "res://stats.gd", "res://enemy_stats.gd", "res://enemy.gd" }, 10);
+	};
+	const compiler::Migration stored = migrated("CompressedTexture2D");
+	CHECK(stored.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var art: CompressedTexture2D\n");
+	CHECK(stored.errors.empty());
+	// What a resource stores may be wider; the read then checks it.
+	const compiler::Migration wider = migrated("AudioStream");
+	CHECK(wider.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var art: Resource\n");
+	CHECK(wider.texts.at("res://enemy.pet") == "extends Node\n\n\nfunc show(stats: EnemyStats) -> void:\n\tuse((stats.art as Texture2D).unwrap())\n\n\nfunc use(texture: Texture2D) -> void:\n\tpass\n");
+}
+
+TEST_CASE("a member is narrowed with its setter's parameter, and an override's result apart from the method it overrides") {
+	FakeProject project;
+	project.add_script("res://button.gd", "class_name RewardButton\nextends Node\nvar icon: Resource = Texture2D.new() : set = set_icon\n\n\nfunc set_icon(new_icon: Resource) -> void:\n\ticon = new_icon\n\tshow(icon)\n\n\nfunc show(texture: Texture2D) -> void:\n\tpass\n", "RewardButton");
+	project.add_script("res://reward.gd", "extends Node\n\n\nfunc give(button: RewardButton) -> void:\n\tbutton.icon = Texture2D.new()\n");
+	project.add_script("res://stats.gd", "class_name Stats\nextends Resource\n\n\nfunc create_instance() -> Resource:\n\treturn Resource.new()\n", "Stats");
+	project.add_script("res://hero_stats.gd", "class_name HeroStats\nextends Stats\n\n\nfunc create_instance() -> Resource:\n\tvar instance: HeroStats = HeroStats.new()\n\treturn instance\n", "HeroStats");
+	project.add_script("res://run.gd", "extends Node\nvar hero: HeroStats\n\n\nfunc start(picked: HeroStats) -> void:\n\thero = picked.create_instance()\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://button.gd", "res://reward.gd", "res://stats.gd", "res://hero_stats.gd", "res://run.gd" }, 10);
+	CHECK(migration.texts.at("res://button.pet") == "class_name RewardButton\nextends Node\npub var icon: Texture2D = Texture2D.new() : set = set_icon\n\n\nfunc set_icon(new_icon: Texture2D) -> void:\n\ticon = new_icon\n\tshow(icon)\n\n\nfunc show(texture: Texture2D) -> void:\n\tpass\n");
+	CHECK(migration.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n\n\npub func create_instance() -> Resource:\n\treturn Resource.new()\n");
+	CHECK(migration.texts.at("res://hero_stats.pet") == "class_name HeroStats\nextends Stats\n\n\npub func create_instance() -> HeroStats:\n\tvar instance: HeroStats = HeroStats.new()\n\treturn instance\n");
+	CHECK(migration.errors.empty());
+}
+
+TEST_CASE("where no declaration narrows, a value of a class goes as a subclass through as") {
+	FakeProject project;
+	project.add_script("res://picker.gd", "extends Node\nvar target: Node2D\n\n\nfunc pick(found: Node) -> void:\n\ttarget = found\n\tvar other: Node2D = get_node_or_null(\"Other\")\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = icon\n\tprint(shown)\n");
+	project.add_script("res://handler.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tchild_exiting_tree.connect(_on_exiting)\n\n\nfunc _on_exiting(node: Node2D) -> void:\n\tpass\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://picker.gd", "res://handler.gd" }, 10);
+	CHECK(migration.texts.at("res://picker.pet") == "extends Node\nvar target: Node2D?\n\n\nfunc pick(found: Node) -> void:\n\ttarget = (found as Node2D).unwrap()\n\tvar other: Node2D = (get_node_or_null(\"Other\") as Node2D).unwrap()\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = (icon as Texture2D).unwrap()\n\tprint(shown)\n");
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].file == "res://handler.pet");
+}
+
 TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null") {
 	FakeProject project;
 	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");

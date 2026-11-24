@@ -698,6 +698,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			const std::string container = empty_container(r_stmt.value.get());
 			if (r_stmt.declared_type) {
 				type = resolve(*r_stmt.declared_type, false);
+				slot = wide_slot({ Inflows::Kind::Local, r_stmt.name }, r_stmt.name_token, *r_stmt.declared_type, type);
 			} else if (!r_stmt.value || r_stmt.value->kind == ExprKind::NoneLiteral || !container.empty()) {
 				slot = untyped_slot({ Inflows::Kind::Local, r_stmt.name, {}, 0, 0, 0, {}, {}, container }, r_stmt.name_token);
 				type = tried(slot);
@@ -768,7 +769,11 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				}
 				r_stmt.compound_result = value;
 			}
-			flow(slot_of(target), value, r_stmt.value->range);
+			// In its own setter, the parameter of a member that a migration may
+			// narrow holds what was written to it, which flowed in there.
+			const Expr &written = *r_stmt.value;
+			const bool own_value = function && target.target == Target::Member && cls.all_members[target.index]->name == function->accessor_of && written.kind == ExprKind::Name && written.target == Target::Local && written.index == 0;
+			flow(own_value && is_wide(slot_of(target)) ? -1 : slot_of(target), value, r_stmt.value->range);
 			if (const int container = target.kind == ExprKind::Subscript ? container_slot(*target.base) : -1; container >= 0) {
 				flow(container, value, r_stmt.value->range, Inflows::Part::Element);
 				flow(container, target.right->type, target.right->range, Inflows::Part::Key);

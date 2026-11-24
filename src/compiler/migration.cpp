@@ -518,12 +518,12 @@ Type Inflows::type(int p_slot) const {
 namespace {
 
 // The fix of the error that the loop of fixes applies: the first of the
-// automatic kinds, Async, Unwrap, Optional or ReturnNone, unless it edits a
-// file outside those migrated. Optional comes first only for a value that a
-// scene or a creator lacks and for a null assigned or returned where a type
-// is written; ReturnNone where GDScript returns null.
+// automatic kinds, Async, Unwrap, Optional, ReturnNone or Cast, unless it
+// edits a file outside those migrated. Optional comes first only for a value
+// that a scene or a creator lacks and for a null assigned or returned where a
+// type is written; ReturnNone where GDScript returns null.
 const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
-	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::Optional || p_fix.kind == FixKind::ReturnNone; });
+	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.automatic() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::Optional || p_fix.kind == FixKind::ReturnNone || p_fix.kind == FixKind::Cast; });
 	const bool inside = fix != p_error.fixes.end() && std::all_of(fix->edits.begin(), fix->edits.end(), [&](const Fix::Edit &p_edit) { return p_project.texts.count(p_edit.file.empty() ? p_error.file : p_edit.file) > 0; });
 	return inside ? &*fix : nullptr;
 }
@@ -538,6 +538,7 @@ std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, con
 	r_inflows.about.clear();
 	r_inflows.elements.clear();
 	r_inflows.unknown.clear();
+	r_inflows.widened.clear();
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
 	analysis.inflows = &r_inflows;
@@ -831,6 +832,12 @@ std::map<Inflows::Key, Place> places(const std::string &p_file, const std::strin
 		}
 	};
 	functions(decl, functions);
+	// Over the class written for a declaration that a subclass may type.
+	for (const auto &[key, wide] : p_inflows.wide) {
+		if (key.first == p_file && found.count(key) && wide.type.kind == TypeKind::Object) {
+			found[key] = { wide.written.first, wide.written.second, std::string(), std::string() };
+		}
+	}
 	return found;
 }
 
@@ -1108,6 +1115,21 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	const auto merge = [&](const Inflows::Slot &p_slot, const std::vector<Received> &p_received, bool &r_numbers) {
 		return p_slot.container.empty() ? merged(p_received, classes, p_engine, r_numbers) : merged_container(p_slot.container, p_received, classes, p_engine, r_numbers);
 	};
+	// A declaration with a class written for it takes a subclass of it that
+	// what flows in merges into; otherwise it keeps the type written.
+	const auto narrowed = [&](const Type &p_written, const std::optional<Type> &p_merged) {
+		Type narrower = p_merged ? p_merged->unwrapped() : Type::of(TypeKind::Error);
+		if (narrower.kind != TypeKind::Object || narrower.is_interface || !narrower.args.empty()) {
+			return p_written;
+		}
+		const auto key = [](const Type &p_class) { return p_class.script.empty() ? p_class.name : p_class.script; };
+		const std::vector<Type> up = lineage(narrower, classes, p_engine);
+		if (std::none_of(up.begin() + 1, up.end(), [&](const Type &p_base) { return key(p_base) == key(p_written); })) {
+			return p_written;
+		}
+		narrower.nullable = p_written.nullable;
+		return narrower;
+	};
 	const auto candidates = [&](bool p_unknown) {
 		for (const Inflows::Slot &each : inflows.unknown) {
 			inflows.slot(each);
@@ -1117,11 +1139,23 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		for (size_t i = 0; i < flowed.size(); i++) {
 			bool numbers = false;
 			const std::optional<Type> type = merge(inflows.slots[i], flowed[i], numbers);
-			if (type || p_unknown) {
+			const auto wide = inflows.wide.find(inflows.slots[i].key);
+			if (wide != inflows.wide.end() && wide->second.type.kind == TypeKind::Object) {
+				next[inflows.slots[i].key] = narrowed(wide->second.type, type);
+			} else if (type || p_unknown) {
 				next[inflows.slots[i].key] = type.value_or(without(inflows.slots[i]));
 			}
 		}
 		return next;
+	};
+	// The declarations that a round found read where a subclass is expected
+	// are slots from the next one; whether there are new ones.
+	const auto widen = [&] {
+		bool grew = false;
+		for (const Inflows::Key &key : inflows.widened) {
+			grew = inflows.wide.emplace(key, Inflows::Wide()).second || grew;
+		}
+		return grew;
 	};
 	// The slots with values of known types first, then with Variant for the
 	// others, each part in at most `p_rounds` rounds. The members and
@@ -1129,8 +1163,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	// slots from the next one.
 	for (const bool unknown : { false, true }) {
 		for (int round = 0; round < p_rounds; round++) {
+			const bool grew = widen();
 			std::map<Inflows::Key, Type> next = candidates(unknown);
-			if (next == inflows.tried && inflows.unknown.empty()) {
+			if (next == inflows.tried && inflows.unknown.empty() && !grew) {
 				break;
 			}
 			inflows.tried = std::move(next);
@@ -1216,8 +1251,16 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	std::map<Inflows::Key, std::set<std::string>> aliased_in;
 	Aliases aliases(p_engine, r_project, original);
 	std::map<Inflows::Key, std::string> refusals;
+	const auto wide = [&](const Inflows::Key &p_slot) -> const Inflows::Wide * {
+		const auto found = inflows.wide.find(p_slot);
+		return found != inflows.wide.end() && found->second.type.kind == TypeKind::Object ? &found->second : nullptr;
+	};
 	for (const Inflows::Slot &slot : slots) {
 		const auto found = tried.find(slot.key);
+		// A class written stays unless a subclass of it was found.
+		if (wide(slot.key) && (found == tried.end() || found->second == wide(slot.key)->type)) {
+			continue;
+		}
 		Type type = found == tried.end() ? Type::of(TypeKind::Error) : found->second;
 		std::set<std::string> scripts;
 		const bool named = found != tried.end() && place.count(slot.key) && aliased(type, slot.key.first, aliases, scripts);
@@ -1239,9 +1282,22 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	for (int pass = 0;; pass++) {
 		insertions.clear();
 		std::map<std::string, std::set<std::string>> aliased_by_file;
+		// The T? that a narrowed declaration would have become takes the
+		// narrower class.
+		std::set<Inflows::Key> narrowed_at;
 		for (const auto &[slot, text] : written) {
 			const Place &at = place.at(slot);
-			insertions[slot.first].push_back({ at.at, at.end, at.before + text + at.after, slot });
+			const Inflows::Wide *narrower = wide(slot);
+			const Inflows::Key begin = { slot.first, at.at };
+			const bool optional = narrower && inflows.optional.count(begin) && text.back() != '?';
+			insertions[slot.first].push_back({ at.at, at.end, at.before + text + (optional ? "?" : "") + at.after, slot });
+			if (narrower) {
+				narrowed_at.insert(begin);
+			}
+			if (narrower && narrower->setter) {
+				insertions[slot.first].push_back({ narrower->setter->first, narrower->setter->second, text + (optional ? "?" : ""), slot });
+				narrowed_at.insert({ slot.first, narrower->setter->first });
+			}
 			aliased_by_file[slot.first].insert(aliased_in[slot].begin(), aliased_in[slot].end());
 		}
 		// The constants go after the header, as written by no slot.
@@ -1252,7 +1308,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			}
 		}
 		for (const auto &[at, edit] : inflows.optional) {
-			insertions[at.first].push_back({ at.second, edit.first, edit.second, at });
+			if (!narrowed_at.count(at)) {
+				insertions[at.first].push_back({ at.second, edit.first, edit.second, at });
+			}
 		}
 		for (auto &[file, text] : r_project.texts) {
 			std::vector<Written> &in_file = insertions[file];
@@ -1335,8 +1393,10 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 				const auto [begin, inside] = original_at(path, error.begin);
 				const auto about = std::find_if(check.about.begin(), check.about.end(), [&](const Inflows::About &p_about) { return p_about.file == path && p_about.error == Range(error.begin, error.end); });
 				// One about no place here says that a declaration elsewhere has
-				// errors, which is no type's here.
-				if (loop_fix(error, r_project) || reported.count({ path, begin, error.message }) || (about != check.about.end() && about->places.empty())) {
+				// errors, which is no type's here. A cast is for what no type
+				// written changes.
+				const Fix *fix = loop_fix(error, r_project);
+				if ((fix && fix->kind != FixKind::Cast) || reported.count({ path, begin, error.message }) || (about != check.about.end() && about->places.empty())) {
 					continue;
 				}
 				if (inside) {
@@ -1378,6 +1438,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			}
 		}
 		const auto refusal = refusals.find(slot.key);
+		if (refusal != refusals.end() && wide(slot.key)) {
+			continue; // Its text stays.
+		}
 		if (refusal != refusals.end()) {
 			note(slot.key, "\"" + slot.name + "\" is left without a type: " + refusal->second + "." + (from.empty() ? " Nothing flows into it." : " It receives " + from + "."));
 			r_result.withdrawn++;
@@ -1445,6 +1508,11 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 			if (const Fix *fix = loop_fix(error, project)) {
 				fixes.emplace_back(fix, error.file);
 			}
+		}
+		// A cast waits for the other fixes, which tell whether its value may be
+		// None.
+		if (std::any_of(fixes.begin(), fixes.end(), [](const auto &p_fix) { return p_fix.first->kind != FixKind::Cast; })) {
+			fixes.erase(std::remove_if(fixes.begin(), fixes.end(), [](const auto &p_fix) { return p_fix.first->kind == FixKind::Cast; }), fixes.end());
 		}
 		std::vector<const Fix *> applied;
 		const std::map<std::string, std::vector<CheckedEdit>> edits = fixed_together(fixes, applied);

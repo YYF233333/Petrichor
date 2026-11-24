@@ -1936,7 +1936,24 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		if (p_written) {
 			fix_optional(*p_written);
 		}
+	} else if (downcast(p_from, p_to)) {
+		// GDScript checks it as the program runs (architecture §6.6). With
+		// `as`, None stands for GDScript's null where the value may be None,
+		// and otherwise the error is where GDScript's is.
+		read_wide(p_value);
+		const std::string cast = operand(p_value) + " as " + p_to.unwrapped().to_string();
+		if (cast.find(".pet") == std::string::npos) {
+			fix({ { p_value.range, p_from.is_optional() ? cast : "(" + cast + ").unwrap()" } }, FixKind::Cast);
+		}
 	}
+}
+
+// Whether a value of a class goes where a subclass of it is expected.
+bool Checker::downcast(const Type &p_from, const Type &p_to) const {
+	const Type from = p_from.unwrapped();
+	const Type to = p_to.unwrapped();
+	const auto plain = [](const Type &p_class) { return p_class.kind == TypeKind::Object && !p_class.is_interface && p_class.args.empty(); };
+	return plain(from) && plain(to) && assignable(to, from);
 }
 
 void Checker::expect_condition(Expr &r_condition) {

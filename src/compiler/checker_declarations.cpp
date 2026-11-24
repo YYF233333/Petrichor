@@ -460,6 +460,7 @@ void Checker::check_member_declaration(size_t p_index) {
 	const std::string container = empty_container(member.initializer.get());
 	if (member.declared_type) {
 		type = resolve(*member.declared_type, false);
+		member.slot = wide_slot({ Inflows::Kind::Member, member.name }, member.name_token, *member.declared_type, type);
 	} else if (!member.initializer || member.initializer->kind == ExprKind::NoneLiteral || !container.empty()) {
 		member.slot = untyped_slot({ Inflows::Kind::Member, member.name, {}, 0, 0, 0, {}, {}, container }, member.name_token);
 		type = tried(member.slot);
@@ -804,6 +805,12 @@ void Checker::check_accessors(VarDecl &r_member) {
 		if (p_setter) {
 			r_member.async_setter = function->is_async;
 		}
+		// A migration that narrows the member writes the parameter, which
+		// has its type (architecture §6.6).
+		if (p_setter && is_wide(r_member.slot) && function->params.size() == 1 && function->params[0].declared_type) {
+			const TokenRange &written = function->params[0].declared_type->range;
+			options.inflows->wide.at(options.inflows->slots[size_t(r_member.slot)].key).setter = Inflows::Range(cls.source->begin(written), cls.source->end(written));
+		}
 		const auto found = function_index.find(p_name);
 		return found == function_index.end() ? -1 : found->second;
 	};
@@ -997,7 +1004,7 @@ void Checker::check_script_override(FuncDecl &r_fn, const FuncDecl &p_base) {
 	check_rest(r_fn);
 	check_defaults(r_fn);
 	r_fn.return_type = r_fn.return_type_ref ? resolve(*r_fn.return_type_ref, true) : p_base.return_type;
-	r_fn.slot = r_fn.return_type_ref ? -1 : p_base.slot;
+	r_fn.slot = r_fn.return_type_ref ? wide_slot({ Inflows::Kind::Return, r_fn.name }, r_fn.name_token, *r_fn.return_type_ref, r_fn.return_type) : p_base.slot;
 	if (!compared) {
 		return;
 	}
@@ -1167,6 +1174,7 @@ void Checker::check_signature(FuncDecl &r_function) {
 		if (param.declared_type) {
 			param.type = resolve(*param.declared_type, false);
 			check_engine_param(param, engine_types, param.declared_type->range);
+			param.slot = param.is_rest ? -1 : wide_slot(parameter_slot(r_function, i), param.name_token, *param.declared_type, param.type);
 		} else if (param.infers_type) {
 			// infer_params() types it and compares.
 		} else if (!param.is_rest && !engine_types.empty()) {
@@ -1203,6 +1211,7 @@ void Checker::check_signature(FuncDecl &r_function) {
 		if (!override_assignable(r_function.return_type, overridden) && (overridden.kind != TypeKind::Variant || r_function.return_type.kind == TypeKind::Void)) {
 			error(r_function.return_type_ref->range, "The overridden method returns " + engine_method->return_type.to_string() + ".");
 		}
+		r_function.slot = wide_slot({ Inflows::Kind::Return, r_function.name }, r_function.name_token, *r_function.return_type_ref, r_function.return_type);
 	} else if (r_function.is_override) {
 		r_function.return_type = engine_method->return_type;
 		if (r_function.return_type.kind != TypeKind::Void && !r_function.return_type.is_storable()) {

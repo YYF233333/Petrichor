@@ -45,6 +45,7 @@ enum class FixKind {
 	NullPattern,
 	Receiver, // self.f() for a method that a direct call f() of a utility function's name misses.
 	GetNodeOrNull, // For $X that a scene lacks and another has.
+	Cast, // `as` where a value of a class goes as a subclass, which GDScript checks as the program runs.
 };
 
 // What fixing all of a kind in a file is called: "Fix all '…' in file".
@@ -71,8 +72,9 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ false, "Match both levels of null" },
 	{ false, "Write the receiver" },
 	{ false, "Write get_node_or_null()" },
+	{ false, "Write as" },
 };
-static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::GetNodeOrNull) + 1);
+static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::Cast) + 1);
 
 // A quick fix of a diagnostic, named by `title`.
 struct Fix {

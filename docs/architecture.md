@@ -153,7 +153,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
     - packed 数组位置上的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）；
     - 补上 `pub`（若声明会因此露出不带 `pub` 的类型，则不提供）。
-  - 其余种类（如 `.unwrap()`、改为 `T?`、补上 `async`、`await` 和 null 模式）只作备选；自动修复排在首位且无需输入。
+  - 其余种类（如 `.unwrap()`、改为 `T?`、补上 `async`、`await`、null 模式和写 `as`）只作备选；自动修复排在首位且无需输入。
   - 一键修复（`compiler::fix_all()`）每次只应用本脚本中的一种自动修复。同种修复区间重叠或起点相同时跳过后者留给下次，两个错误给出的同一修复只应用一次；跨种类批量修复属于迁移工具（§6.6）。
   - 改写会给操作数加括号（名字、成员、调用、下标、字面量和已在括号中的除外）。检查器在原树上暂时改写并重检来判断改写能否通过（如加上 `.unwrap()` 后成员能否找到），通不过就不提供。这次检查的报错、引用和警告随即撤回，补全时不做这种验证。
   - 修复也可编辑其他脚本（如给另一文件的声明补上 `pub` 或给被覆盖方法补上 `async`），这处编辑带上目标脚本的 `res://` 路径，原文从关键字取到名字。
@@ -805,6 +805,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **写宽了的类型**：GDScript 把父类的值赋给子类的位置时到运行时才检查，本语言在此报编译错误（规范 §3.14）。写了对象类型的参数、返回值或变量，读出的值在某处因此报错时也作槽位求解，类型仍只取自流入。流入合并出所写类型的子类，且写下后这些错误消失，就把所写类型改成它；否则原文不动，由下文的 `as` 处理。
   - deck_builder_tutorial 中 7 个导出写作 `Texture`，资源存的和代码赋的都是 `Texture2D`，读出的值又都赋给 `Texture2D` 属性（`custom_resources/stats.gd:7`、`scenes/enemy/enemy.gd:72`），改写为 `Texture2D`。`-> Resource` 而只返回 `CharacterStats` 的 `create_instance()` 同理（`custom_resources/character_stats.gd:42-50`）。
   - 改窄的导出在检查器里从此只接受子类。集合外 GDScript 的赋值看不到，与其余推断相同。
+  - 检查器按读出处的引用找到所读声明，下一轮起它才作槽位，未试过时与未写类型的槽位一样取 Error。所写类型的 `?` 不变，声明原本会改为 `T?` 时改窄后照样带上。
+  - 成员与其具名 setter 的参数一并求解：写入属性即流入参数，所以 setter 里把参数赋给成员不算流入。成员改窄时，参数的类型写成同一个。
 
 #### 候选校验、失败撤回与数值核对
 
@@ -838,6 +840,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - GDScript 给带类型变量赋值时放过 `null`，类不符时调试版报错，发布版不检查（`modules/gdscript/gdscript_vm.cpp:1533-1625`，`ed1daf0`）。值非空时与 GDScript 在同一处出错；值可空时类不符得 `None`，到使用处才出错。
   - deck_builder_tutorial 中 `stats = value.create_instance()` 由 `Stats` 到 `EnemyStats`（`scenes/enemy/enemy.gd:30`），`target = get_tree().get_first_node_in_group("player")` 由 `Node?` 到 `Node2D`（`scenes/enemy/enemy_action_picker.gd:11`）。
   - 信号参数比所连函数的参数宽时不改，留作编译错误（`scenes/relic_handler/relic_handler.gd:14, 78`）：放宽参数要另起名字，包一层 lambda 则 `disconnect` 找不到原函数。
+  - 检查器给这类错误提供写 `as` 的备选修复。候选校验不把它算作修复循环会修的错误，所以推断出的类型照旧撤回，而不是在读出处转换。
+  - 修复循环只在没有其他修复的一轮写 `as`，因为改为 `T?` 等修复决定值是否可空。
 - **从根取 autoload 改用名字**：字面量路径如 `$"/root/Audio"` 由自动修复改用其名字（规范 §7.3），反向转换保留名字（GDScript 带 `*` 的 autoload 同为全局名）。
   - 节点在树中时两者取到同一节点：GDScript 的 `$` 是在自己上调 `get_node()`（`modules/gdscript/gdscript_compiler.cpp:743-756`，`ed1daf0`）。绝对路径从最上层须名为 `root` 的祖先（场景树根窗口）走起（`scene/main/node.cpp:1918-1921, 1938`，`scene/main/scene_tree.cpp:2071`），本语言名字在这个根下按名查找。所有 autoload 先挂到根下再入树，就绪时彼此均已在树中（`main/main.cpp:4562-4564`，`scene/main/scene_tree.cpp:586-591`）。
   - 节点不在树中时 GDScript 报错得 `null`，本语言照样取到 autoload（`scene/main/node.cpp:1910`），但真实代码不这样用：tanks-of-freedom-ii 的 125 处都是 `@onready` 初始值，就绪时节点总在树中。`get_node_or_null()` 与另一接收者上的 `get_node()` 只报错不改（前者找不到得 `None`，后者接收者要求值）。

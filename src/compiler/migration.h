@@ -5,6 +5,7 @@
 #include "compiler/types.h"
 
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -102,6 +103,18 @@ struct Inflows {
 	// GDScript starts as null, and nothing shows assigned before a read: by
 	// where each begins, with its end and its text as T?.
 	std::map<Key, std::pair<uint32_t, std::string>> optional;
+	// Declarations with a class written for them whose value a check read
+	// where a subclass is expected, by where their names are (a function's
+	// for what it returns). The next round takes each as a slot, which a
+	// subclass of the class written may type: with that type and where it is,
+	// and for a member where its setter's parameter is written too.
+	std::set<Key> widened;
+	struct Wide {
+		Type type;
+		Range written;
+		std::optional<Range> setter;
+	};
+	std::map<Key, Wide> wide;
 
 	// The slot's index, once found.
 	int slot(const Slot &p_slot);
@@ -208,7 +221,8 @@ struct Migration {
 // writes them. Then it applies in each round the fixes of the automatic
 // kinds, Async and Unwrap, and Optional for a value that a scene lacks, as
 // fixing all of a kind does, but not one that edits a file outside them;
-// until a round applies none, or after `p_rounds` rounds.
+// Cast in a round without others; until a round applies none, or after
+// `p_rounds` rounds.
 Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const std::set<std::string> &p_files, int p_rounds);
 
 } // namespace petrichor::compiler
