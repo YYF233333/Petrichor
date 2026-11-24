@@ -161,6 +161,12 @@ func weakest[T: Damageable](units: Array[T]) -> T?:
 
 语料也印证了低优先级：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `weakref` 全量仅 3 处，游戏仓库为 0。其中 2 处在 gdUnit4 测试里用于验证对象已释放，唯一的产品代码是 `dialogue_manager` 的父指针，写了却从不读。v2 语料里 `weakref` 增至 35 处（13 库，游戏 13 处），用于父链、缓存与对象跟踪（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 
+#### `Variant` 只能判等（§3.13）
+
+对 `Variant` 取下标、读成员、调方法和遍历都要先转换。这层摩擦是有意的：它把结构固定的数据推向在入口处解码为 struct，之后的代码都带类型。逐层写 `Dictionary(v)["k"]` 比解码一次更费事，为的就是让后者成为省事的写法。转换本身也只在运行时检查，它的作用不在检查，而在让凑合的写法显眼。
+
+迁移工具在 tanks-of-freedom-ii 中留下 794 处对 `Variant` 的访问，取下标 454 处，调用方法 195 处，读属性 29 处，大多落在存剧情和地图数据的多层无类型字典上（[迁移工具调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md)）。迁移工具不替它们写转换：它定不出数据的结构，成批写下的 `Dictionary(...)` 正是这条规则要指出的写法。
+
 #### 嵌套 Option 保留两层（§3.4）
 
 `T??` 保留两层而不拍平。如果合并为一层，泛型代码的行为就会随 `T` 漂移。例如 `first[T]` 在 `T` 为 `Enemy?` 时分不清空数组和首元素为空，通用缓存会把存入的 `None` 当成未命中，JSON 里缺失键和显式 `null` 也无法区分。由于 Petrichor 没有 `?.`，嵌套基本只出现在泛型和容器取值上。
@@ -472,6 +478,7 @@ Petrichor 沿用 GDScript 的做法，允许把 autoload 名直接写在类型�
 | 可空链 `?.`、默认值 `??`、后缀 `!` | 与 Result 的短路返回合用时，`x?.y` 的含义要看 x 的类型；Option 的操作用方法就够了 | §3.4、§8.2 |
 | Swift 式的 `try` 覆盖整条表达式 | 要按类型决定哪些子表达式被解开；Rust 的后缀 `?` 更直接 | §8.2 |
 | Result 也支持链式的 `?.` | 两种类型嵌套时，一个运算符无法说明处理的是哪一层 | §8.2 |
+| 允许对 `Variant` 取下标和用 `in`，运行时检查，与 GDScript 相同 | 先转换的摩擦是有意的，它把结构固定的数据推向解码为 struct；放开后报错少了，凑合的写法也不再被指出 | §3.13 |
 | 在属性中另设 `apply:` 块，存放须等到节点就绪才执行的代码 | 让用户思考逻辑在何时执行、执行几次；`async` setter 中的 `await ready` 已能表达 | §6.5 |
 | 就绪前由编译器自动挂起 setter，挂起点由静态分析确定 | 挂起点不写在代码里，读 setter 看不出它分两段执行。设计还在两处偏离 GDScript：再次写入时取消前一次挂起的调用，并在 `_ready` 之前恢复，所以迁移不能照搬手写的 `await ready` | §4.4、§6.5 |
 | 就绪前只记下 setter 的原始输入 | 先变换再存储的 setter（如给角色名加【】）就绪前会读到未变换的值 | §6.5 |
