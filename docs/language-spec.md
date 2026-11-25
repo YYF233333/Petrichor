@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 3b5e8993ce3403c064ce69a95d4109b6969e5861. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 425414ce0730fee8fc77d42eb2fb6da1ef1bd897. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -651,8 +651,8 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - A member that must be assigned must be provided at creation by one of these:
   - **`_init`**: assigns it on every path, for example from a parameter;
   - **the scene or resource file**: an exported member is provided by the scene or `.tres`. On a non-root node of a scene and in a `.tres`, an unexported member that `_init` does not assign is a compile error;
-  - **the creator**: `instantiate(...)` and `new(...)` take members by name and assign them before returning, as in `BulletScene.instantiate(shooter = self, target = enemy)`. Leaving out a member that `_init` does not assign in `new(...)` of a known class, or one that the scene resource rules require in `PackedScene[T].instantiate(...)`, is a compile error.
-- When an object is created without a statically known class (such as `Script.new()`), or when a missing-value error on a scene does not prevent running in the editor, the check happens at run time:
+  - **the creator**: `instantiate(...)` and `new(...)` take members by name and assign them before returning, as in `BulletScene.instantiate(shooter = self, target = enemy)`. Leaving out a member that `_init` does not assign in `new(...)` of a known class, or one that the scene resource rules require in `PackedScene[T].instantiate(...)`, is a compile error. `Class.new` taken as a value passes no arguments by name, and is checked as leaving them out.
+- The check happens at run time when the compiler cannot see the class an object is created with, as in `new()` called from GDScript or `set_script`. It also does when a scene's missing-value error does not prevent running in the editor:
   - on a `Node`, a member still unassigned at ready is a program error suggesting one of the forms above so that it is checked at compile time;
   - reading an unassigned `Node` member before ready, or an unassigned member on another object, is a program error that states the member name.
 - If `_init` directly reads a member that must be assigned before `_init` has assigned it on every path, the read is a compile error. Reading it indirectly through a call is a program error.
