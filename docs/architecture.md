@@ -583,7 +583,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
     - **兼容承诺与格式边界**：支持 Godot 4.4 及之后的版本，对早于 4.7 版本的兼容在 0.x 中逐步完成。无静默差异延伸到版本之间：升级后旧代码要么行为不变，要么报编译错误并给出改法。反馈证明规则有错也只以此方式修改；修复运行时实现与规范不符的 bug 另在发布说明单列。字节码格式不在这一版冻结，版本号和兼容承诺随 Mod 定下（§6.1）。
     - **冻结前须定下的六项设计**：按迁移代码先碰到什么排序，定下一项就进下一版，每项带实现发布并从该版开启征询。把编译错误放开为合法写法的新增可留到冻结之后：
       1. `@tool`（规范 §14.3），这样大的功能可能牵动别处的规则；
-      2. 就绪后才非空的成员（规范 §14.3）；
+      2. 延迟赋值的 `@late` 成员与创建时必须赋值检查（规范 §6.2、§6.3）；
       3. 多参信号 `await` 的结果（规范 §9.6）；
       4. lambda 参数默认值与函数类型中的可选参数（规范 §3.11）；
       5. 所有会改变合法代码含义的待定问题，如容器中的 NaN 和以自身为键的容器；
@@ -812,8 +812,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 合并不出或无流入时试 `Variant`，容器试无类型 `Array` 或 `Dictionary`（还原 GDScript 原意）；空容器元素与键都合并出非 `Variant` 类型才写 `Array[T]` 或 `Dictionary[K, V]`。
   - 类型写在槽位名后、返回类型写在参数表后（`var a := []` 写成 `var a: Array[int] = []`），本文件 enum 和内部类不带类名。
   - 无 `class_name` 的类经文件里的 `preload` 常量指名，它只当类型用，不随文件加载（规范 §2.1）。文件已有该脚本的这种常量就沿用其名字；否则在类头之后按名排序补上 `const 名字 = preload("res://….pet")`，报告列出补上的常量。名字取文件名的 PascalCase（`main_menu.pet` 得 `MainMenu`）。若本文件的声明、全局类、引擎类或 autoload 已用此名，就依次在前面加上由近及远各级目录名的 PascalCase，直到不重名为止（`outcomes/camera.pet` 得 `OutcomesCamera`）。与所加前缀的名字同名的目录跳过（`ui/online/online.pet` 得 `UiOnline`）。仍写不出名字的类型不写，留作编译错误并在报告写明。
-- **写宽了的类型**：GDScript 把父类的值赋给子类的位置时到运行时才检查，本语言在此报编译错误（规范 §3.14）。写了对象类型的参数、返回值或变量，读出的值在某处因此报错时也作槽位求解，类型仍只取自流入。流入合并出所写类型的子类，且写下后这些错误消失，就把所写类型改成它；否则原文不动，由下文的 `as` 处理。
-  - deck_builder_tutorial 中 7 个导出写作 `Texture`，资源存的和代码赋的都是 `Texture2D`，读出的值又都赋给 `Texture2D` 属性（`custom_resources/stats.gd:7`、`scenes/enemy/enemy.gd:72`），改写为 `Texture2D`。`-> Resource` 而只返回 `CharacterStats` 的 `create_instance()` 同理（`custom_resources/character_stats.gd:42-50`）。
+- **写宽了的类型**：GDScript 把父类的值赋给子类的位置时到运行时才检查，本语言在此报编译错误（规范 §3.14）。写了对象类型的参数、返回值或变量，读出的值在某处因此报错时也作槽位求解。流入合并出所写类型的子类时，在所写类型到该子类之间取能消除这些读取错误的最宽类改写；没有这样的类则原文不动，由下文的 `as` 处理。
+  - deck_builder_tutorial 中 7 个导出写作 `Texture`，资源存的 PNG 载入为 `CompressedTexture2D`，读出的值赋给 `Texture2D` 属性（`custom_resources/stats.gd:7`、`scenes/enemy/enemy.gd:72`），最宽可用类为 `Texture2D`，检查器仍接受 `AtlasTexture`。`-> Resource` 而只返回 `CharacterStats` 的 `create_instance()` 同理（`custom_resources/character_stats.gd:42-50`）。
   - 改窄的导出在检查器里从此只接受子类。集合外 GDScript 的赋值看不到，与其余推断相同。
   - 检查器按读出处的引用找到所读声明，下一轮起它才作槽位，未试过时与未写类型的槽位一样取 Error。所写类型的 `?` 不变，声明原本会改为 `T?` 时改窄后照样带上。
   - 成员与其具名 setter 的参数一并求解：写入属性即流入参数，所以 setter 里把参数赋给成员不算流入。成员改窄时，参数的类型写成同一个。
@@ -823,7 +823,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 这些场景的根把必须赋值的导出留给 `instantiate()` 时，报错带上改为 `T?` 的修复：场景只设所存的属性，GDScript 写了对象类型的成员起初为 null（`scene/resources/packed_scene.cpp:365-371`，`modules/gdscript/gdscript_compiler.cpp:2369-2393`，`ed1daf0`）。deck_builder_tutorial 的 `EnemyStats.ai` 由此写成 `PackedScene[EnemyActionPicker]`，其根的 `enemy` 和 `target` 改为可空（`custom_resources/enemy_stats.gd:4`，`scenes/enemy/enemy_action_picker.gd:4-5`）。
   - GDScript 写不出嵌套容器的内层类型，所以写作 `Array[Array]` 的参数、返回值和变量不等报错，下一轮起就作槽位。内层 `Array` 的元素只取自流入，合并出类型 `T` 才写成 `Array[Array[T]]`。写下后仍有涉及它的错误时，照常保持原文。
     - 容器不转换（规范 §3.14），值经过的各个声明须一并改写。所以别的这类声明流入的 `Array[Array]` 在它改窄前不算依据，与 `Variant` 相同。遍历它的循环变量写作 `Array` 时同样作槽位，取元素的类型。
-    - 读出内层元素处要的类型不是 `T`（如 `T` 的基类）时保持原文，取哪个类由所有者决定（BACKLOG.md）。
+    - 读出内层元素处要的类型与 `T` 不同时，同样在元素上取能消除读取错误的最宽类，取不出时保持原文。
     - deck_builder_tutorial 的地图由此写成 `Array[Array[Room]]`，连同生成函数的返回值、局部变量、`load_map()` 的参数、遍历的循环变量和存档的导出（`scenes/map/map_generator.gd:25-66`，`scenes/map/map.gd:14-62`，`custom_resources/save_game.gd:13`）。
     - 改写后读出内层数组和从引擎进入时，都校验它恰为 `Array[T]`（规范 §3.8），GDScript 只校验它是数组。存档逐个写出内层数组连同类型，读回时脚本有效即恢复类型（`core/variant/variant_parser.cpp:1354-1370, 2339-2397`，`ed1daf0`）。
 
@@ -869,7 +869,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **从根取 autoload 改用名字**：字面量路径如 `$"/root/Audio"` 由自动修复改用其名字（规范 §7.3），反向转换保留名字（GDScript 带 `*` 的 autoload 同为全局名）。
   - 节点在树中时两者取到同一节点：GDScript 的 `$` 是在自己上调 `get_node()`（`modules/gdscript/gdscript_compiler.cpp:743-756`，`ed1daf0`）。绝对路径从最上层须名为 `root` 的祖先（场景树根窗口）走起（`scene/main/node.cpp:1918-1921, 1938`，`scene/main/scene_tree.cpp:2071`），本语言名字在这个根下按名查找。所有 autoload 先挂到根下再入树，就绪时彼此均已在树中（`main/main.cpp:4562-4564`，`scene/main/scene_tree.cpp:586-591`）。
   - 节点不在树中时 GDScript 报错得 `null`，本语言照样取到 autoload（`scene/main/node.cpp:1910`），但真实代码不这样用：tanks-of-freedom-ii 的 125 处都是 `@onready` 初始值，就绪时节点总在树中。`get_node_or_null()` 与另一接收者上的 `get_node()` 只报错不改（前者找不到得 `None`，后者接收者要求值）。
-- **多参信号的结果按字段读**：`await` 多参信号的结果上，字面量下标由自动修复改为字段，如 `args[1]` 改为 `args.response_code`（规范 §9.6）。下标不是字面量的留作编译错误。反向转换按字段所指参数的位置写回下标。
+- **多参信号的结果按字段读**：`await` 多参信号的结果上，字面量下标由自动修复改为字段，如 `args[1]` 改为 `args.response_code`（规范 §9.6）。原文写作 `var args: Array = await ...` 时，仅按字段读取的去掉 `: Array`，把结果继续当作 `Array` 传递或返回的包上 `Array(args)`。下标不是字面量的留作编译错误。反向转换去掉 `Array(...)`，并按字段所指参数的位置写回下标。
 - **静态类型缺失成员**：
   - 静态类型为 `Object` 时改为按名访问（GDScript 本来就按名查找）：弃返回值调用改为 `call("名字", ...)`，属性写改为 `set("名字", v)`，项目中同名函数补 `pub`。读属性或用返回值得到 `Variant`，留作编译错误由人定型。
   - 静态类型是缺该成员的具体类时，先由场景定出更准类型（导出场景写 `PackedScene[T]`，一致父节点写 `@parent(T)`）。定不出的留作编译错误，提供按名访问和转具体类两项备选，不自动转 `Object` 按名访问。

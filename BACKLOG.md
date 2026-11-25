@@ -7,7 +7,7 @@
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
 - Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
-  - A design proposal comes first. The stored format changes, and the editor would run the initializers of constants in scripts without `@tool`.
+  - Agreed for the next code-removing batch; adapt hot-reload constant comparison and reflected default constants.
   - It must land before the bytecode format gets its version, with Mod (architecture §6.1).
 
 ## Next release
@@ -18,10 +18,10 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - The survey [tool-migration](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md) measures what the tool leaves in three games of corpus v1, by cause. Rerun it after each step and add its row. At `bbdd797` they leave 10.5 errors per 100 lines.
   - Scenes read fast, taken from the large projects below. Each round on a game checks its whole project. A pass now holds what it loads, so a check of tanks-of-freedom-ii with its assets takes 17 s, from 47 to 50 s. Without the assets, as in the sparse corpus clone, each missing file is still a failing load in every scene that names it. Its migration dry run takes 90 s there, from 119 s.
   - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left:
-    - the class that narrows a declaration written too wide when what flows in is narrower than what its reads need (architecture §6.6). deck_builder_tutorial's `Texture` exports store PNGs, which load as `CompressedTexture2D`, while their reads need `Texture2D`. The inflows alone now give `CompressedTexture2D`, so the inspector then refuses an `AtlasTexture` there; the owner decides. Until then an `Array[Array]` whose inner elements are read as another type keeps its text;
+    - narrowing a declaration written too wide to the widest class between the written type and the inflow merge that removes the failing-read errors, also on `Array[Array]` elements (architecture §6.6). Inflows alone now turn deck_builder_tutorial's `Texture` exports into `CompressedTexture2D` instead of `Texture2D`;
     - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete;
     - an error of the candidate check at the range of another that is about a declaration elsewhere, as a value from a method not yet `pub` that does not fit (architecture §6.6). It withdraws nothing now. Taken as any other error, it would withdraw tanks-of-freedom-ii's `maps` and `online`, written `:= {}` and assigned what `read_json_from_file()` gives (`scripts/services/map_manager.gd:18, 21, 61-62`). deck_builder_tutorial's `Stats.create_instance()` would keep `-> Resource` instead of `-> Stats` (`custom_resources/stats.gd:48`, `scenes/enemy/enemy.gd:30`). Both are types a person would write, so it stays until a rule tells such errors apart.
-  - The rewrites that the survey showed.
+  - The rewrites that the survey showed, including dropping `: Array` on a multi-parameter `await` variable or wrapping `Array(r)` where it flows on as an `Array` (architecture §6.6).
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
@@ -29,9 +29,12 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 
 ## Language
 
+- `@late` on class and static members, compile-time checks on `T.new(...)` for members that must be assigned, and removing ancestor `_ready` assignments and their `owner.ready` check (spec §4.8, §6.2, §6.3, §7.5; reverse conversion drops `@late`).
+- Encoding a struct omits the key of a `None` `T?` field unless its default value is not `None`, and decoding takes a missing `T?` field without a default as `None` (spec §3.6, §10.1).
+- `Array(r)` on the result of awaiting a multi-parameter signal (spec §9.6).
 - Load cycles the check misses (spec §7.6): a subclass in another file that uses its base's `preload` constant as a value, and a constant copied through two or more constants. Both load the script at run time without an edge (`load_edges()` in `src/compiler/script_classes.cpp`); the old token scan missed them too.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
-- A later relaxation, which the owner decides: an array literal where a packed array is expected could take that type (spec §3.13), so that `var names: PackedStringArray = []` would need no `PackedStringArray()`.
+- An array literal in a packed array position taking that packed array type and checking each element (spec §3.13), dropping the `Packed*Array(...)` fix on array literals.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
 - Scenes used as roots that the checks do not know as such (spec §7.2, §7.3, §7.5):
   - autoloads that are scenes, and the paths that `change_scene_to_file()` and a MultiplayerSpawner name. The spec does not list them;
@@ -178,7 +181,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 ## Tests
 
 - Once the migration tool is ready (0.3), migrate one or two popular open-source games as real-code tests. They can stand in for outside projects in the conditions of 0.9 (architecture §5, step 12). Keep `thirdparty/ring` as a real-code test.
-  - Take games without `@tool` first, such as tanks-of-freedom-ii with its 292 scripts. Until 0.4 a file with `@tool` and its inheritance tree stay GDScript (spec §13.4).
+  - Take games without `@tool` first: deck_builder_tutorial first, then tanks-of-freedom-ii with its `Dictionary` data layer rewritten to structs. Until 0.4 a file with `@tool` and its inheritance tree stay GDScript (spec §13.4).
   - Such trees hold 44% of godot-open-rpg's scripts, and 6% of the scripts of corpus v1's games ([corpus-counts](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)).
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
   - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
@@ -350,12 +353,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - deck_builder_tutorial reads three such constants in four places, as `card_ui.BASE_STYLEBOX`. The migration writes their types.
   - So are a struct field and a parameter written `style := preload(...)` (architecture §2.1). The field is an error where the other file needs the struct's layout. The parameter is one where it calls the function or takes it as a value.
   - A subclass reads its base's declarations with the resources, but a struct by its name as other files do.
-- Members that are non-null only once the node is ready, which need a design of their own. The owner likens it to linear types. It covers these (spec §6.2, §6.4):
-  - members that must be assigned, and where the compiler looks for the assignment;
-  - assignments by ancestors, which the checker now assumes without looking for them:
-    - it takes a must-assign member of a node with an owner as one they assign, unless it is exported or `_init` assigns it;
-    - the spec requires `$Child.target = v` or an `@onready` reference in their `_ready`, or else `T?`. It marks the check a known limitation;
-  - members assigned after ready, which now must be `T?`.
 - How third-party C++ extensions declare non-null results and narrower types once a project in 0.3 needs them (spec §10.2, §10.3). Candidates are an external metadata file and upstream `ClassDB` metadata.
 - How to test the gain in maintenance. Use the language in a real project through several rounds of changing requirements. See how many problems it points out ahead of renames, interface changes and refactorings across files. The cost of adoption includes migrating in step by step, mixing and leaving. With cross-language inheritance restricted, the unit of migration may be an inheritance cluster or a subsystem.
   - Record the share of edits that the compiler locates during a change. Also record how defects fall across editing, instantiation, runtime and silent wrong behavior.

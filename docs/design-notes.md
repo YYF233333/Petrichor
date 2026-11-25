@@ -173,9 +173,11 @@ func weakest[T: Damageable](units: Array[T]) -> T?:
 
 出于无静默差异原则，两层 Option 与 `null` 比较直接报编译错误。GDScript 的 `d.get("hp") == null` 对缺键和存了 null 都为真，而 Petrichor 只对缺键为真；改写 `None` 属于 Petrichor 自己的写法，含义确定，照常合法。实际冲击很小：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中单参数 `get(k)` 与 `null` 比较仅 1 处；v2 有 194 处，但抽样的 14 处里只有 2 处是字典，其余都是 `Object.get`，不受影响。
 
-#### struct 方法只读与默认运算（§3.6）
+#### struct 方法只读与默认运算（§3.6、§10.1）
 
 struct 的方法限制为只读，因为修改 `self` 要求调用处具备写回能力。面对临时值、经 getter 读出的属性和循环变量，可变方法要么报错，要么悄悄改掉一份副本。与此同时，编译器为 struct 默认生成 `==`、`<` 和哈希，让它像脚本语言的值类型一样开箱即用。
+
+编码 struct 时，值为 `None` 的 `T?` 字段省略该键，与 Swift 的 `Codable` 默认 `encodeIfPresent` 相同。GDScript 字典常以 `has("unit")` 判断可选字段是否存在，写入 `"unit": null` 会让 `tanks-of-freedom-ii` 的触发器读取端崩溃（`scenes/board/logic/scripting/triggers/move.gd`）。若字段写有非 `None` 的默认值则保留 `"key": null`，使解码读回仍得 `None` 而不被当作缺键取默认值。
 
 #### 赋值的求值顺序（§3.6）
 
@@ -328,6 +330,12 @@ Petrichor 要求可遍历类自行定义 `_iter_init`、`_iter_next` 和 `_iter_
 
 [语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，在 `_ready` 里把节点登记到 autoload 成员的写法有 6 处（5 处在 Ring），`NOTIFICATION_PREDELETE` 出现 40 次（32 次在 `gdUnit4`）；v2 语料中两者分别增至 64 处（17 库）和 79 次（32 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 
+#### 必须赋值与 `@late`（§4.8、§6.2、§6.3、§7.5）
+
+节点入树时就绪同步跑完，同步访问 `@onready` 子节点的 setter 要求调用方先 `add_child()` 再给属性赋值。`deck_builder_tutorial` 中未判空且在创建后赋值的对象成员有 55 个，其中 35 个带 `@export`（含单跑场景预览值），17 个带 setter，18 个会再次赋值；v1 语料另有 38 个无初值静态变量。
+
+执行流上的连续不等于代码库中的连续。`deck_builder_tutorial` 的 `RelicHandler` 无遗物时同步发出信号给 `PlayerHandler.character` 赋值，有遗物时则隔着 `Tween` 跨帧回调赋值。因此编译期只检查创建点的单点契约（`_init`、场景与 `.tres`、`instantiate(...)`、`new(...)`），创建后的阶段注入统一标 `@late` 并在读取时检查。标准库包装类型会绕过访问器、破坏 `@export` 与可还原规则，而懒求值在 v1 语料仅 12 处。
+
 #### 等待就绪的 setter（§4.4、§6.5）
 
 场景给导出赋值时节点的子节点还不可用，要同步子节点的 setter 得等到就绪。GDScript 的通行写法是在 setter 里写 `if not is_node_ready(): await ready`：[属性访问器调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/property-accessors.md)中含 `await` 的 setter 有 30 个，其中 25 个是 `await ready`；v2 语料中分别增至 186 个（25 库）和 174 个（21 库，[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。迁移工具在 deck_builder_tutorial 中遇到 12 个（[迁移工具调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/tool-migration.md)）。
@@ -399,7 +407,7 @@ GDScript 运行出错后会放任调用方继续执行：debug 构建返回类�
 - **lambda 中的 `await`**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)里 979 个 lambda 有 35 个含 `await`（其中 33 个在 `gdUnit4` 测试里）；v2 的 3,518 个 lambda 中有 125 个，分布在 11 库。
 - **`await` 多参数或未知签名信号**：[await 信号结果调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/await-signal-results.md)中，1,356 个 `await` 只有 1 个使用了多参数信号的结果，也只有 1 个使用了签名未知的 `Signal` 结果。后者位于 `godot_dialogue_manager` `:1956`，经 `RefCounted` 接收者等待 C# 两参数信号。v2 中使用多参数信号结果增至 24 处，分布在 9 库，其中 15 处接收者签名静态已知（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
   - 这些代码拿到数组后都在给各项起名字：godot-tiny-mmo 把 `args[0]` 到 `args[3]` 逐个存进带类型的局部变量（`source/client/gateway/gateway.gd:342`），godots 把数组包进类再写访问方法（`src/http_client.gd:29`），material-maker 直接读 `result[1]` 和 `result[3]`（`addons/material_maker/engine/loader.gd:81`）。信号的声明已经给出每个参数的名字和类型，所以结果按参数名给出字段。
-  - 它转为 `Variant` 时仍是 GDScript 给出的数组（[引擎事实](engine-facts.md)）。按 struct 的规则编码成字典，会让同样的写法悄悄不同。
+  - 它写成 `Array(r)` 或转为 `Variant` 时仍是 GDScript 给出的数组（[引擎事实](engine-facts.md)），如 godots 把结果当作 `Array` 返回（`src/http_client.gd:29`）。按 struct 的规则编码成字典，会让同样的写法悄悄不同。
 
 #### 协程的快速修复（§9.1）
 
@@ -484,7 +492,8 @@ Petrichor 沿用 GDScript 的做法，允许把 autoload 名直接写在类型�
 | 在属性中另设 `apply:` 块，存放须等到节点就绪才执行的代码 | 让用户思考逻辑在何时执行、执行几次；`async` setter 中的 `await ready` 已能表达 | §6.5 |
 | 就绪前由编译器自动挂起 setter，挂起点由静态分析确定 | 挂起点不写在代码里，读 setter 看不出它分两段执行。设计还在两处偏离 GDScript：再次写入时取消前一次挂起的调用，并在 `_ready` 之前恢复，所以迁移不能照搬手写的 `await ready` | §4.4、§6.5 |
 | 就绪前只记下 setter 的原始输入 | 先变换再存储的 setter（如给角色名加【】）就绪前会读到未变换的值 | §6.5 |
-| `@late`（类似 `lateinit`） | 需要它的写法很少见；父节点配置子节点已由祖先赋值的规则覆盖 | §6.2 |
+| 祖先在 `_ready` 中给子节点赋值算作必须赋值来源，或跨函数静态证明同步片段内的赋值 | 执行流连续不等于代码库连续：抽出辅助函数或加入 `Tween` 就会打破证明并产生非局部报错 | §6.2、§6.3 |
+| 以包装类型（如 `OnceCell`、`Lazy`）替代 `@late`，或允许 `@late` 置回空 | 包装类型绕过访问器、破坏 `@export` 与可还原规则，且 32.7% 会重赋、懒求值仅 12 处；允许置空则退化为隐式解包可空类型 | §6.3 |
 | 在最后一次使用后释放，如 Objective-C ARC 和 5.7 之前的 Swift | 守卫写法失效，要另给延长寿命的写法，如 `objc_precise_lifetime` | §6.8 |
 | 不规定释放时机 | 挂起的协程和长循环会一直持有用过的临时值 | §6.8 |
 | `match` 的被匹配值保留到分支结束，如 GDScript | 与 `if` 的条件不一致；分支要用的部分已由绑定持有 | §6.8 |
@@ -535,7 +544,7 @@ Petrichor 沿用 GDScript 的做法，允许把 autoload 名直接写在类型�
 | 全部常量在类加载时求值 | 注解参数、enum 的值在编译期拿不到值，`10 / 0` 一类错误推迟到加载时才报 | §4.5 |
 | 单引号和双引号字符串可以跨行，与 GDScript 相同 | 漏写右引号时错误报在远处；跨行的这类字符串少，能机械改写 | §2.2 |
 | 内部类只解析外层类的常量、enum 和内部类，与 GDScript 相同 | GDScript 的限制是其查找方式的副产品；静态成员不需要实例，Java、C#、Kotlin 的嵌套类都能直接用 | §4.1 |
-| 没有初始化式的对象类型静态变量从 None 开始，与 GDScript 相同 | 非空的类型没有 None 这个值；需要空值时写作 `T?` | §4.8 |
+| 没有初始化式的对象类型静态变量从 None 开始，与 GDScript 相同 | 非空的类型没有 None 这个值；需要空值时写作 `T?`，延迟赋值标 `@late` | §4.8、§6.3 |
 | 无类型的容器隐式转为带类型的容器，与 GDScript 的静态检查相同 | GDScript 运行时只有容器恰为该类型时才成功，隐式转换把这个一定会做的检查藏到运行时。显式的 `is` 写出了它 | §3.8 |
 | 经无类型的视图写入不合元素类型的值时跳过这次写入，与引擎相同 | 程序带着没写进去的值继续运行；查找时引擎还把 1.5 截断为 1 | §3.8 |
 | `as` 遇到 Variant 中不是对象的值时是程序错误，与 GDScript 的 debug 构建相同 | `as` 是可以失败的转换，类型不符时就是 None，`v is Node` 在这里同样为假 | §5.3 |
