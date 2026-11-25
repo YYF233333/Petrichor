@@ -34,7 +34,6 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - A scene that stores `null` for an `@late` export over a value its base scene stores is only a program error at run time: the entry check refuses the null and the base's value stays (spec §6.3; `scene/resources/packed_scene.cpp:229-238, 494, 980-1000`, `ed1daf0`). The scene check sees both values and could report it on the scene.
 - Load cycles the check misses (spec §7.6): a subclass in another file that uses its base's `preload` constant as a value, and a constant copied through two or more constants. Both load the script at run time without an edge (`load_edges()` in `src/compiler/script_classes.cpp`); the old token scan missed them too.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
-- An array literal in a packed array position taking that packed array type and checking each element (spec §3.13), dropping the `Packed*Array(...)` fix on array literals.
 - `find_key()` of `Dictionary[T?, V]` for an object `T`. The engine gives null for a missing key and for a None key.
 - Scenes used as roots that the checks do not know as such (spec §7.2, §7.3, §7.5):
   - autoloads that are scenes, and the paths that `change_scene_to_file()` and a MultiplayerSpawner name. The spec does not list them;

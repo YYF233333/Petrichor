@@ -1362,14 +1362,23 @@ class Lowerer : FunctionState {
 		return result;
 	}
 
+	// An Array, or a packed array whose append() takes its element type
+	// (spec §3.13).
 	uint32_t array_literal(const Expr &p_expr) {
 		const uint32_t result = temp(p_expr.type);
-		new_container(result);
-		const uint32_t append = engine_builtin_method(ValueType::Array, "append", { ValueType::Variant }, ValueType::Void);
+		const ValueType type = reg_type(result);
+		const bool packed = type != ValueType::Array;
+		if (packed) {
+			default_value(result);
+		} else {
+			new_container(result);
+		}
+		const uint32_t append = engine_builtin_method(type, "append", { packed ? bytecode::packed_element(type) : ValueType::Variant }, packed ? ValueType::Bool : ValueType::Void);
+		const uint32_t appended = packed ? temp(ValueType::Bool) : NO_REG;
 		for (size_t e = 0; e < p_expr.args.size(); e++) {
 			const Type &element = p_expr.param_types[e];
 			const uint32_t value = argument(*p_expr.args[e], element, true, element.kind == TypeKind::Object);
-			call_builtin(append, result, { is_boxed(element) ? box(value, false) : value });
+			call_builtin(append, result, { is_boxed(element) ? box(value, false) : value }, appended);
 		}
 		return result;
 	}

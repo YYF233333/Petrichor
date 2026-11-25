@@ -115,8 +115,13 @@ TEST_CASE("float to int and an Array to a packed array need an explicit conversi
 	const std::string packed = "func f(a: Array, b: Array[Vector2]) -> PackedStringArray:";
 	CHECK(errors_of(in_function("var p: PackedVector2Array = PackedVector2Array(b)\nreturn PackedStringArray(a)", packed)).empty());
 	CHECK(fixed_all(in_function("var p: PackedVector2Array = b\nreturn a", packed), compiler::FixKind::PackedArray) == in_function("var p: PackedVector2Array = PackedVector2Array(b)\nreturn PackedStringArray(a)", packed));
-	// An empty literal is GDScript's untyped Array (deck_builder_tutorial's custom_resources/card_pile.gd:56).
-	CHECK(fixed_all(in_function("var names: PackedStringArray = []"), compiler::FixKind::PackedArray) == in_function("var names: PackedStringArray = PackedStringArray()"));
+}
+
+// Spec §3.13: a literal there takes the packed array's type, and each element its element type.
+TEST_CASE("an array literal where a packed array goes is that packed array") {
+	const std::string head = "func names(a: PackedStringArray) -> PackedStringArray:\n\treturn [\"x\"]\n\nfunc f() -> void:";
+	CHECK(errors_of(in_function("var a: PackedStringArray = []\nvar b: PackedStringArray = [\"a\"]\nvar w: PackedFloat32Array = [1, 2.5]\nnames([\"y\", \"z\"])", head)).empty());
+	CHECK(has_error(in_function("var b: PackedStringArray = [\"a\", 1]"), "Cannot put a value of type int in PackedStringArray."));
 }
 
 TEST_CASE("an int argument is accepted for a float parameter") {

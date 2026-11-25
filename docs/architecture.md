@@ -151,7 +151,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - 两层 Option 当作 GDScript 的 null（如与 null 比较和传给 `Variant`）；
     - `.detach()`，以及字面量名字改用方法或信号本身；
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
-    - packed 数组位置上的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）。空数组字面量在这里同是无类型 `Array`，改写为 `PackedStringArray()` 这样的空构造；
+    - packed 数组位置上不是字面量的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）。字面量在这里本就是该 packed 数组（规范 §3.13），无需修复；
     - 多参信号结果的字面量下标改为它所指的字段（§6.6）；
     - 位置期望的正是 `as` 所转的容器类型时，去掉字面量上的 `as`。字面量本就取位置的类型，GDScript 也把它定为所转类型（`modules/gdscript/gdscript_analyzer.cpp:3808-3815`，`ed1daf0`）；
     - 静态代码中裸写的 `new()` 前补上类名，内部类补它自己的名字（deck_builder_tutorial 的 `scenes/modifier_handler/modifier_value.gd:13`）。GDScript 在运行它的脚本上调用裸写的 `new()`，静态代码经类调用时即是本类（`modules/gdscript/gdscript_compiler.cpp:654-661`，`modules/gdscript/gdscript_vm.cpp:656-666`，`modules/gdscript/gdscript.cpp:928-947`，`ed1daf0`）。经子类实例调用静态函数时 GDScript 取实例的脚本，它对这种调用给出警告（`modules/gdscript/gdscript_analyzer.cpp:3699-3703`）。方法中裸写的 `new()` 取 `self` 的脚本，可能是子类，因此不提供；无 `class_name` 的文件类没有名字可写，同样不提供；
@@ -210,7 +210,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
 
 每种类型有类型描述，提供复制、移动、析构和与 Variant 的转换（§10.1）。编译器为每个栈帧生成槽位类型表，供析构、协程搬移栈帧和调试器使用。
 
-- **常量表与 `preload`**：常量表在类加载时经引擎接口求值一次，标量写回表中，容器逐层只读、每次读到同一个。函数体中的 int、float 和 bool 常量作为栈帧预设值随清零一并写入，读取无需指令。引擎值类型常量表达式（如 `Vector2(1, 2)`）在加载时转为原生布局、读常量表原样复制，容器字面量则每次求值新建。
+- **常量表与 `preload`**：常量表在类加载时经引擎接口求值一次，标量写回表中，容器逐层只读、每次读到同一个。函数体中的 int、float 和 bool 常量作为栈帧预设值随清零一并写入，读取无需指令。引擎值类型常量表达式（如 `Vector2(1, 2)`）在加载时转为原生布局、读常量表原样复制，容器字面量则每次求值新建。packed 数组字面量（规范 §3.13）在函数体中逐个 `append()` 建成；作常量时，由引擎的 `type_convert()` 从元素已定型的 Array 转换（`core/variant/variant_utility.cpp:909-928`，`core/variant/variant.cpp:2076-2090`，`ed1daf0`）。
   - 每个 `preload`（含函数体中的）都是常量表条目，资源随类加载，与 GDScript 在编译脚本时加载一致，使用处不再加载。
   - 只当类型用的脚本常量（规范 §2.1）例外：它另占一个标为 `type_only` 的条目，没有代码读它，类加载时也不求值。本文件任一表达式以名字、成员或调用读到这个名字就算值用，被同名声明遮住的也算（`names_read()`，`src/compiler/ast.h`）。局部常量照常加载。
   - 热重载不比较这个标记，所以函数体里加一处值用只是函数体改动（规范 §12.4）。新镜像加载时求值，脚本随之加载。

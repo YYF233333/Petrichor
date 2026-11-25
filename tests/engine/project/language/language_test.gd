@@ -629,11 +629,11 @@ func _ready() -> void:
 		containers.endless(walk)
 	containers.untangle()
 	var too_deep := "The value nests more than 100 levels deep, or holds itself."
-	_check_errors(["container_check.pet:361: " + too_deep, "container_check.pet:356: " + too_deep, "container_check.pet:358: " + too_deep, "container_check.pet:360: Argument \"twigs\" of count_twigs(): the value nests more than 100 levels deep, or holds itself at index 0.", "container_check.pet:377: " + too_deep, "container_check.pet:373: " + too_deep, "container_check.pet:376: " + too_deep], "comparing, decoding, copying, passing as a rest argument, showing or hashing a value nested deeper, or that holds itself, is a program error")
+	_check_errors(["container_check.pet:357: " + too_deep, "container_check.pet:352: " + too_deep, "container_check.pet:354: " + too_deep, "container_check.pet:356: Argument \"twigs\" of count_twigs(): the value nests more than 100 levels deep, or holds itself at index 0.", "container_check.pet:373: " + too_deep, "container_check.pet:369: " + too_deep, "container_check.pet:372: " + too_deep], "comparing, decoding, copying, passing as a rest argument, showing or hashing a value nested deeper, or that holds itself, is a program error")
 	_check(containers.nested_options() == "none empty true true true 4 true true <null> true", "T?? tells an empty array from a None element and a missing key from a None value, and each level is peeled once")
 	_check(containers.maybe_sum(some_ints) == 4 and containers.maybe_sum(null) == 0, "an Array[T]? takes an Array[T] or null")
 	containers.callv("maybe_sum", [[1]])
-	_check_errors(["container_check.pet:416: Argument \"values\" of maybe_sum(): expected Array[int]?, found Array."], "an Array[T]? is refused an array of another type")
+	_check_errors(["container_check.pet:412: Argument \"values\" of maybe_sum(): expected Array[int]?, found Array."], "an Array[T]? is refused an array of another type")
 	containers.free()
 
 	var frames_before: int = c.frames

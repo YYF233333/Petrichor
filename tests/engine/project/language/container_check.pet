@@ -301,18 +301,14 @@ pub func literal_names() -> String:
 	c.call(2)
 	return str(tally) + " " + str(c == bump) + " " + str(Signal(self, "pinged") == pinged)
 
+const LETTERS: PackedStringArray = ["a", "b"]
+
 # Elements of packed arrays read in their slots' types, bytes and 32-bit
-# floats widened.
+# floats widened; a literal there is the packed array (spec §3.13).
 pub func packed_reads() -> String:
-	var bytes := PackedByteArray()
-	bytes.append(200)
-	bytes.append(7)
-	var halves := PackedFloat32Array()
-	halves.append(1.5)
-	halves.append(-2.0)
-	var names := PackedStringArray()
-	names.append("a")
-	names.append("b")
+	var bytes: PackedByteArray = [200, 7]
+	var halves: PackedFloat32Array = [1.5, 5 - bytes[1]]
+	var names := LETTERS
 	var total := 0.0
 	for h in halves:
 		total += h

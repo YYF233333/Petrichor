@@ -591,10 +591,13 @@ bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_const
 		r_value = make_box(p_types[p_constant.type], value.data, false);
 		return true;
 	}
-	if (type == ValueType::Array) {
+	// An array literal, also of a packed array (spec §3.13), whose elements
+	// have its element type.
+	const bool packed = bytecode::packed_element(type) != ValueType::Void;
+	if (type == ValueType::Array || packed) {
 		const ValueCheck &check = p_types[p_constant.type].check;
 		Array array;
-		if (!typed_array(check.element, check.class_name, check.script, array, r_error)) {
+		if (!packed && !typed_array(check.element, check.class_name, check.script, array, r_error)) {
 			return false;
 		}
 		for (const bytecode::Constant &element : p_constant.args) {
@@ -604,7 +607,7 @@ bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_const
 			}
 			array.push_back(value);
 		}
-		r_value = array;
+		r_value = packed ? UtilityFunctions::type_convert(array, variant_type(type)) : Variant(array);
 		return true;
 	}
 	if (type == ValueType::Dictionary) {
