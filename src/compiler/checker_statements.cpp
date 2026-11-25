@@ -730,6 +730,13 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				flow(container.empty() ? slot : -1, value, r_stmt.value->range);
 				if (typed) {
 					expect_assignable(*r_stmt.value, value, type, "assign", r_stmt.declared_type ? &*r_stmt.declared_type : nullptr);
+					// Written Array, as GDScript gives a signal's arguments, the local
+					// takes them without the type (spec §9.6, architecture §6.6).
+					if (r_stmt.declared_type && value.is_arguments() && type == Type::builtin("Array")) {
+						const TokenRange written = r_stmt.declared_type->range;
+						fix({ { TokenRange{ written.first - 1, written.last }, std::string() } }, FixKind::ArgumentsLocal);
+						type = value;
+					}
 				} else {
 					type = inferred(value, r_stmt.name_token, r_stmt.name);
 					expect_scene_fits(*r_stmt.value, type);

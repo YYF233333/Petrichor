@@ -21,7 +21,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
     - narrowing a declaration written too wide to the widest class between the written type and the inflow merge that removes the failing-read errors, also on `Array[Array]` elements (architecture §6.6). Inflows alone now turn deck_builder_tutorial's `Texture` exports into `CompressedTexture2D` instead of `Texture2D`;
     - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete;
     - an error of the candidate check at the range of another that is about a declaration elsewhere, as a value from a method not yet `pub` that does not fit (architecture §6.6). It withdraws nothing now. Taken as any other error, it would withdraw tanks-of-freedom-ii's `maps` and `online`, written `:= {}` and assigned what `read_json_from_file()` gives (`scripts/services/map_manager.gd:18, 21, 61-62`). deck_builder_tutorial's `Stats.create_instance()` would keep `-> Resource` instead of `-> Stats` (`custom_resources/stats.gd:48`, `scenes/enemy/enemy.gd:30`). Both are types a person would write, so it stays until a rule tells such errors apart.
-  - The rewrites that the survey showed, including dropping `: Array` on a multi-parameter `await` variable or wrapping `Array(r)` where it flows on as an `Array` (architecture §6.6).
+  - The rewrites that the survey showed.
 - Reverse conversion, and the round trip of FPS and Ring (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
@@ -29,7 +29,6 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 
 ## Language
 
-- `Array(r)` on the result of awaiting a multi-parameter signal (spec §9.6).
 - A scene that stores `null` for an `@late` export over a value its base scene stores is only a program error at run time: the entry check refuses the null and the base's value stays (spec §6.3; `scene/resources/packed_scene.cpp:229-238, 494, 980-1000`, `ed1daf0`). The scene check sees both values and could report it on the scene.
 - Load cycles the check misses (spec §7.6): a subclass in another file that uses its base's `preload` constant as a value, and a constant copied through two or more constants. Both load the script at run time without an edge (`load_edges()` in `src/compiler/script_classes.cpp`); the old token scan missed them too.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.

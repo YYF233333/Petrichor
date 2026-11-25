@@ -1796,7 +1796,7 @@ class Lowerer : FunctionState {
 			case Target::ConvertToFloat:
 				return convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, Type::of(TypeKind::Float));
 			case Target::ConstructFromVariant: {
-				const uint32_t value = lower_expr(*p_call.args[0]);
+				const uint32_t value = as_variant(lower_expr(*p_call.args[0]));
 				const uint32_t result = temp(p_call.type);
 				instr(Op::CONSTRUCT_FROM, result, value, NO_REG, 0, fn.regs[result].type);
 				return result;

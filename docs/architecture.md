@@ -152,7 +152,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - `.detach()`，以及字面量名字改用方法或信号本身；
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；
     - packed 数组位置上不是字面量的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）。字面量在这里本就是该 packed 数组（规范 §3.13），无需修复；
-    - 多参信号结果的字面量下标改为它所指的字段（§6.6）；
+    - 多参信号结果的字面量下标改为它所指的字段，`Array` 位置上的结果套上 `Array(r)`，写作 `Array` 的局部变量去掉类型而取得字段（§6.6）。检查器按去掉类型后的局部变量继续检查；
     - 位置期望的正是 `as` 所转的容器类型时，去掉字面量上的 `as`。字面量本就取位置的类型，GDScript 也把它定为所转类型（`modules/gdscript/gdscript_analyzer.cpp:3808-3815`，`ed1daf0`）；
     - 静态代码中裸写的 `new()` 前补上类名，内部类补它自己的名字（deck_builder_tutorial 的 `scenes/modifier_handler/modifier_value.gd:13`）。GDScript 在运行它的脚本上调用裸写的 `new()`，静态代码经类调用时即是本类（`modules/gdscript/gdscript_compiler.cpp:654-661`，`modules/gdscript/gdscript_vm.cpp:656-666`，`modules/gdscript/gdscript.cpp:928-947`，`ed1daf0`）。经子类实例调用静态函数时 GDScript 取实例的脚本，它对这种调用给出警告（`modules/gdscript/gdscript_analyzer.cpp:3699-3703`）。方法中裸写的 `new()` 取 `self` 的脚本，可能是子类，因此不提供；无 `class_name` 的文件类没有名字可写，同样不提供；
     - 补上 `pub`（若声明会因此露出不带 `pub` 的类型，则不提供）。
@@ -869,7 +869,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **从根取 autoload 改用名字**：字面量路径如 `$"/root/Audio"` 由自动修复改用其名字（规范 §7.3），反向转换保留名字（GDScript 带 `*` 的 autoload 同为全局名）。
   - 节点在树中时两者取到同一节点：GDScript 的 `$` 是在自己上调 `get_node()`（`modules/gdscript/gdscript_compiler.cpp:743-756`，`ed1daf0`）。绝对路径从最上层须名为 `root` 的祖先（场景树根窗口）走起（`scene/main/node.cpp:1918-1921, 1938`，`scene/main/scene_tree.cpp:2071`），本语言名字在这个根下按名查找。所有 autoload 先挂到根下再入树，就绪时彼此均已在树中（`main/main.cpp:4562-4564`，`scene/main/scene_tree.cpp:586-591`）。
   - 节点不在树中时 GDScript 报错得 `null`，本语言照样取到 autoload（`scene/main/node.cpp:1910`），但真实代码不这样用：tanks-of-freedom-ii 的 125 处都是 `@onready` 初始值，就绪时节点总在树中。`get_node_or_null()` 与另一接收者上的 `get_node()` 只报错不改（前者找不到得 `None`，后者接收者要求值）。
-- **多参信号的结果按字段读**：`await` 多参信号的结果上，字面量下标由自动修复改为字段，如 `args[1]` 改为 `args.response_code`（规范 §9.6）。原文写作 `var args: Array = await ...` 时，仅按字段读取的去掉 `: Array`，把结果继续当作 `Array` 传递或返回的包上 `Array(args)`。下标不是字面量的留作编译错误。反向转换去掉 `Array(...)`，并按字段所指参数的位置写回下标。
+- **多参信号的结果按字段读**：`await` 多参信号的结果上，字面量下标由自动修复改为字段，如 `args[1]` 改为 `args.response_code`（规范 §9.6）。原文写作 `var args: Array = await ...` 时，自动修复去掉 `: Array`，此后按字段读取，把结果继续当作 `Array` 传递或返回处包上 `Array(args)`。godot-tiny-mmo 的 `source/client/gateway/gateway.gd:342` 由此只按字段读取，godots 的 `src/http_client.gd:29` 返回 `Array(response)`。下标不是字面量的和其他把它当作 `Array` 的用法（如 `args.size()`）留作编译错误。反向转换去掉 `Array(...)`，并按字段所指参数的位置写回下标。
 - **静态类型缺失成员**：
   - 静态类型为 `Object` 时改为按名访问（GDScript 本来就按名查找）：弃返回值调用改为 `call("名字", ...)`，属性写改为 `set("名字", v)`，项目中同名函数补 `pub`。读属性或用返回值得到 `Variant`，留作编译错误由人定型。
   - 静态类型是缺该成员的具体类时，先由场景定出更准类型（导出场景写 `PackedScene[T]`，一致父节点写 `@parent(T)`）。定不出的留作编译错误，提供按名访问和转具体类两项备选，不自动转 `Object` 按名访问。

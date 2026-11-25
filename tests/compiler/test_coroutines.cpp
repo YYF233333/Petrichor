@@ -108,6 +108,12 @@ TEST_CASE("awaiting a signal with several parameters gives a field for each, rea
 	CHECK(fixed(told + "async func f() -> String:\n\tvar r = await told\n\treturn r[1]\n") == told + "async func f() -> String:\n\tvar r = await told\n\treturn r.text\n");
 	CHECK(messages(compile(told + "async func f() -> String:\n\tvar r = await told\n\treturn r[1]\n")) == "5:9: A signal's arguments are read by name, as r.text, not by index.\n");
 	CHECK(has_error(told + "async func f(i: int):\n\tvar r = await told\n\tprint(r[i], r[2])\n", "A signal's arguments are read by name (level, text), not by index."));
+	// Array(r) is the Array that GDScript gives, which r is not where an Array
+	// goes; a local written Array takes them without the type.
+	const std::string array = told + "async func f() -> Array:\n\tvar r = await told\n\treturn Array(r)\n";
+	CHECK_MESSAGE(compile(array).ok(), messages(compile(array)));
+	CHECK(fixed(told + "async func f() -> Array:\n\tvar r = await told\n\treturn r\n") == array);
+	CHECK(contains(fixed(told + "async func f() -> Array:\n\tvar r: Array = await told\n\treturn r\n"), told + "async func f() -> Array:\n\tvar r = await told\n\treturn r\n5:9: Cannot return a value of type await Signal(level: int, text: String) as Array."));
 }
 
 // Spec §9.2: settled() gives how a task ended, which match takes apart; it

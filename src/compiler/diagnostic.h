@@ -36,6 +36,8 @@ enum class FixKind {
 	Autoload, // Its name for a literal path from the root to it.
 	PackedArray, // The conversion of an Array where a packed array is expected.
 	ArgumentField, // The field for a literal index of a signal's arguments.
+	ArgumentsArray, // Array(r) of a signal's arguments where an Array is expected.
+	ArgumentsLocal, // A local written Array for a signal's arguments, without the type, which takes them.
 	LiteralCast, // A literal for one cast to the container type its place expects.
 	OwnClass, // Class.new() for a bare new() where GDScript calls it on the class.
 	// The ones offered for the user to choose.
@@ -69,6 +71,8 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ true, "Reach the autoload by its name" },
 	{ true, "Convert to the packed array" },
 	{ true, "Read the argument by its name" },
+	{ true, "Write Array() of the arguments" },
+	{ true, "Declare the arguments without Array" },
 	{ true, "Write the literal without as" },
 	{ true, "Write the class before new()" },
 	{ false, "Write the int arguments as float" },

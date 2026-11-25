@@ -245,7 +245,7 @@ func run(p_errors: ErrorLog) -> int:
 	http.request_completed.emit(1, 404, PackedStringArray(["a: b"]), "no".to_utf8_buffer())
 	c.told.emit(3, "high")
 	var given := [1, 404, PackedStringArray(["a: b"]), "no".to_utf8_buffer()]
-	check(results.size() == 2 and results[0] == given and results[1] == [404, "no", 4, "high", given, str([3, "high"])], "a signal's arguments by name, and as GDScript's Array: %s" % [results])
+	check(results.size() == 2 and results[0] == given and results[1] == [404, "no", 4, "high", given, str([3, "high"]), [3, "high"]], "a signal's arguments by name, and as GDScript's Array, also by Array(r): %s" % [results])
 	http.free()
 	results.clear()
 	collect(c.delayed(), results)

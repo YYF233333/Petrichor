@@ -219,4 +219,4 @@ pub async func arguments(http: HTTPRequest) -> Array:
 	var r = await http.request_completed
 	var own = await Task.of(told)
 	var whole: Variant = r
-	return [r.response_code, r.body.get_string_from_utf8(), own.level + 1, own.text, whole, str(own)]
+	return [r.response_code, r.body.get_string_from_utf8(), own.level + 1, own.text, whole, str(own), Array(own)]

@@ -1962,6 +1962,9 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 	}
 	if (p_to.kind == TypeKind::Variant && lost_in_encoding(p_from, *this, false) == p_from) {
 		fix({ { p_value.range, operand(p_value) + fitting_call(p_from) } }, FixKind::BothLevels);
+	} else if (p_from.is_arguments() && p_to.unwrapped() == Type::builtin("Array")) {
+		// The Array that GDScript gives (spec §9.6).
+		fix({ { p_value.range, "Array(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::ArgumentsArray);
 	} else if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int && p_converts) {
 		// GDScript converts it as int(x) does, toward zero
 		// (modules/gdscript/gdscript_byte_codegen.cpp:934-939, 992-997,

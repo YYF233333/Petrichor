@@ -752,7 +752,9 @@ Type Checker::check_constructor(Expr &r_expr, const builtin::Class &p_type) {
 			return check_named_value(r_expr, name == "Signal");
 		}
 	}
-	if (args.size() == 1 && args[0].kind == TypeKind::Variant) {
+	// Also Array(r) of a signal's arguments, the Array that they are as a
+	// Variant (spec §9.6).
+	if (args.size() == 1 && (args[0].kind == TypeKind::Variant || (name == "Array" && args[0].is_arguments()))) {
 		return construct_from_variant(r_expr, api_type(name, false));
 	}
 	if (args.size() == 1 && args[0].name == name && is_typed_container(args[0]) && is_boxed(args[0])) {

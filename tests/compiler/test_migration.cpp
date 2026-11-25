@@ -755,6 +755,16 @@ TEST_CASE("a literal index of what awaiting a signal with several parameters giv
 	CHECK(migration.errors.empty());
 }
 
+// As godot-tiny-mmo reads a request's result (source/client/gateway/gateway.gd:342)
+// and godots returns it (src/http_client.gd:29).
+TEST_CASE("a local written Array for what awaiting a signal with several parameters gives drops the type, and is an Array() where an Array goes") {
+	FakeProject project;
+	project.add_script("res://gateway.gd", "extends Node\n\n\nfunc fetch(http: HTTPRequest) -> int:\n\tvar args: Array = await http.request_completed\n\tvar result: int = args[0]\n\tvar body: PackedByteArray = args[3]\n\treturn result + body.size()\n\n\nfunc whole(http: HTTPRequest) -> Array:\n\tvar response: Array = await http.request_completed\n\treturn response\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://gateway.gd" }, 10);
+	CHECK(migration.texts.at("res://gateway.pet") == "extends Node\n\n\nasync func fetch(http: HTTPRequest) -> int:\n\tvar args = await http.request_completed\n\tvar result: int = args.result\n\tvar body: PackedByteArray = args.body\n\treturn result + body.size()\n\n\nasync func whole(http: HTTPRequest) -> Array:\n\tvar response = await http.request_completed\n\treturn Array(response)\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("the inference and the loop of fixes stop after their rounds") {
 	FakeProject project;
 	project.add_script("res://unit.gd", "extends Node\n\n\nfunc wait() -> void:\n\tawait ready\n\n\nfunc take(amount):\n\tprint(amount)\n\n\nfunc hit(body: Node) -> void:\n\tbody.take(1)\n");
