@@ -1676,10 +1676,10 @@ bool Checker::split_members(Expr &r_call) {
 }
 
 // The members by name of a call that makes an object of `p_made`: each
-// one that must be assigned, given once (spec §4.6, §6.2). instantiate(...)
-// must give those that _init does not assign and the scene does not
-// export, and of a scene statically known, `p_scene`, the exports it does
-// not assign (§7.4).
+// one that must be assigned, given once (spec §4.6, §6.2), and all those
+// that _init does not assign. instantiate(...) leaves out the exports of
+// the scene, or of a scene statically known, `p_scene`, those it assigns
+// (§7.4).
 void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_instantiate, const Scene *p_scene) {
 	r_call.member_types.clear();
 	const ClassDecl *decl = p_made.kind == TypeKind::Object && !p_made.script.empty() ? script_decl(p_made.script) : nullptr;
@@ -1709,19 +1709,22 @@ void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_in
 			expect_assignable(value, type, member.type, "assign");
 		}
 	}
-	for (const VarDecl *member : decl &&p_instantiate ? decl->all_members : std::vector<const VarDecl *>()) {
-		if (!member->must_assign || given.count(member->name) || init_assigns(*decl, member->name) || (member->is_export && (!p_scene || stored_value(*p_scene, ".", member->name).value_or(false)))) {
+	const std::string call = r_call.text + "()";
+	for (const VarDecl *member : decl ? decl->all_members : std::vector<const VarDecl *>()) {
+		const bool from_scene = p_instantiate && member->is_export && (!p_scene || stored_value(*p_scene, ".", member->name).value_or(false));
+		if (!member->must_assign || given.count(member->name) || init_assigns(*decl, member->name) || from_scene) {
 			continue;
 		}
+		const std::string &owner = declaring(*decl, *member, &ClassDecl::members).path;
 		if (member->is_export) {
-			error(r_call.range, "instantiate() needs " + member->name + " = ..., an export of " + p_made.to_string() + " that must be assigned and " + p_scene->path + " does not assign.");
+			error(r_call.range, call + " needs " + member->name + " = ..., an export of " + p_made.to_string() + " that must be assigned" + (p_scene ? " and " + p_scene->path + " does not assign." : "."));
 			if (member->declared_type) {
-				fix_optional(*member->declared_type, declaring(*decl, *member, &ClassDecl::members).path);
+				fix_optional(*member->declared_type, owner);
 			}
-		} else if (const auto refusal = hidden(*member, declaring(*decl, *member, &ClassDecl::members).path, [&] { return "instantiate() cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. Export it, make it pub or give it an initial value."; })) {
+		} else if (const auto refusal = hidden(*member, owner, [&] { return call + " cannot give \"" + member->name + "\", a member of " + p_made.to_string() + " that must be assigned and is not pub. " + (p_instantiate ? "Export it, make it pub" : "Make it pub") + " or give it an initial value."; })) {
 			error(r_call.range, *refusal);
 		} else {
-			error(r_call.range, "instantiate() needs " + member->name + " = ..., a member of " + p_made.to_string() + " that must be assigned and the scene cannot.");
+			error(r_call.range, call + " needs " + member->name + " = ..., a member of " + p_made.to_string() + " that must be assigned" + (p_instantiate ? " and the scene cannot." : "."));
 		}
 	}
 }

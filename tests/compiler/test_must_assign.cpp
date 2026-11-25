@@ -187,7 +187,7 @@ std::string made_errors(const std::string &p_body) {
 } // namespace
 
 TEST_CASE("new(...) and instantiate(...) take the members that must be assigned by name") {
-	const std::string made = made_errors("\tvar a := Bullet.new(target = Node3D.new())\n\tvar b := scene.instantiate(target = Node3D.new(), trail = a)\n\tadd_child(a)\n\tadd_child(b)");
+	const std::string made = made_errors("\tvar a := Bullet.new(target = Node3D.new(), trail = Node3D.new())\n\tvar b := scene.instantiate(target = Node3D.new(), trail = a)\n\tadd_child(a)\n\tadd_child(b)");
 	CHECK_MESSAGE(made.empty(), made);
 	// The scene may assign an export, but nothing else.
 	CHECK(contains(made_errors("\tadd_child(scene.instantiate())"), "instantiate() needs target = ..., a member of Bullet that must be assigned and the scene cannot."));
@@ -198,4 +198,20 @@ TEST_CASE("new(...) and instantiate(...) take the members that must be assigned 
 	CHECK(contains(made_errors("\tadd_child(Bullet.new(nope = 1))"), "Bullet has no member \"nope\"."));
 	CHECK(contains(made_errors("\tadd_child(Bullet.new(target = Node3D.new(), 1))"), "Arguments by position come before those by name."));
 	CHECK(contains(made_errors("\tadd_child(Node.new(name = &\"x\"))"), "Only new(...) of a class of this language and instantiate(...) of a PackedScene[T] take members by name."));
+}
+
+TEST_CASE("new(...) of a class known statically gives each member that must be assigned and that _init does not assign (spec §6.2)") {
+	FakeProject project;
+	project.add_script("res://shot.pet", "class_name Shot\nextends Node3D\n\npub var target: Node3D\n", "Shot");
+	project.add_script("res://missile.pet", "class_name Missile\nextends Shot\n\n@export pub var trail: Node3D\n@late pub var shooter: Node3D\nvar aimed: Node3D\n\npub func _init():\n\taimed = Node3D.new()\n", "Missile");
+	const auto errors = [&](const std::string &p_body) {
+		return messages(compile_in("extends Node\n\nconst MISSILE = preload(\"res://missile.pet\")\n\nfunc f() -> void:\n" + p_body + "\n", project));
+	};
+	const std::string given = errors("\tadd_child(Missile.new(target = Node3D.new(), trail = Node3D.new()))\n\tadd_child(MISSILE.new(target = Node3D.new(), trail = Node3D.new()))");
+	CHECK_MESSAGE(given.empty(), given);
+	const std::string left = errors("\tadd_child(MISSILE.new())");
+	CHECK(contains(left, "new() needs target = ..., a member of Missile that must be assigned."));
+	CHECK(contains(left, "new() needs trail = ..., an export of Missile that must be assigned."));
+	CHECK_FALSE(contains(left, "shooter"));
+	CHECK_FALSE(contains(left, "aimed"));
 }
