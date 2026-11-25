@@ -29,6 +29,64 @@ func _ready() -> void:
 	OS.add_logger(errors)
 	var c: LanguageCheck = LanguageCheck.new()
 	add_child(c)
+	_first_subset(c)
+	var v: ValuesCheck = ValuesCheck.new()
+	var texture := ImageTexture.create_from_image(Image.create(2, 3, false, Image.FORMAT_RGBA8))
+	v.texture = texture
+	add_child(v)
+	_exports_before_ready(v)
+	_must_assign()
+	_late()
+	_values(c, v, texture)
+	var target := TargetCheck.new()
+	var plain_node := Node.new()
+	_interfaces(v, target, plain_node)
+	_accessors()
+	_async_setters()
+	_match_and_payloads(c)
+	_typed_by_classes(v, target, plain_node)
+	_detached_self(v)
+	_direct_calls(v, target, plain_node)
+	_division_by_zero(c)
+	_onready()
+	_freed_references()
+	_gdscript_classes(c)
+	_structs()
+	_releases()
+	_containers()
+	await _frames_and_freeing(c)
+	_owner_requirement()
+	_parent_requirement()
+	_constants()
+	_static_methods()
+	_iteration()
+	_lambdas()
+	_inner_classes()
+	_static_variables()
+	_variants()
+	_init_parameters()
+	_property_hooks()
+	_annotations()
+	_abstract()
+
+	_check(var_to_str(_number_uses(3)) == var_to_str(_number_uses(3.0)), "the uses after which a migration lets an int join a float give for 3 what they give for 3.0 (architecture §6.6)")
+
+	_gdscript_static_view()
+	_struct_exports()
+
+	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd"), preload("res://language/rest_test.gd")]:
+		var part: Node = test.new()
+		add_child(part)
+		failures += await part.run(errors)
+		part.queue_free()
+
+	_check_errors([], "no other errors")
+	OS.remove_logger(errors)
+	print("language: %d failure(s)" % failures)
+	get_tree().quit(1 if failures > 0 else 0)
+
+
+func _first_subset(c: LanguageCheck) -> void:
 	_check(c.from_init == 10, "_init() runs after the member initializers")
 	_check(c.property_can_revert("offset") and c.property_get_revert("offset") == Vector2(400, 0), "the inspector reverts a member to its constant initializer")
 	c.set("items", c.property_get_revert("items"))
@@ -83,15 +141,17 @@ func _ready() -> void:
 	c.speed = 0.5
 	_check(c.scale(3) == 1.5, "a member set from GDScript")
 
-	var v: ValuesCheck = ValuesCheck.new()
-	var texture := ImageTexture.create_from_image(Image.create(2, 3, false, Image.FORMAT_RGBA8))
-	v.texture = texture
-	add_child(v)
+
+func _exports_before_ready(v: ValuesCheck) -> void:
 	var unready: ValuesCheck = ValuesCheck.new()
 	add_child(unready)
 	_check_errors(["values_check.pet:139: \"texture\" has not been assigned before ready. Assign it on every path of _init(), set it in the scene, or pass it to new(texture = ...) or instantiate(texture = ...), so that the compiler checks it."], "the program error names the export that was not assigned, and the ways to assign it that the compiler checks, the scene among them")
 	_check(v.readied and not unready.readied, "a node that becomes ready without an export it must be assigned stops before _ready()")
-	# Members that must be assigned and are not exported (spec §6.2, §6.4).
+	unready.queue_free()
+
+
+# Members that must be assigned and are not exported (spec §6.2, §6.4).
+func _must_assign() -> void:
 	var given := MustAssignCheck.new()
 	given.target = self
 	given.hit = {"damage": 3}
@@ -108,7 +168,10 @@ func _ready() -> void:
 	var creator := MustAssignCreator.new()
 	add_child(creator)
 	_check(creator.made() == [7, 8, true, true], "new(...) and instantiate(...) assign the members given by name before the node is ready")
-	# @late members and static variables (spec §6.3).
+
+
+# @late members and static variables (spec §6.3).
+func _late() -> void:
 	var late := LateCheck.new()
 	add_child(late)
 	late.target_name()
@@ -124,6 +187,9 @@ func _ready() -> void:
 	var late_stored: LateCheck = load("res://language/late.tscn").instantiate()
 	_check(late_stored.gradient is Gradient, "a scene that stores an @late export assigns it")
 	late_stored.free()
+
+
+func _values(c: LanguageCheck, v: ValuesCheck, texture: ImageTexture) -> void:
 	_check(v.ready_notifications == 1, "_notification() receives the engine's notifications, named by their bare names (spec §4.1)")
 	_check(str(v) == "ValuesCheck 1", "str() gives what _to_string() returns")
 	var made := ResourceCheck.new()
@@ -133,7 +199,6 @@ func _ready() -> void:
 	_check(not half_made.init_ran, "a program error in a member initializer ends the construction before _init()")
 	var ordered := OrderCheck.new()
 	_check(ordered.seen == 0 and ordered.later == 9 and ordered.written == 1 and ordered.overwritten == 3, "member initializers run in declaration order, literals among them")
-	unready.queue_free()
 	_check(v.scaled(2) == Vector3(2, 4, 6), "Vector3 * float through the engine's operator")
 	_check(is_equal_approx(v.length_of(3, 4), 5.0), "a constructor and a method of a built-in type")
 	_check(v.up_plus(Vector3(1, 0, 0)) == Vector3(1, 1, 0), "a constant of a built-in type")
@@ -292,13 +357,17 @@ func _ready() -> void:
 	_check(v.relative_x(motion) == 3.0 and v.relative_x(InputEventKey.new()) == 0.0, "is narrows, also on the right of and")
 	_check(v.doubled(4) == 8 and v.doubled(null) == -1, "an int? narrowed to int")
 	_check(v.incremented(4) == 5 and v.incremented(null) == null, "a compound assignment to a narrowed int?")
-	var target := TargetCheck.new()
-	var plain_node := Node.new()
+
+
+func _interfaces(v: ValuesCheck, target: TargetCheck, plain_node: Node) -> void:
 	_check(v.hit(target, 2.5) and v.hit(target, 1) and not v.hit(plain_node, 1) and v.taken_by(target) == 3.5, "is with an interface of another script, and its method")
 	var placed := TargetCheck.new()
 	_check(v.shift(placed, Vector2(2, 3)) == 1.5 and placed.position == Vector2(2, 3), "interface properties: a member of this language and an engine property")
 	_check(placed.engine_typed() == "true true", "an engine property has its getter's type, a resource's class and an enum")
 	placed.free()
+
+
+func _accessors() -> void:
 	var accessors := AccessorCheck.new()
 	_check(accessors.speed == 1.0 and accessors.writes == 0 and accessors.doubled == 6 and accessors.named == -1, "initializers write the field, and reads go through the getter")
 	accessors.speed = -2.0
@@ -307,7 +376,10 @@ func _ready() -> void:
 	accessors.inside()
 	_check(accessors.speed == 0.0 and accessors.writes == 2 and accessors.doubled == 14 and accessors.named == 100, "within the class, accessors run, and in their own the name is the field")
 	accessors.free()
-	# An async setter (spec §4.4, §6.5).
+
+
+# An async setter (spec §4.4, §6.5).
+func _async_setters() -> void:
 	var titled := AccessorCheck.new()
 	titled.title = "a"
 	titled.set("title", "b")
@@ -326,6 +398,9 @@ func _ready() -> void:
 	never_ready.title = "gone"
 	never_ready.free()
 	_check_errors([], "a node freed before ready cancels its setter silently")
+
+
+func _match_and_payloads(c: LanguageCheck) -> void:
 	_check(c.classify("middle", 0) == "center" and c.classify("bottom", 0) == "b:bottom" and c.classify("x", 0) == "zero" and c.classify("x", 2) == "small" and c.classify("x", 101) == "big" and c.classify("x", 50) == "other", "match: literals, commas, var with when, and _")
 	var bound_before: String = c.classify("x", 7)
 	c.bounds = Vector2i(50, 0)
@@ -351,6 +426,9 @@ func _ready() -> void:
 	_check(c.converted(3.0) == [3, null, null, null] and c.converted(3.5) == [null, "expected int, found float", null, null] and c.converted(listed_commands)[2] == 2 and c.converted({"$variant": "ATTACK", "power": 4.0, "label": "y"})[3] == {"$variant": "ATTACK", "power": 4, "label": "y"}, "try_from() decodes as a struct's field is, an int from a whole float too, or gives the entry check's message: %s" % [c.converted(3.5)])
 	_check(c.options(3) == [3, 3, 6, 4, 3, 3, 3, {"$variant": "Ok", "value": 3}, {"$variant": "Ok", "value": 3}] and c.options(null) == [-1, -2, null, null, 7, 8, null, {"$variant": "Err", "error": "none"}, {"$variant": "Err", "error": "missing"}], "the methods of T?, ok_or() making a Result")
 	_check(c.and_then_none(3) == 4 and c.and_then_none(9) == null and c.and_then_none(null) == null, "a lambda returning None and an int returns int? (spec §4.6)")
+
+
+func _typed_by_classes(v: ValuesCheck, target: TargetCheck, plain_node: Node) -> void:
 	var listed_targets: Array = v.targets(target)
 	_check(listed_targets.get_typed_script() == TargetCheck and v.as_target(target) == target and v.as_target(plain_node) == null, "an array typed with a class of this language, and as to one")
 	var refused_target = v.callv("taken_by", [plain_node])
@@ -394,7 +472,11 @@ func _ready() -> void:
 	v.through_instance(other_values)
 	_check_errors(["target_check.pet:13: Division by zero.", "target_check.pet:13: Division by zero.", "values_check.pet:230: Division by zero."], "each program error is reported where it happened, in the callee")
 	_check(v.after_failure == 0, "a program error in a method of another class, of an interface or of another instance ends the caller too")
-	# Spec §3.3: self freed or detached while its method runs.
+	other_values.free()
+
+
+# Spec §3.3: self freed or detached while its method runs.
+func _detached_self(v: ValuesCheck) -> void:
 	var lost_script := FreeCheck.new()
 	var firing := FreeCheck.new()
 	firing.fired.connect(func(): firing.set_script(null))
@@ -410,9 +492,11 @@ func _ready() -> void:
 	_check(returning.detach_and_return(21) == 42 and returning.get_script() == null, "a method that removes its script and then uses no member or self ends normally")
 	for node in [lost_script, firing, called, returning]:
 		node.free()
+
+
+func _direct_calls(v: ValuesCheck, target: TargetCheck, plain_node: Node) -> void:
 	plain_node.name = &"Plain"
 	_check(v.direct_results(target, plain_node) == "[2, 4] [3] 2 true Plain", "a direct call passes a default value and returns typed arrays, options and objects")
-	other_values.free()
 	target.free()
 	plain_node.free()
 	var timer: Timer = v.start_timer()
@@ -426,10 +510,14 @@ func _ready() -> void:
 	v.transform = Transform3D(Basis(), Vector3(7, 0, 0))
 	_check(v.origin_x() == 7.0, "a member of a member of a property")
 
+
+func _division_by_zero(c: LanguageCheck) -> void:
 	var zero := c.divide(1, 0)
 	_check_errors(["language_check.pet:20: Division by zero."], "the program error of division by zero")
 	_check(zero == 0, "after a program error the caller gets the default value (spec §8.1)")
 
+
+func _onready() -> void:
 	var nodes: Node = load("res://language/nodes.tscn").instantiate()
 	var early = nodes.early_text()
 	_check_errors(["nodes_check.pet:16: \"caption_label\" is read before the node is ready."], "the program error names the @onready member")
@@ -454,7 +542,9 @@ func _ready() -> void:
 	_check_errors(["nodes_check.pet:25: Expected Label, found Node.", "Node not found: \"Caption\" (relative to \"/root/LanguageTest/NodesCheck\").", "nodes_check.pet:25: Expected Label, found None."], "the program errors give the class $X expects and what it found")
 	_check(replaced == null and gone == null, "$X whose node has changed class or is gone is a program error")
 
-	# Spec §3.3: a T? to a freed object reads as None where it leaves the language as an object.
+
+# Spec §3.3: a T? to a freed object reads as None where it leaves the language as an object.
+func _freed_references() -> void:
 	var refs := FreedRefCheck.new()
 	var held := Node.new()
 	refs.hold(held)
@@ -476,7 +566,9 @@ func _ready() -> void:
 	orphan.free()
 	refs.free()
 
-	# Spec §11.1: GDScript classes as reflection shows them.
+
+# Spec §11.1: GDScript classes as reflection shows them.
+func _gdscript_classes(c: LanguageCheck) -> void:
 	var view := GdViewCheck.new()
 	var base := GdViewBase.new()
 	var child := GdViewChild.new()
@@ -500,7 +592,9 @@ func _ready() -> void:
 	base.free()
 	child.free()
 
-	# Spec §3.6: structs, which the engine sees as Dictionaries (§10.1).
+
+# Spec §3.6: structs, which the engine sees as Dictionaries (§10.1).
+func _structs() -> void:
 	var s := StructCheck.new()
 	add_child(s)
 	_check(s.changed() == "7 3 (5.0, 2.0) 1 member hit 7", "a field changes where its struct lives, and an assignment copies")
@@ -555,7 +649,9 @@ func _ready() -> void:
 	s.free()
 	other.free()
 
-	# Spec §6.8: references released by scope, not after their last use.
+
+# Spec §6.8: references released by scope, not after their last use.
+func _releases() -> void:
 	var releases := ReleaseCheck.new()
 	_check(releases.statement() == "a,next", "a temporary is released at the end of its statement")
 	_check(releases.block() == "in,b,out", "a local is released when its block is left, not after its last use")
@@ -564,7 +660,9 @@ func _ready() -> void:
 	_check(releases.deleted() == "true,slot", "a RefCounted being deleted calls its own engine methods and properties (spec §6.6)")
 	_check_errors(["release_check.pet:46: self cannot be used as a value while the object is being deleted: nothing may keep it."], "self as a value in a helper of PREDELETE is a program error")
 
-	# Spec §3.8: Dictionary[K, V], elements assigned in place, keys that cannot change.
+
+# Spec §3.8: Dictionary[K, V], elements assigned in place, keys that cannot change.
+func _containers() -> void:
 	var containers := ContainerCheck.new()
 	_check(containers.counted() == "16 11 true 2 3 b", "a Dictionary[K, V] is indexed, assigned, iterated over its keys, and get(k) gives None for a missing key")
 	_check(containers.contained() == "[true, true, true, true, false, true, true, false, true, true, false, true]", "in is has() or contains(), x converted as they take it; on an object it looks for a member by name (spec §5.1)")
@@ -642,6 +740,8 @@ func _ready() -> void:
 	_check_errors(["container_check.pet:412: Argument \"values\" of maybe_sum(): expected Array[int]?, found Array."], "an Array[T]? is refused an array of another type")
 	containers.free()
 
+
+func _frames_and_freeing(c: LanguageCheck) -> void:
 	var frames_before: int = c.frames
 	c.defer()
 	var freeing := FreeCheck.new()
@@ -665,6 +765,8 @@ func _ready() -> void:
 	_check_errors(["free_check.pet:76: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet:75 in function 'freed_by'."], "an engine method called on a self freed through another reference is a program error")
 	freer.free()
 
+
+func _owner_requirement() -> void:
 	var owned: TargetCheck = preload("res://language/owner.tscn").instantiate()
 	add_child(owned)
 	var component: OwnerCheck = owned.get_node("Component")
@@ -680,6 +782,8 @@ func _ready() -> void:
 	other_owner.free()
 	owned.free()
 
+
+func _parent_requirement() -> void:
 	var parent_2d := Node2D.new()
 	parent_2d.position.x = 3.0
 	var parented := ParentCheck.new()
@@ -700,6 +804,8 @@ func _ready() -> void:
 	plain_parent.free()
 	parent_2d.free()
 
+
+func _constants() -> void:
 	var k := ConstantCheck.new()
 	_check(k.day() == 86400000, "a constant the compiler computes (spec §4.5)")
 	_check(k.extents() == Vector3(0.5, 0.5, 0.5) and k.half_x() == 0.5 and k.tint() == Color(1, 1, 1, 0.5), "constants of engine types, computed when the class loads")
@@ -745,6 +851,8 @@ func _ready() -> void:
 	_check(pending is Signal and awaited == [8] and k.made == 5, "a constant read through an await suspends there (spec §1.2)")
 	_check(k.through_class() == [6, 2, 4, 3, 1, 10], "an inner class reached through a call keeps the call, also for its constants, static members and new() (spec §4.1)")
 
+
+func _static_methods() -> void:
 	var statics := StaticChild.new()
 	_check(statics.made(), "new() of classes of this language runs their initializers and _init() (spec §4.6)")
 	_check(statics.own_static() == 8 and statics.through_base() == 7, "static methods of classes of this language, through the class's name (spec §4.8)")
@@ -762,7 +870,9 @@ func _ready() -> void:
 	var eager = load("res://language/eager_check.pet").new()
 	_check(not cached_before and ResourceLoader.has_cached(eager_path) and eager.gradient() == load(eager_path), "a preload in a function body loads with the class, before the function runs (spec §7.6)")
 
-	# for over objects whose class defines _iter_* (spec §5.7).
+
+# for over objects whose class defines _iter_* (spec §5.7).
+func _iteration() -> void:
 	var iteration = load("res://language/iteration_check.pet").new()
 	var down := []
 	for n in iteration.countdown(3):
@@ -796,7 +906,9 @@ func _ready() -> void:
 	_check(own_typed[0].get_typed_script() == iteration.get_script() and own_typed[0].is_read_only() and own_typed[1].get_typed_value_script() != null and own_typed[1].is_empty(), "a constant holds a container of a class of its own file, built as the file loads (spec §7.6)")
 	sounds.free()
 
-	# Lambdas (spec §3.11).
+
+# Lambdas (spec §3.11).
+func _lambdas() -> void:
 	var lambdas := LambdaCheck.new()
 	add_child(lambdas)
 	_check(lambdas.by_value() == [1, 1], "a lambda captures values as they are where it is made, a struct as a copy (spec §3.11)")
@@ -859,7 +971,9 @@ func _ready() -> void:
 	for i in 3:
 		_check(static_script.get("NODES") == load("res://language/nodes.tscn"), "a pub preloaded constant read by name is the loaded resource, each time")
 
-	# Inner classes (spec §4.1).
+
+# Inner classes (spec §4.1).
+func _inner_classes() -> void:
 	var inner := InnerCheck.new()
 	add_child(inner)
 	var shots := inner.shots()
@@ -881,7 +995,9 @@ func _ready() -> void:
 	_check_errors(["inner_check.pet:26: Index 5 is out of bounds (size 1)."], "a program error in an inner class reports the line of its file")
 	inner.free()
 
-	# Static variables (spec §4.8).
+
+# Static variables (spec §4.8).
+func _static_variables() -> void:
 	var static_vars: Script = load("res://language/static_vars.pet")
 	_check(static_vars.get("log") == ["StaticVars", "_static_init", "Late"], "static initialization runs when the class loads, _static_init() last, then the inner classes': %s" % [static_vars.get("log")])
 	_check(static_vars.get("doubled") == 2 and static_vars.get("from_inner") == 6 and static_vars.get("names") == { "a": 2 } and static_vars.get("Late").get("order") == 2, "static initializers run in declaration order, and a class they read is initialized first")
@@ -911,7 +1027,9 @@ func _ready() -> void:
 	var typed_self: Script = load("res://language/typed_self.pet")
 	_check(typed_self.get("all").get_typed_script() == typed_self and typed_self.get("by_name").get_typed_value_script() == typed_self and typed_self.get("first").get_script() == typed_self, "a static initializer makes containers of its own class typed by its script, and objects of it, while its file loads (spec §3.8)")
 
-	# Variant (spec §3.13), untyped containers (§3.8).
+
+# Variant (spec §3.13), untyped containers (§3.8).
+func _variants() -> void:
 	var variants := VariantCheck.new()
 	var freed_node := Node.new()
 	freed_node.free()
@@ -948,7 +1066,9 @@ func _ready() -> void:
 	var shared := [1]
 	_check(variants.hit_as_variant() == {"damage": 3} and not variants.literal().is_typed() and variants.array_of(shared) == 2 and shared.size() == 2, "a struct is encoded in a Variant, a literal there is untyped, and Array(v) is the same array")
 
-	# _init() with parameters (spec §4.2, §6.1, §6.2).
+
+# _init() with parameters (spec §4.2, §6.1, §6.2).
+func _init_parameters() -> void:
 	var constructed := ConstructCheck.new(3, "x")
 	var constructed_kept := ConstructKept.new(4)
 	_check(constructed.left == 3 and constructed.right == "x" and constructed.steps == ["initializer", "_init"] and constructed_kept.left == 4 and constructed_kept.right == "b", "GDScript passes the arguments of new(...) to the nearest _init() by position")
@@ -968,7 +1088,9 @@ func _ready() -> void:
 	var copied := loaded.copy()
 	_check(copied != loaded and copied is ConstructResource and copied.health == 25, "duplicate() of a resource of this language gives its class")
 
-	# Object's methods that the engine calls through the instance (spec §10.5).
+
+# Object's methods that the engine calls through the instance (spec §10.5).
+func _property_hooks() -> void:
 	var hooks := PropertyHooksSub.new()
 	hooks.set("extra", 7)
 	_check(hooks.get("sub_only") == "sub" and hooks.get("base_only") == "base base_only" and hooks.get("extra") == 7 and hooks.get("shown") == 1 and hooks.get("kept") == "base kept", "by name, the members come first, then each class's _get() and _set(), the subclass's first; a member without pub is none there")
@@ -979,7 +1101,9 @@ func _ready() -> void:
 	_check(hooks.property_can_revert("extra") and hooks.property_get_revert("extra") == 5 and hooks.property_can_revert("shown") and hooks.property_get_revert("shown") == 1, "_property_can_revert() and _property_get_revert() answer before the members' initial values")
 	hooks.free()
 
-	# Annotations describe a class to the engine as GDScript's do (spec §2.3).
+
+# Annotations describe a class to the engine as GDScript's do (spec §2.3).
+func _annotations() -> void:
 	var annotated := AnnotationCheck.new()
 	var reference := AnnotationReference.new()
 	var annotated_properties := {}
@@ -1008,7 +1132,9 @@ func _ready() -> void:
 	annotated.free()
 	reference.free()
 
-	# @abstract (spec §4.1).
+
+# @abstract (spec §4.1).
+func _abstract() -> void:
 	var strike := AbstractStrike.new()
 	_check(strike.describe() == "strike 3", "a method of an abstract class calls the abstract method its subclass implements")
 	var action_script: Script = load("res://language/abstract_action.pet")
@@ -1023,22 +1149,6 @@ func _ready() -> void:
 	_check(abstract_classes.get(&"AbstractAction") == true and abstract_classes.get(&"AbstractStrike") == false, "the global class list marks abstract classes")
 	Resource.new().set_script(action_script)
 	_check_errors(["Cannot set object script. Script 'res://language/abstract_action.pet' should not be abstract."], "the engine gives no object an abstract script")
-
-	_check(var_to_str(_number_uses(3)) == var_to_str(_number_uses(3.0)), "the uses after which a migration lets an int join a float give for 3 what they give for 3.0 (architecture §6.6)")
-
-	_gdscript_static_view()
-	_struct_exports()
-
-	for test: GDScript in [preload("res://language/coroutines_test.gd"), preload("res://language/defaults_test.gd"), preload("res://language/inheritance_test.gd"), preload("res://language/rest_test.gd")]:
-		var part: Node = test.new()
-		add_child(part)
-		failures += await part.run(errors)
-		part.queue_free()
-
-	_check_errors([], "no other errors")
-	OS.remove_logger(errors)
-	print("language: %d failure(s)" % failures)
-	get_tree().quit(1 if failures > 0 else 0)
 
 
 # Spec §10.1: GDScript checks the members and new() of this language's classes.
