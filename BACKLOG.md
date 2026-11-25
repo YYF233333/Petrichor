@@ -29,7 +29,6 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 
 ## Language
 
-- Encoding a struct omits the key of a `None` `T?` field unless its default value is not `None`, and decoding takes a missing `T?` field without a default as `None` (spec §3.6, §10.1). The fields of a payload enum's variant and of `Result` follow the same rule (spec §3.7).
 - `Array(r)` on the result of awaiting a multi-parameter signal (spec §9.6).
 - A scene that stores `null` for an `@late` export over a value its base scene stores is only a program error at run time: the entry check refuses the null and the base's value stays (spec §6.3; `scene/resources/packed_scene.cpp:229-238, 494, 980-1000`, `ed1daf0`). The scene check sees both values and could report it on the scene.
 - Load cycles the check misses (spec §7.6): a subclass in another file that uses its base's `preload` constant as a value, and a constant copied through two or more constants. Both load the script at run time without an edge (`load_edges()` in `src/compiler/script_classes.cpp`); the old token scan missed them too.

@@ -188,8 +188,13 @@ struct EnumValueDesc {
 struct FieldDesc {
 	std::string name;
 	uint32_t type = 0;
+	// A T? field with a default other than None: its None is encoded as the
+	// key with null, so that decoding does not take the default. Another T?
+	// field's None has no key (spec §3.6, §10.1). The type key leaves it out,
+	// as the values are the same.
+	bool keeps_none_key = false;
 
-	bool operator==(const FieldDesc &p_other) const { return name == p_other.name && type == p_other.type; }
+	bool operator==(const FieldDesc &p_other) const { return name == p_other.name && type == p_other.type && keeps_none_key == p_other.keeps_none_key; }
 };
 
 struct TypeDesc {

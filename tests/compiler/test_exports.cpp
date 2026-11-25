@@ -346,14 +346,17 @@ TEST_CASE("a struct or an enum with payloads is exported encoded, its default kn
 			"pub struct Hit:\n"
 			"\tvar damage: int = 3\n"
 			"\tvar crit := false\n"
-			"\tvar tags: Array[String] = []\n\n"
+			"\tvar tags: Array[String] = []\n"
+			"\tvar note: String? = None\n"
+			"\tvar mark: int? = 1\n\n"
 			"pub enum Order { WAIT, MOVE(target: Vector3, speed: float) }\n\n"
 			"@export pub var hit: Hit\n"
-			"@export pub var strong := Hit(damage = 9)\n"
+			"@export pub var strong := Hit(damage = 9, mark = None)\n"
 			"@export pub var order := Order.MOVE(target = Vector3(1, 2, 3), speed = 2)\n"
 			"@export pub var idle: Order = Order.WAIT\n"
 			"@export pub var maybe: Hit? = Hit(crit = true)\n"
 			"@export pub var result: Result[int, String] = Ok(2)\n"
+			"@export pub var nothing: Result[int?, String] = Ok(None)\n"
 			"@export pub var rolled := Hit(damage = randi())\n"
 			"@export pub var next: Order\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
@@ -361,12 +364,14 @@ TEST_CASE("a struct or an enum with payloads is exported encoded, its default kn
 		const bytecode::Member &member = member_named(result.module, p_name);
 		return member.has_initial ? shown(result.module, member.initial) : std::string("none");
 	};
-	CHECK(initial("hit") == "{damage: 3, crit: false, tags: []}");
-	CHECK(initial("strong") == "{damage: 9, crit: false, tags: []}");
+	// A T? field that is None has no key, unless its default is not None (spec §3.6, §3.7, §10.1).
+	CHECK(initial("hit") == "{damage: 3, crit: false, tags: [], mark: 1}");
+	CHECK(initial("strong") == "{damage: 9, crit: false, tags: [], mark: null}");
 	CHECK(initial("order") == "{$variant: MOVE, target: C(1.0, 2.0, 3.0), speed: 2.0}");
 	CHECK(initial("idle") == "{$variant: WAIT}");
-	CHECK(initial("maybe") == "{damage: 3, crit: true, tags: []}");
+	CHECK(initial("maybe") == "{damage: 3, crit: true, tags: [], mark: 1}");
 	CHECK(initial("result") == "{$variant: Ok, value: 2}");
+	CHECK(initial("nothing") == "{$variant: Ok}");
 	// Code computes it, or the scene must assign it (spec §7.5).
 	CHECK(initial("rolled") == "none");
 	CHECK(initial("next") == "none");
@@ -389,7 +394,7 @@ TEST_CASE("an exported value holds no node at any depth, which a scene would not
 }
 
 TEST_CASE("the values that scenes store for an exported struct or enum with payloads are checked as the entry check decodes them (spec §4.3)") {
-	const std::string source = "class_name Loadout\nextends Node\n\npub struct Hit:\n\tvar damage: int\n\tvar crit := false\n\tvar tags: Array[String] = []\n\npub enum Order { WAIT, MOVE(target: Vector3) }\n\n@export pub var hit: Hit?\n@export pub var order := Order.WAIT\n";
+	const std::string source = "class_name Loadout\nextends Node\n\npub struct Hit:\n\tvar damage: int\n\tvar crit := false\n\tvar tags: Array[String] = []\n\tvar note: String?\n\npub enum Order { WAIT, MOVE(target: Vector3), AIM(at: Vector3?) }\n\n@export pub var hit: Hit?\n@export pub var order := Order.WAIT\n";
 	using Value = compiler::SceneValue;
 	const auto of = [](const std::string &p_type, int64_t p_integer = 0) {
 		Value value;
@@ -431,8 +436,9 @@ TEST_CASE("the values that scenes store for an exported struct or enum with payl
 	};
 	const auto errors = [&](const std::string &p_name, const Value &p_value) { return messages(stored(p_name, p_value)); };
 	// A field with a default may be left out, as by a scene saved before it
-	// was added; an int also comes from a whole float.
+	// was added, and a T? field; an int also comes from a whole float.
 	CHECK(errors("hit", entries({ { "damage", of("int", 5) } })).empty());
+	CHECK(errors("order", entries({ { "$variant", text("AIM") } })).empty());
 	CHECK(errors("hit", entries({ { "damage", of("float", 5) }, { "tags", Value{ "Array", "", "", 0, false, "", { text("a") } } } })).empty());
 	CHECK(errors("hit", of("Nil")).empty());
 	CHECK(errors("order", entries({ { "$variant", text("MOVE") }, { "target", of("Vector3i") } })).empty());

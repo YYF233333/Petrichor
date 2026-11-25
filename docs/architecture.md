@@ -632,6 +632,8 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
 struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.tres`（规范 §4.3）。第一版（第 7 步）完成存储、默认值和静态检查，按类型编辑和 `Node` 字段留到后续版本。
 
 - **存储**：两者在引擎边界编码为按字段名的 Dictionary，带载荷 enum 以 `"$variant"` 记分支名（规范 §10.1）。场景保存时经 `get` 读出、实例化时经 `set` 交由脚本实例入口检查解码，无需改动引擎（`scene/resources/packed_scene.cpp:494, 861-883`，`core/object/object.cpp:239-246`）。
+  - 值为 `None` 的 `T?` 字段是否写键由声明定出（`keeps_none_key()`，`src/compiler/ast.h`）。编译器把它记在字节码类型表的字段上（`FieldDesc::keeps_none_key`），运行时编码与检查器默认值由此出自同一判定。类型键不含这一标记，只改默认值的热重载不改变类型。
+  - 调试器同样显示编码后的值，所以也看不到省略了键的字段。
 - **编辑**：第一版复用检查器通用字典编辑器，能编辑但不按类型（`editor/inspector/editor_properties.cpp:4280-4287`）。按类型的面板随第 8 步后一段由本扩展注册的 EditorInspectorPlugin 提供，属性提示字符串写明类型（`editor/inspector/editor_inspector.h:356, 360`，`editor/plugins/editor_plugin.cpp:674`）。因为通用字典编辑器总把提示字符串读作键值类型（`editor/inspector/editor_properties_array_dict.cpp:1203-1226`），字符串写作 `0:类型名`，以 `0` 使键保持无类型。
 - **默认值**：成员初始值由常量、构造和字段常量默认值组成时，编译器把编码写进字节码作为检查器的默认值和还原值。由代码算出的初始值没有默认值，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:5652-5661`）。
 - **值转换与静态检查**：场景和 `.tres` 存下的导出值由资源检查（§6.4）按导出类型核对（规范 §4.3），值不符报在节点上，资源上的报在文件上。编译期接受的值与运行时 `set` 写入一致，反映引擎先转换容器再交入口检查的规则：

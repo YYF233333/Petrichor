@@ -596,7 +596,9 @@ std::vector<TypeImage> type_images(const std::vector<bytecode::TypeDesc> &p_type
 			image.arguments = bytecode::is_arguments(type);
 			const std::vector<uint32_t> offsets = bytecode::field_offsets(p_types, i);
 			for (size_t f = 0; f < type.fields.size(); f++) {
-				image.fields.push_back({ to_godot(type.fields[f].name), &images[type.fields[f].type], offsets[f] });
+				const bytecode::TypeDesc &field = p_types[type.fields[f].type];
+				const bool optional = field.kind == bytecode::TypeKind::Option || (field.kind == bytecode::TypeKind::Object && field.nullable);
+				image.fields.push_back({ to_godot(type.fields[f].name), &images[type.fields[f].type], offsets[f], optional, type.fields[f].keeps_none_key });
 			}
 		}
 		if (type.kind == bytecode::TypeKind::PayloadEnum) {
@@ -782,7 +784,10 @@ Variant encode_variant(const TypeImage &p_type, size_t p_variant, const std::vec
 		field += size_t(p_type.enum_declared[v].second);
 	}
 	for (const Variant &value : p_fields) {
-		encoded[p_type.fields[field++].name] = value;
+		const FieldImage &image = p_type.fields[field++];
+		if (!image.optional || !is_none(value)) {
+			encoded[image.name] = value;
+		}
 	}
 	return encoded;
 }
@@ -811,13 +816,19 @@ Variant encode(const TypeImage &p_type, const uint8_t *p_slot) {
 		return encoded;
 	}
 	if (is_struct(p_type)) {
-		// A PayloadEnum names its variant by the reserved key (spec §3.7).
+		// A PayloadEnum names its variant by the reserved key (spec §3.7). A T?
+		// field that is None has no key, unless its default is not None (§3.6).
 		Dictionary encoded;
 		all_held_fields(p_type, p_slot, [&](const FieldImage &p_field) {
 			if (is_payload_enum(p_type) && &p_field == &p_type.fields[0]) {
 				encoded[VARIANT_KEY] = p_type.enum_declared[tag(p_slot)].first;
-			} else {
-				encoded[p_field.name] = encode(*p_field.type, p_slot + p_field.offset);
+				return true;
+			}
+			const uint8_t *field = p_slot + p_field.offset;
+			Variant value = encode(*p_field.type, field);
+			const bool none = is_option(*p_field.type) ? !tag(field) : is_none(value);
+			if (!p_field.optional || p_field.keeps_none_key || !none) {
+				encoded[p_field.name] = value;
 			}
 			return true;
 		});
@@ -957,16 +968,17 @@ static thread_local uint64_t defaults_failed = 0;
 
 // A struct's field left out takes its default, which the function
 // "@Struct.field" of the struct's class computes, as for a construction that
-// leaves it out (spec §3.6). A variant's fields have none.
+// leaves it out, and a T? field without one None (spec §3.6). A variant's
+// fields have none (§3.7).
 static bool decode_default(const TypeImage &p_type, const FieldImage &p_field, uint8_t *p_slot) {
-	if (is_payload_enum(p_type)) {
-		return false;
-	}
 	const int64_t at = p_type.name.rfind("::");
-	const std::shared_ptr<const ClassImage> image = script_image(p_type.name.substr(0, at));
+	const std::shared_ptr<const ClassImage> image = is_payload_enum(p_type) ? nullptr : script_image(p_type.name.substr(0, at));
 	const int index = image ? image->find_function("@" + p_type.name.substr(at + 2) + "." + p_field.name) : -1;
-	if (index < 0 || describing) {
-		return index >= 0;
+	if (index < 0) {
+		return p_field.optional && from_variant(*p_field.type, Variant(), p_slot, false);
+	}
+	if (describing) {
+		return true;
 	}
 	GDExtensionCallError error;
 	bool failed = false;

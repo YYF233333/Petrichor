@@ -616,10 +616,12 @@ ConstPtr Checker::encoded_fields(const Type &p_type, const Expr *p_call) const {
 	};
 	std::vector<std::pair<std::string, Type>> fields;
 	std::vector<const Expr *> values;
+	std::vector<bool> keeps_none; // keeps_none_key() of a struct's fields; a variant's keep none.
 	if (const StructDecl *decl = p_type.kind == TypeKind::Struct ? struct_decl(p_type) : nullptr) {
 		for (const VarDecl &field : decl->fields) {
 			fields.emplace_back(field.name, field.type);
 			values.push_back(field.initializer.get());
+			keeps_none.push_back(keeps_none_key(field));
 		}
 	} else if (p_type.kind == TypeKind::PayloadEnum && p_call && p_type.values) {
 		auto name = std::make_shared<ConstValue>();
@@ -629,6 +631,7 @@ ConstPtr Checker::encoded_fields(const Type &p_type, const Expr *p_call) const {
 		add("$variant", name);
 		fields = p_type.values->fields[p_call->index];
 		values.resize(fields.size());
+		keeps_none.resize(fields.size(), false);
 	} else {
 		return nullptr;
 	}
@@ -645,7 +648,10 @@ ConstPtr Checker::encoded_fields(const Type &p_type, const Expr *p_call) const {
 		if (!value) {
 			return nullptr;
 		}
-		add(fields[f].first, value);
+		// A T? field that is None has no key (spec §3.6, §10.1).
+		if (!fields[f].second.is_optional() || keeps_none[f] || value->kind != ConstValue::Kind::None) {
+			add(fields[f].first, value);
+		}
 	}
 	return encoded;
 }

@@ -334,7 +334,7 @@ class Lowerer : FunctionState {
 			if (field.type.is_error() && !module.declarations_only) {
 				error("The type of " + p_struct.name + "." + field.name + " is not known here; declare it, as in `var " + field.name + ": T = ...`.");
 			}
-			type.fields.push_back({ field.name, type_index(field.type.is_error() ? Type::of(TypeKind::Variant) : field.type) });
+			type.fields.push_back({ field.name, type_index(field.type.is_error() ? Type::of(TypeKind::Variant) : field.type), keeps_none_key(field) });
 		}
 		const uint32_t index = end_interning(type);
 		struct_types.emplace(index, p_struct);

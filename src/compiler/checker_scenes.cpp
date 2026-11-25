@@ -1362,8 +1362,8 @@ std::string Checker::undecodable(const Type &p_type, const SceneValue &p_value, 
 }
 
 // The fields of a stored struct, or of the variant that "$variant" names,
-// each by its name as a key; a struct's field with a default may be left
-// out (spec §3.6, §10.1).
+// each by its name as a key; a struct's field with a default and a T?
+// field may be left out (spec §3.6, §3.7, §10.1).
 std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_value, const std::string &p_at, const std::vector<int> &p_path, const ReferStored &p_refer) {
 	// The index of the key's item, or -1.
 	const auto entry = [&](const std::string &p_key) {
@@ -1416,7 +1416,7 @@ std::string Checker::undecodable_fields(const Type &p_type, const SceneValue &p_
 		std::vector<int> path = p_path;
 		path.push_back(key + 1);
 		const std::string why = value ? undecodable(fields[f].second, *value, at + "." + fields[f].first, path, p_refer) : std::string();
-		if (first_error.empty() && !value && !defaults[f]) {
+		if (first_error.empty() && !value && !defaults[f] && !fields[f].second.is_optional()) {
 			first_error = at + "." + fields[f].first + " is missing";
 		} else if (first_error.empty() && !why.empty()) {
 			first_error = why;

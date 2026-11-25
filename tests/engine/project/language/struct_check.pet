@@ -235,3 +235,37 @@ pub func decode_fragile():
 # Written by name, a value whose default fails reports that program error
 # alone (spec §3.6, §8.1).
 pub static var fragile := Fragile(n = 1)
+
+# Spec §3.6, §3.7, §10.1: a T? field that is None has no key, unless its
+# default is not None, and a missing key of a T? field without a default is
+# None, also for the fields of a variant and of Result.
+pub struct Pick:
+	var held: Node?
+	var aim: Vector2? = Vector2.ONE
+	var count: int
+
+pub enum Aim { AT(target: Node?, offset: int) }
+
+pub func pick(held: Node?, aim: Vector2?) -> Pick:
+	return Pick(held = held, aim = aim, count = 1)
+
+pub func pick_parts(p: Pick) -> Array:
+	return [p.held == None, p.aim.unwrap_or(Vector2.ZERO), p.count]
+
+pub func aimed(target: Node?) -> Aim:
+	return Aim.AT(target = target, offset = 2)
+
+pub func aim_parts(a: Aim) -> Array:
+	match a:
+		Aim.AT(var target, var offset):
+			return [target == None, offset]
+
+pub func found(n: Node?) -> Result[Node?, String]:
+	return Ok(n)
+
+pub func found_none(r: Result[Node?, String]) -> bool:
+	match r:
+		Ok(var n):
+			return n == None
+		_:
+			return false

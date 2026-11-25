@@ -498,7 +498,7 @@ void archive(Ar &r_ar, T &r_value) {
 	} else if constexpr (std::is_same_v<V, ClassRef>) {
 		io(r_ar, r_value.name, r_value.script, r_value.interface_name);
 	} else if constexpr (std::is_same_v<V, FieldDesc>) {
-		io(r_ar, r_value.name, r_value.type);
+		io(r_ar, r_value.name, r_value.type, r_value.keeps_none_key);
 	} else if constexpr (std::is_same_v<V, EnumValueDesc>) {
 		io(r_ar, r_value.name, r_value.value);
 	} else if constexpr (std::is_same_v<V, TypeDesc>) {

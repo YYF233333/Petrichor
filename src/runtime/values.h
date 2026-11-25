@@ -117,6 +117,8 @@ struct FieldImage {
 	godot::String name;
 	const TypeImage *type = nullptr; // In the same table.
 	uint32_t offset = 0;
+	bool optional = false; // T?, None when a key is missing and there is no default.
+	bool keeps_none_key = false; // As bytecode::FieldDesc's.
 };
 
 // A type of a module's table as the runtime uses it (architecture §2.2): how

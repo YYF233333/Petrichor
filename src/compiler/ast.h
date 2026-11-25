@@ -564,6 +564,13 @@ struct VarDecl {
 	uint32_t usage = 0; // PropertyUsageFlags as the engine numbers them, for an export.
 };
 
+// A struct's T? field whose None is encoded as the key with null: one with a
+// default other than None, which decoding would take for a missing key
+// (spec §3.6, §10.1). Another T? field's None has no key.
+inline bool keeps_none_key(const VarDecl &p_field) {
+	return p_field.type.is_optional() && p_field.initializer && p_field.initializer->kind != ExprKind::NoneLiteral;
+}
+
 // `const NAME = value` in a class (spec §4.5).
 struct ConstDecl {
 	std::string name;
