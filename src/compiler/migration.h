@@ -127,9 +127,9 @@ struct Inflows {
 		bool exported = false;
 	};
 	std::map<Key, Wide> wide;
-	// By such a declaration of untyped Arrays, the types that reads of their
-	// elements needed in any round, as written.
-	std::map<Key, std::set<std::string>> needed;
+	// By such a declaration, the types that reads of its value, or of the
+	// elements of its untyped Arrays, needed in any round.
+	std::map<Key, std::vector<Type>> needed;
 
 	// The slot's index, once found.
 	int slot(const Slot &p_slot);

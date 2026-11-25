@@ -756,7 +756,8 @@ class Checker : public ClassRelation, private CheckContext {
 	int wide_slot(Inflows::Slot p_slot, uint32_t p_name_token, const TypeRef &p_written, Type &r_type, bool p_export = false);
 	bool is_wide(int p_slot) const;
 	std::optional<Inflows::Key> read_declaration(const Expr &p_value);
-	void read_wide(const Expr &p_value);
+	void read_wide(const Expr &p_value, const Type &p_needed);
+	void need(const Inflows::Key &p_declaration, const Type &p_needed);
 	void needs_element(const Expr &p_inner, const Type &p_needed);
 	void keep(const Expr &p_value);
 	void keep_numbers(TokenKind p_op, const Expr &p_left, const Type &p_left_type, const Expr &p_right, const Type &p_right_type);

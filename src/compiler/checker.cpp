@@ -125,18 +125,25 @@ std::optional<Inflows::Key> Checker::read_declaration(const Expr &p_value) {
 	return key && options.inflows->files.count(key->first) ? key : std::nullopt;
 }
 
-// That a value read where a subclass of its class is expected reads a
-// declaration that the next round takes as a slot.
-void Checker::read_wide(const Expr &p_value) {
+// That a value read where `p_needed`, a subclass of its class, is expected
+// reads a declaration that the next round takes as a slot.
+void Checker::read_wide(const Expr &p_value, const Type &p_needed) {
 	if (const std::optional<Inflows::Key> key = read_declaration(p_value)) {
 		options.inflows->widened.insert(*key);
+		need(*key, p_needed);
+	}
+}
+
+void Checker::need(const Inflows::Key &p_declaration, const Type &p_needed) {
+	std::vector<Type> &needed = options.inflows->needed[p_declaration];
+	if (std::find(needed.begin(), needed.end(), p_needed.unwrapped()) == needed.end()) {
+		needed.push_back(p_needed.unwrapped());
 	}
 }
 
 // That the elements of `p_inner`, an untyped Array, are read where
 // `p_needed` is: of its declaration, or of one written as an Array of them
-// that it is read from. A class they extend keeps the declaration as written
-// (architecture §6.6).
+// that it is read from (architecture §6.6).
 void Checker::needs_element(const Expr &p_inner, const Type &p_needed) {
 	const Expr *read = nullptr;
 	if (p_inner.kind == ExprKind::Subscript) {
@@ -144,9 +151,8 @@ void Checker::needs_element(const Expr &p_inner, const Type &p_needed) {
 	} else if (p_inner.type == Type::builtin("Array")) {
 		read = &p_inner;
 	}
-	const std::optional<Inflows::Key> key = read ? read_declaration(*read) : std::nullopt;
-	if (key) {
-		options.inflows->needed[*key].insert(p_needed.unwrapped().to_string());
+	if (const std::optional<Inflows::Key> key = read ? read_declaration(*read) : std::nullopt) {
+		need(*key, p_needed);
 	}
 }
 

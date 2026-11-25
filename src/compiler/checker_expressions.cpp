@@ -1986,12 +1986,12 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 			fix_optional(*p_written, p_owner);
 		}
 	} else if (is_untyped_scenes(p_from) && p_from.kind == TypeKind::Object && is_typed_scene(p_to.unwrapped())) {
-		read_wide(p_value); // A scene of unknown root, which the roots that flow in may type (architecture §6.6).
+		read_wide(p_value, p_to); // A scene of unknown root, which the roots that flow in may type (architecture §6.6).
 	} else if (downcast(p_from, p_to)) {
 		// GDScript checks it as the program runs (architecture §6.6). With
 		// `as`, None stands for GDScript's null where the value may be None,
 		// and otherwise the error is where GDScript's is.
-		read_wide(p_value);
+		read_wide(p_value, p_to);
 		const std::string cast = operand(p_value) + " as " + p_to.unwrapped().to_string();
 		if (cast.find(".pet") == std::string::npos) {
 			fix({ { p_value.range, p_from.is_optional() ? cast : "(" + cast + ").unwrap()" } }, FixKind::Cast);

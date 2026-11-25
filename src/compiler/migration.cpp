@@ -1115,14 +1115,28 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	const auto merge = [&](const Inflows::Slot &p_slot, const std::vector<Received> &p_received, bool &r_numbers) {
 		return p_slot.container.empty() ? merged(p_received, classes, p_engine, r_numbers) : merged_container(p_slot.container, p_received, classes, p_engine, r_numbers);
 	};
-	// A declaration with a class written for it takes a subclass of it that
-	// what flows in merges into; otherwise it keeps the type written. One
+	// A declaration with a class written for it takes the widest class
+	// between it and a subclass that what flows in merges into, which each
+	// read that failed takes; otherwise it keeps the type written. One
 	// written PackedScene takes the scene of its roots' class, an export of
 	// Node without one (spec §7.4), and an Array of them, its elements'. An
 	// untyped Array, or an Array of them, takes the type of the elements, and
-	// of their elements, unless reads of those need another, as a class it
-	// extends (BACKLOG.md).
+	// of their elements, which each read of those takes; a container does not
+	// convert (spec §3.14), so there is no wider one (architecture §6.6).
 	const auto scene = [](const Type &p_type) { return p_type.kind == TypeKind::Object && p_type.name == "PackedScene" && !p_type.args.empty(); };
+	const auto key = [](const Type &p_class) { return p_class.script.empty() ? p_class.name : p_class.script; };
+	// Whether a value of the type goes where `p_to` is expected.
+	const auto takes = [&](const Type &p_type, const Type &p_to) {
+		if (p_type.kind != TypeKind::Object || p_to.kind != TypeKind::Object) {
+			return p_type == p_to;
+		}
+		const std::vector<Type> up = lineage(p_type, classes, p_engine);
+		return std::any_of(up.begin(), up.end(), [&](const Type &p_class) { return key(p_class) == key(p_to); });
+	};
+	const auto read_as = [&](const Inflows::Key &p_key, const Type &p_type) {
+		const auto needed = inflows.needed.find(p_key);
+		return needed == inflows.needed.end() || std::all_of(needed->second.begin(), needed->second.end(), [&](const Type &p_needed) { return takes(p_type, p_needed); });
+	};
 	const auto narrowed = [&](const Inflows::Key &p_key, const Inflows::Wide &p_wide, const std::optional<Type> &p_merged) {
 		const Type &p_written = p_wide.type;
 		Type narrower = p_merged ? p_merged->unwrapped() : Type::of(TypeKind::Error);
@@ -1133,9 +1147,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			const bool nested = p_written == Type::array(Type::builtin("Array"));
 			const Type &held = nested && narrower.name == "Array" && narrower.args.size() == 1 ? narrower.args[0] : narrower;
 			const Type *inner = (nested || p_written == Type::builtin("Array")) && held.name == "Array" && held.args.size() == 1 ? &held.args[0] : nullptr;
-			const auto needed = inflows.needed.find(p_key);
-			const bool fits = inner && (needed == inflows.needed.end() || needed->second == std::set<std::string>{ inner->to_string() });
-			return fits ? narrower : p_written;
+			return inner && read_as(p_key, *inner) ? narrower : p_written;
 		}
 		if (p_written.name == "PackedScene" && p_written.args.empty()) {
 			if (!scene(narrower) && !p_wide.exported) {
@@ -1148,13 +1160,16 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		if (narrower.kind != TypeKind::Object || narrower.is_interface || (!narrower.args.empty() && !scene(narrower))) {
 			return p_written;
 		}
-		const auto key = [](const Type &p_class) { return p_class.script.empty() ? p_class.name : p_class.script; };
 		const std::vector<Type> up = lineage(narrower, classes, p_engine);
-		if (std::none_of(up.begin() + 1, up.end(), [&](const Type &p_base) { return key(p_base) == key(p_written); })) {
-			return p_written;
+		const auto written = std::find_if(up.begin() + 1, up.end(), [&](const Type &p_base) { return key(p_base) == key(p_written); });
+		for (auto below = std::make_reverse_iterator(written); written != up.end() && below != up.rend(); ++below) {
+			if (read_as(p_key, *below)) {
+				Type widest = *below;
+				widest.nullable = p_written.nullable;
+				return widest;
+			}
 		}
-		narrower.nullable = p_written.nullable;
-		return narrower;
+		return p_written;
 	};
 	const auto candidates = [&](bool p_unknown) {
 		for (const Inflows::Slot &each : inflows.unknown) {

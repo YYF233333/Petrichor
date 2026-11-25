@@ -815,7 +815,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **写宽了的类型**：GDScript 把父类的值赋给子类的位置时到运行时才检查，本语言在此报编译错误（规范 §3.14）。写了对象类型的参数、返回值或变量，读出的值在某处因此报错时也作槽位求解。流入合并出所写类型的子类时，在所写类型到该子类之间取能消除这些读取错误的最宽类改写；没有这样的类则原文不动，由下文的 `as` 处理。
   - deck_builder_tutorial 中 7 个导出写作 `Texture`，资源存的 PNG 载入为 `CompressedTexture2D`，读出的值赋给 `Texture2D` 属性（`custom_resources/stats.gd:7`、`scenes/enemy/enemy.gd:72`），最宽可用类为 `Texture2D`，检查器仍接受 `AtlasTexture`。`-> Resource` 而只返回 `CharacterStats` 的 `create_instance()` 同理（`custom_resources/character_stats.gd:42-50`）。
   - 改窄的导出在检查器里从此只接受子类。集合外 GDScript 的赋值看不到，与其余推断相同。
-  - 检查器按读出处的引用找到所读声明，下一轮起它才作槽位，未试过时与未写类型的槽位一样取 Error。所写类型的 `?` 不变，声明原本会改为 `T?` 时改窄后照样带上。
+  - 检查器按读出处的引用找到所读声明并记下读出处要的类，下一轮起它才作槽位，未试过时与未写类型的槽位一样取 Error。所写类型的 `?` 不变，声明原本会改为 `T?` 时改窄后照样带上。
+  - 读出处要的类比流入合并出的类还窄时没有可取的类，原文不动。deck_builder_tutorial 的 `Stats.create_instance()` 由此保持 `-> Resource`：它返回 `Stats`，而 `enemy.gd:30` 要的是 `EnemyStats`（`custom_resources/stats.gd:48`）。
   - 成员与其具名 setter 的参数一并求解：写入属性即流入参数，所以 setter 里把参数赋给成员不算流入。成员改窄时，参数的类型写成同一个。
   - 写作 `PackedScene` 的导出报错后（规范 §7.4），下一轮起同样作槽位。所存场景和代码所赋场景的根合并出最近公共类 `T`，写成 `PackedScene[T]`。没有流入或有根不明的场景流入时写 `PackedScene[Node]`，根不明的赋值随即报错。
   - 写作 `Array[PackedScene]` 的导出不报错，但同样作槽位，所存数组的各个场景和代码放入的场景是元素的流入。元素合并出 `PackedScene[T]` 才改写，否则保持原文。
@@ -823,7 +824,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 这些场景的根把必须赋值的导出留给 `instantiate()` 时，报错带上改为 `T?` 的修复：场景只设所存的属性，GDScript 写了对象类型的成员起初为 null（`scene/resources/packed_scene.cpp:365-371`，`modules/gdscript/gdscript_compiler.cpp:2369-2393`，`ed1daf0`）。deck_builder_tutorial 的 `EnemyStats.ai` 由此写成 `PackedScene[EnemyActionPicker]`，其根的 `enemy` 和 `target` 改为可空（`custom_resources/enemy_stats.gd:4`，`scenes/enemy/enemy_action_picker.gd:4-5`）。
   - GDScript 写不出嵌套容器的内层类型，所以写作 `Array[Array]` 的参数、返回值和变量不等报错，下一轮起就作槽位。内层 `Array` 的元素只取自流入，合并出类型 `T` 才写成 `Array[Array[T]]`。写下后仍有涉及它的错误时，照常保持原文。
     - 容器不转换（规范 §3.14），值经过的各个声明须一并改写。所以别的这类声明流入的 `Array[Array]` 在它改窄前不算依据，与 `Variant` 相同。遍历它的循环变量写作 `Array` 时同样作槽位，取元素的类型。
-    - 读出内层元素处要的类型与 `T` 不同时，同样在元素上取能消除读取错误的最宽类，取不出时保持原文。
+    - 读出内层元素处要的类型与 `T` 不同时，同样在元素上取能消除读取错误的最宽类，取不出时保持原文。流入的内层数组恰为 `Array[T]`，容器又不转换，所以只有 `T` 可取：读出处要的是 `T` 或它的基类时写成 `Array[Array[T]]`，要的是 `T` 的子类时保持原文。
     - deck_builder_tutorial 的地图由此写成 `Array[Array[Room]]`，连同生成函数的返回值、局部变量、`load_map()` 的参数、遍历的循环变量和存档的导出（`scenes/map/map_generator.gd:25-66`，`scenes/map/map.gd:14-62`，`custom_resources/save_game.gd:13`）。
     - 改写后读出内层数组和从引擎进入时，都校验它恰为 `Array[T]`（规范 §3.8），GDScript 只校验它是数组。存档逐个写出内层数组连同类型，读回时脚本有效即恢复类型（`core/variant/variant_parser.cpp:1354-1370, 2339-2397`，`ed1daf0`）。
 
@@ -862,7 +863,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - **补 `_: pass`**：`match` 因不穷尽又无 `_` 报错时（规范 §5.6），在最后一个分支之后按分支缩进补上 `_: pass`。GDScript 把分支编成一串 if/else，没有分支匹配就什么都不执行（`modules/gdscript/gdscript_compiler.cpp:1938-1943, 1983, 1999-2002`，`ed1daf0`）。编辑器中它只作备选，因为用户也可能想处理余下的值；反向转换保留它。
 - **隐式向下转换写 `as`**：改不了声明的（上文“写宽了的类型”）在值上写 `as`，结果是否可空随值而定。值非空写 `(x as T).unwrap()`，得 `T`；值可空写 `x as T`，得 `T?`，再按流入和上面几类处理。
   - GDScript 给带类型变量赋值时放过 `null`，类不符时调试版报错，发布版不检查（`modules/gdscript/gdscript_vm.cpp:1533-1625`，`ed1daf0`）。值非空时与 GDScript 在同一处出错；值可空时类不符得 `None`，到使用处才出错。
-  - deck_builder_tutorial 中 `stats = value.create_instance()` 由 `Stats` 到 `EnemyStats`（`scenes/enemy/enemy.gd:30`），`target = get_tree().get_first_node_in_group("player")` 由 `Node?` 到 `Node2D`（`scenes/enemy/enemy_action_picker.gd:11`）。
+  - deck_builder_tutorial 中 `stats = value.create_instance()` 由 `Resource` 到 `EnemyStats`（`scenes/enemy/enemy.gd:30`），`target = get_tree().get_first_node_in_group("player")` 由 `Node?` 到 `Node2D`（`scenes/enemy/enemy_action_picker.gd:11`）。
   - 信号参数比所连函数的参数宽时不改，留作编译错误（`scenes/relic_handler/relic_handler.gd:14, 78`）：放宽参数要另起名字，包一层 lambda 则 `disconnect` 找不到原函数。
   - 检查器给这类错误提供写 `as` 的备选修复。候选校验不把它算作修复循环会修的错误，所以推断出的类型照旧撤回，而不是在读出处转换。
   - 修复循环只在没有其他修复的一轮写 `as`，因为改为 `T?` 等修复决定值是否可空。

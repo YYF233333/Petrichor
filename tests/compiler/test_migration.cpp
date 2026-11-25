@@ -220,25 +220,27 @@ TEST_CASE("a member that only an ancestor assigns in its _ready becomes T?") {
 // GDScript checks a value of a class where a subclass is expected as the
 // program runs; the migration narrows the declaration written for it, or
 // writes `as`.
-TEST_CASE("a class written wider than what flows in becomes the subclass that a read expects") {
-	const auto migrated = [](const std::string &p_art) {
+// As deck_builder_tutorial's Texture exports, which store PNGs and are read
+// as Texture2D (custom_resources/stats.gd:7, scenes/enemy/enemy.gd:72).
+TEST_CASE("a class written wider than what flows in becomes the widest class below it that the reads expect") {
+	const auto migrated = [](const std::string &p_read, const std::string &p_assigned) {
 		FakeProject project;
-		project.add_script("res://stats.gd", "class_name Stats\nextends Resource\n@export var art: Resource\n", "Stats");
+		project.add_script("res://stats.gd", "class_name Stats\nextends Resource\n@export var art: Texture\n", "Stats");
 		project.add_script("res://enemy_stats.gd", "class_name EnemyStats\nextends Stats\n", "EnemyStats");
-		project.add_script("res://enemy.gd", "extends Node\n\n\nfunc show(stats: EnemyStats) -> void:\n\tuse(stats.art)\n\n\nfunc use(texture: Texture2D) -> void:\n\tpass\n");
+		project.add_script("res://enemy.gd", "extends Node\n\n\nfunc show(stats: EnemyStats) -> void:\n" + p_assigned + "\tuse(stats.art)\n\n\nfunc use(texture: " + p_read + ") -> void:\n\tpass\n");
 		compiler::Scene bat;
 		bat.path = "res://bat.tres";
-		bat.resources = { { bat.path, "res://enemy_stats.gd", { { "art", compiler::SceneValue{ "Object", p_art } } } } };
+		bat.resources = { { bat.path, "res://enemy_stats.gd", { { "art", compiler::SceneValue{ "Object", "CompressedTexture2D" } } } } };
 		project.scenes = { bat };
 		return compiler::migrate(fake_engine(), project, { "res://stats.gd", "res://enemy_stats.gd", "res://enemy.gd" }, 10);
 	};
-	const compiler::Migration stored = migrated("CompressedTexture2D");
-	CHECK(stored.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var art: CompressedTexture2D\n");
+	const compiler::Migration stored = migrated("Texture2D", "");
+	CHECK(stored.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var art: Texture2D\n");
 	CHECK(stored.errors.empty());
-	// What a resource stores may be wider; the read then checks it.
-	const compiler::Migration wider = migrated("AudioStream");
-	CHECK(wider.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var art: Resource\n");
-	CHECK(wider.texts.at("res://enemy.pet") == "extends Node\n\n\nfunc show(stats: EnemyStats) -> void:\n\tuse((stats.art as Texture2D).unwrap())\n\n\nfunc use(texture: Texture2D) -> void:\n\tpass\n");
+	// What flows in may be wider than what the read needs; the read then checks it.
+	const compiler::Migration wider = migrated("CompressedTexture2D", "\tstats.art = Texture2D.new()\n");
+	CHECK(wider.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var art: Texture\n");
+	CHECK(wider.texts.at("res://enemy.pet") == "extends Node\n\n\nfunc show(stats: EnemyStats) -> void:\n\tstats.art = Texture2D.new()\n\tuse((stats.art as CompressedTexture2D).unwrap())\n\n\nfunc use(texture: CompressedTexture2D) -> void:\n\tpass\n");
 }
 
 TEST_CASE("an export written PackedScene takes the class of the roots of the scenes stored for it and assigned to it, or Node") {
@@ -547,16 +549,19 @@ TEST_CASE("an empty container takes the types of the elements and keys put in it
 
 // In the shape of deck_builder_tutorial's map (scenes/map/map_generator.gd:25-66,
 // scenes/map/map.gd:14-62). GDScript cannot write the inner type.
-TEST_CASE("an Array of untyped Arrays takes the type of the Arrays that flow in, with each declaration they pass, unless reads need another") {
+TEST_CASE("an Array of untyped Arrays takes the type of the Arrays that flow in, with each declaration they pass, which reads take") {
 	FakeProject project;
 	project.add_script("res://map.gd", "extends Node\nvar grid: Array[Array]\n\n\nfunc build() -> Array[Array]:\n\tvar rows: Array[Array] = []\n\tfor i in 2:\n\t\tvar row: Array[Node3D] = []\n\t\trow.append(Node3D.new())\n\t\trows.append(row)\n\treturn rows\n\n\nfunc restore(saved: Array[Array]) -> void:\n\tgrid = saved\n\n\nfunc _ready() -> void:\n\tgrid = build()\n\trestore(grid)\n\tvar first: Node3D = grid[0][0]\n\tfor row: Array in grid:\n\t\tfor node: Node3D in row:\n\t\t\tprint(node, first)\n");
 	project.add_script("res://wide.gd", "extends Node\nvar grid: Array[Array]\n\n\nfunc _ready() -> void:\n\tvar row: Array[Node3D] = []\n\trow.append(Node3D.new())\n\tgrid.append(row)\n\tvar first: Node = grid[0][0]\n");
-	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://map.gd", "res://wide.gd" }, 10);
+	project.add_script("res://narrow.gd", "extends Node\nvar grid: Array[Array]\n\n\nfunc _ready() -> void:\n\tvar row: Array[Node] = []\n\trow.append(Node.new())\n\tgrid.append(row)\n\tvar first: Node3D = grid[0][0]\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://map.gd", "res://wide.gd", "res://narrow.gd" }, 10);
 	CHECK(migration.texts.at("res://map.pet") == "extends Node\nvar grid: Array[Array[Node3D]]\n\n\nfunc build() -> Array[Array[Node3D]]:\n\tvar rows: Array[Array[Node3D]] = []\n\tfor i in 2:\n\t\tvar row: Array[Node3D] = []\n\t\trow.append(Node3D.new())\n\t\trows.append(row)\n\treturn rows\n\n\nfunc restore(saved: Array[Array[Node3D]]) -> void:\n\tgrid = saved\n\n\nfunc _ready() -> void:\n\tgrid = build()\n\trestore(grid)\n\tvar first: Node3D = grid[0][0]\n\tfor row: Array[Node3D] in grid:\n\t\tfor node: Node3D in row:\n\t\t\tprint(node, first)\n");
-	// A class that the elements extend is the owner's to choose (BACKLOG.md).
-	CHECK(migration.texts.at("res://wide.pet") == "extends Node\nvar grid: Array[Array]\n\n\nfunc _ready() -> void:\n\tvar row: Array[Node3D] = []\n\trow.append(Node3D.new())\n\tgrid.append(row)\n\tvar first: Node = grid[0][0]\n");
+	// A read as a class that the elements extend takes them; one as a class
+	// that extends theirs does not, and a wider one would not take the Arrays.
+	CHECK(migration.texts.at("res://wide.pet") == "extends Node\nvar grid: Array[Array[Node3D]]\n\n\nfunc _ready() -> void:\n\tvar row: Array[Node3D] = []\n\trow.append(Node3D.new())\n\tgrid.append(row)\n\tvar first: Node = grid[0][0]\n");
+	CHECK(migration.texts.at("res://narrow.pet") == "extends Node\nvar grid: Array[Array]\n\n\nfunc _ready() -> void:\n\tvar row: Array[Node] = []\n\trow.append(Node.new())\n\tgrid.append(row)\n\tvar first: Node3D = grid[0][0]\n");
 	REQUIRE(migration.errors.size() == 1);
-	CHECK(migration.errors[0].file == "res://wide.pet");
+	CHECK(migration.errors[0].file == "res://narrow.pet");
 }
 
 TEST_CASE("a type written over := keeps the initializer, and an assigned value that does not fit is about its target too") {
