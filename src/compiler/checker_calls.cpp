@@ -1675,11 +1675,11 @@ bool Checker::split_members(Expr &r_call) {
 	return true;
 }
 
-// The members by name of a call that makes an object of `p_made`: each
-// one that must be assigned, given once (spec §4.6, §6.2), and all those
-// that _init does not assign. instantiate(...) leaves out the exports of
-// the scene, or of a scene statically known, `p_scene`, those it assigns
-// (§7.4).
+// The members by name of a call that makes an object of `p_made`, or of
+// `Class.new` as a value, which gives none: each one that must be
+// assigned, given once (spec §4.6, §6.2), and all those that _init does
+// not assign. instantiate(...) leaves out the exports of the scene, or of
+// a scene statically known, `p_scene`, those it assigns (§7.4).
 void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_instantiate, const Scene *p_scene) {
 	r_call.member_types.clear();
 	const ClassDecl *decl = p_made.kind == TypeKind::Object && !p_made.script.empty() ? script_decl(p_made.script) : nullptr;

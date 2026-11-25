@@ -1309,7 +1309,8 @@ Type Checker::class_member_value(Expr &r_expr, const std::string &p_path, const 
 }
 
 // `Class.new` as a value (spec §3.11), which constructs as new(...) does,
-// with the arguments of the nearest _init() and its visibility (§4.2).
+// with the arguments of the nearest _init() and its visibility (§4.2), and
+// gives no member by name (§6.2).
 Type Checker::new_value(Expr &r_expr, const std::string &p_path) {
 	const ClassDecl &header = *script_header(p_path); // class_static() found its declarations.
 	const FuncDecl *init = nullptr;
@@ -1323,9 +1324,11 @@ Type Checker::new_value(Expr &r_expr, const std::string &p_path) {
 	r_expr.target = Target::NewValue;
 	r_expr.callee = init;
 	r_expr.owner = p_path;
+	const Type made = script_class_type(header, p_path);
+	check_member_arguments(r_expr, made, false);
 	Type type = init ? function_type(*init) : Type::function(Type::of(TypeKind::Void), {});
 	if (type.kind == TypeKind::Function) {
-		type.args[0] = script_class_type(header, p_path);
+		type.args[0] = made;
 	}
 	return set(r_expr, type);
 }

@@ -221,9 +221,10 @@ TEST_CASE("new(...) and instantiate(...) take the members that must be assigned 
 	CHECK(contains(made_errors("\tadd_child(Node.new(name = &\"x\"))"), "Only new(...) of a class of this language and instantiate(...) of a PackedScene[T] take members by name."));
 }
 
-TEST_CASE("new(...) of a class known statically gives each member that must be assigned and that _init does not assign (spec §6.2)") {
+TEST_CASE("new(...) of a class known statically gives each member that must be assigned and that _init does not assign, and Class.new as a value gives none (spec §6.2)") {
 	FakeProject project;
 	project.add_script("res://shot.pet", "class_name Shot\nextends Node3D\n\npub var target: Node3D\n", "Shot");
+	project.add_script("res://flare.pet", "class_name Flare\nextends Node3D\n\n@late pub var target: Node3D\n", "Flare");
 	project.add_script("res://missile.pet", "class_name Missile\nextends Shot\n\n@export pub var trail: Node3D\n@late pub var shooter: Node3D\nvar aimed: Node3D\n\npub func _init():\n\taimed = Node3D.new()\n", "Missile");
 	const auto errors = [&](const std::string &p_body) {
 		return messages(compile_in("extends Node\n\nconst MISSILE = preload(\"res://missile.pet\")\n\nfunc f() -> void:\n" + p_body + "\n", project));
@@ -235,4 +236,7 @@ TEST_CASE("new(...) of a class known statically gives each member that must be a
 	CHECK(contains(left, "new() needs trail = ..., an export of Missile that must be assigned."));
 	CHECK_FALSE(contains(left, "shooter"));
 	CHECK_FALSE(contains(left, "aimed"));
+	CHECK(contains(errors("\tvar make := Shot.new\n\tadd_child(make.call())"), "new() needs target = ..., a member of Shot that must be assigned."));
+	const std::string late = errors("\tvar make := Flare.new\n\tadd_child(make.call())");
+	CHECK_MESSAGE(late.empty(), late);
 }
