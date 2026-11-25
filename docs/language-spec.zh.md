@@ -218,7 +218,7 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 ### 3.6 struct
 
 - 值语义：赋值、传参、返回均浅复制，对象与容器字段复制引用。只存在于本语言内部。
-- 跨引擎边界时按引擎边界的规则编码。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。缺少的键取字段的默认值。字段没有默认值时解码失败。
+- 跨引擎边界时按引擎边界的规则编码。解码按 `T.try_from` 的规则递归检查各字段及嵌套容器/struct，多余的键忽略。缺少的键取字段的默认值；字段没有默认值时，`T?` 字段取 `None`，其余字段解码失败。
 - 可声明 `func` 和 `static func`。实例方法中 `self` 只读，给 `self` 字段赋值报编译错误。
 - 方法中的名字先查 struct 自身，再按内部类的规则查外层类的无实例声明。
 - 构造省略字段时，每次都求一次该字段的默认值。默认值中的名字按静态方法的规则查找，不能读字段。
@@ -345,7 +345,7 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 
 ### 3.13 Variant
 
-- **字面量**：进入 `Variant` 位置（含无类型容器元素）的数组和字典字面量保持无类型。无目标类型的数组和字典字面量由元素定型，如 `var a = [1, 2]` 得 `Array[int]`。
+- **字面量**：进入 packed 数组位置的数组字面量直接取该 packed 数组类型，并按可赋值的规则逐个检查元素。进入 `Variant` 位置（含无类型容器元素）的数组和字典字面量保持无类型。无目标类型的数组和字典字面量由元素定型，如 `var a = [1, 2]` 得 `Array[int]`。
 - 只能直接做 `==` 和 `!=`。其余操作（算术、`v.x`、`v.f()`、`v[i]`、`for x in v`）均报编译错误，并给出转换或 `is` 的快速修复。按名字动态访问须先转为 `Object`，再调 `get`/`set`/`call`。
 - `Variant` 含 NIL：`v == None` 对 NIL 和已释放对象为真，`v is int` 对 NIL 为假，`v as Node` 对 NIL 得 `None`。`Variant?` 多一层 `Option`（如 `Dictionary[String, Variant].get("hp")` 缺键得 `None`，值为 `null` 得 `Some(NIL)`）。
 
@@ -874,7 +874,7 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 - 多参信号得一个值，每个参数一个字段，字段的名字和类型取自信号的声明，如 `(await http.request_completed).body`：
   - 这个类型没有写法，只能存入由初始值定型的变量。要传给函数或作返回值时，另声明 struct；
   - 对它取下标报编译错误，快速修复把字面量下标改为字段，如 `r[3]` 改为 `r.body`；
-  - 它转为 `Variant` 时是按参数顺序排列的 `Array`，与 GDScript 相同。
+  - 写 `Array(r)` 或转为 `Variant` 时，它是按参数顺序排列的无类型 `Array`，与 GDScript 相同。
 - 信号签名是否静态已知取决于访问方式：
   - 经已知类（引擎 ClassDB 中的类、本语言声明的类和接口，以及经反射看到的其他语言的类）访问的信号签名已知；
   - 静态类型仅为 `Signal` 时签名未知：作语句 `await` 不受限制，作值 `await` 得 `Variant`（运行时无参为 NIL，单参为该值，多参为 `Array`）：
@@ -918,7 +918,7 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 | 对象 `T` 和 `T?` | 均为该类；非空由入口检查保证 |
 | `int?` 等可空值类型 | 无类型 `Variant`，`None` 为 NIL |
 | 元素可由引擎表示的 `Array[T]`、`Dictionary[K, V]` | 引擎带类型容器（嵌套容器只带外层一层类型） |
-| struct | `String` 字段名键的 `Dictionary` |
+| struct | `String` 字段名键的 `Dictionary`；值为 `None` 的 `T?` 字段在无非 `None` 默认值时省略该键 |
 | 带载荷 enum | `String` 字段名键的 `Dictionary`，保留键 `"$variant"` 存分支名：`{"$variant": "MOVE", "target": p}`，无载荷分支 `{"$variant": "IDLE"}` |
 | `Result[T, E]` | 同带载荷 enum：`{"$variant": "Ok", "value": v}` 或 `{"$variant": "Err", "error": e}` |
 | `async` 方法返回值 | 无类型 `Variant` |

@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob fb355fdf34f8173404300a735fbd2d740c0c4da9. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 974ad57e3bd850ef9f0adcbdc6626eb260f13de1. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -220,7 +220,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 3.6 struct
 
 - Value semantics: assignment, argument passing and return all make a shallow copy, and object and container fields copy the reference. A struct exists only inside this language.
-- Across the engine boundary, a struct is encoded by the rules of the engine boundary and decoded by checking each field and nested container or struct recursively under `T.try_from`. Extra keys are ignored, while a missing key takes the field's default value or causes decoding to fail if the field has none.
+- Across the engine boundary, a struct is encoded by the rules of the engine boundary and decoded by checking each field and nested container or struct recursively under `T.try_from`. Extra keys are ignored, and a missing key takes the field's default value. When the field has none, a `T?` field takes `None` and any other field fails to decode.
 - A struct may declare `func` and `static func`. In an instance method `self` is read-only, and assigning to a field of `self` is a compile error.
 - A name in a method is looked up in the struct itself first. It is then looked up in the non-instance declarations of the outer classes, by the rules of inner classes.
 - When a construction omits a field, the default value of that field is evaluated once each time. Names in a default value are looked up by the rules of static methods, and cannot read fields.
@@ -347,7 +347,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 3.13 Variant
 
-- **Literals**: an array or dictionary literal that enters a `Variant` position stays untyped. Elements of untyped containers are such positions. An array or dictionary literal without a target type takes its type from its elements, as `var a = [1, 2]` gives `Array[int]`.
+- **Literals**: an array literal in a packed array position takes that packed array type, checking each element by the rules of assignability. An array or dictionary literal that enters a `Variant` position stays untyped. Elements of untyped containers are such positions. An array or dictionary literal without a target type takes its type from its elements, as `var a = [1, 2]` gives `Array[int]`.
 - Only `==` and `!=` can be applied directly. All other operations are compile errors, with a quick fix that gives a conversion or `is`. They are arithmetic, `v.x`, `v.f()`, `v[i]` and `for x in v`. Dynamic access by name must first convert to `Object`, and then call `get`/`set`/`call`.
 - `Variant` includes NIL. `v == None` is true for NIL and freed objects, `v is int` is false for NIL, and `v as Node` gives `None` for NIL. `Variant?` has one more level of `Option`. For example, `Dictionary[String, Variant].get("hp")` gives `None` for a missing key, and `Some(NIL)` for a `null` value.
 
@@ -876,7 +876,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - A multi-parameter signal gives a value with one field for each parameter. The names and types of the fields come from the signal's declaration, as in `(await http.request_completed).body`:
   - this type cannot be written, so the value can only be stored in a variable typed by its initial value. To pass it to a function or return it, declare a struct of your own;
   - indexing it is a compile error, with a quick fix that turns a literal index into the field, as `r[3]` into `r.body`;
-  - converted to `Variant`, it is an `Array` of the arguments in parameter order, the same as in GDScript.
+  - written as `Array(r)` or converted to `Variant`, it is an untyped `Array` of the arguments in parameter order, the same as in GDScript.
 - Whether a signal's signature is statically known depends on how it is accessed:
   - signals accessed through a known class (an engine ClassDB class, a class or interface of this language, or another language's class seen through reflection) have a known signature;
   - when the static type is only `Signal`, the signature is unknown: using `await` as a statement is unrestricted, while using `await` as a value gives `Variant`. At run time that is NIL for no parameters, the value for one, or an `Array` for several:
@@ -920,7 +920,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 | Objects `T` and `T?` | That class in both cases; non-null is guaranteed by the entry check |
 | Nullable value types such as `int?` | Untyped `Variant`, with `None` as NIL |
 | `Array[T]` and `Dictionary[K, V]` whose elements the engine can represent | Engine typed containers (a nested container carries the types of its outer level only) |
-| struct | A `Dictionary` with `String` field names as keys |
+| struct | A `Dictionary` with `String` field names as keys; a `T?` field whose value is `None` omits its key unless its default value is not `None` |
 | enum with payloads | A `Dictionary` with `String` field names as keys. The reserved key `"$variant"` stores the variant name: `{"$variant": "MOVE", "target": p}`. A variant without payload is `{"$variant": "IDLE"}` |
 | `Result[T, E]` | The same as an enum with payloads: `{"$variant": "Ok", "value": v}` or `{"$variant": "Err", "error": e}` |
 | Return value of an `async` method | Untyped `Variant` |
