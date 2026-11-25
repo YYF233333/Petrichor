@@ -179,7 +179,7 @@
 | GDScript 把不是对象的值 `as` 转为对象类型时，debug 构建报错，release 构建原样交出这个值 | `modules/gdscript/gdscript_vm.cpp:1670-1681` | §5.3 |
 | GDScript 的 `is Array[T]` 要求数组的类型完全一致；把数组赋给带类型的变量时也这样要求，否则报错 | `modules/gdscript/gdscript_vm.cpp:879-895, 1454-1481` | §3.8 |
 | GDScript 只在去处为带类型容器时为数组和字典字面量定型，否则它们是无类型的 | `modules/gdscript/gdscript_analyzer.cpp:2112-2121, 3647-3658` | §3.13 |
-| GDScript 允许把 `Array`（含数组字面量）隐式转为各 Packed 数组，逐个转换元素 | `modules/gdscript/gdscript_analyzer.cpp:6370-6374`；`core/variant/variant.cpp:800-835, 2076-2084` | §3.13 |
+| GDScript 允许把 `Array`（含数组字面量）隐式转为各 Packed 数组，逐个转换元素 | `modules/gdscript/gdscript_analyzer.cpp:6370-6374`；`core/variant/variant.cpp:769-846, 2075-2085` | §3.13 |
 | GDScript 对已释放的对象做 `is` 时报错并中止，release 构建也一样；做 `as` 时只在 debug 构建中报错 | `modules/gdscript/gdscript_vm.cpp:942-947, 1665-1669` | §3.3 |
 | GDScript 调用引擎方法时，debug 构建只检查基对象是否已释放，实参原样交出。引擎从实参取对象指针时不查它是否存活，所以已释放的对象以悬空指针传入 | `modules/gdscript/gdscript_vm.cpp:2046-2055, 2072`，`core/variant/variant.cpp:2024-2030` | §1.2、§3.3 |
 | GDScript 中，局部变量、常量、`for` 的循环变量和 match 的绑定不能与外层块的局部变量或参数同名。参数是函数体的局部变量 | `modules/gdscript/gdscript_parser.cpp:1731, 1735, 1983-1987, 1993-2002, 2345-2349, 2599-2600, 4384-4392` | §4.6、§5.6 |
