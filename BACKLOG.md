@@ -31,6 +31,8 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 
 - Encoding a struct omits the key of a `None` `T?` field unless its default value is not `None`, and decoding takes a missing `T?` field without a default as `None` (spec §3.6, §10.1). The fields of a payload enum's variant and of `Result` follow the same rule (spec §3.7).
 - `Array(r)` on the result of awaiting a multi-parameter signal (spec §9.6).
+- `Class.new` taken as a value is not checked for the members its class must be given (spec §6.2). The object it makes fails at ready or at the first read.
+- A scene that stores `null` for an `@late` export over a value its base scene stores is only a program error at run time: the entry check refuses the null and the base's value stays (spec §6.3; `scene/resources/packed_scene.cpp:229-238, 494, 980-1000`, `ed1daf0`). The scene check sees both values and could report it on the scene.
 - Load cycles the check misses (spec §7.6): a subclass in another file that uses its base's `preload` constant as a value, and a constant copied through two or more constants. Both load the script at run time without an edge (`load_edges()` in `src/compiler/script_classes.cpp`); the old token scan missed them too.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
 - An array literal in a packed array position taking that packed array type and checking each element (spec §3.13), dropping the `Packed*Array(...)` fix on array literals.
