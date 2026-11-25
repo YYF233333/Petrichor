@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 915989d57b76fd9c95e5f56e4b28af24dba8af69. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 3b5e8993ce3403c064ce69a95d4109b6969e5861. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -271,6 +271,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - An enum with payloads:
   - payload fields must be named, such as `MOVE(target: Vector3)`. They can be destructured only through `match`, and writing `c.target` is a compile error;
   - `==`, `<` and the hash follow the rules of structs. They go by variant first, with `<` in declaration order, and then by fields within the same variant;
+  - when it is encoded and decoded, a variant's fields follow the rules of struct fields. They have no default values, so a `T?` field whose value is `None` writes no key, and a missing key gives `None`;
   - its name cannot be used as a value, as in `Command.keys()`. A constant initialized with it still names the same enum;
   - **[Known limitation]** it cannot declare methods in the first version.
 
@@ -921,7 +922,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 | Nullable value types such as `int?` | Untyped `Variant`, with `None` as NIL |
 | `Array[T]` and `Dictionary[K, V]` whose elements the engine can represent | Engine typed containers (a nested container carries the types of its outer level only) |
 | struct | A `Dictionary` with `String` field names as keys; a `T?` field whose value is `None` omits its key unless its default value is not `None` |
-| enum with payloads | A `Dictionary` with `String` field names as keys. The reserved key `"$variant"` stores the variant name: `{"$variant": "MOVE", "target": p}`. A variant without payload is `{"$variant": "IDLE"}` |
+| enum with payloads | A `Dictionary` with `String` field names as keys. The reserved key `"$variant"` stores the variant name: `{"$variant": "MOVE", "target": p}`. A variant without payload is `{"$variant": "IDLE"}`. A `T?` field whose value is `None` omits its key |
 | `Result[T, E]` | The same as an enum with payloads: `{"$variant": "Ok", "value": v}` or `{"$variant": "Err", "error": e}` |
 | Return value of an `async` method | Untyped `Variant` |
 

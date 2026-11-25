@@ -269,6 +269,7 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 - 带载荷的 enum：
   - 载荷字段必须命名（如 `MOVE(target: Vector3)`），只能经 `match` 解构，写 `c.target` 报编译错误；
   - `==`、`<` 和哈希按 struct 的规则，先按分支（`<` 按声明顺序），同分支再按字段；
+  - 编码和解码时，分支的字段按 struct 字段的规则处理。它们没有默认值，所以值为 `None` 的 `T?` 字段不写键，缺键时取 `None`；
   - 名字不能作为值使用，如 `Command.keys()`。以它初始化的常量照常指同一 enum；
   - 【已知限制】第一版不能声明方法。
 
@@ -919,7 +920,7 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 | `int?` 等可空值类型 | 无类型 `Variant`，`None` 为 NIL |
 | 元素可由引擎表示的 `Array[T]`、`Dictionary[K, V]` | 引擎带类型容器（嵌套容器只带外层一层类型） |
 | struct | `String` 字段名键的 `Dictionary`；值为 `None` 的 `T?` 字段在无非 `None` 默认值时省略该键 |
-| 带载荷 enum | `String` 字段名键的 `Dictionary`，保留键 `"$variant"` 存分支名：`{"$variant": "MOVE", "target": p}`，无载荷分支 `{"$variant": "IDLE"}` |
+| 带载荷 enum | `String` 字段名键的 `Dictionary`，保留键 `"$variant"` 存分支名：`{"$variant": "MOVE", "target": p}`，无载荷分支 `{"$variant": "IDLE"}`；值为 `None` 的 `T?` 字段省略该键 |
 | `Result[T, E]` | 同带载荷 enum：`{"$variant": "Ok", "value": v}` 或 `{"$variant": "Err", "error": e}` |
 | `async` 方法返回值 | 无类型 `Variant` |
 
