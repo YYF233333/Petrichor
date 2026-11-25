@@ -9,10 +9,11 @@ Usage:
 Checks the game run, the editor side (placeholders, saving), the language, the
 debugger, hot reload, an exported pack run in a directory without sources with
 each library of export templates, the language server, and the FPS starter
-kit and Ring's breakout with their migrated scripts. Naming groups runs only
-those, after the build; the groups are those of GROUPS, hot reload being part
-of debugger. The dotnet group, classes written in C#, runs on a .NET editor or
-when named; it needs the .NET SDK 8 or later on PATH.
+kit, Ring's breakout and deck_builder_tutorial with their migrated scripts.
+Naming groups runs only those, after the build; the groups are those of
+GROUPS, hot reload being part of debugger. The dotnet group, classes written
+in C#, runs on a .NET editor or when named; it needs the .NET SDK 8 or later
+on PATH.
 
 Environment:
     PETRICHOR_PREBUILT=1          the libraries in tests/engine/project/bin were
@@ -46,6 +47,8 @@ FPS_UPSTREAM = ROOT / "thirdparty" / "starter-kit-fps"
 FPS_MIGRATED = HERE / "fps"
 RING_UPSTREAM = ROOT / "thirdparty" / "ring"
 RING_MIGRATED = HERE / "ring"
+DECK_UPSTREAM = ROOT / "thirdparty" / "deck_builder_tutorial"
+DECK_MIGRATED = HERE / "deck"
 HOT_RELOAD = PROJECT / "language" / "hot_reload"
 HOT_RELOAD_BYTECODE = PROJECT / ".godot" / "petrichor" / "language" / "hot_reload"
 STALE = PROJECT / "language" / "stale"
@@ -60,7 +63,7 @@ GAME_OUTPUT = [
     "greeter: _ready, message = set from GDScript",
 ]
 
-GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "pet", "fps", "ring", "dotnet"]
+GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "pet", "fps", "ring", "deck", "dotnet"]
 LSP = HERE / "lsp"
 DOTNET = HERE / "dotnet"
 DOTNET_ASSEMBLY = Path(".godot", "mono", "temp", "bin", "Debug", "DotnetCheck.dll")
@@ -444,6 +447,18 @@ def prepare_ring(project):
     settings.write_text(text, encoding="utf-8")
 
 
+def prepare_deck(project):
+    """deck_builder_tutorial with the extension and deck_check.gd, an
+    autoload that plays a run from the main menu."""
+    copy_project(DECK_UPSTREAM, project, shutil.ignore_patterns(".git"))
+    shutil.copy(DECK_MIGRATED / "deck_check.gd", project)
+    settings = project / "project.godot"
+    text = settings.read_text(encoding="utf-8")
+    text = re.sub(r'^(RNG="\*res://global/rng\.gd")\r?$', r'\1\nDeckCheck="*res://deck_check.gd"', text, count=1, flags=re.M)
+    assert "DeckCheck" in text
+    settings.write_text(text, encoding="utf-8")
+
+
 def migrate(project, migrated):
     """Puts each migrated script in place of its GDScript original
     (architecture §5 steps 4 and 6); a script without one, such as the FPS
@@ -560,8 +575,8 @@ def main():
     if not editor_library.is_file():
         sys.exit(f"{editor_library} is missing. Build it with: scons")
 
-    # The lsp, pet, fps and ring groups prepare projects of their own, so they
-    # run beside the groups of the test project.
+    # The lsp, pet, fps, ring and deck groups prepare projects of their own, so
+    # they run beside the groups of the test project.
     finishes = []
     if wanted("lsp"):
         finishes.append(beside("lsp", run_lsp_group, godot))
@@ -571,13 +586,15 @@ def main():
         finishes.append(beside("fps", run_migration_group, godot, "fps", prepare_fps, FPS_MIGRATED, True))
     if wanted("ring"):
         finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, False, "res://ring_check.tscn"))
+    if wanted("deck"):
+        finishes.append(beside("deck", run_migration_group, godot, "deck", prepare_deck, DECK_MIGRATED, False, "res://scenes/ui/main_menu.tscn"))
     dotnet = dotnet_build(godot)
     if "dotnet" in only or (not only and dotnet):
         finishes.append(beside("dotnet", run_dotnet_group, godot, dotnet))
     elif not only:
         print(f"dotnet: skipped, as {godot} is not a .NET build")
 
-    if not only or (only - {"lsp", "pet", "fps", "ring", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
+    if not only or (only - {"lsp", "pet", "fps", "ring", "deck", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
         # The game reads the bytecode the editor writes (architecture §2.4).
         # The checked build runs on an imported project, as import_project()
         # explains.

@@ -1,0 +1,11 @@
+class_name EventRoomButton
+extends Button
+
+pub var event_button_callback: Callable
+
+
+pub func _on_pressed() -> void:
+	if not event_button_callback.is_null():
+		event_button_callback.call()
+
+	Events.event_room_exited.emit()

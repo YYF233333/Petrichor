@@ -8,3 +8,7 @@
 	path = thirdparty/ring
 	url = https://github.com/YYF233333/Ring
 	shallow = true
+[submodule "thirdparty/deck_builder_tutorial"]
+	path = thirdparty/deck_builder_tutorial
+	url = https://github.com/guladam/deck_builder_tutorial
+	shallow = true

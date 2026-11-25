@@ -1,0 +1,38 @@
+class_name CardState
+extends Node
+
+pub enum State {BASE, CLICKED, DRAGGING, AIMING, RELEASED}
+
+pub signal transition_requested(from: CardState, to: State)
+
+@export var state: State
+
+@late pub var card_ui: CardUI
+
+
+pub async func enter() -> void:
+	pass
+
+
+pub func exit() -> void:
+	pass
+
+
+pub func post_enter() -> void:
+	pass
+
+
+pub func on_input(_event: InputEvent) -> void:
+	pass
+
+
+pub func on_gui_input(_event: InputEvent) -> void:
+	pass
+
+
+pub func on_mouse_entered() -> void:
+	pass
+
+
+pub func on_mouse_exited() -> void:
+	pass

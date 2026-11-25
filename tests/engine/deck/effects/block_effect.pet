@@ -1,0 +1,17 @@
+class_name BlockEffect
+extends Effect
+
+pub var amount := 0
+
+
+pub func execute(targets: Array[Node]) -> void:
+	for target in targets:
+		if not is_instance_valid(target):
+			continue
+		if target is Enemy:
+			target.stats.block += amount
+		elif target is Player:
+			target.stats.block += amount
+		else:
+			continue
+		SFXPlayer.play(sound)

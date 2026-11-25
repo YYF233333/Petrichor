@@ -1,0 +1,30 @@
+class_name ExposedStatus
+extends Status
+
+const MODIFIER := 0.5
+
+
+pub func get_tooltip() -> String:
+	return tooltip % duration
+
+
+pub func initialize_status(target: Node) -> void:
+	var by_name: Object = target
+	var modifier_handler := (by_name.get("modifier_handler") as ModifierHandler).expect("No modifiers on %s" % target)
+
+	var dmg_taken_modifier := modifier_handler.get_modifier(Modifier.Type.DMG_TAKEN).expect("No dmg taken modifier on %s" % target)
+
+	var exposed_modifier_value := dmg_taken_modifier.get_value("exposed")
+
+	if not is_instance_valid(exposed_modifier_value):
+		exposed_modifier_value = ModifierValue.create_new_modifier("exposed", ModifierValue.Type.PERCENT_BASED)
+		exposed_modifier_value.percent_value = MODIFIER
+		dmg_taken_modifier.add_new_value(exposed_modifier_value)
+
+	if not status_changed.is_connected(_on_status_changed.bind(dmg_taken_modifier)):
+		status_changed.connect(_on_status_changed.bind(dmg_taken_modifier))
+
+
+func _on_status_changed(dmg_taken_modifier: Modifier) -> void:
+	if duration <= 0 and is_instance_valid(dmg_taken_modifier):
+		dmg_taken_modifier.remove_value("exposed")

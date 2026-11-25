@@ -1,0 +1,26 @@
+class_name EnemyAction
+extends Node
+
+pub enum Type {CONDITIONAL, CHANCE_BASED}
+
+@export var intent: Intent
+@export var sound: AudioStream
+@export var type: Type
+@export_range(0.0, 10.0) var chance_weight := 0.0
+
+@onready pub var accumulated_weight := 0.0
+
+pub var enemy: Enemy?
+pub var target: Node2D?
+
+
+pub func is_performable() -> bool:
+	return false
+
+
+pub func perform_action() -> void:
+	pass
+
+
+pub func update_intent_text() -> void:
+	intent.current_text = intent.base_text

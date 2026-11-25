@@ -453,7 +453,7 @@ src/pet/               命令行的可执行文件 pet，不依赖 Godot
 gen/                   生成的源码：内置类型的表、格式标识
 build/                 目标文件和静态库
 tests/compiler/        doctest，与引擎的单元测试相同
-tests/engine/          以无界面模式运行的 Godot 项目及其运行器；fps/ 和 ring/ 中是 FPS 项目和 Ring 迁移后的脚本，dotnet/ 是与 C# 混用的项目
+tests/engine/          以无界面模式运行的 Godot 项目及其运行器；fps/、ring/ 和 deck/ 中是 FPS 项目、Ring 和 deck_builder_tutorial 迁移后的脚本，dotnet/ 是与 C# 混用的项目
 tests/acceptance/      发布包的验收：用官方编辑器和导出模板编辑、导出和运行一个项目
 benchmarks/            各基准及其 GDScript 对照版本，以及运行器（§4）
 tools/                 提交钩子和检查、打包脚本和演示包的说明、规范的翻译说明
@@ -463,6 +463,7 @@ thirdparty/doctest/
 thirdparty/godot-cpp/  git 子模块
 thirdparty/starter-kit-fps/  git 子模块：第二次纸面迁移所用提交的 FPS 项目
 thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只取这一个提交
+thirdparty/deck_builder_tutorial/  git 子模块：corpus v1 所用提交的 deck_builder_tutorial，只取这一个提交
 ```
 
 ## 3. 测试
@@ -474,8 +475,9 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
   - `await` 期间所属对象或信号源被释放；
   - 信号同步发出后再次挂起，以及同一个挂起点被恢复两次；
   - GDScript 调用本语言后，本语言再等待外部信号。
-- **真实代码**：让[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中的 FPS 和 Ring 代码真正跑起来。
+- **真实代码**：让[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中的 FPS 和 Ring 代码，以及迁移工具迁移的 deck_builder_tutorial 真正跑起来。
   - 迁移测试复制原项目并换入迁移后的脚本，未迁移部分保持 GDScript。迁移后的运行只能报告原项目也报告的错误，退出时也只能占用原项目占用的资源。
+  - deck_builder_tutorial 的脚本是工具的输出再经人工收尾。检查脚本从主菜单开局，经地图打完一场战斗，再领取奖励。随机数固定，每次跑同一局。
   - Ring 测试不需要 .NET：`tests/engine/ring/ring_check.tscn` 代替 `Root.cs`，发出 Ring 的 `main.md` 构造的消息。C# 的 `Call()` 与 GDScript 动态调用一样，都经引擎按名字派发。
 
 编译器测试经同一个辅助函数编译源码，自动校验 §2.1 的三项约定：
@@ -574,7 +576,7 @@ thirdparty/ring/       git 子模块：同一次迁移所用提交的 Ring，只
     - **发布闸门**：0.9 不定日期，下列条件都满足时发布：
       1. 下文六项设计都已发布，各自至少公开过一个两周的征询窗口（最后一项落地的那一版是功能完成版，此后只修不加）；
       2. 0.4 的探针都有结论，每个平台和引擎版本要么通过，要么写明做不到什么；
-      3. 迁移工具在至少两个外部真实项目上跑通（迟迟等不到时，由本项目迁移一两个流行开源游戏来顶替）。
+      3. 迁移工具在至少两个外部真实项目上跑通（迟迟等不到时，由本项目迁移一两个流行开源游戏来顶替，先是 deck_builder_tutorial，再是 tanks-of-freedom-ii）。
     - **0.4 平台与边界探针（定于 2026-12-27）**：平台和引擎版本可能逼出语义让步，须远在冻结前探明，探通项随 0.4 发布。0.4 同时发布下文第 1 项 `@tool`，CI 也为 Android、iOS 和 Web 构建库（§6.3）：
       - 用 4.4、4.5 和 4.6 构建并运行全部测试，记录各版本的通过项与限制（§6.3）；
       - Android、iOS 和 Web 的库进 CI；

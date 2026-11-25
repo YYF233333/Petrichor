@@ -1,0 +1,55 @@
+class_name CardStateMachine
+extends Node
+
+@export var initial_state: CardState
+
+var current_state: CardState?
+var states: Dictionary[CardState.State, CardState] = {}
+
+
+pub func init(card: CardUI) -> void:
+	for child: CardState in get_children():
+		if is_instance_valid(child):
+			states[child.state] = child
+			child.transition_requested.connect(_on_transition_requested)
+			child.card_ui = card
+
+	if is_instance_valid(initial_state):
+		initial_state.enter().detach()
+		current_state = initial_state
+
+
+pub func on_input(event: InputEvent) -> void:
+	if current_state != None:
+		current_state.unwrap().on_input(event)
+
+
+pub func on_gui_input(event: InputEvent) -> void:
+	if current_state != None:
+		current_state.unwrap().on_gui_input(event)
+
+
+pub func on_mouse_entered() -> void:
+	if current_state != None:
+		current_state.unwrap().on_mouse_entered()
+
+
+pub func on_mouse_exited() -> void:
+	if current_state != None:
+		current_state.unwrap().on_mouse_exited()
+
+
+func _on_transition_requested(from: CardState, to: CardState.State) -> void:
+	if from != current_state:
+		return
+
+	var new_state: CardState = states[to]
+	if not is_instance_valid(new_state):
+		return
+
+	if current_state != None:
+		current_state.unwrap().exit()
+
+	new_state.enter().detach()
+	current_state = new_state
+	new_state.post_enter()

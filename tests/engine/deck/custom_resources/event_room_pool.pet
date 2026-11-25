@@ -1,0 +1,8 @@
+class_name EventRoomPool
+extends Resource
+
+@export var event_rooms: Array[PackedScene[EventRoom]]
+
+
+pub func get_random() -> PackedScene[EventRoom]:
+	return event_rooms.pick_random()

@@ -1,0 +1,16 @@
+class_name StatusEffect
+extends Effect
+
+@late pub var status: Status
+
+
+pub func execute(targets: Array[Node]) -> void:
+	for target in targets:
+		if not is_instance_valid(target):
+			continue
+		if target is Enemy:
+			target.status_handler.add_status(status.duplicate())
+		elif target is Player:
+			target.status_handler.add_status(status.duplicate())
+		else:
+			continue

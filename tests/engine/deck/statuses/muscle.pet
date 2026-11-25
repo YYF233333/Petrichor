@@ -1,0 +1,26 @@
+class_name MuscleStatus
+extends Status
+
+
+pub func get_tooltip() -> String:
+	return tooltip % stacks
+
+
+pub func initialize_status(target: Node) -> void:
+	status_changed.connect(_on_status_changed.bind(target))
+	_on_status_changed(target)
+
+
+func _on_status_changed(target: Node) -> void:
+	var by_name: Object = target
+	var modifier_handler := (by_name.get("modifier_handler") as ModifierHandler).expect("No modifiers on %s" % target)
+
+	var dmg_dealt_modifier := modifier_handler.get_modifier(Modifier.Type.DMG_DEALT).expect("No dmg dealt modifier on %s" % target)
+
+	var muscle_modifier_value := dmg_dealt_modifier.get_value("muscle")
+
+	if not is_instance_valid(muscle_modifier_value):
+		muscle_modifier_value = ModifierValue.create_new_modifier("muscle", ModifierValue.Type.FLAT)
+
+	muscle_modifier_value.unwrap().flat_value = stacks
+	dmg_dealt_modifier.add_new_value(muscle_modifier_value.unwrap())
