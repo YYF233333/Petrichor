@@ -360,7 +360,11 @@ class Lexer {
 				cleared++;
 			}
 		}
+		const size_t blocks = lambda_blocks.size();
 		close_lambda_blocks(p_index);
+		// The statement around a lambda's block ends here too, as one without
+		// a lambda does.
+		line_has_tokens = line_has_tokens || lambda_blocks.size() < blocks;
 		brackets.resize(p_index);
 	}
 
