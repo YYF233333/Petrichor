@@ -332,11 +332,12 @@ class Verifier {
 		return p_index < p_count || fail(std::string("index ") + std::to_string(p_index) + " is outside the " + p_table + " table");
 	}
 
+	// One the compiler knows, which the instructions for scalars read.
 	bool constant(uint32_t p_index, ValueType p_type) {
 		if (!index(p_index, module.constants.size(), "constant")) {
 			return false;
 		}
-		return (!is_option(module.constants[p_index].type) && storage(module.constants[p_index].type) == p_type) || fail("the constant does not have the slot's type");
+		return (!is_option(module.constants[p_index].type) && storage(module.constants[p_index].type) == p_type && !module.constants[p_index].computed) || fail("the constant does not have the slot's type, or is computed");
 	}
 
 	bool constant_like(uint32_t p_index, uint32_t p_type) {
@@ -346,35 +347,14 @@ class Verifier {
 		return same_layout(module.constants[p_index].type, p_type) || fail("the constant does not have the slot's type");
 	}
 
-	// A constant, and what it is built from, have types of the table; an
-	// operator has its operands, a field its base.
+	// A constant has a type of the table; a variant its index, with its fields
+	// at their defaults.
 	bool typed_constant(const Constant &p_constant) {
 		if (p_constant.type >= module.types.size()) {
 			return fail("a constant has no type");
 		}
-		// A variant by its index, with its fields at their defaults.
 		const TypeDesc &type = module.types[p_constant.type];
-		if (type.kind == TypeKind::PayloadEnum && (p_constant.i < 0 || uint64_t(p_constant.i) >= type.values.size())) {
-			return fail("a constant of an enum with payloads names no variant");
-		}
-		if (p_constant.op >= 0 && (p_constant.op > 24 || p_constant.args.empty() || p_constant.args.size() > 2)) {
-			return fail("a constant applies an invalid operator");
-		}
-		if (p_constant.utility >= 0 && !index(uint32_t(p_constant.utility), module.utility_calls.size(), "utility call")) {
-			return false;
-		}
-		if (!p_constant.field.empty() && p_constant.args.size() != 1) {
-			return fail("a constant reads a field of no value");
-		}
-		if (p_constant.load && storage(p_constant.type) != ValueType::Object) {
-			return fail("a constant loads a resource into a type that holds no object");
-		}
-		for (const Constant &arg : p_constant.args) {
-			if (!typed_constant(arg)) {
-				return false;
-			}
-		}
-		return true;
+		return type.kind != TypeKind::PayloadEnum || (p_constant.i >= 0 && uint64_t(p_constant.i) < type.values.size()) || fail("a constant of an enum with payloads names no variant");
 	}
 
 	// A type operand: an index into the type table, of a type a slot can hold.
@@ -802,8 +782,14 @@ class Verifier {
 				return constant(o[1], ValueType::String);
 			case Op::CONST_VALUE: {
 				const ValueType value_type = storage(o[0]);
-				return (value_type != ValueType::Bool && value_type != ValueType::Int && value_type != ValueType::Float && value_type != ValueType::String) || fail("a constant of a type that has an instruction of its own");
+				return module.constants[o[2]].computed || (value_type != ValueType::Bool && value_type != ValueType::Int && value_type != ValueType::Float && value_type != ValueType::String) || fail("a constant of a type that has an instruction of its own");
 			}
+			case Op::INIT_CONSTANT: {
+				const int32_t at = int32_t(function - module.functions.data());
+				return ((at == module.constants_function || at == module.waiting_function) || fail("INIT_CONSTANT outside a constants function")) && constant_like(o[1], o[0]) && (module.constants[o[1]].computed || fail("INIT_CONSTANT of a constant the compiler knows"));
+			}
+			case Op::LOAD_RESOURCE:
+				return (storage(o[0]) == ValueType::Object || fail("a resource loaded into a slot that holds no object")) && constant(o[2], ValueType::String);
 			case Op::MOVE_8:
 				return same_8_byte(frame, o[0], frame, o[1], "an 8-byte move of another type");
 			case Op::LOAD_MEMBER_8:
@@ -1031,13 +1017,17 @@ public:
 		if (!layout(module.statics, module.statics_size, statics)) {
 			return false;
 		}
-		if (module.static_init_function >= 0 && module.static_init_function < int32_t(module.functions.size())) {
-			const Function &initializer = module.functions[module.static_init_function];
-			if (!initializer.is_static || !is_void(initializer.result.type) || !initializer.params.empty()) {
-				return fail("the static initializer takes or returns a value, or is not static");
+		// The static initializer and the constants functions run once, with no
+		// object; the reflected function takes an int and gives a Variant.
+		for (const int32_t index : { module.static_init_function, module.constants_function, module.waiting_function, module.reflected_function }) {
+			if (index < -1 || index >= int32_t(module.functions.size())) {
+				return fail("a static initializer, constants or reflected function is not a function of the module");
 			}
-		} else if (module.static_init_function != -1) {
-			return fail("the static initializer is not a function of the module");
+			const Function *run_once = index < 0 ? nullptr : &module.functions[index];
+			const bool reflects = index == module.reflected_function;
+			if (run_once && (!run_once->is_static || storage(run_once->result.type) != (reflects ? ValueType::Variant : ValueType::Void) || run_once->params.size() != (reflects ? 1 : 0) || (reflects && storage(run_once->params[0].type) != ValueType::Int))) {
+				return fail("a static initializer or constants function takes or returns a value, the reflected function does not take an int and give a Variant, or one is not static");
+			}
 		}
 		for (const Member &variable : module.statics) {
 			for (const int32_t index : { variable.setter, variable.getter }) {
@@ -1064,9 +1054,6 @@ public:
 				if (getter.is_async || !getter.params.empty() || getter.result.type != member.type) {
 					return fail("the getter of " + member.name + " does not give its type");
 				}
-			}
-			if (!typed_constant(member.initial)) {
-				return false;
 			}
 		}
 		for (const SignalInfo &signal : module.signals) {
@@ -1128,11 +1115,6 @@ public:
 			}
 			if (each.rpc.mode > 2 || each.rpc.transfer_mode > 2) {
 				return fail("an RPC mode the engine does not have");
-			}
-			for (const Constant &value : each.defaults) {
-				if (!typed_constant(value)) {
-					return false;
-				}
 			}
 			for (size_t i = 0; i < each.params.size(); i++) {
 				if (each.params[i].offset != each.slots[i].offset || each.params[i].type != each.slots[i].type) {

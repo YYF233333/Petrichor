@@ -6,10 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- Load-time constants evaluated by bytecode, about 300 lines less. Now a recursive `bytecode::Constant` tree has an evaluator of its own, `constant_value` (`src/bytecode/module.h`, `src/runtime/class_image.cpp`).
-  - Agreed for the next code-removing batch; adapt hot-reload constant comparison and reflected default constants.
-  - It must land before the bytecode format gets its version, with Mod (architecture §6.1).
-
 ## Next release
 
 0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
@@ -48,7 +44,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - Whether GDScript should see a `pub` function's containers whose elements exist only in this language (spec §3.14). Overrides of engine virtuals returning `Variant` and `pub` static variables do not apply that rule now. A foreign element is a program error when read, with no memory problem.
 - In an inner class, a bare value naming an outer class's instance function is refused for want of an outer object. That holds even when the inner class's engine base has a method of the name. Bare-name resolution looks up engine members first (spec §4.1), and GDScript takes the engine method.
 - A script without a path cannot take a method of its own struct as a value. The value names its class by the script's path. The verifier then rejects the module as an internal compiler error (`src/compiler/lower.cpp`, `struct_method_call`). A script made at run time in the editor, as by `PetScript.new()`, has no path.
-- An index of a vector constant, as `V[0]` of `const V := Vector3(1, 2, 3)`, is refused in a constant expression, though spec §4.5 lists indexes of constants. The engine computes the vector when the class loads, and a stored constant has no index to apply then (`fold_subscript` in `src/compiler/constant.cpp`). The same holds for `Color`, `Basis` and the other values the engine indexes.
+- An index of a vector constant, as `V[0]` of `const V := Vector3(1, 2, 3)`, is refused in a constant expression, though spec §4.5 lists indexes of constants. The engine computes the vector when the class loads, and the compiler folds only indexes of what it knows (`fold_subscript` in `src/compiler/constant.cpp`); the constants function could index the computed vector with GET_INDEX. The same holds for `Color`, `Basis` and the other values the engine indexes.
 
 ## Runtime
 

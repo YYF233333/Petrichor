@@ -344,25 +344,20 @@ TEST_CASE("preload() of a scene is a PackedScene of the scene's root") {
 	const compiler::CompileResult result = compile_in("extends Node\n\nfunc f():\n\tvar s := preload(\"res://objects/platform.tscn\")\n", project);
 	REQUIRE_MESSAGE(result.ok(), messages(result));
 	CHECK(result.module.engine_calls.empty());
-	REQUIRE(result.module.constants.size() == 1);
-	CHECK((result.module.constants[0].load && result.module.constants[0].s == "res://objects/platform.tscn"));
+	const auto loads = [](const bytecode::Module &p_module, const bytecode::Function &p_function) {
+		return p_module.constants[p_function.code[find_instruction(p_function, bytecode::Op::LOAD_RESOURCE) + 3]].s == "res://objects/platform.tscn";
+	};
+	CHECK(loads(result.module, result.module.functions[result.module.constants_function]));
 	find_instruction(function_named(result.module, "f"), bytecode::Op::CONST_VALUE);
 
-	// Scenes are not read while loading; a constant still holds the preload,
-	// which GDScript reads by name (spec §11.3).
+	// Scenes are not read while loading; a pub constant still holds the
+	// preload, which GDScript reads by name (spec §11.3), and loads it then.
 	CHECK(compile_in("extends Node\nvar s = preload(\"res://missing.tscn\")\n", project, true).ok());
-	const compiler::CompileResult loading = compile_in("extends Node\npub const SCENE = preload(\"res://objects/platform.tscn\")\n", project, true);
+	const compiler::CompileResult loading = compile_in("extends Node\npub const SCENE = preload(\"res://objects/platform.tscn\")\npub const SCENES = [preload(\"res://objects/platform.tscn\"), 1]\n", project, true);
 	REQUIRE_MESSAGE(loading.ok(), messages(loading));
-	REQUIRE(loading.module.named_constants.size() == 1);
-	const bytecode::Constant &scene = loading.module.constants[loading.module.named_constants[0].constant];
-	CHECK((scene.load && scene.s == "res://objects/platform.tscn"));
-	// So does one of a container of preloads, untyped there.
-	const compiler::CompileResult containers = compile_in("extends Node\npub const SCENES = [preload(\"res://objects/platform.tscn\"), 1]\npub const BY_NAME = {\"p\": preload(\"res://objects/platform.tscn\")}\n", project, true);
-	REQUIRE_MESSAGE(containers.ok(), messages(containers));
-	REQUIRE(containers.module.named_constants.size() == 2);
-	const bytecode::Constant &list = containers.module.constants[containers.module.named_constants[0].constant];
-	CHECK((list.args.size() == 2 && list.args[0].load && list.args[0].s == "res://objects/platform.tscn"));
-	CHECK(containers.module.constants[containers.module.named_constants[1].constant].args.size() == 2);
+	CHECK(loading.module.constants_function == -1);
+	CHECK((loading.module.named_constants[0].reflected >= 0 && loading.module.named_constants[1].reflected >= 0));
+	CHECK(loads(loading.module, loading.module.functions[loading.module.reflected_function]));
 }
 
 TEST_CASE("load() of a literal path in the project is typed as preload() types it (spec §7.4)") {
@@ -922,7 +917,7 @@ TEST_CASE("while loading, only declarations are compiled") {
 	const bytecode::Function &f = function_named(result.module, "f");
 	CHECK(f.params.size() == 1);
 	CHECK(storage(result.module, f.result.type) == bytecode::ValueType::String);
-	CHECK(result.module.members[0].initial.f == 2.0);
+	CHECK(result.module.members[0].has_initial);
 	CHECK(!compile_in(source, timer_scene("_on_missing")).ok());
 	// Nor are node paths, which need the scenes; a member typed by one is a
 	// Variant until the full compile.

@@ -159,6 +159,11 @@ class Lowerer : FunctionState {
 	// The entry of each constant value that is not a scalar, so that every use
 	// of a constant reads the same container (spec §4.5).
 	std::unordered_map<const ConstValue *, uint32_t> constant_entries;
+	// Those the engine computes, in the order of their entries: each entry,
+	// its value and the line of its first use.
+	std::vector<std::tuple<uint32_t, const ConstValue *, uint32_t>> computed_entries;
+	// The values of the reflected function (bytecode::Module), by the int it takes.
+	std::vector<ConstPtr> reflected_values;
 	// Lambdas, which come after the class's functions (spec §3.11), in the order
 	// they are made in.
 	std::vector<bytecode::Function> lambdas;
@@ -687,55 +692,41 @@ class Lowerer : FunctionState {
 		return slot;
 	}
 
-	// The table entry of a constant expression's value (spec §4.5): what the
-	// compiler knows, and what the engine computes when the class loads.
+	// Whether the engine computes the value (spec §4.5): the compiler knows the
+	// rest, with the constants of built-in types (bytecode::Constant).
+	static bool is_computed(const ConstValue &p_value) {
+		return !p_value.is_known() && p_value.kind != ConstValue::Kind::Builtin;
+	}
+
+	// What the engine computes a value from, as text that is the same exactly
+	// for the same computation, with the known values in it.
+	std::string computation(const ConstValue &p_value) {
+		uint64_t bits = 0;
+		std::memcpy(&bits, &p_value.f, sizeof(bits));
+		std::string text = std::to_string(int(p_value.kind)) + " " + bytecode::type_key(module.types, type_index(p_value.type)) + " " + std::to_string(p_value.i) + " " + std::to_string(bits) + " " + std::to_string(int(p_value.b)) + " " +
+				std::to_string(p_value.index) + " " + std::to_string(p_value.hash) + " " + std::to_string(p_value.text.size()) + ":" + p_value.text + "(";
+		for (const ConstPtr &item : p_value.items) {
+			text += computation(*item) + ",";
+		}
+		return text + ")";
+	}
+
+	// The table entry of a constant expression's value (spec §4.5).
 	bytecode::Constant constant_of(const ConstValue &p_value) {
-		using Kind = ConstValue::Kind;
 		bytecode::Constant constant;
 		constant.type = type_index(p_value.type);
-		switch (p_value.kind) {
-			case Kind::Int:
-				constant.i = p_value.i;
-				constant.f = double(p_value.i);
-				return constant;
-			case Kind::Float:
-				constant.f = p_value.f;
-				return constant;
-			case Kind::Bool:
-				constant.b = p_value.b;
-				return constant;
-			case Kind::String:
-			case Kind::Preload:
-				constant.s = p_value.text;
-				constant.load = p_value.kind == Kind::Preload;
-				return constant;
-			case Kind::None:
-				return constant;
-			case Kind::Builtin:
-				constant.builtin = p_value.text;
-				return constant;
-			case Kind::Construct:
-				constant.constructor = p_value.index;
-				break;
-			case Kind::Operator:
-				constant.op = p_value.index;
-				break;
-			case Kind::Utility:
-				constant.utility = int32_t(utility(p_value.text, p_value.hash, false, p_value.returns, p_value.type, p_value.items.size(), p_value.params));
-				break;
-			case Kind::Field:
-				constant.field = p_value.text;
-				break;
-			case Kind::Array:
-			case Kind::Dictionary:
-				break;
-		}
-		for (const ConstPtr &item : p_value.items) {
-			constant.args.push_back(constant_of(*item));
-		}
+		constant.b = p_value.b;
+		constant.i = p_value.i;
+		constant.f = p_value.kind == ConstValue::Kind::Int ? double(p_value.i) : p_value.f;
+		constant.s = p_value.kind == ConstValue::Kind::String ? p_value.text : std::string();
+		constant.builtin = p_value.kind == ConstValue::Kind::Builtin ? p_value.text : std::string();
+		constant.computed = is_computed(p_value) ? bytecode::hash_source(computation(p_value)) : 0;
 		return constant;
 	}
 
+	// The entry of a value, which every use of it reads, so that it reads the
+	// same container (spec §4.5); a constants function computes it as the
+	// class loads, an error of it at the line of the first use.
 	uint32_t shared_constant(const ConstValue &p_value) {
 		const auto found = constant_entries.find(&p_value);
 		if (found != constant_entries.end()) {
@@ -743,56 +734,89 @@ class Lowerer : FunctionState {
 		}
 		const uint32_t entry = add_constant(constant_of(p_value));
 		constant_entries.emplace(&p_value, entry);
+		if (is_computed(p_value)) {
+			computed_entries.emplace_back(entry, &p_value, at.first < cls.source->tokens.size() ? uint32_t(cls.source->line(at.first)) : 0);
+		}
 		return entry;
 	}
 
 	// A constant's value in a new register: what the compiler knows as a
-	// literal is, the rest from its table entry, which the runtime computes
-	// when the class loads.
-	uint32_t load_constant(const ConstPtr &p_value) {
+	// literal is, the rest from its table entry.
+	uint32_t load_constant(const ConstValue &p_value) {
 		using Kind = ConstValue::Kind;
-		const ValueType stored = value_type(p_value->type);
-		if (stored == ValueType::Int && p_value->kind == Kind::Int) {
-			return preset(type_index(p_value->type), uint64_t(p_value->i));
+		const ValueType stored = value_type(p_value.type);
+		if (stored == ValueType::Int && p_value.kind == Kind::Int) {
+			return preset(type_index(p_value.type), uint64_t(p_value.i));
 		}
-		if (stored == ValueType::Float && p_value->kind == Kind::Float) {
+		if (stored == ValueType::Float && p_value.kind == Kind::Float) {
 			uint64_t bits = 0;
-			std::memcpy(&bits, &p_value->f, sizeof(bits));
-			return preset(type_index(p_value->type), bits);
+			std::memcpy(&bits, &p_value.f, sizeof(bits));
+			return preset(type_index(p_value.type), bits);
 		}
-		if (stored == ValueType::Bool && p_value->kind == Kind::Bool) {
-			return preset(type_index(p_value->type), p_value->b ? 1 : 0);
+		if (stored == ValueType::Bool && p_value.kind == Kind::Bool) {
+			return preset(type_index(p_value.type), p_value.b ? 1 : 0);
 		}
-		const uint32_t result = temp(p_value->type);
-		const ValueType type = reg_type(result);
-		const auto entry = [&]() { return p_value->is_known() ? add_constant(constant_of(*p_value)) : shared_constant(*p_value); };
-		switch (type) {
-			case ValueType::Bool:
-				if (p_value->kind == Kind::Bool) {
-					instr(Op::CONST_BOOL, result, NO_REG, NO_REG, p_value->b ? 1 : 0);
-				} else {
-					// Read as an int, bool having no constant instruction.
-					const uint32_t number = load_constant(converted(p_value, Type::of(TypeKind::Int)));
-					const uint32_t zero = int_constant(0);
-					instr(Op::NE_INT, result, number, zero);
+		const uint32_t result = temp(p_value.type);
+		if (p_value.kind == Kind::None) {
+			return default_value(result);
+		}
+		const uint32_t entry = p_value.is_known() ? add_constant(constant_of(p_value)) : shared_constant(p_value);
+		if (stored == ValueType::String && p_value.kind == Kind::String) {
+			instr(Op::CONST_STRING, result, NO_REG, NO_REG, entry);
+		} else {
+			instr(Op::CONST_VALUE, result, NO_REG, NO_REG, entry, fn.regs[result].type);
+		}
+		return result;
+	}
+
+	// A constant expression's value in a new register: what the compiler knows
+	// as load_constant() reads it, and what the engine computes (spec §4.5)
+	// with the instructions a function body computes it with.
+	uint32_t compute(const ConstValue &p_value) {
+		using Kind = ConstValue::Kind;
+		if (!is_computed(p_value)) {
+			return load_constant(p_value);
+		}
+		std::vector<uint32_t> items;
+		for (const ConstPtr &item : p_value.items) {
+			items.push_back(compute(*item));
+		}
+		ir::Instr i;
+		i.dst = temp(p_value.type);
+		i.args = items;
+		const uint32_t right = items.size() > 1 ? items[1] : NO_REG;
+		switch (p_value.kind) {
+			case Kind::Construct:
+				i.op = Op::CONSTRUCT;
+				i.imm = constructor(reg_type(i.dst), uint32_t(p_value.index), value_types(p_value.params));
+				add(i);
+				break;
+			case Kind::Utility:
+				i.op = Op::CALL_UTILITY;
+				i.imm = utility(p_value.text, p_value.hash, false, p_value.returns, p_value.type, items.size(), p_value.params);
+				add(i);
+				break;
+			case Kind::Operator:
+				instr(Op::EVALUATE, i.dst, items[0], right, operator_call(uint8_t(p_value.index), reg_type(items[0]), right == NO_REG ? ValueType::Void : reg_type(right), reg_type(i.dst)));
+				break;
+			case Kind::Field:
+				instr(Op::GET_FIELD, i.dst, items[0], NO_REG, field(reg_type(items[0]), p_value.text, reg_type(i.dst)));
+				break;
+			case Kind::Preload:
+				instr(Op::LOAD_RESOURCE, i.dst, NO_REG, NO_REG, text_constant(ValueType::String, p_value.text), fn.regs[i.dst].type);
+				break;
+			case Kind::Array:
+				fill_array(i.dst, items.size(), [&](size_t p_element) { return items[p_element]; });
+				break;
+			default: {
+				new_container(i.dst);
+				const auto [key_type, value_type] = *entries_of(p_value.type);
+				for (size_t e = 0; e + 1 < items.size(); e += 2) {
+					instr(Op::SET_INDEX, i.dst, convert(items[e], p_value.items[e]->type, key_type), convert(items[e + 1], p_value.items[e + 1]->type, value_type));
 				}
-				return result;
-			case ValueType::Int:
-				instr(Op::CONST_INT, result, NO_REG, NO_REG, entry());
-				return result;
-			case ValueType::Float:
-				instr(Op::CONST_FLOAT, result, NO_REG, NO_REG, entry());
-				return result;
-			case ValueType::String:
-				instr(Op::CONST_STRING, result, NO_REG, NO_REG, entry());
-				return result;
-			default:
-				if (p_value->kind == Kind::None) {
-					return default_value(result);
-				}
-				instr(Op::CONST_VALUE, result, NO_REG, NO_REG, entry(), fn.regs[result].type);
-				return result;
+			}
 		}
+		return i.dst;
 	}
 
 	// Whether an expression is lowered as its value: a constant, a scalar the
@@ -1363,24 +1387,31 @@ class Lowerer : FunctionState {
 	}
 
 	// An Array, or a packed array whose append() takes its element type
-	// (spec §3.13).
-	uint32_t array_literal(const Expr &p_expr) {
-		const uint32_t result = temp(p_expr.type);
-		const ValueType type = reg_type(result);
+	// (spec §3.13), in `p_array`, of the `p_count` elements that
+	// `p_element(e)` gives as the array keeps them.
+	template <typename Element>
+	uint32_t fill_array(uint32_t p_array, size_t p_count, Element p_element) {
+		const ValueType type = reg_type(p_array);
 		const bool packed = type != ValueType::Array;
 		if (packed) {
-			default_value(result);
+			default_value(p_array);
 		} else {
-			new_container(result);
+			new_container(p_array);
 		}
 		const uint32_t append = engine_builtin_method(type, "append", { packed ? bytecode::packed_element(type) : ValueType::Variant }, packed ? ValueType::Bool : ValueType::Void);
 		const uint32_t appended = packed ? temp(ValueType::Bool) : NO_REG;
-		for (size_t e = 0; e < p_expr.args.size(); e++) {
-			const Type &element = p_expr.param_types[e];
-			const uint32_t value = argument(*p_expr.args[e], element, true, element.kind == TypeKind::Object);
-			call_builtin(append, result, { is_boxed(element) ? box(value, false) : value }, appended);
+		for (size_t e = 0; e < p_count; e++) {
+			call_builtin(append, p_array, { p_element(e) }, appended);
 		}
-		return result;
+		return p_array;
+	}
+
+	uint32_t array_literal(const Expr &p_expr) {
+		return fill_array(temp(p_expr.type), p_expr.args.size(), [&](size_t p_element) {
+			const Type &element = p_expr.param_types[p_element];
+			const uint32_t value = argument(*p_expr.args[p_element], element, true, element.kind == TypeKind::Object);
+			return is_boxed(element) ? box(value, false) : value;
+		});
 	}
 
 	uint32_t dictionary_literal(const Expr &p_expr) {
@@ -2201,7 +2232,7 @@ class Lowerer : FunctionState {
 			}
 			const ConstPtr &constant = p_expr.read_through ? p_expr.read_through : p_expr.constant;
 			// A constant of T? keeps the value inside Some (converted()).
-			const uint32_t value = load_constant(constant);
+			const uint32_t value = load_constant(*constant);
 			return p_expr.type.kind == TypeKind::Option ? convert(value, constant->type, p_expr.type) : value;
 		}
 		switch (p_expr.kind) {
@@ -3377,16 +3408,78 @@ class Lowerer : FunctionState {
 
 	// The default values as the engine's method list shows them, NIL for one
 	// that is no constant, as GDScript lists it
-	// (modules/gdscript/gdscript_analyzer.cpp:1795-1798).
-	std::vector<bytecode::Constant> default_constants(const FuncDecl &p_function) {
-		std::vector<bytecode::Constant> out;
+	// (modules/gdscript/gdscript_analyzer.cpp:1795-1798); a lambda is in no list.
+	std::vector<int32_t> default_constants(const FuncDecl &p_function) {
+		std::vector<int32_t> out;
 		for (const ParamDecl &param : p_function.params) {
 			if (param.default_value) {
 				const ConstPtr value = converted(param.default_value->constant, param.type);
-				out.push_back(value && !loads(*value) ? constant_of(*value) : bytecode::Constant{ type_index(Type::of(TypeKind::Variant)) });
+				out.push_back(value && !loads(*value) && !p_function.is_lambda ? reflected(value) : -1);
 			}
 		}
 		return out;
+	}
+
+	int32_t reflected(const ConstPtr &p_value) {
+		reflected_values.push_back(p_value);
+		return int32_t(reflected_values.size() - 1);
+	}
+
+	// Each value of reflected_values for the int it takes, as the engine sees
+	// it (spec §10.1); NIL for another.
+	void lower_reflected() {
+		start("@reflected");
+		fn.param_count = 1;
+		fn.regs.push_back(slot("index", Type::of(TypeKind::Int)));
+		fn.result = slot(std::string(), Type::of(TypeKind::Variant));
+		for (size_t v = 0; v < reflected_values.size(); v++) {
+			const uint32_t found = temp(ValueType::Bool);
+			instr(Op::EQ_INT, found, 0, int_constant(int64_t(v)));
+			const uint32_t value_block = new_block();
+			const uint32_t next_block = new_block();
+			branch(found, value_block, next_block);
+			current = value_block;
+			ret(as_variant(compute(*reflected_values[v])));
+			current = next_block;
+		}
+		ret(default_value(temp(ValueType::Variant)));
+		bytecode::Function out = ir::emit(fn, module);
+		out.is_static = true;
+		module.functions.push_back(std::move(out));
+		module.reflected_function = int32_t(module.functions.size() - 1);
+	}
+
+	// The constants the engine computes, each once (bytecode::Module): those
+	// that hold a class of this file in a container wait for its scripts
+	// (spec §7.6), the others are computed as the class loads.
+	int32_t lower_constants(bool p_waiting) {
+		start(p_waiting ? "@waiting_constants" : "@constants");
+		uint32_t line = 0;
+		bool any = false;
+		for (size_t c = 0; c < computed_entries.size(); c++) {
+			const auto [entry, value, at_line] = computed_entries[c];
+			const bool waits = is_typed_container(value->type) && std::any_of(value->type.args.begin(), value->type.args.end(), [&](const Type &p_held) {
+				return p_held.kind == TypeKind::Object && !p_held.is_interface && !p_held.script.empty() && script_file(p_held.script) == script_file(cls.path);
+			});
+			if (waits != p_waiting) {
+				continue;
+			}
+			any = true;
+			if (at_line != line) {
+				line = at_line;
+				instr(Op::LINE, NO_REG, NO_REG, NO_REG, line);
+			}
+			const uint32_t computed = compute(*value);
+			instr(Op::INIT_CONSTANT, NO_REG, computed, NO_REG, entry, fn.regs[computed].type);
+		}
+		finish();
+		if (!any) {
+			return -1;
+		}
+		bytecode::Function out = ir::emit(fn, module);
+		out.is_static = true;
+		module.functions.push_back(std::move(out));
+		return int32_t(module.functions.size() - 1);
 	}
 
 	// The defaults of the arguments a call left out, first in the function (spec
@@ -3582,13 +3675,14 @@ public:
 			member.usage = decl_member.usage;
 			// Its type's default (spec §4.3) when it has no initializer; an empty
 			// Array[T] is typed too.
-			member.initial.type = member.type;
 			if (decl_member.initial) {
-				member.has_initial = true;
-				member.initial = constant_of(*decl_member.initial);
+				member.initial = reflected(decl_member.initial);
 			} else if (!decl_member.initializer && !decl_member.must_assign && !decl_member.is_late && decl_member.type.kind != TypeKind::Struct) {
-				member.has_initial = true;
+				auto none = std::make_shared<ConstValue>();
+				none->type = decl_member.type;
+				member.initial = reflected(none);
 			}
+			member.has_initial = member.initial >= 0;
 			module.members.push_back(member);
 		}
 		module.instance_size = offset;
@@ -3604,7 +3698,6 @@ public:
 			out.setter = variable.setter_index;
 			out.getter = variable.getter_index;
 			out.has_initial = !variable.initializer;
-			out.initial.type = out.type;
 			module.statics.push_back(out);
 		}
 		module.statics_size = static_offset;
@@ -3640,27 +3733,33 @@ public:
 		}
 
 		// The constants the engine and GDScript read by name (spec §10.5, §11.3).
+		// Without bodies, a pub one the engine computes is computed on each read.
+		const auto named = [&](const std::string &p_name, const ConstPtr &p_value, bool p_pub) {
+			module.named_constants.push_back({ p_name, shared_constant(*p_value), p_pub, p_declarations_only && p_pub && is_computed(*p_value) ? reflected(p_value) : -1 });
+		};
 		for (const ConstDecl *constant : cls.all_constants) {
 			// One naming an enum with payloads has no value (spec §3.7).
 			if (!constant->value || (constant->value->names_enum && constant->type.kind == TypeKind::PayloadEnum)) {
 				continue;
 			}
 			if (type_only(*constant, read, constant->value->kind == ConstValue::Kind::Preload && !constant->value->script.empty())) {
-				// An entry of its own, which no code reads.
-				bytecode::Constant entry = constant_of(*constant->value);
-				entry.type_only = true;
-				module.named_constants.push_back({ constant->name, add_constant(entry), false });
-			} else {
-				module.named_constants.push_back({ constant->name, shared_constant(*constant->value), constant->is_pub });
+				// An entry of its own, which no code reads or writes.
+				module.named_constants.push_back({ constant->name, add_constant(constant_of(*constant->value)), false });
+				continue;
 			}
+			// What computing it reports is at its declaration, or at the extends
+			// of a class that inherits it.
+			const bool own = std::any_of(cls.constants.begin(), cls.constants.end(), [&](const ConstDecl &p_own) { return &p_own == constant; });
+			at = own ? constant->range : TokenRange{ cls.extends_token, cls.extends_token };
+			named(constant->name, constant->value, constant->is_pub);
 		}
 		// An enum's name as GDScript's, a Dictionary, and the values of an unnamed one (spec §3.7).
 		for (const EnumDecl *decl : cls.all_enums) {
 			if (!decl->name.empty() && decl->dictionary) {
-				module.named_constants.push_back({ decl->name, shared_constant(*decl->dictionary), decl->is_pub });
+				named(decl->name, decl->dictionary, decl->is_pub);
 			}
 			for (size_t i = 0; decl->name.empty() && i < decl->constants.size(); i++) {
-				module.named_constants.push_back({ decl->values[i].name, shared_constant(*decl->constants[i]), decl->is_pub });
+				named(decl->values[i].name, decl->constants[i], decl->is_pub);
 			}
 		}
 
@@ -3746,6 +3845,13 @@ public:
 		if (has_static_initializer) {
 			module.functions.push_back(static_initializer);
 			module.static_init_function = int32_t(module.functions.size() - 1);
+		}
+		if (!p_declarations_only) {
+			module.constants_function = lower_constants(false);
+			module.waiting_function = lower_constants(true);
+		}
+		if (!reflected_values.empty()) {
+			lower_reflected();
 		}
 	}
 };

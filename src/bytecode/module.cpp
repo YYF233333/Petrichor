@@ -504,7 +504,7 @@ void archive(Ar &r_ar, T &r_value) {
 	} else if constexpr (std::is_same_v<V, TypeDesc>) {
 		io(r_ar, r_value.kind, r_value.value, r_value.element, r_value.key, r_value.object, r_value.nullable, r_value.task_result, r_value.name, r_value.fields, r_value.values);
 	} else if constexpr (std::is_same_v<V, Constant>) {
-		io(r_ar, r_value.type, r_value.b, r_value.i, r_value.f, r_value.s, r_value.builtin, r_value.constructor, r_value.op, r_value.utility, r_value.field, r_value.load, r_value.type_only, r_value.args);
+		io(r_ar, r_value.type, r_value.b, r_value.i, r_value.f, r_value.s, r_value.builtin, r_value.computed);
 	} else if constexpr (std::is_same_v<V, Member>) {
 		io(r_ar, r_value.name, r_value.type, r_value.offset, r_value.line, r_value.is_pub, r_value.is_export, r_value.is_onready, r_value.must_assign, r_value.is_late, r_value.setter, r_value.getter, r_value.hint, r_value.hint_string, r_value.export_class, r_value.export_key_class, r_value.usage, r_value.has_initial, r_value.initial);
 	} else if constexpr (std::is_same_v<V, SignalInfo>) {
@@ -520,7 +520,7 @@ void archive(Ar &r_ar, T &r_value) {
 	} else if constexpr (std::is_same_v<V, TablePrefix>) {
 		io(r_ar, r_value.types, r_value.constants, r_value.engine_calls, r_value.properties, r_value.utility_calls, r_value.operators, r_value.fields, r_value.constructors, r_value.builtin_methods, r_value.classes, r_value.method_calls);
 	} else if constexpr (std::is_same_v<V, NamedConstant>) {
-		io(r_ar, r_value.name, r_value.constant, r_value.is_pub);
+		io(r_ar, r_value.name, r_value.constant, r_value.is_pub, r_value.reflected);
 	} else if constexpr (std::is_same_v<V, EngineCall>) {
 		io(r_ar, r_value.method, r_value.result_type, r_value.static_class, r_value.owner, r_value.hash, r_value.params, r_value.defaults, r_value.return_type, r_value.returns_reference);
 	} else if constexpr (std::is_same_v<V, PropertyAccess>) {
@@ -547,7 +547,7 @@ void archive(Ar &r_ar, T &r_value) {
 		}
 		io(r_ar, r_value.source_hash, r_value.compiler_id, r_value.declarations_only, r_value.is_abstract, r_value.global_name, r_value.base_class, r_value.base_script, r_value.inherited_members,
 				r_value.types, r_value.members, r_value.signals, r_value.groups, r_value.instance_size, r_value.functions, r_value.init_function, r_value.ready_function,
-				r_value.init_tables, r_value.parent_class, r_value.parent_line, r_value.statics, r_value.statics_size, r_value.static_init_function, r_value.static_unload, r_value.named_constants, r_value.constants,
+				r_value.init_tables, r_value.parent_class, r_value.parent_line, r_value.statics, r_value.statics_size, r_value.static_init_function, r_value.static_unload, r_value.constants_function, r_value.waiting_function, r_value.reflected_function, r_value.named_constants, r_value.constants,
 				r_value.engine_calls, r_value.properties, r_value.utility_calls, r_value.operators, r_value.fields, r_value.constructors, r_value.builtin_methods,
 				r_value.classes, r_value.method_calls, r_value.interfaces, r_value.name, r_value.is_pub, r_value.inner_classes);
 		if constexpr (Ar::reading) {

@@ -60,7 +60,7 @@ TEST_CASE("a field's default value sees what a static method of the struct sees"
 	// A constant first used there is checked in the class, where no field hides its names.
 	const compiler::CompileResult limited = compile("extends Node\n\nconst scale := 2\nconst LIMIT := scale * 10\nvar limit: int = LIMIT\n\nstruct Hit:\n\tvar scale: int = 1\n\tvar damage: int = LIMIT\n");
 	REQUIRE_MESSAGE(limited.ok(), messages(limited));
-	CHECK(member_named(limited.module, "limit").initial.i == 20);
+	CHECK(limited.module.constants[limited.module.named_constants[1].constant].i == 20);
 }
 
 TEST_CASE("a struct that contains itself without a container has no size") {

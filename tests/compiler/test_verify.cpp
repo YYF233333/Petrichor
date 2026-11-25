@@ -140,6 +140,10 @@ TEST_CASE("constants must have the type their instruction stores") {
 		module.constants[touch.code[find_instruction(touch, Op::CONST_INT) + 2]].type = value_type_index(module, bytecode::ValueType::Float);
 		CHECK(rejected(module, "the constant does not have the slot's type"));
 	}
+	SUBCASE("an int instruction with a constant the engine computes, which it does not write") {
+		module.constants[touch.code[find_instruction(touch, Op::CONST_INT) + 2]].computed = 1;
+		CHECK(rejected(module, "or is computed"));
+	}
 	SUBCASE("a preset written over a String") {
 		REQUIRE(!touch.presets.empty());
 		for (const bytecode::Slot &slot : touch.slots) {

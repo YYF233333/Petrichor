@@ -52,6 +52,8 @@ namespace petrichor::bytecode {
 	X(CONST_BOOL, "DI", "b.") \
 	X(CONST_STRING, "DI", "s.") \
 	X(CONST_VALUE, "TDI", "tlk") /* type, dst, constant */ \
+	X(INIT_CONSTANT, "TIA", "t.l") /* type, constant, src: in a constants function, the value of a constant the engine computes, frozen (spec §4.5) */ \
+	X(LOAD_RESOURCE, "TDI", "tl.") /* type, dst, path (a String constant): preload(), a resource that is no longer of the type a program error */ \
 	X(MOVE_8, "DA", "") \
 	X(MOVE_STRING, "DA", "ss") \
 	X(MOVE_VALUE, "TDA", "tll") /* type, dst, src */ \

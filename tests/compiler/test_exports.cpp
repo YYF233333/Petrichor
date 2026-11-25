@@ -35,7 +35,7 @@ TEST_CASE("@export_range gives the inspector GDScript's range hint") {
 	CHECK(member_named(result.module, "cooldown").hint_string == "0.1,1.0");
 	CHECK(member_named(result.module, "max_distance").hint_string == "1.0,20.0");
 	CHECK(member_named(result.module, "damage").hint_string == "-5.0,100.0,0.5,or_greater");
-	CHECK(member_named(result.module, "damage").initial.f == 25.0);
+	CHECK(member_named(result.module, "damage").has_initial);
 
 	CHECK(contains(exports_errors("@export_range(0, 1) pub var s: String"), "@export_range applies to int and float, not String"));
 	CHECK(contains(exports_errors("@export_range(1) pub var x: int"), "a minimum, a maximum and an optional step"));
@@ -309,36 +309,6 @@ TEST_CASE("an exported Array[PackedScene[T]] holds scenes whose roots are a T, w
 	CHECK(contains(errors, "res://pool.tres: the value stored for \"halls\" of the resource does not fit its type: Array[PackedScene[Room]][1]: expected PackedScene[Room], found PackedScene[Node2D]."));
 }
 
-// A constant as text, a Dictionary of the encoding (spec §10.1) with its
-// keys in order, a constructed value as C(arguments).
-static std::string shown(const bytecode::Module &p_module, const bytecode::Constant &p_constant) {
-	std::string text;
-	for (size_t i = 0; i < p_constant.args.size(); i++) {
-		text += (i ? ", " : "") + shown(p_module, p_constant.args[i]);
-	}
-	switch (storage(p_module, p_constant.type)) {
-		case bytecode::ValueType::Dictionary: {
-			std::string entries;
-			for (size_t i = 0; i + 1 < p_constant.args.size(); i += 2) {
-				entries += (i ? ", " : "") + p_constant.args[i].s + ": " + shown(p_module, p_constant.args[i + 1]);
-			}
-			return "{" + entries + "}";
-		}
-		case bytecode::ValueType::Array:
-			return "[" + text + "]";
-		case bytecode::ValueType::Int:
-			return std::to_string(p_constant.i);
-		case bytecode::ValueType::Float:
-			return std::to_string(int(p_constant.f)) + ".0";
-		case bytecode::ValueType::Bool:
-			return p_constant.b ? "true" : "false";
-		case bytecode::ValueType::String:
-			return p_constant.s;
-		default:
-			return p_constant.constructor >= 0 ? "C(" + text + ")" : "null";
-	}
-}
-
 TEST_CASE("a struct or an enum with payloads is exported encoded, its default known when built of constants (spec §4.3, §10.1)") {
 	const compiler::CompileResult result = compile(
 			"class_name Loadout\n"
@@ -360,21 +330,13 @@ TEST_CASE("a struct or an enum with payloads is exported encoded, its default kn
 			"@export pub var rolled := Hit(damage = randi())\n"
 			"@export pub var next: Order\n");
 	REQUIRE_MESSAGE(result.ok(), messages(result));
-	const auto initial = [&](const char *p_name) {
-		const bytecode::Member &member = member_named(result.module, p_name);
-		return member.has_initial ? shown(result.module, member.initial) : std::string("none");
-	};
-	// A T? field that is None has no key, unless its default is not None (spec §3.6, §3.7, §10.1).
-	CHECK(initial("hit") == "{damage: 3, crit: false, tags: [], mark: 1}");
-	CHECK(initial("strong") == "{damage: 9, crit: false, tags: [], mark: null}");
-	CHECK(initial("order") == "{$variant: MOVE, target: C(1.0, 2.0, 3.0), speed: 2.0}");
-	CHECK(initial("idle") == "{$variant: WAIT}");
-	CHECK(initial("maybe") == "{damage: 3, crit: true, tags: [], mark: 1}");
-	CHECK(initial("result") == "{$variant: Ok, value: 2}");
-	CHECK(initial("nothing") == "{$variant: Ok}");
+	// Its values are in export_revert.pet of the engine tests.
+	for (const char *name : { "hit", "strong", "order", "idle", "maybe", "result", "nothing" }) {
+		CHECK_MESSAGE(member_named(result.module, name).has_initial, name);
+	}
 	// Code computes it, or the scene must assign it (spec §7.5).
-	CHECK(initial("rolled") == "none");
-	CHECK(initial("next") == "none");
+	CHECK(!member_named(result.module, "rolled").has_initial);
+	CHECK(!member_named(result.module, "next").has_initial);
 	CHECK(member_named(result.module, "next").must_assign);
 	// The hint string names the type, after keys that the inspector's
 	// Dictionary editor leaves untyped (architecture §6.2).

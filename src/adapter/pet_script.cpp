@@ -119,13 +119,8 @@ static Dictionary function_info(const ClassImage &p_image, int p_index) {
 	const uint32_t flags = METHOD_FLAGS_DEFAULT | (function.is_static ? METHOD_FLAG_STATIC : 0) | (function.is_abstract ? METHOD_FLAG_VIRTUAL_REQUIRED : 0) | (function.is_vararg ? METHOD_FLAG_VARARG : 0);
 	Dictionary method = method_dict(p_image.function_names[p_index], args, result, flags);
 	Array defaults;
-	for (const bytecode::Constant &constant : function.defaults) {
-		Variant value;
-		String error;
-		if (!constant_value(p_image, constant, value, error)) {
-			ERR_PRINT(vformat("%s: a default argument of %s: %s", p_image.path, p_image.function_names[p_index], error));
-		}
-		defaults.push_back(value);
+	for (const int32_t value : function.defaults) {
+		defaults.push_back(reflected_value(p_image, value));
 	}
 	method["default_args"] = defaults;
 	return method;
@@ -227,20 +222,10 @@ TypedArray<Dictionary> visible_methods(const ClassImage &p_image) {
 	return list;
 }
 
+// Built for each request, so that no two holders share an array, and late,
+// so that the script that types an array has been loaded.
 Variant initial_value(const ClassImage &p_image, size_t p_member) {
-	const bytecode::Member &member = p_image.module.members[p_member];
-	if (!member.has_initial) {
-		return Variant();
-	}
-	// Built for each request, so that no two holders share an array, and late,
-	// so that the script that types an array has been loaded.
-	Variant value;
-	String error;
-	if (!constant_value(p_image, member.initial, value, error)) {
-		ERR_PRINT(vformat("%s: the initial value of %s: %s", p_image.path, p_image.member_names[p_member], error));
-		return default_variant(p_image.types[member.type]);
-	}
-	return value;
+	return reflected_value(p_image, p_image.module.members[p_member].initial);
 }
 
 PetHeader parse_header(const String &p_source) {
@@ -363,10 +348,7 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, cons
 	// the script, so it stays until the language clears them at exit.
 	if (p_image && inner_path.is_empty() && p_image->waits()) {
 		begin_loading(p_image);
-		String error;
-		if (!p_image->finish_constants(error)) {
-			ERR_PRINT(vformat("%s %s", p_image->path, error));
-		}
+		p_image->finish_constants();
 		end_loading();
 		PetLanguage::get_singleton()->keep_loaded(Ref<PetScript>(this));
 	}

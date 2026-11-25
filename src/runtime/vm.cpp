@@ -1312,6 +1312,13 @@ class Execution {
 		}
 	}
 
+	// Of the type the compiler found, unless the file changed since.
+	PETRICHOR_NOINLINE bool op_load_resource(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
+		const String &path = image.strings[p_op[3]];
+		const Variant resource = load_resource(path);
+		return from_variant(image.types[p_op[1]], resource, p_frame + p_op[2], true) || fail(p_fn, p_line, vformat("preload(\"%s\"): %s", path, entry_mismatch(image.types[p_op[1]], resource)));
+	}
+
 	PETRICHOR_NOINLINE static void op_add_string(const uint32_t *p_op, uint8_t *p_frame) {
 		*reinterpret_cast<String *>(p_frame + p_op[1]) = *reinterpret_cast<const String *>(p_frame + p_op[2]) + *reinterpret_cast<const String *>(p_frame + p_op[3]);
 	}
@@ -2707,6 +2714,11 @@ public:
 				case Op::INIT_STATIC:
 					op_init_static(code + pc, frame);
 					NEXT(INIT_STATIC);
+				case Op::INIT_CONSTANT:
+					image.set_constant(code[pc + 2], frame + code[pc + 3]);
+					NEXT(INIT_CONSTANT);
+				case Op::LOAD_RESOURCE:
+					NEXT_IF(LOAD_RESOURCE, op_load_resource(code + pc, frame, fn, record.line));
 				case Op::INT_TO_FLOAT:
 					F64(code[pc + 1]) = double(I64(code[pc + 2]));
 					NEXT(INT_TO_FLOAT);
@@ -3750,7 +3762,7 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 	ClassImage::resolve_function(image, p_function);
 	const bytecode::Function &fn = image->module.functions[p_function];
 	r_error.error = GDEXTENSION_CALL_OK;
-	if (image->module.declarations_only) {
+	if (image->module.declarations_only && p_function != image->module.reflected_function) {
 		ERR_PRINT(vformat("%s was only described for the editor; it runs once the project is built.", image->path));
 		r_error.error = GDEXTENSION_CALL_ERROR_INVALID_METHOD;
 		return Variant();
@@ -3800,7 +3812,10 @@ Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, Instance
 		return task->ended() ? task->result : Variant(Signal(task->object().ptr(), "completed"));
 	}
 	ValueBuffer result(result_type);
-	const bool ok = Execution(*image, context, debugger::is_active()).run(uint32_t(p_function), frame.data, result.data);
+	// The lines of constants, which GDScript computes as it compiles, are not
+	// stepped through as the class loads.
+	const bool constants = p_function == image->module.constants_function || p_function == image->module.waiting_function;
+	const bool ok = Execution(*image, context, debugger::is_active() && !constants).run(uint32_t(p_function), frame.data, result.data);
 	if (r_failed) {
 		*r_failed = !ok;
 	}

@@ -1121,3 +1121,10 @@ func _struct_exports() -> void:
 	derived.free()
 	base.free()
 	_check_errors([], "the scenes' values decode without errors")
+	var reverts: Resource = load("res://language/export_revert.pet").new()
+	var reverted := {}
+	for name in ["hit", "strong", "order", "idle", "maybe", "result", "nothing", "rolled"]:
+		reverted[name] = reverts.property_get_revert(name) if reverts.property_can_revert(name) else "none"
+	_check(reverted == {"hit": {"damage": 3, "crit": false, "tags": [], "mark": 1}, "strong": {"damage": 9, "crit": false, "tags": [], "mark": null}, "order": {"$variant": "MOVE", "target": Vector3(1, 2, 3), "speed": 2.0}, "idle": {"$variant": "WAIT"}, "maybe": {"damage": 3, "crit": true, "tags": [], "mark": 1}, "result": {"$variant": "Ok", "value": 2}, "nothing": {"$variant": "Ok"}, "rolled": "none"}, "an export reverts to its initial value encoded, and to none that code computes: %s" % [reverted])
+	var go: Dictionary = reverts.get_script().get_script_method_list().filter(func(m): return m.name == "go")[0]
+	_check(go.default_args == [{"$variant": "WAIT"}], "a default argument of an enum with payloads is listed encoded: %s" % [go.default_args])

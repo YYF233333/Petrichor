@@ -86,7 +86,6 @@ const LETTERS = NAME[1] + NAME[-1]
 	// A String by code point, as the engine indexes it (core/variant/variant_setget.cpp:763-784; ed1daf0).
 	CHECK(named(module, "LETTERS").s == "\xC3\xA9\xF0\x9F\x8C\xA7");
 	CHECK(storage(module, named(module, "LIMITS").type) == ValueType::Array);
-	CHECK(named(module, "LIMITS").args.size() == 3);
 }
 
 TEST_CASE("the engine computes what has engine types when the class loads") {
@@ -100,24 +99,10 @@ const STATIC = Color("#82010b")
 const SPLIT = Vector2i(4, 2).x / 2
 const ROOT = 2.0 ** 0.5
 )");
-	CHECK(named(module, "SPLIT").op == compiler::OP_DIVIDE);
-	CHECK(named(module, "ROOT").op == compiler::OP_POWER);
+	for (const char *name : { "EXTENTS", "TINT", "ANGLE", "SLOPE", "CORNERS", "STATIC", "SPLIT", "ROOT" }) {
+		CHECK_MESSAGE(named(module, name).computed, name);
+	}
 	CHECK(has_error("const SPLIT = 4 / Vector2i(4, 2).x\n", "The divisor of an int must be known at compile time."));
-	const bytecode::Constant &extents = named(module, "EXTENTS");
-	CHECK(extents.op == compiler::OP_DIVIDE);
-	REQUIRE(extents.args.size() == 2);
-	CHECK(extents.args[0].builtin == "ONE");
-	CHECK(extents.args[1].f == 2.0);
-	const bytecode::Constant &angle = named(module, "ANGLE");
-	REQUIRE(angle.utility >= 0);
-	CHECK(module.utility_calls[angle.utility].function == "deg_to_rad");
-	// The int is converted where the engine takes a float, as written.
-	REQUIRE(angle.args.size() == 1);
-	CHECK(storage(module, angle.args[0].type) == ValueType::Float);
-	CHECK(angle.args[0].f == 30.0);
-	CHECK(named(module, "SLOPE").args[0].utility >= 0);
-	CHECK(named(module, "CORNERS").args[1].op == compiler::OP_NEGATE);
-	CHECK(named(module, "STATIC").constructor >= 0);
 }
 
 TEST_CASE("what loading could fail on is a compile error, where it is") {

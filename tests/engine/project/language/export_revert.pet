@@ -1,0 +1,26 @@
+# The values the inspector reverts exported structs and enums with payloads
+# to, encoded as the engine sees them (spec §4.3, §10.1), and a default
+# argument of such an enum in the method list; read by language_test.gd.
+extends Resource
+
+pub struct Hit:
+	var damage: int = 3
+	var crit := false
+	var tags: Array[String] = []
+	var note: String? = None
+	var mark: int? = 1
+
+pub enum Order { WAIT, MOVE(target: Vector3, speed: float) }
+
+@export pub var hit: Hit
+@export pub var strong := Hit(damage = 9, mark = None)
+@export pub var order := Order.MOVE(target = Vector3(1, 2, 3), speed = 2)
+@export pub var idle: Order = Order.WAIT
+@export pub var maybe: Hit? = Hit(crit = true)
+@export pub var result: Result[int, String] = Ok(2)
+@export pub var nothing: Result[int?, String] = Ok(None)
+@export pub var rolled := Hit(damage = randi())
+
+
+pub func go(next: Order = Order.WAIT) -> Order:
+	return next

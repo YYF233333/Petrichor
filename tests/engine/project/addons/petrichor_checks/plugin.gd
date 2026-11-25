@@ -43,6 +43,7 @@ func _run() -> void:
 	await _check_global_bases()
 	_check_placeholder_fallback()
 	_check_constant_defaults()
+	_check_declared_preloads()
 	_check_other_defaults()
 	_check_struct_exports()
 	await _check_stored_exports()
@@ -245,6 +246,22 @@ func _check_constant_defaults() -> void:
 	_check(_pack_to_text(root).contains("offset = Vector2(1, 2)"), "a value other than its constant default is saved")
 	root.free()
 	for file in [script_path, script_path + ".uid", scene_path]:
+		DirAccess.remove_absolute(file)
+
+
+# The editor loads a script for its declarations, which loads no resource; a
+# pub constant that preloads one is computed as it is read, as GDScript's is
+# (architecture §2.2).
+func _check_declared_preloads() -> void:
+	var script_path := "res://editor_check_preloads.pet"
+	var resource_path := "res://editor_check_preloaded.tres"
+	_write(resource_path, "[gd_resource type=\"Resource\" format=3]\n\n[resource]\n")
+	_write(script_path, "extends Node\npub const ONE = preload(\"%s\")\npub const BOTH = [preload(\"%s\"), 1]\n" % [resource_path, resource_path])
+	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
+	_check(not ResourceLoader.has_cached(resource_path), "a script loaded for its declarations loads no resource")
+	var constants := script.get_script_constant_map()
+	_check(constants.get("ONE") is Resource and constants.get("BOTH") == [constants.get("ONE"), 1], "its constants map holds what its constants preload: %s" % [constants])
+	for file in [script_path, script_path + ".uid", resource_path]:
 		DirAccess.remove_absolute(file)
 
 

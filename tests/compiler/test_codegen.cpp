@@ -23,12 +23,9 @@ std::string listing(const bytecode::Module &p_module, const std::string &p_funct
 	return bytecode::disassemble(p_module, function_named(p_module, p_function));
 }
 
-// The numbers in a constant and in those it is computed from.
-void flatten(const bytecode::Constant &p_constant, std::vector<double> &r_values) {
-	r_values.push_back(double(p_constant.i) + p_constant.f);
-	for (const bytecode::Constant &arg : p_constant.args) {
-		flatten(arg, r_values);
-	}
+// What hot reload compares of a constant's value (spec §12.4).
+std::tuple<int64_t, double, uint64_t> compared(const bytecode::Constant &p_constant) {
+	return { p_constant.i, p_constant.f, p_constant.computed };
 }
 
 } // namespace
@@ -46,11 +43,8 @@ var label := "n"
 	CHECK(storage(module, module.members[0].type) == ValueType::Float);
 	CHECK(module.members[0].is_pub);
 	CHECK(module.members[0].is_export);
-	CHECK(module.members[0].initial.f == 2.0);
 	CHECK(storage(module, module.members[1].type) == ValueType::Int);
-	CHECK(module.members[1].initial.i == -3);
 	CHECK(storage(module, module.members[2].type) == ValueType::String);
-	CHECK(module.members[2].initial.s == "n");
 }
 
 TEST_CASE("signatures") {
@@ -113,27 +107,6 @@ var mixed: Array[float] = [1, randf()]
 	CHECK(initial("plain"));
 	CHECK(!initial("mixed"));
 
-	const bytecode::Constant &offset = member_named(module, "offset").initial;
-	CHECK(storage(module, offset.type) == ValueType::Vector2);
-	CHECK(offset.constructor >= 0);
-	REQUIRE(offset.args.size() == 2);
-	CHECK((storage(module, offset.args[0].type) == ValueType::Float && offset.args[0].f == 400.0));
-	CHECK(member_named(module, "up").initial.builtin == "UP");
-	CHECK(storage(module, member_named(module, "path").initial.type) == ValueType::NodePath);
-	// An int literal is converted where the constructor takes a float, as written.
-	const bytecode::Constant &placed = member_named(module, "placed").initial;
-	REQUIRE(placed.args.size() == 2);
-	REQUIRE(placed.args[1].args.size() == 2);
-	CHECK((storage(module, placed.args[1].type) == ValueType::Vector2 && storage(module, placed.args[1].args[0].type) == ValueType::Float && placed.args[1].args[0].f == -1.0));
-	// An array is typed as the member; an element of an untyped one keeps its type.
-	const bytecode::Constant &items = member_named(module, "items").initial;
-	CHECK((module.types[items.type].kind == bytecode::TypeKind::Array && storage(module, module.types[items.type].element) == ValueType::Int && items.args.size() == 2 && items.args[1].i == 2));
-	const bytecode::Constant &nodes = member_named(module, "nodes").initial;
-	CHECK((module.types[module.types[nodes.type].element].object.name == "Node" && nodes.args.empty()));
-	const bytecode::Constant &plain = member_named(module, "plain").initial;
-	REQUIRE(plain.args.size() == 2);
-	CHECK((module.types[plain.type].kind == bytecode::TypeKind::Value && storage(module, plain.args[0].type) == ValueType::Int && storage(module, plain.args[1].type) == ValueType::String));
-
 	const std::vector<uint8_t> data = bytecode::serialize(module);
 	bytecode::Module copy;
 	std::string error;
@@ -145,10 +118,8 @@ var mixed: Array[float] = [1, randf()]
 // which is then its initial value; one the scene must assign has none (§7.5).
 TEST_CASE("a member without an initializer starts at its type's default") {
 	const bytecode::Module module = module_of("extends Node\n@export pub var count: int\n@export pub var nodes: Array[Node]\n@export pub var target: Node\nvar maybe: Node?\n");
-	const bytecode::Member &count = member_named(module, "count");
-	CHECK((count.has_initial && storage(module, count.initial.type) == ValueType::Int && count.initial.i == 0));
-	const bytecode::Member &nodes = member_named(module, "nodes");
-	CHECK((nodes.has_initial && module.types[module.types[nodes.initial.type].element].object.name == "Node" && nodes.initial.args.empty()));
+	CHECK(member_named(module, "count").has_initial);
+	CHECK(member_named(module, "nodes").has_initial);
 	CHECK(!member_named(module, "target").has_initial);
 	CHECK(member_named(module, "maybe").has_initial);
 }
@@ -164,9 +135,9 @@ TEST_CASE("the init function and its table entries do not change with a function
 	REQUIRE(a.init_function >= 0);
 	auto init_code = [](const bytecode::Module &p_module) { return p_module.functions[p_module.init_function].code; };
 	auto init_constants = [](const bytecode::Module &p_module) {
-		std::vector<double> values;
+		std::vector<std::tuple<int64_t, double, uint64_t>> values;
 		for (uint32_t i = 0; i < p_module.init_tables.constants; i++) {
-			flatten(p_module.constants[i], values);
+			values.push_back(compared(p_module.constants[i]));
 		}
 		return values;
 	};
@@ -176,6 +147,22 @@ TEST_CASE("the init function and its table entries do not change with a function
 	// The code can stay the same when a constant changes, so the entries count too.
 	CHECK(init_code(a) == init_code(c));
 	CHECK(init_constants(a) != init_constants(c));
+	// So does the default of a struct's field that a member starts with.
+	const bytecode::Module d = module_of("extends Node\nstruct Hit:\n\tvar damage: int = 3\nvar hit: Hit\n");
+	const bytecode::Module e = module_of("extends Node\nstruct Hit:\n\tvar damage: int = 4\nvar hit: Hit\n");
+	CHECK(d.functions[d.init_function].presets != e.functions[e.init_function].presets);
+}
+
+// Other classes may have been compiled with a constant's value, which hot
+// reload compares by what the engine computes it from (spec §4.5, §12.4).
+TEST_CASE("a named constant's entry changes with its computation, not with a body") {
+	const auto entry = [](const char *p_source) {
+		const bytecode::Module module = module_of(p_source);
+		return compared(module.constants[module.named_constants[0].constant]);
+	};
+	const char *before = "extends Node\nconst V := Vector2(1, 2)\n";
+	CHECK(entry(before) != entry("extends Node\nconst V := Vector2(1, 3)\n"));
+	CHECK(entry(before) == entry("extends Node\nconst V := Vector2(1, 2)\n\nfunc f() -> Vector2:\n\treturn Vector2(5, 6) * 2.0\n"));
 }
 
 TEST_CASE("serialization round-trips") {
@@ -186,7 +173,6 @@ TEST_CASE("serialization round-trips") {
 	REQUIRE(bytecode::deserialize(data.data(), data.size(), copy, error));
 	CHECK(copy.global_name == "A");
 	CHECK(copy.source_hash == module.source_hash);
-	CHECK(copy.members[0].initial.s == "x");
 	CHECK(listing(copy, "f") == listing(module, "f"));
 	CHECK(bytecode::serialize(copy) == data);
 }

@@ -252,33 +252,20 @@ bool is_boxed(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 // Callable, or a T?, a struct or an enum with payloads that holds one.
 bool holds_references(const std::vector<TypeDesc> &p_types, uint32_t p_type);
 
-// A constant of a type of the table; one of an Object type or of T? is None,
-// unless it loads a resource; one of a PayloadEnum is the variant `i` with
-// its fields at their defaults. The runtime computes it once, when the class
-// loads (spec §4.5): the engine's computations below cannot fail on the values
-// the compiler lets through.
+// A constant of a type of the table; one of an Object type or of T? is None;
+// one of a PayloadEnum is the variant `i` with its fields at their defaults.
+// One whose value the engine computes (spec §4.5) has its computation's
+// hash_source() in `computed`, which hot reload compares, and is written once
+// by INIT_CONSTANT in a constants function; one that only names a script's
+// class in types has no code that writes it (§2.1).
 struct Constant {
 	uint32_t type = 0;
 	bool b = false;
 	int64_t i = 0;
 	double f = 0.0;
-	std::string s; // String, StringName and NodePath values; the path a resource loads from.
+	std::string s; // String, StringName and NodePath values.
 	std::string builtin; // A constant of a built-in type, such as "UP" of Vector3.
-	// A value built by a constructor of the type, by its index in the engine's
-	// list, from `args`, which have the types the constructor takes; -1 for
-	// none.
-	int32_t constructor = -1;
-	int32_t op = -1; // The engine's operator (Variant::Operator) on `args`, one or two; -1 for none.
-	int32_t utility = -1; // A utility function of the table, called with `args`; -1 for none.
-	std::string field; // The member of the built-in value `args[0]`, such as x of Vector3.
-	// The resource at `s`, which the class loads as it loads (spec §7.6),
-	// unless the constant only names a script's class in types (§2.1).
-	bool load = false;
-	bool type_only = false;
-	// The constructor's arguments, the operands, the utility function's
-	// arguments, the elements of an Array, or each key of a Dictionary and its
-	// value, typed as its type says.
-	std::vector<Constant> args;
+	uint64_t computed = 0;
 };
 
 // A constant the class declares or inherits (spec §4.5), which the engine and
@@ -287,6 +274,9 @@ struct NamedConstant {
 	std::string name;
 	uint32_t constant = 0; // In the constants table.
 	bool is_pub = false;
+	// In a module compiled for declarations only, a pub one the engine
+	// computes: its value in the reflected function; -1 for others.
+	int32_t reflected = -1;
 };
 
 struct Slot {
@@ -324,12 +314,12 @@ struct Member : Slot {
 	// them, without SCRIPT_VARIABLE, which every member has.
 	uint32_t usage = 0;
 	// The value the member starts at, when the compiler knows it: a constant
-	// initializer, or its type's default without one (spec §4.3); a struct or
-	// an enum with payloads encoded as the engine sees it (§10.1). The editor
-	// shows it as the default; the module's init function writes the member,
-	// with the other initializers.
+	// initializer, or its type's default without one (spec §4.3), as the
+	// engine sees it (§10.1). The editor shows it as the default, by its
+	// value in the reflected function; the module's init function writes the
+	// member, with the other initializers.
 	bool has_initial = false;
-	Constant initial;
+	int32_t initial = -1;
 };
 
 // How the multiplayer API calls a method from another peer (@rpc), as the
@@ -366,11 +356,11 @@ struct Function {
 	std::string name;
 	std::vector<Slot> params;
 	// The last parameters' default values, before a lambda's captures, as the
-	// engine's method list shows them, NIL for one that is no constant (spec
-	// §4.6, §3.11). The code computes
-	// those a call leaves out first, from the count of arguments the call
-	// writes into the int slot at `given`.
-	std::vector<Constant> defaults;
+	// engine's method list shows them: by their values in the reflected
+	// function, -1 for one that is no constant, which it shows as NIL (spec
+	// §4.6, §3.11). The code computes those a call leaves out first, from the
+	// count of arguments the call writes into the int slot at `given`.
+	std::vector<int32_t> defaults;
 	uint32_t given = NO_SLOT;
 	// The last parameter before a lambda's captures is a rest parameter, an
 	// Array of the arguments after the others (spec §4.6).
@@ -594,6 +584,18 @@ struct Module {
 	// to do. A body: hot reload neither compares nor runs it again.
 	int32_t static_init_function = -1;
 	bool static_unload = false; // @static_unload: the class may unload with its static variables (spec §4.8).
+	// Static functions without parameters that compute the constants the
+	// engine computes, each once (spec §4.5): as the class loads, and the
+	// containers of a class of this file once the file's scripts hold their
+	// images (§7.6); -1 when there are none. Bodies: hot reload compares the
+	// constants instead.
+	int32_t constants_function = -1;
+	int32_t waiting_function = -1;
+	// Gives, on each call, the value of the int it takes as reflection shows
+	// it (spec §10.1), writable and made then: members' initial values,
+	// default arguments and, without bodies, pub constants; -1 when there is
+	// none. It also runs in a module compiled for declarations only.
+	int32_t reflected_function = -1;
 	// Lowered before the init function, so that their entries are among the
 	// declarations hot reload compares (spec §4.5, §12.4).
 	std::vector<NamedConstant> named_constants;

@@ -13,6 +13,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <thread>
 #include <vector>
@@ -109,16 +110,17 @@ public:
 	mutable std::shared_ptr<Statics> statics;
 	godot::HashMap<godot::StringName, int> static_lookup;
 
-	std::vector<godot::String> strings; // String constants, by constant index.
-	// Other constants, by constant index; those that wait are written once.
+	std::vector<godot::String> strings; // String constants the compiler knows, by constant index.
+	// Every constant, by constant index; those the engine computes are written
+	// once (set_constant()).
 	mutable std::vector<godot::Variant> values;
 	// By constant index: one of a built-in type in that type's own layout, as
 	// CONST_VALUE copies it; null for others.
-	std::vector<const uint8_t *> native_values;
-	// The constants that hold containers of a class of this file, which wait
-	// for the file's scripts (spec §7.6): by index, with where their native
-	// values go.
-	std::vector<std::pair<size_t, uint8_t *>> waiting;
+	std::vector<uint8_t *> native_values;
+	// The constants the waiting function writes, which hold containers of a
+	// class of this file (spec §7.6).
+	std::vector<uint32_t> waiting;
+	mutable std::once_flag finished;
 	std::vector<godot::StringName> engine_methods;
 	std::vector<godot::StringName> engine_static_classes; // Empty for a method called on an object.
 	// By engine call index: the MethodBind of a method called through it, with
@@ -201,10 +203,13 @@ public:
 	std::shared_ptr<const ClassImage> find_class(const godot::String &p_path) const;
 	// Computes the constants that wait, of this class and its inner classes,
 	// once the file's scripts hold the images and the loading registry has
-	// them; false with r_error as load() fails.
-	bool finish_constants(godot::String &r_error) const;
+	// them.
+	void finish_constants() const;
 	// Whether it or an inner class has such constants.
 	bool waits() const;
+	// The value of a constant the engine computes, from a slot of its type:
+	// read-only at every level (spec §4.5).
+	void set_constant(uint32_t p_index, const uint8_t *p_value) const;
 
 	int find_function(const godot::StringName &p_name) const;
 	int find_member(const godot::StringName &p_name) const;
@@ -224,11 +229,9 @@ private:
 	static std::shared_ptr<ClassImage> load_class(bytecode::Module &&p_module, const godot::String &p_path, godot::String &r_error, const std::shared_ptr<const ClassImage> &p_base);
 };
 
-// The value of a constant of the image's module, computed now, containers
-// new and writable; None for a constant of an object type or of T?, unless it
-// loads a resource. Returns false and sets r_error when the engine has no such
-// constant, constructor, operator or function.
-bool constant_value(const ClassImage &p_image, const bytecode::Constant &p_constant, godot::Variant &r_value, godot::String &r_error);
+// The value of the reflected function for `p_index` (bytecode/module.h),
+// made now; NIL for -1.
+godot::Variant reflected_value(const ClassImage &p_image, int32_t p_index);
 
 // The value of a pub constant the class declares or inherits (spec §4.5), as
 // the engine and GDScript read it by name (§10.5, §11.3); false if there is none.
