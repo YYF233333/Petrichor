@@ -203,16 +203,17 @@ TEST_CASE("a setter with an await is made async, and a member made T? makes its 
 	CHECK(migration.errors.empty());
 }
 
-TEST_CASE("an ancestor that assigns a member in its _ready before it awaits gives it a value") {
+// A node below a scene's root has no creator (spec §6.2).
+TEST_CASE("a member that only an ancestor assigns in its _ready becomes T?") {
 	FakeProject project;
-	project.add_script("res://bar.gd", "extends Node\nvar target: Node\nvar shown: Node\nvar other: Node\n\n\nfunc show_it() -> void:\n\tprint(target.name, shown.name, other.name)\n");
-	project.add_script("res://hud.gd", "extends Node\n@onready var bar = $Bar\n\n\nfunc _ready() -> void:\n\t$Bar.target = self\n\tbar.shown = self\n\tawait ready\n\t$Bar.other = self\n");
+	project.add_script("res://bar.gd", "extends Node\nvar target: Node\n\n\nfunc show_it() -> void:\n\tprint(target.name)\n");
+	project.add_script("res://hud.gd", "extends Node\n\n\nfunc _ready() -> void:\n\t$Bar.target = self\n");
 	compiler::Scene main;
 	main.path = "res://main.tscn";
 	main.nodes = { { ".", "Node", "res://hud.gd" }, { "Bar", "Node", "res://bar.gd" } };
 	project.scenes = { main };
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://bar.gd", "res://hud.gd" }, 10);
-	CHECK(migration.texts.at("res://bar.pet") == "extends Node\npub var target: Node\npub var shown: Node\npub var other: Node?\n\n\nfunc show_it() -> void:\n\tprint(target.name, shown.name, other.unwrap().name)\n");
+	CHECK(migration.texts.at("res://bar.pet") == "extends Node\npub var target: Node?\n\n\nfunc show_it() -> void:\n\tprint(target.unwrap().name)\n");
 	CHECK(migration.errors.empty());
 }
 

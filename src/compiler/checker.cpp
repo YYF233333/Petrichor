@@ -1711,12 +1711,11 @@ void Checker::check_function_bodies() {
 	}
 	check_init();
 	// Spec §6.2 shows a member assigned when _init assigns it on every path,
-	// an export when the scene or the resource stores it, which their checks
-	// look at, and one that ancestors assign, which the scenes tell: the
-	// class's own check reads them.
+	// and an export when the scene or the resource stores it, which their
+	// checks look at.
 	for (const auto *list : { &cls.members, &cls.static_vars }) {
 		for (const VarDecl &variable : *list) {
-			if (!loading() && !variable.initializer && !variable.is_export && (list == &cls.static_vars || (!init_assigns(cls, variable.name) && !(options.inflows && ancestor_assigns(variable.name))))) {
+			if (!loading() && !variable.initializer && !variable.is_export && (list == &cls.static_vars || !init_assigns(cls, variable.name))) {
 				starts_null(variable.slot, variable.declared_type ? &*variable.declared_type : nullptr, variable.type, variable.name_token);
 			}
 		}
@@ -1757,6 +1756,7 @@ void Checker::check_scene() {
 	check_stored_exports();
 	check_scene_exports();
 	check_resource_values();
+	check_node_members();
 }
 // Whether a class of `p_file` extends one of this file, directly or
 // through the classes of the other files `r_files` lists after it. Each

@@ -956,13 +956,13 @@ class Checker : public ClassRelation, private CheckContext {
 	NamedMember node_signal(const SceneNode &p_node, const std::string &p_signal);
 	void declare_requirement(const std::optional<TypeRef> &p_ref, Type &r_type, const std::string &p_annotation);
 	void for_each_placement(const std::function<void(const Scene &, const SceneNode &)> &p_check);
-	bool ancestor_assigns(const std::string &p_member);
 	void check_required(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const SceneNode &p_node, const Type &p_required, const std::string &p_what, const std::string &p_annotation);
 	void check_required_type(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const Type &p_found, const Type &p_required, const std::string &p_what, const std::string &p_annotation);
 	void check_owner_scenes();
 	void check_parent_scenes();
 	void check_stored_exports();
 	void check_resource_values();
+	void check_node_members();
 	void check_scene_exports();
 	std::optional<bool> stored_value(const Scene &p_scene, const std::string &p_path, const std::string &p_name, int p_depth = 0);
 	// Takes a field or a variant that a stored value names, and where its name

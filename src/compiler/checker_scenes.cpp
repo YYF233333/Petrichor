@@ -943,61 +943,6 @@ void Checker::for_each_placement(const std::function<void(const Scene &, const S
 	}
 }
 
-// Whether an await is in the node, in lambdas too.
-template <typename Node>
-static bool has_await(const Node &p_node) {
-	bool found = false;
-	if constexpr (std::is_same_v<Node, Expr>) {
-		found = p_node.kind == ExprKind::Await;
-	}
-	for_each_child(p_node, [&](const auto &p_child) { found = found || has_await(p_child); });
-	return found;
-}
-
-// Whether the class is placed in scenes, each time with an owner, and an
-// ancestor there assigns the member in its _ready before it awaits, through
-// `$Path.member = v` or an @onready reference (spec §6.2). A scene's root
-// counts where scenes instance that scene. A migration takes it as the
-// value GDScript gives before the member is read (architecture §6.6).
-bool Checker::ancestor_assigns(const std::string &p_member) {
-	bool placed = false;
-	bool all = true;
-	for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
-		if (p_node.path == ".") {
-			all = all && !classes.scenes_instancing(p_scene.path).empty();
-			return;
-		}
-		placed = true;
-		bool assigned = false;
-		for (std::string at = parent_path(p_node.path); !assigned; at = parent_path(at)) {
-			const ViewNode *ancestor = view_node(p_scene, at);
-			const std::string script = ancestor ? (ancestor->node.script.empty() ? ancestor->node.instance_script : ancestor->node.script) : std::string();
-			const ClassDecl *decl = is_script_path(script) ? script_header(script) : nullptr;
-			const auto ready = decl ? std::find_if(decl->functions.begin(), decl->functions.end(), [](const FuncDecl &p_function) { return p_function.name == "_ready"; }) : std::vector<FuncDecl>::const_iterator();
-			// The node that `$Path`, or an @onready member set to one, leads to.
-			const auto reached = [&](const Expr &p_base) {
-				const Expr *path = &p_base;
-				for (const VarDecl &member : decl->members) {
-					if (p_base.kind == ExprKind::Name && member.name == p_base.text && member.is_onready && member.initializer) {
-						path = member.initializer.get();
-					}
-				}
-				const ViewNode *node = path->kind == ExprKind::GetNode ? walk_node_path(p_scene, at, path->text).node : nullptr;
-				return node ? node->path : std::string();
-			};
-			for (size_t i = 0; decl && ready != decl->functions.end() && i < ready->body.size() && !assigned && !has_await(*ready->body[i]); i++) {
-				const Stmt &stmt = *ready->body[i];
-				assigned = stmt.kind == StmtKind::Assign && stmt.assign_op == TokenKind::Equal && stmt.target->kind == ExprKind::Member && stmt.target->text == p_member && reached(*stmt.target->base) == p_node.path;
-			}
-			if (at == ".") {
-				break;
-			}
-		}
-		all = all && assigned;
-	});
-	return placed && all;
-}
-
 // That a node of a scene is what @owner(T) or @parent(T) requires; a class
 // of another language is left to the check at run time.
 void Checker::check_required(const TokenRange &p_at, const Scene &p_scene, const SceneNode &p_placed, const SceneNode &p_node, const Type &p_required, const std::string &p_what, const std::string &p_annotation) {
@@ -1185,6 +1130,26 @@ void Checker::check_resource_values() {
 			}
 		}
 	}
+}
+
+// A node below a scene's root has no creator either, a placed instance of
+// another scene among them, so its _init assigns each member that must be
+// assigned and is not exported (spec §6.2); the check of the scene's use
+// reports the exports (§7.5). The game runs all the same: the node fails the
+// check as it becomes ready.
+void Checker::check_node_members() {
+	for_each_placement([&](const Scene &p_scene, const SceneNode &p_node) {
+		const ClassDecl *placed = p_node.path == "." ? nullptr : placed_class(p_node.script.empty() ? p_node.instance_script : p_node.script);
+		if (!placed) {
+			return;
+		}
+		for (const VarDecl &member : cls.members) {
+			if (member.must_assign && !member.is_export && !init_assigns(*placed, member.name)) {
+				error_in_scene(TokenRange{ member.name_token, member.name_token }, p_scene, p_node.path, p_scene.path + ": " + p_node.path + " has no value for \"" + member.name + "\", which must be assigned and is not exported. Mark it @late if later code assigns it.");
+				errors.back().runs = true;
+			}
+		}
+	});
 }
 
 // Where the scene is used as a root, each node of its view with the class

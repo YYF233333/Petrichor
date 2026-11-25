@@ -128,7 +128,7 @@ namespace petrichor::bytecode {
 	X(CHECK_LIVE, "A", "o") /* slot: an object the engine takes is not freed */ \
 	X(CHECK_MUST, "I", "@.") /* member: one that tracks it has been assigned, before it is read (spec §6.2, §6.3) */ \
 	X(MARK_ASSIGNED, "I", "@.") /* member: one that tracks it is assigned from now on */ \
-	X(CHECK_PROVIDED, "", "@") /* the class's own members that must be assigned, when the node becomes ready: those the scene or the creator gives now, those ancestors give when the owner is ready (spec §6.4) */ \
+	X(CHECK_PROVIDED, "", "@") /* the class's own members that must be assigned, when the node becomes ready (spec §6.4) */ \
 	X(CHECK_RANGE, "IA", ".i") /* IntRange, slot (int): fits the engine's */ \
 	X(DEBUG_BUILD, "D", "b") /* dst (bool): whether this is a debug build, the only one where assert runs (spec §8.3) */ \
 	X(ASSERT_FAIL, "A", "S") /* message (String, NO_SLOT: none): the program error of a failed assert */ \

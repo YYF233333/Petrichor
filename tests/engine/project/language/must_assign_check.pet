@@ -1,6 +1,5 @@
-# Members that must be assigned (spec §6.2, §6.4): by the creator, or by an
-# ancestor in must_assign.tscn, and checked before they are read. Driven by
-# language_test.gd.
+# Members that must be assigned (spec §6.2, §6.4): by the creator, and
+# checked before they are read. Driven by language_test.gd.
 class_name MustAssignCheck
 extends Node
 

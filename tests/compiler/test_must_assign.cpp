@@ -79,6 +79,27 @@ TEST_CASE("an @late export is pub, and a scene that stores none and instantiate(
 	CHECK(messages(compile_in("extends Node\n\nconst ENEMY = preload(\"res://enemy.tscn\")\n\nfunc spawn() -> void:\n\tadd_child(ENEMY.instantiate())\n", project)).empty());
 }
 
+TEST_CASE("a node below a scene's root, an instance of another scene too, gets from _init each member that must be assigned and is not exported (spec §6.2)") {
+	FakeProject project;
+	compiler::Scene bar;
+	bar.path = "res://bar.tscn";
+	bar.nodes = { { ".", "Node", "res://test.pet" } };
+	compiler::Scene hud;
+	hud.path = "res://hud.tscn";
+	hud.nodes = { { ".", "Node", "" }, { "Bar", "Node", "res://test.pet" }, { "Placed", "Node", "", true, "res://test.pet" } };
+	hud.nodes[2].instance = bar.path;
+	project.scenes = { bar, hud };
+	const compiler::CompileResult result = check_scenes_in("extends Node\n\nvar target: Node3D\n", project);
+	REQUIRE_MESSAGE(result.errors.size() == 2, messages(result));
+	CHECK(result.errors[0].message == "res://hud.tscn: Bar has no value for \"target\", which must be assigned and is not exported. Mark it @late if later code assigns it.");
+	CHECK((result.errors[0].scene == "res://hud.tscn" && result.errors[0].node == "Bar"));
+	CHECK(contains(result.errors[1].message, "res://hud.tscn: Placed has no value for \"target\""));
+	// The game runs all the same: the node fails the check as it becomes ready.
+	CHECK(result.ok());
+	CHECK(check_scenes_in("extends Node\n\n@late var target: Node3D\n", project).errors.empty());
+	CHECK(check_scenes_in("extends Node\n\nvar target: Node3D\n\nfunc _init():\n\ttarget = Node3D.new()\n", project).errors.empty());
+}
+
 TEST_CASE("_init reads a member that must be assigned only once it has assigned it on every path") {
 	const auto init = [](const std::string &p_body) { return messages(compile("extends Node\n\nvar target: Node3D\n\nfunc _init():\n" + p_body + "\n\nfunc helper() -> void:\n\tprint(target)\n")); };
 	const std::string read_first = init("\tprint(target)");

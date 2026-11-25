@@ -176,7 +176,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
 - **多参信号的结果**：`await` 多参信号得到编译器声明的 struct（规范 §9.6），没有脚本，按参数的名字和类型命名，如 `await Signal(result: int, body: PackedByteArray)`。参数名字和类型都相同的信号共用这一类型，`Task.of(信号)` 的结果也是它。
   - 字节码中它名为 `::await Signal(...)`，运行时据此把它编码为按参数顺序的 Array，也从这样的 Array 解码。信号恢复 `await` 时交来的正是这个 Array，GDScript 的 `await` 也给出它（`modules/gdscript/gdscript_function.cpp:256-274`，`ed1daf0`）。
   - 字段没有默认值，因为非空对象参数本就没有默认值，所以 `resize()` 等需要默认值的操作不接受它。
-- **必须赋值的成员标记**：必须赋值的成员（规范 §6.2）和 `@late` 的成员与静态变量（§6.3）在槽位后紧跟 8 字节标记，赋值后非零。本语言写入后跟一条置位指令（静态变量由读写指令自己置位），引擎经 `set` 写入时由运行时置位，读取前检查该标记。引擎写入 null 时，未赋值的 `@late` 成员保持未赋值，与场景未存值相同。这套标记对所有类型一致，因为 struct 和带载荷 enum 没有可表示"未赋值"的值。节点就绪时，运行时按 owner 决定当场检查，还是等到 owner 发出 `ready` 时检查，免去跨文件分析赋值来源。
+- **必须赋值的成员标记**：必须赋值的成员（规范 §6.2）和 `@late` 的成员与静态变量（§6.3）在槽位后紧跟 8 字节标记，赋值后非零。本语言写入后跟一条置位指令（静态变量由读写指令自己置位），引擎经 `set` 写入时由运行时置位，读取前检查该标记。引擎写入 null 时，未赋值的 `@late` 成员保持未赋值，与场景未存值相同。这套标记对所有类型一致，因为 struct 和带载荷 enum 没有可表示"未赋值"的值。节点就绪时，运行时检查本类必须赋值的成员（规范 §6.4），`@late` 成员只在读取时检查。
 
 #### 装箱容器与循环引用防护
 
@@ -805,9 +805,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **合并与写回规则**：
   - `Variant` 流入不参与（GDScript 未写类型的值就是 `Variant`，只有 `Variant` 流入算作无流入）；
   - 单一类型直接选用；有 `null` 流入写成 `T?`（流入 `T?` 算作 `T` 和 `null`）；具公共基类的几个类取最近公共基类，几个场景取其根的最近公共类，有根不明的只得 `PackedScene`；
-  - GDScript 隐式给的 `null` 也算流入：无初始值的变量合并出类时算，函数有路径只写 `return` 或走到末尾时其返回值总算。值类型变量不算，GDScript 写了类型的成员本就取类型默认值（`modules/gdscript/gdscript_compiler.cpp:2366-2391`，`ed1daf0`），只有赋值前读取才看得出差别。规范 §6.2 证明有值的成员也不算：`_init` 每条路径都赋值、场景或资源存了值的导出、祖先 `_ready` 中经场景模型可见的赋值；
-    - 祖先的赋值须是 `_ready` 顶层、首个含 `await` 的语句之前的 `$Path.x = v` 或经 `@onready` 引用的 `r.x = v`。
-    - 场景每次放置该类都须有 owner 且有祖先这样赋值；场景根算作实例化该场景处的放置。只有类自身的检查读场景，由它判定；
+  - GDScript 隐式给的 `null` 也算流入：无初始值的变量合并出类时算，函数有路径只写 `return` 或走到末尾时其返回值总算。值类型变量不算，GDScript 写了类型的成员本就取类型默认值（`modules/gdscript/gdscript_compiler.cpp:2366-2391`，`ed1daf0`），只有赋值前读取才看得出差别。规范 §6.2 证明有值的成员也不算：`_init` 每条路径都赋值的成员，以及场景或资源存了值的导出。只由祖先在 `_ready` 中赋值的成员照样写成 `T?`；
   - 同时有 `int` 和 `float` 时，须确认每处使用对整数输入结果不变才写 `float`；
   - 合并不出或无流入时试 `Variant`，容器试无类型 `Array` 或 `Dictionary`（还原 GDScript 原意）；空容器元素与键都合并出非 `Variant` 类型才写 `Array[T]` 或 `Dictionary[K, V]`。
   - 类型写在槽位名后、返回类型写在参数表后（`var a := []` 写成 `var a: Array[int] = []`），本文件 enum 和内部类不带类名。
@@ -856,7 +854,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **原文定意的六类备选修复**：以下备选修复在原文写法已定下意图时直接应用：
   - **补 `async`**：原文含 `await` 的函数只要签名不多出错误就补 `async`（参数缺类型也照补）。覆盖链上方法同步补齐以保持一致，顶端覆盖有返回值引擎虚函数或 `_init` 时不提供（规范 §9.1）。丢弃结果的调用随后由自动修复补 `.detach()`：GDScript 协程运行到第一处挂起就返回、调用方接着执行，与 `detach` 相同（`modules/gdscript/gdscript_vm.cpp:2586-2597, 2641-2654`，`ed1daf0`）。反向转换去掉 `async` 和 `.detach()`，无 `await` 函数在 GDScript 中照常运行到底。作 setter 的函数和内联 `set(value):` 照补，写入属性处不补 `.detach()`：写入即启动 setter 并在它首次挂起时接着执行（规范 §4.4），GDScript 调用 setter 后同样丢弃返回值（`modules/gdscript/gdscript_compiler.cpp:1360-1365`）。
   - **补 `.unwrap()`**：原文未判空就使用的值补 `.unwrap()`，与 GDScript 在同一处出错。
-  - **改为 `T?`**：场景、资源或 `instantiate()` 未给值的导出改为 `T?`（GDScript 运行时给 `null`，后续未判空使用照样补 `.unwrap()`，反向转换写回 `T`）。原文把字面量 `null` 赋给 `T` 变量、从 `-> T` 函数返回或只写 `return` 时同样改为 `T?`，因为 GDScript 接受 `null` 作为任何对象类型（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。写了对象类型而无初始值的声明也改为 `T?`，规范 §6.2 证明有值的除外，与推断同一规则：deck_builder_tutorial 中 `create_instance()` 之后才赋值的 `var deck: CardPile`（`custom_resources/character_stats.gd:17`）写成 `CardPile?`。这条由推断在写类型时一并写下，不等检查报错，因为挂在场景节点上的成员按祖先赋值处理、不报错。setter 的参数按规则取成员的类型，成员改为 `T?` 后，具名 setter 仍写 `T` 的参数由这类修复一并改为 `T?`（deck_builder_tutorial 的 `scenes/ui/mana_ui.gd:9`）。原文 `emit(null)` 的信号参数同样改为 `T?`。GDScript 不按信号的声明检查 `emit` 的实参，原样传给所连函数（`core/variant/variant_call.cpp:1985-1987, 2507`，`modules/gdscript/gdscript_analyzer.cpp:5914-5933, 6073-6086`，`core/object/object.cpp:1251-1294`，`ed1daf0`）。所连函数写了对象类型的参数也接受 null（`modules/gdscript/gdscript_vm.cpp:593-603`，`modules/gdscript/gdscript_function.cpp:103-106, 122-126`）。代码或场景所连函数仍写 `T` 的参数随后由这类修复改为 `T?`，其用处照常补 `.unwrap()`。deck_builder_tutorial 跳过卡牌奖励时 `card_reward_selected.emit(null)`，所连 `_on_card_reward_taken()` 的参数随之写成 `Card?`（`scenes/ui/card_rewards.gd:4, 29`，`scenes/battle_reward/battle_reward.gd:63, 113`）。
+  - **改为 `T?`**：场景、资源或 `instantiate()` 未给值的导出改为 `T?`（GDScript 运行时给 `null`，后续未判空使用照样补 `.unwrap()`，反向转换写回 `T`）。原文把字面量 `null` 赋给 `T` 变量、从 `-> T` 函数返回或只写 `return` 时同样改为 `T?`，因为 GDScript 接受 `null` 作为任何对象类型（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。写了对象类型而无初始值的声明也改为 `T?`，规范 §6.2 证明有值的除外，与推断同一规则：deck_builder_tutorial 中 `create_instance()` 之后才赋值的 `var deck: CardPile`（`custom_resources/character_stats.gd:17`）写成 `CardPile?`。这条由推断在写类型时一并写下，不等检查报错，因为经 GDScript 或 `Script` 值创建的对象到运行时才检查。迁移不写 `@late`，它看不出赋值是否先于每次读取，`T?` 则与 GDScript 在同一处出错。setter 的参数按规则取成员的类型，成员改为 `T?` 后，具名 setter 仍写 `T` 的参数由这类修复一并改为 `T?`（deck_builder_tutorial 的 `scenes/ui/mana_ui.gd:9`）。原文 `emit(null)` 的信号参数同样改为 `T?`。GDScript 不按信号的声明检查 `emit` 的实参，原样传给所连函数（`core/variant/variant_call.cpp:1985-1987, 2507`，`modules/gdscript/gdscript_analyzer.cpp:5914-5933, 6073-6086`，`core/object/object.cpp:1251-1294`，`ed1daf0`）。所连函数写了对象类型的参数也接受 null（`modules/gdscript/gdscript_vm.cpp:593-603`，`modules/gdscript/gdscript_function.cpp:103-106, 122-126`）。代码或场景所连函数仍写 `T` 的参数随后由这类修复改为 `T?`，其用处照常补 `.unwrap()`。deck_builder_tutorial 跳过卡牌奖励时 `card_reward_selected.emit(null)`，所连 `_on_card_reward_taken()` 的参数随之写成 `Card?`（`scenes/ui/card_rewards.gd:4, 29`，`scenes/battle_reward/battle_reward.gd:63, 113`）。
   - **补 `return None`**：返回 `T?` 或 `Variant` 的函数中，只写的 `return` 改为 `return None`；走到末尾的路径在函数体末尾另起一行补上 `return None`。两者都是 GDScript 返回的 `null`。
   - **套 `int(x)`**：GDScript 写了 `int` 的位置上的 `float` 套上 `int(x)`，与 GDScript 同样向零取整（§2.1）。
   - **补 `_: pass`**：`match` 因不穷尽又无 `_` 报错时（规范 §5.6），在最后一个分支之后按分支缩进补上 `_: pass`。GDScript 把分支编成一串 if/else，没有分支匹配就什么都不执行（`modules/gdscript/gdscript_compiler.cpp:1938-1943, 1983, 1999-2002`，`ed1daf0`）。编辑器中它只作备选，因为用户也可能想处理余下的值；反向转换保留它。
@@ -884,7 +882,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 写下类型一行（如 `9 × Write the type`，同时收到 `int`/`float` 且有使用分辨二者的槽位另计一行），每种修复一行（如 `3 × Make it pub`）；
   - 撤回槽位、依据不全类型与遗留错误采用与 `pet check` 相同的诊断写法；
   - 末行输出计数，如 `petrichor migrate: 4 script(s), 0 added, 2 left out, 9 type(s), 1 withdrawn, 3 fix(es), 6 path(s) renamed, 0 error(s)`。
-- **反向转换**：只读 `.pet` 的 token 与引用表，不依赖正向留下的记录，迁移后人工改过的文件也能转回。
+- **反向转换**：只读 `.pet` 的 token 与引用表，不依赖正向留下的记录，迁移后人工改过的文件也能转回。人工写下的 `@late` 直接去掉，GDScript 中的成员同样从 null 开始。
 
 ## 7. 暂不决定
 
