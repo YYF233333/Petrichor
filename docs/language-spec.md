@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 974ad57e3bd850ef9f0adcbdc6626eb260f13de1. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 915989d57b76fd9c95e5f56e4b28af24dba8af69. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -649,7 +649,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - `_init` may have parameters, and `new(...)` passes arguments to it by position, as in GDScript. When the engine creates an object, it passes no arguments, as with scenes, `instantiate(...)` and `duplicate()`. For these routes, construction parameters are expressed as members that must be assigned, without default values.
 - A member that must be assigned must be provided at creation by one of these:
   - **`_init`**: assigns it on every path, for example from a parameter;
-  - **the scene or resource file**: an exported member is provided by the scene or `.tres`, and an unexported member in a `.tres` that `_init` does not assign is a compile error;
+  - **the scene or resource file**: an exported member is provided by the scene or `.tres`. On a non-root node of a scene and in a `.tres`, an unexported member that `_init` does not assign is a compile error;
   - **the creator**: `instantiate(...)` and `new(...)` take members by name and assign them before returning, as in `BulletScene.instantiate(shooter = self, target = enemy)`. Leaving out a member that `_init` does not assign in `new(...)` of a known class, or one that the scene resource rules require in `PackedScene[T].instantiate(...)`, is a compile error.
 - When an object is created without a statically known class (such as `Script.new()`), or when a missing-value error on a scene does not prevent running in the editor, the check happens at run time:
   - on a `Node`, a member still unassigned at ready is a program error suggesting one of the forms above so that it is checked at compile time;
