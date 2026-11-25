@@ -1702,7 +1702,7 @@ void Checker::check_member_arguments(Expr &r_call, const Type &p_made, bool p_in
 			continue;
 		}
 		if (!member.must_assign) {
-			error(value.range, "\"" + name + "\" has a value of its own; by name, " + r_call.text + "(...) takes only members that must be assigned.");
+			error(value.range, "\"" + name + (member.is_late ? "\" is @late" : "\" has a value of its own") + "; by name, " + r_call.text + "(...) takes only members that must be assigned.");
 		} else if (!given.insert(name).second) {
 			error(value.range, "\"" + name + "\" is given twice.");
 		} else {

@@ -290,6 +290,12 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 		const Variant *args[] = { &name, &value };
 		return call_each(instance, image, ClassImage::Virtual::Set, args, 2, [](const ClassImage &, const bytecode::Function &, const Variant &p_handled) { return bool(p_handled); });
 	}
+	// None leaves an @late member not yet assigned so, as a scene that stores
+	// none does (spec §6.3).
+	const size_t index = size_t(member - image->module.members.data());
+	if (member->is_late && is_none(value) && !image->assigned(instance->storage->members, index)) {
+		return true;
+	}
 	// The scene, the inspector, Tween and other classes write through the
 	// setter (spec §4.4), whose entry check takes the value.
 	if (member->setter >= 0) {
@@ -300,7 +306,6 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 	}
 	// A value that fails the entry check is a program error, reported at the
 	// member, which keeps its value (spec §7.5, §10.1); the write is handled.
-	const size_t index = size_t(member - image->module.members.data());
 	String mismatch;
 	const bool written = entry_write(image->types[member->type], value, instance->storage->members + member->offset, mismatch);
 	if (!mismatch.is_empty()) {
@@ -348,10 +353,10 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 		*reinterpret_cast<Variant *>(r_ret) = vm::call(image, member->getter, instance->context(), nullptr, 0, error);
 		return true;
 	}
-	// Null until assigned (spec §6.2), with no program error: the debugger's
+	// Null until assigned (spec §6.2, §6.3), with no program error: the debugger's
 	// inspector reads every property (scene/debugger/scene_debugger_object.cpp:85).
 	const size_t index = size_t(member - image->module.members.data());
-	if (member->must_assign && !image->assigned(instance->storage->members, index)) {
+	if ((member->must_assign || member->is_late) && !image->assigned(instance->storage->members, index)) {
 		*reinterpret_cast<Variant *>(r_ret) = Variant();
 		return true;
 	}
@@ -399,7 +404,7 @@ static void instance_property_state(GDExtensionScriptInstanceDataPtr p_instance,
 	const GDExtensionPropertyInfo *list = instance_get_property_list(p_instance, &count);
 	for (uint32_t i = 0; i < count; i++) {
 		const bytecode::Member *member = visible_member(*image, as_name(list[i].name));
-		if (!(list[i].usage & PROPERTY_USAGE_STORAGE) || (member && member->must_assign && !image->assigned(instance->storage->members, size_t(member - image->module.members.data())))) {
+		if (!(list[i].usage & PROPERTY_USAGE_STORAGE) || (member && (member->must_assign || member->is_late) && !image->assigned(instance->storage->members, size_t(member - image->module.members.data())))) {
 			continue;
 		}
 		Variant value;

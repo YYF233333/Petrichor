@@ -53,7 +53,7 @@ TEST_CASE("static variables get their first values in declaration order, then _s
 	CHECK(has_error(R"(extends Node
 static var instance: Node
 )",
-			"needs an initial value: Node has no default value. Give it one, or the type Node?."));
+			"needs an initial value: Node has no default value. Give it one, mark it @late, or give it the type Node?."));
 	const auto valid = compile(R"(extends Node
 static var names: Array[String]
 static var total := 3

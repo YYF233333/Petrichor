@@ -1151,6 +1151,7 @@ class Checker : public ClassRelation, private CheckContext {
 	static ConstPtr encoded(const ConstPtr &p_value, const Type &p_type);
 	std::string node_field(const Type &p_type, const std::string &p_field, std::unordered_set<std::string> &r_seen) const;
 	void check_static_declaration(size_t p_index);
+	void check_late(const VarDecl &p_variable);
 	void check_accessors(VarDecl &r_member);
 	void check_defaults(const FuncDecl &p_function, bool p_interface = false);
 	static int required_params(const FuncDecl &p_function);

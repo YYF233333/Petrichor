@@ -82,7 +82,7 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	for (uint32_t i = 0; i < image->module.inherited_members; ++i) {
 		const auto &a = image->module.members[i];
 		const auto &b = p_base->module.members[i];
-		if (a.name != b.name || a.offset != b.offset || !same_type(image->module, a.type, p_base->module, b.type) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready || a.must_assign != b.must_assign || a.setter != b.setter || a.getter != b.getter) {
+		if (a.name != b.name || a.offset != b.offset || !same_type(image->module, a.type, p_base->module, b.type) || a.is_pub != b.is_pub || a.is_export != b.is_export || a.is_onready != b.is_onready || a.must_assign != b.must_assign || a.is_late != b.is_late || a.setter != b.setter || a.getter != b.getter) {
 			r_error = "Inherited member layout changed. Rebuild the project.";
 			return nullptr;
 		}
@@ -867,7 +867,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < a.members.size(); i++) {
 		const bytecode::Member &x = a.members[i];
 		const bytecode::Member &y = b.members[i];
-		if (!pair.same_slot(x, y) || x.offset != y.offset || x.is_onready != y.is_onready || x.setter != y.setter || x.getter != y.getter ||
+		if (!pair.same_slot(x, y) || x.offset != y.offset || x.is_onready != y.is_onready || x.is_late != y.is_late || x.setter != y.setter || x.getter != y.getter ||
 				x.is_pub != y.is_pub || x.is_export != y.is_export || x.hint != y.hint || x.hint_string != y.hint_string || x.usage != y.usage || x.has_initial != y.has_initial || !pair.same_constant(x.initial, y.initial)) {
 			return false;
 		}
@@ -879,7 +879,7 @@ bool ClassImage::same_declarations(const ClassImage &p_other) const {
 	for (size_t i = 0; i < a.statics.size(); i++) {
 		const bytecode::Member &x = a.statics[i];
 		const bytecode::Member &y = b.statics[i];
-		if (x.name != y.name || !pair.same_slot(x, y) || x.offset != y.offset || x.is_pub != y.is_pub || x.setter != y.setter || x.getter != y.getter || x.has_initial != y.has_initial) {
+		if (x.name != y.name || !pair.same_slot(x, y) || x.offset != y.offset || x.is_pub != y.is_pub || x.is_late != y.is_late || x.setter != y.setter || x.getter != y.getter || x.has_initial != y.has_initial) {
 			return false;
 		}
 	}

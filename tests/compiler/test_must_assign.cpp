@@ -25,6 +25,60 @@ TEST_CASE("a member whose type has no default must be assigned, which is checked
 	CHECK(compile("extends Resource\nvar target: Node3D\n").module.ready_function < 0);
 }
 
+TEST_CASE("an @late member or static variable is checked when read, not when the node becomes ready (spec §6.3)") {
+	const compiler::CompileResult result = compile("extends Node3D\n\n@late var target: Node3D\n@late static var shared: Node3D\n\nfunc aim() -> float:\n\ttarget = Node3D.new()\n\tshared = target\n\ttarget = shared\n\treturn target.position.x + shared.position.x\n");
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	const bytecode::Member &target = member_named(result.module, "target");
+	CHECK((target.is_late && target.tracks_assignment() && !target.must_assign && !target.is_pub && !target.has_initial));
+	REQUIRE(result.module.statics.size() == 1);
+	CHECK(result.module.statics[0].is_late);
+	const std::string aim = bytecode::disassemble(result.module, function_named(result.module, "aim"));
+	CHECK(aim.find("CHECK_MUST") > aim.find("MARK_ASSIGNED"));
+	CHECK(result.module.ready_function < 0);
+	const auto errors = [](const std::string &p_members) { return messages(compile("extends Node\n\n" + p_members + "\n")); };
+	CHECK(contains(errors("@late var target: Node3D\n\nfunc _init():\n\tprint(target)"), "_init reads \"target\" before assigning it: an @late member has a value only once code assigns it."));
+	CHECK(errors("@late var target: Node3D\n\nfunc _init():\n\ttarget = Node3D.new()\n\tprint(target)").empty());
+	CHECK_FALSE(errors("@late var target: Node3D\n\nfunc clear() -> void:\n\ttarget = None").empty());
+	// A static variable without @late still needs a value.
+	CHECK(contains(errors("static var shared: Node3D"), "needs an initial value"));
+}
+
+TEST_CASE("@late goes only on a member or static variable without an initializer whose type has no default value (spec §6.3)") {
+	const auto errors = [](const std::string &p_members) { return messages(compile("extends Node\n\n" + p_members + "\n")); };
+	CHECK(contains(errors("@late var target: Node = Node.new()"), "An @late member takes no initializer: later code assigns it."));
+	CHECK(contains(errors("@late var count: int"), "int has a default value, which \"count\" starts at; @late is for a type without one."));
+	CHECK(contains(errors("@late var target: Node?"), "Node? has a default value"));
+	CHECK(contains(errors("@late static var count: int"), "int has a default value"));
+	CHECK(contains(errors("@late @onready var target: Node = get_child(0)"), "@late and @onready do not go together"));
+	CHECK(contains(errors("@late @onready var target: Node"), "@late and @onready do not go together"));
+	CHECK_FALSE(errors("func f() -> void:\n\t@late var target: Node").empty());
+	CHECK_FALSE(errors("struct Hit:\n\t@late var target: Node").empty());
+	CHECK_FALSE(errors("interface Aimed:\n\t@late\n\tvar target: Node").empty());
+	// A class implements an interface's property with one.
+	CHECK(messages(compile("extends Node implements Aimed\n\ninterface Aimed:\n\tvar target: Node\n\n@late pub var target: Node\n")).empty());
+}
+
+TEST_CASE("an @late export is pub, and a scene that stores none and instantiate(...) leave it unassigned (spec §6.3, §7.5)") {
+	const char *source = "extends Node3D\n@late @export var player: Node3D\n";
+	const compiler::CompileResult result = compile(source);
+	REQUIRE_MESSAGE(result.ok(), messages(result));
+	CHECK((member_named(result.module, "player").is_pub && result.module.ready_function < 0));
+	FakeProject project;
+	compiler::Scene enemy;
+	enemy.path = "res://enemy.tscn";
+	enemy.nodes = { { ".", "Node3D", "res://test.pet" }, { "Gun", "Node3D", "res://test.pet" } };
+	project.scenes = { enemy };
+	project.main = enemy.path;
+	CHECK(check_scenes_in(source, project).errors.empty());
+	compiler::SceneValue null;
+	null.type = "Nil";
+	project.scenes[0].nodes[1].properties = { { "player", null } };
+	CHECK(check_scenes_in(source, project).errors.empty());
+	project.add_script("res://enemy.pet", source);
+	project.scenes[0].nodes[0].script = "res://enemy.pet";
+	CHECK(messages(compile_in("extends Node\n\nconst ENEMY = preload(\"res://enemy.tscn\")\n\nfunc spawn() -> void:\n\tadd_child(ENEMY.instantiate())\n", project)).empty());
+}
+
 TEST_CASE("_init reads a member that must be assigned only once it has assigned it on every path") {
 	const auto init = [](const std::string &p_body) { return messages(compile("extends Node\n\nvar target: Node3D\n\nfunc _init():\n" + p_body + "\n\nfunc helper() -> void:\n\tprint(target)\n")); };
 	const std::string read_first = init("\tprint(target)");
@@ -125,7 +179,7 @@ namespace {
 
 std::string made_errors(const std::string &p_body) {
 	FakeProject project;
-	project.add_script("res://bullet.pet", "class_name Bullet\nextends Node3D\n\npub var target: Node3D\npub var speed := 1.0\n@export pub var trail: Node3D\n", "Bullet");
+	project.add_script("res://bullet.pet", "class_name Bullet\nextends Node3D\n\npub var target: Node3D\npub var speed := 1.0\n@export pub var trail: Node3D\n@late pub var shooter: Node3D\n", "Bullet");
 	project.add_script("res://hidden.pet", "class_name Hidden\nextends Node\n\nvar secret: Node3D\n", "Hidden");
 	return messages(compile_in("extends Node\n\nfunc f(scene: PackedScene[Bullet], hidden: PackedScene[Hidden]) -> void:\n" + p_body + "\n", project));
 }
@@ -139,6 +193,7 @@ TEST_CASE("new(...) and instantiate(...) take the members that must be assigned 
 	CHECK(contains(made_errors("\tadd_child(scene.instantiate())"), "instantiate() needs target = ..., a member of Bullet that must be assigned and the scene cannot."));
 	CHECK(contains(made_errors("\tadd_child(hidden.instantiate())"), "instantiate() cannot give \"secret\", a member of Hidden that must be assigned and is not pub."));
 	CHECK(contains(made_errors("\tadd_child(Bullet.new(speed = 2.0))"), "\"speed\" has a value of its own; by name, new(...) takes only members that must be assigned."));
+	CHECK(contains(made_errors("\tadd_child(scene.instantiate(target = Node3D.new(), trail = Node3D.new(), shooter = Node3D.new()))"), "\"shooter\" is @late; by name, instantiate(...) takes only members that must be assigned."));
 	CHECK(contains(made_errors("\tadd_child(Hidden.new(secret = Node3D.new()))"), "\"secret\" of Hidden is not pub."));
 	CHECK(contains(made_errors("\tadd_child(Bullet.new(nope = 1))"), "Bullet has no member \"nope\"."));
 	CHECK(contains(made_errors("\tadd_child(Bullet.new(target = Node3D.new(), 1))"), "Arguments by position come before those by name."));

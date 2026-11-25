@@ -871,11 +871,12 @@ class Lowerer : FunctionState {
 	}
 
 	bool tracks_assignment(uint32_t p_member) const {
-		return cls.all_members[p_member]->must_assign || cls.all_members[p_member]->is_onready;
+		const VarDecl &member = *cls.all_members[p_member];
+		return member.must_assign || member.is_onready || member.is_late;
 	}
 
-	// A member that must be assigned is used only once it has been (spec
-	// §6.2), an @onready one once its initializer has run (§6.3).
+	// A member that must be assigned or is @late is used only once it has
+	// been (spec §6.2, §6.3), an @onready one once its initializer has run.
 	void check_assigned(uint32_t p_member) {
 		if (tracks_assignment(p_member)) {
 			instr(Op::CHECK_MUST, NO_REG, NO_REG, NO_REG, p_member);
@@ -3436,7 +3437,7 @@ class Lowerer : FunctionState {
 		}
 		for (size_t m = module.inherited_members; m < cls.all_members.size(); m++) {
 			const VarDecl &member = *cls.all_members[m];
-			if (member.is_onready != p_onready || member.must_assign || (!member.initializer && !is_typed_container(member.type) && member.type.kind != TypeKind::Struct)) {
+			if (member.is_onready != p_onready || member.must_assign || member.is_late || (!member.initializer && !is_typed_container(member.type) && member.type.kind != TypeKind::Struct)) {
 				continue;
 			}
 			any = true;
@@ -3475,7 +3476,7 @@ class Lowerer : FunctionState {
 				const VarDecl &variable = cls.static_vars[v];
 				// Without one, a variable holds its type's default from the start;
 				// an empty Array[T] is typed too, and a struct has its fields'.
-				if (bool(variable.initializer) != with_initializer || (!with_initializer && !is_typed_container(variable.type) && variable.type.kind != TypeKind::Struct)) {
+				if (bool(variable.initializer) != with_initializer || variable.is_late || (!with_initializer && !is_typed_container(variable.type) && variable.type.kind != TypeKind::Struct)) {
 					continue;
 				}
 				any = true;
@@ -3561,6 +3562,7 @@ public:
 			member.offset = offset;
 			offset += bytecode::type_size(module.types, member.type);
 			member.must_assign = decl_member.must_assign;
+			member.is_late = decl_member.is_late;
 			offset += member.tracks_assignment() ? 8 : 0;
 			member.is_pub = decl_member.is_pub;
 			member.is_export = decl_member.is_export;
@@ -3575,7 +3577,7 @@ public:
 			if (decl_member.initial) {
 				member.has_initial = true;
 				member.initial = constant_of(*decl_member.initial);
-			} else if (!decl_member.initializer && !decl_member.must_assign && decl_member.type.kind != TypeKind::Struct) {
+			} else if (!decl_member.initializer && !decl_member.must_assign && !decl_member.is_late && decl_member.type.kind != TypeKind::Struct) {
 				member.has_initial = true;
 			}
 			module.members.push_back(member);
@@ -3587,7 +3589,8 @@ public:
 			static_cast<bytecode::Slot &>(out) = slot(variable.name, variable.type);
 			out.line = uint32_t(cls.source->line(variable.name_token));
 			out.offset = static_offset;
-			static_offset += bytecode::type_size(module.types, out.type);
+			out.is_late = variable.is_late;
+			static_offset += bytecode::type_size(module.types, out.type) + (out.tracks_assignment() ? 8 : 0);
 			out.is_pub = variable.is_pub;
 			out.setter = variable.setter_index;
 			out.getter = variable.getter_index;

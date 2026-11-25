@@ -1663,8 +1663,9 @@ void Checker::init_reads(const Expr &p_expr, const std::set<int> &p_assigned, st
 	if (p_expr.kind == ExprKind::Lambda) {
 		return; // It runs later.
 	}
-	if (p_expr.target == Target::Member && p_expr.index >= 0 && cls.all_members[p_expr.index]->must_assign && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
-		error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: a member that must be assigned gets its value from the scene or the creator only after _init.");
+	const VarDecl *member = p_expr.target == Target::Member && p_expr.index >= 0 ? cls.all_members[p_expr.index] : nullptr;
+	if (member && (member->must_assign || member->is_late) && !p_assigned.count(p_expr.index) && r_reported.insert(p_expr.index).second) {
+		error(p_expr.range, "_init reads \"" + p_expr.text + "\" before assigning it: " + (member->is_late ? "an @late member has a value only once code assigns it." : "a member that must be assigned gets its value from the scene or the creator only after _init."));
 	}
 	for_each_child(p_expr, [&](const auto &p_child) {
 		if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {

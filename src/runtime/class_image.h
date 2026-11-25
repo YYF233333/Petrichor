@@ -184,6 +184,11 @@ public:
 		const bytecode::Member &member = module.members[p_member];
 		return *reinterpret_cast<uint64_t *>(p_members + member.offset + types[member.type].size);
 	}
+	// Of an @late static variable.
+	uint64_t &static_assigned(size_t p_variable) const {
+		const bytecode::Member &variable = module.statics[p_variable];
+		return *reinterpret_cast<uint64_t *>(statics->at(variable.offset) + types[variable.type].size);
+	}
 
 	// The base of an inner class that is not of its file.
 	using BaseLoader = std::function<std::shared_ptr<const ClassImage>(const godot::String &p_path)>;

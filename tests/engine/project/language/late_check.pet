@@ -1,0 +1,19 @@
+# @late members and static variables (spec §6.3): later code assigns them,
+# and each read checks that it has. Driven by language_test.gd.
+class_name LateCheck
+extends Node
+
+@late pub var target: Node
+@late @export var gradient: Gradient
+@late static var shared: Node
+
+pub func aim(p_target: Node) -> StringName:
+	target = p_target
+	shared = p_target
+	return target.name
+
+pub func target_name() -> StringName:
+	return target.name
+
+pub func shared_name() -> StringName:
+	return shared.name

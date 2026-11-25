@@ -17,7 +17,7 @@ bool is_layout(TokenKind p_kind) {
 using AnnotationNames = std::vector<std::pair<std::string, bool>>;
 const AnnotationNames CLASS_ANNOTATIONS = { { "abstract", false }, { "icon", true }, { "owner", true }, { "parent", true }, { "static_unload", false } };
 // Of a member besides the @export family, which the checker knows.
-const AnnotationNames MEMBER_ANNOTATIONS = { { "abstract", false }, { "onready", false }, { "rpc", true } };
+const AnnotationNames MEMBER_ANNOTATIONS = { { "abstract", false }, { "late", false }, { "onready", false }, { "rpc", true } };
 // Standing alone among the members, as in GDScript.
 const AnnotationNames GROUP_ANNOTATIONS = { { "export_category", true }, { "export_group", true }, { "export_subgroup", true } };
 // Before a statement or a member, and the regions they open and close.
@@ -1860,6 +1860,7 @@ class Parser {
 			decl.is_pub = is_pub || is_export;
 			decl.is_export = is_export;
 			decl.is_onready = is_onready;
+			decl.is_late = std::any_of(annotations.begin(), annotations.end(), [](const Annotation &p_annotation) { return p_annotation.name == "late"; });
 			decl.is_static = is_static;
 			decl.annotations = std::move(annotations);
 			// Without a type, the accessors may follow the colon, as in GDScript

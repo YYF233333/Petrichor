@@ -1,0 +1,9 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://language/late_check.pet" id="1"]
+
+[sub_resource type="Gradient" id="Gradient_1"]
+
+[node name="Late" type="Node"]
+script = ExtResource("1")
+gradient = SubResource("Gradient_1")

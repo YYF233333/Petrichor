@@ -1205,38 +1205,44 @@ class Execution {
 		return &r_view.get();
 	}
 
-	// A static variable of the class at `p_class`, or of this one (spec §4.8);
-	// null with the reason after a program error.
-	uint8_t *static_variable(uint32_t p_class, uint32_t p_variable, uint32_t p_type, String &r_error) {
-		if (p_class == NO_SLOT) {
-			Statics &statics = *image.statics;
-			if (statics.state.load(std::memory_order_acquire) != Statics::State::Initialized && !static_ready(image, p_variable, r_error)) {
+	// A static variable of the class at `p_class`, or of this one (spec §4.8),
+	// which a read of an @late one finds assigned (§6.3); null with the reason
+	// after a program error.
+	uint8_t *static_variable(uint32_t p_class, uint32_t p_variable, uint32_t p_type, bool p_writes, String &r_error) {
+		std::shared_ptr<const ClassImage> other;
+		if (p_class != NO_SLOT) {
+			const String &path = image.class_scripts[p_class];
+			other = image.base;
+			while (other && other->path != path) {
+				other = other->base;
+			}
+			if (!other) {
+				other = script_image(path);
+			}
+			if (!other) {
+				r_error = vformat("%s cannot be loaded.", path);
 				return nullptr;
 			}
-			return statics.at(image.module.statics[p_variable].offset);
+			const std::vector<bytecode::Member> &variables = other->module.statics;
+			if (p_variable >= variables.size() || other->types[variables[p_variable].type].type_id != image.types[p_type].type_id) {
+				r_error = vformat("A static variable of %s is not the one this script was compiled against. Build the project again.", path);
+				return nullptr;
+			}
 		}
-		const String &path = image.class_scripts[p_class];
-		std::shared_ptr<const ClassImage> owner = image.base;
-		while (owner && owner->path != path) {
-			owner = owner->base;
-		}
-		if (!owner) {
-			owner = script_image(path);
-		}
-		if (!owner) {
-			r_error = vformat("%s cannot be loaded.", path);
+		const ClassImage &owner = other ? *other : image;
+		Statics &statics = *owner.statics;
+		if (statics.state.load(std::memory_order_acquire) != Statics::State::Initialized && !static_ready(owner, p_variable, r_error)) {
 			return nullptr;
 		}
-		const std::vector<bytecode::Member> &variables = owner->module.statics;
-		if (p_variable >= variables.size() || owner->types[variables[p_variable].type].type_id != image.types[p_type].type_id) {
-			r_error = vformat("A static variable of %s is not the one this script was compiled against. Build the project again.", path);
+		const bytecode::Member &variable = owner.module.statics[p_variable];
+		if (variable.is_late && !p_writes && !owner.static_assigned(p_variable)) {
+			r_error = vformat("\"%s\" has not been assigned.", class_label(owner) + "." + to_godot(variable.name));
 			return nullptr;
 		}
-		Statics &statics = *owner->statics;
-		if (statics.state.load(std::memory_order_acquire) != Statics::State::Initialized && !static_ready(*owner, p_variable, r_error)) {
-			return nullptr;
+		if (variable.is_late && p_writes) {
+			owner.static_assigned(p_variable) = 1;
 		}
-		return statics.at(variables[p_variable].offset);
+		return statics.at(variable.offset);
 	}
 
 	// Calls a function of a class of this language for the call instruction at
@@ -1319,7 +1325,7 @@ class Execution {
 
 	PETRICHOR_NOINLINE bool op_load_static(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		String error;
-		const uint8_t *variable = static_variable(p_op[3], p_op[4], p_op[1], error);
+		const uint8_t *variable = static_variable(p_op[3], p_op[4], p_op[1], false, error);
 		if (!variable) {
 			return fail(p_fn, p_line, error);
 		}
@@ -1329,7 +1335,7 @@ class Execution {
 
 	PETRICHOR_NOINLINE bool op_store_static(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
 		String error;
-		uint8_t *variable = static_variable(p_op[2], p_op[3], p_op[1], error);
+		uint8_t *variable = static_variable(p_op[2], p_op[3], p_op[1], true, error);
 		if (!variable) {
 			return fail(p_fn, p_line, error);
 		}
@@ -3972,6 +3978,8 @@ bool get_static(const std::shared_ptr<const ClassImage> &p_image, const StringNa
 	} else if (variable.getter >= 0 && !Engine::get_singleton()->is_editor_hint()) {
 		GDExtensionCallError error;
 		r_value = call(owner, variable.getter, InstanceContext(), nullptr, 0, error);
+	} else if (variable.is_late && !owner->static_assigned(index)) {
+		r_value = Variant(); // As a member not yet assigned reads (spec §6.3).
 	} else {
 		r_value = outward_variant(type, owner->statics->at(variable.offset));
 	}
@@ -3985,7 +3993,8 @@ bool set_static(const std::shared_ptr<const ClassImage> &p_image, const StringNa
 		return false;
 	}
 	const bytecode::Member &variable = owner->module.statics[index];
-	if (!static_usable(*owner, index)) {
+	// None leaves an @late variable not yet assigned so (spec §6.3).
+	if (!static_usable(*owner, index) || (variable.is_late && is_none(p_value) && !owner->static_assigned(index))) {
 		return true;
 	}
 	if (variable.setter >= 0 && !Engine::get_singleton()->is_editor_hint()) {
@@ -3995,8 +4004,11 @@ bool set_static(const std::shared_ptr<const ClassImage> &p_image, const StringNa
 		return true;
 	}
 	String mismatch;
-	if (!entry_write(owner->types[variable.type], p_value, owner->statics->at(variable.offset), mismatch) && !mismatch.is_empty()) {
+	const bool written = entry_write(owner->types[variable.type], p_value, owner->statics->at(variable.offset), mismatch);
+	if (!mismatch.is_empty()) {
 		report_error(*owner, variable.name.c_str(), int(variable.line), vformat("\"%s\" was not written: %s.", p_name, mismatch));
+	} else if (written && variable.is_late) {
+		owner->static_assigned(index) = 1;
 	}
 	return true;
 }

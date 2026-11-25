@@ -526,6 +526,7 @@ struct VarDecl {
 	bool is_pub = false;
 	bool is_export = false;
 	bool is_onready = false; // Initialized when the node is ready (spec §6.3).
+	bool is_late = false; // Assigned by later code, and checked when read (spec §6.3).
 	bool is_static = false; // Of the class, not of an instance (spec §4.8).
 	std::vector<Annotation> annotations;
 	std::optional<TypeRef> declared_type;

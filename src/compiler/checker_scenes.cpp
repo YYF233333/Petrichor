@@ -1106,8 +1106,9 @@ void Checker::check_stored_exports() {
 				}
 				refer_property(name, script_id(options.path, member->name), {});
 				const TokenRange at{ member->name_token, member->name_token };
-				// The check of a missing value reports it (spec §7.5).
-				if (stored.type == "Nil" && member->must_assign) {
+				// The check of a missing value reports it (spec §7.5); an @late
+				// member stays unassigned (§6.3).
+				if (stored.type == "Nil" && (member->must_assign || member->is_late)) {
 					continue;
 				}
 				const std::optional<SceneValue> value = stored.to_nodes ? with_nodes(stored, member->type, p_scene, p_node) : stored;

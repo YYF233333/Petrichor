@@ -297,10 +297,11 @@ struct Member : Slot {
 	bool is_export = false;
 	bool is_onready = false; // Set by the ready function (spec §6.3).
 	bool must_assign = false; // Spec §6.2.
+	bool is_late = false; // Assigned by later code (spec §6.3); a static variable too.
 	// The 8 bytes right after its slot are not zero once it has been assigned:
-	// of one that must be, and of an @onready one, which is read only after
-	// (spec §6.3).
-	bool tracks_assignment() const { return must_assign || is_onready; }
+	// of one that must be, and of an @onready or @late one, which is read only
+	// after (spec §6.3).
+	bool tracks_assignment() const { return must_assign || is_onready || is_late; }
 	// The functions that reading and writing it from outside the class call
 	// (spec §4.4); -1 without one.
 	int32_t setter = -1;

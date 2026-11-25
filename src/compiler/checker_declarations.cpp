@@ -473,7 +473,7 @@ void Checker::check_member_declaration(size_t p_index) {
 		if (member.is_export) {
 			error(member.name_token, "@onready and @export do not go together: the node's ready would overwrite what the scene assigned.");
 		}
-		if (!member.initializer) {
+		if (!member.initializer && !member.is_late) {
 			error(member.name_token, "An @onready member needs an initializer.");
 		}
 	}
@@ -503,10 +503,10 @@ void Checker::check_member_declaration(size_t p_index) {
 	} else if (!typed) {
 		error(member.name_token, "\"" + member.name + "\" needs a type or an initial value.");
 	} else {
-		// The scene, the creator or an ancestor assigns it, which is checked
-		// before it is read (spec §4.3, §6.2).
-		member.must_assign = !has_value_without_initializer(type);
-		member.initial = member.must_assign ? nullptr : reflected_initial(nullptr, type);
+		// _init, the scene or the creator assigns it, or later code one that is
+		// @late, which is checked before it is read (spec §4.3, §6.2, §6.3).
+		member.must_assign = !member.is_late && !has_value_without_initializer(type);
+		member.initial = member.must_assign || member.is_late ? nullptr : reflected_initial(nullptr, type);
 	}
 	const TypeKind kind = type.unwrapped().kind;
 	if (member.is_export && is_typed_container(type.unwrapped()) && is_boxed(type.unwrapped())) {
@@ -530,6 +530,7 @@ void Checker::check_member_declaration(size_t p_index) {
 		error(member.name_token, "Task handles cannot be exported: a scene cannot save a running coroutine.");
 	}
 	member.type = type;
+	check_late(member);
 	check_annotations(member);
 	if (member.is_export) {
 		const Type &exported = type.unwrapped();
@@ -754,14 +755,30 @@ void Checker::check_static_declaration(size_t p_index) {
 		}
 	} else if (!typed) {
 		error(variable.name_token, "\"" + variable.name + "\" needs a type or an initial value.");
-	} else if (!variable.initializer && !enum_has_default(type)) {
+	} else if (!variable.initializer && !variable.is_late && !enum_has_default(type)) {
 		error(variable.name_token, "\"" + variable.name + "\" needs an initial value: " + enum_spelling(type) + " has no value 0 to start at.");
-	} else if (!variable.initializer && !has_value_without_initializer(type)) {
-		error(variable.name_token, "The static variable \"" + variable.name + "\" needs an initial value: " + type.to_string() + " has no default value. Give it one, or the type " + optional_of(type).to_string() + ".");
+	} else if (!variable.initializer && !variable.is_late && !has_value_without_initializer(type)) {
+		error(variable.name_token, "The static variable \"" + variable.name + "\" needs an initial value: " + type.to_string() + " has no default value. Give it one, mark it @late, or give it the type " + optional_of(type).to_string() + ".");
 	}
 	variable.type = type;
+	check_late(variable);
 	check_accessors(variable);
 	variable.state = VarDecl::State::Checked;
+}
+
+// @late (spec §6.3): a member or a static variable without an initializer,
+// of a type without a default value, which later code assigns.
+void Checker::check_late(const VarDecl &p_variable) {
+	if (!p_variable.is_late) {
+		return;
+	}
+	if (p_variable.is_onready) {
+		error(p_variable.name_token, "@late and @onready do not go together: an @onready member is assigned as the node becomes ready.");
+	} else if (p_variable.initializer) {
+		error(p_variable.name_token, "An @late member takes no initializer: later code assigns it.");
+	} else if (!p_variable.type.is_error() && has_value_without_initializer(p_variable.type)) {
+		error(p_variable.name_token, p_variable.type.to_string() + " has a default value, which \"" + p_variable.name + "\" starts at; @late is for a type without one.");
+	}
 }
 
 // A property's setter and getter (spec §4.4): its own inline ones, which
