@@ -179,6 +179,10 @@ struct 的方法限制为只读，因为修改 `self` 要求调用处具备写�
 
 编码 struct 时，值为 `None` 的 `T?` 字段省略该键，与 Swift 的 `Codable` 默认 `encodeIfPresent` 相同。GDScript 字典常以 `has("unit")` 判断可选字段是否存在，写入 `"unit": null` 会让 `tanks-of-freedom-ii` 的触发器读取端崩溃（`scenes/board/logic/scripting/triggers/move.gd`）。若字段写有非 `None` 的默认值则保留 `"key": null`，使解码读回仍得 `None` 而不被当作缺键取默认值。
 
+带载荷 enum 分支和 `Result` 的字段同此规则，嵌套的值因此只有一条规则，手写的字典在两处能省的键也相同。`$variant` 是本语言自己的键，没有既有的 GDScript 数据读它，两种写法都不破坏既有代码。检查器的通用字典编辑器看不到省略的键，这留给以后为导出值单独做的格式和面板解决。
+
+这条规则照顾不到另一种约定。`tanks-of-freedom-ii` 新建触发器时写入 `"type": null`，游戏端以 `trigger_definition['type'] == null` 读取（`scenes/map_editor/story/triggers/triggers.gd:45-50`、`scenes/board/logic/scripting.gd:43`）。GDScript 用下标读缺少的键时，debug 构建报错（[引擎事实](engine-facts.md)）。同一个字典的 `one_off` 又以 `has()` 判断，所以没有哪个默认值同时满足两种读法。按字段选择留作待定问题（BACKLOG.md）。
+
 #### 赋值的求值顺序（§3.6）
 
 Petrichor 在普通赋值和复合赋值中都先求右边，再求目标位置，最后连续完成读改写。GDScript 恰恰相反，会先沿链读出副本再求右边（[引擎事实](engine-facts.md)）；一旦右边挂起或改写这条链，写回旧副本就会覆盖期间的修改。例如 `position.x = await slide_x()` 会丢掉等待期间物理过程对 `y` 的更新。

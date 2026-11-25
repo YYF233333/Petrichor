@@ -37,6 +37,7 @@
 | `pop_at` 在空数组上返回 null 而不报错，非空数组越界时报错并返回 null，负下标从末尾数起 | `core/variant/array.cpp:802-826` | §3.8 |
 | `front`、`back` 在空数组上报错 | `core/variant/array.cpp:354-362` | §3.8 |
 | Dictionary 的 `get` 在缺键时返回默认值 | `core/variant/dictionary.cpp:178-187` | §3.8 |
+| GDScript 用下标读字典中不存在的键时，debug 构建报错并中止。release 构建不检查，基的类型未知时得 null | `modules/gdscript/gdscript_vm.cpp:1111-1135, 1151-1168`；`core/variant/variant_setget.cpp:1007-1012, 1166-1170` | §10.1 |
 | 大小比较运算只有 bool、数值、String、StringName、向量、RID 和 Array 有，对象、Dictionary、Callable 没有 | `core/variant/variant_op.cpp:731-791` | §3.6、§5.2 |
 | Array 的 `sort`、`bsearch`、`min`、`max` 和 Dictionary 的 `sort` 按运算表比较。`sort` 把做不了的比较当作假；`min`、`max` 返回 null，在空数组上也是；都不报错 | `core/variant/array.cpp:721-736, 756-760, 828-868`；`core/variant/dictionary.cpp:315-330` | §3.8 |
 | 带类型的 Array 的 `resize` 以该类型的默认值填充新元素，对象为 null | `core/variant/array.cpp:306-318` | §3.8 |

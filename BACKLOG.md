@@ -30,7 +30,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 ## Language
 
 - `@late` on class and static members, compile-time checks on `T.new(...)` for members that must be assigned, and removing ancestor `_ready` assignments and their `owner.ready` check (spec §4.8, §6.2, §6.3, §7.5; reverse conversion drops `@late`).
-- Encoding a struct omits the key of a `None` `T?` field unless its default value is not `None`, and decoding takes a missing `T?` field without a default as `None` (spec §3.6, §10.1).
+- Encoding a struct omits the key of a `None` `T?` field unless its default value is not `None`, and decoding takes a missing `T?` field without a default as `None` (spec §3.6, §10.1). The fields of a payload enum's variant and of `Result` follow the same rule (spec §3.7).
 - `Array(r)` on the result of awaiting a multi-parameter signal (spec §9.6).
 - Load cycles the check misses (spec §7.6): a subclass in another file that uses its base's `preload` constant as a value, and a constant copied through two or more constants. Both load the script at run time without an edge (`load_edges()` in `src/compiler/script_classes.cpp`); the old token scan missed them too.
 - A track naming an engine property that ClassDB does not list is refused, as `current` of AudioListener2D (spec §7.7). The engine takes such a name through `_set`. The check could ask an instance of the class for its properties.
@@ -141,6 +141,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - When lints are added, a warning on a method named like a utility function, as GDScript's `SHADOWED_GLOBAL_IDENTIFIER` gives. A direct call of the name calls the utility function (spec §2.6). Of 13 first-party files in the corpus that call such a method directly, 12 mean the utility function.
 - Compiled bytecode is checked against its own source only. A game run from the command line without a build keeps old bytecode. That happens after a change to a scene or to a script it uses. Only the runtime checks (signatures, `$X` classes) then catch the difference. The analysis knows what each script read, but keeps it only in the editor's memory (architecture §2.1).
 - The typed inspector panel for exported structs and enums with payloads (architecture §6.2). Until then the engine's generic Dictionary editor edits them.
+  - A `None` field has no key in the stored value (spec §10.1), so the generic editor does not show the field. The panel, or a stored format of their own for exports, shows it.
 - Completion of the names in strings that wait on their checks (spec §10.4, §13.2). They are property names, as in `set_deferred("speed", v)`, members of other objects, as in `other.connect("hit", f)`, and the paths of `get_node("...")`.
 - Completing a bare name takes about 75 ms in the test project, GDScript about 21 ms. Our check takes 19 ms of it. The editor spends most of the rest on about 2550 options. GDScript's list lacks about 470 editor classes.
 - `_can_make_function`, so that the signal connection dialog generates the callback (editor/scene/connections_dialog.cpp:505-512; ed1daf0). It writes `pub func`, as connected methods need (spec §10.5).
@@ -314,6 +315,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 
 ## Open questions
 
+- Whether a field can choose to encode `None` as a key with `null` (spec §10.1). Now a `T?` field leaves its key out, which serves readers that test `has()`. tanks-of-freedom-ii has both conventions in one dictionary: it writes `"type": null` and reads `trigger_definition['type'] == null`, while it tests `has('one_off')` (`scenes/map_editor/story/triggers/triggers.gd:45-50`, `scenes/board/logic/scripting.gd:43, 54`). A GDScript build of the game would fail on the missing key in a debug build (engine facts). Decide it when the game's data layer is written as structs (Tests).
 - Whether a method that overrides a `pub` method of a base class is `pub` without writing it (spec §4.2). Now the override must repeat `pub`, though an exported variable and an `@rpc` function need not write it. Kotlin keeps the overridden member's visibility, as its docs state for `protected` and `internal`. The owner finds that object-oriented languages have not settled it.
 - Whether a C# property without `[Export]` is a known limitation (spec §11.1). The editor lists only exported ones, so `c.Hits` is a compile error.
 - Whether `reduce()` types its lambda from the start value, as `func(A, T) -> A` (spec §3.8). Now the lambda's types must be written. A `None` start would need a rule of its own.
