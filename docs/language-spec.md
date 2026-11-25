@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob a40aa96911a455bf925d27a96f7c49822a748a0a. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob fb355fdf34f8173404300a735fbd2d740c0c4da9. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -104,7 +104,7 @@ Besides the no-silent-differences rule, this language's own operations guarantee
 
 - **[Open]** `@tool` and `@export_tool_button` make a script run in the editor. They belong to the first version, and their rules are not settled yet. Until they are settled, they are compile errors.
 - `@warning_ignore` takes the snake_case names of this language's warnings and hints. Each hint has a name, as each warning does. A name that suppresses no diagnostic gives the hint `unused_ignore`. This includes GDScript warning names left over from migration.
-- New class-level annotations: `@parent(T)` and `@owner(T)`, for upward access. New member annotation: `@readonly`, only for interface properties.
+- New class-level annotations: `@parent(T)` and `@owner(T)`, for upward access. New member annotations: `@late` for members assigned later, and `@readonly` only for interface properties.
 - `pub` is written after the annotations and before `static`.
 
 ### 2.4 How declarations are written
@@ -457,8 +457,8 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - A `var` with an initializer can infer its type by the rules of local variables (such as `var speed = 5.0` as `float`, or `@onready var label = $Label` from scenes), and the inferred type is used for hover, completion and reflection. Without an initializer, or when the initializer cannot determine a type (such as an empty container or `None`), the type must be annotated.
 - A member without an initializer:
   - numbers, `bool`, strings, core value types, containers, `Callable`, `Signal`, and enums without payloads containing 0 take their default values. `T?` takes `None`, and `Variant` takes NIL;
-  - a struct takes its default value when all its fields have default values. Otherwise it is a member that must be assigned. Non-null object references, enums with payloads, enums without 0 and function types are members that must be assigned too.
-- `@export` follows GDScript, with two differences. An exported scene is written `PackedScene[T]`. A non-null object export must be assigned. By the rules of visibility, an exported variable is treated as `pub`.
+  - a struct takes its default value when all its fields have default values, and otherwise has no default value. Non-null object references, `Task[T]`, enums with payloads, enums without 0 and function types have no default value either. Without `@late` such a member is a member that must be assigned, and with `@late` it is checked when read.
+- `@export` follows GDScript, with two differences. An exported scene is written `PackedScene[T]`. A non-null object export without `@late` must be assigned. By the rules of visibility, an exported variable is treated as `pub`.
 - Structs and enums with payloads can be exported, and are stored encoded by the rules of the engine boundary.
   - When a field contains `Node` at any level, the export is a compile error.
   - **[Known limitation]** For now the Inspector edits them with the generic Dictionary editor.
@@ -527,7 +527,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 ### 4.8 Static members
 
 - No static initialization runs inside the editor. When classes load (base class before derived class), each `static var` is initialized in declaration order without going through its setter, followed by the parameterless, void `static func _static_init()`, and then the inner classes in order.
-- A `static var` is shared by its declaring class and subclasses and may have accessors, but cannot be marked `@export` or `@onready`. Without an initializer it takes a default value by the rules of member variables, and a type without one (such as a non-null object type) is a compile error. Classes with static variables stay loaded during the run, including those marked `@static_unload` for now.
+- A `static var` is shared by its declaring class and subclasses, may have accessors and `@late`, and cannot be marked `@export` or `@onready`. Without an initializer or `@late` it takes a default value by the rules of member variables, and a type without one (such as a non-null object type) is a compile error. Classes with static variables stay loaded during the run, including those marked `@static_unload` for now.
 - Static variables and static methods are used by bare name in their class, in subclasses and in inner classes. Other classes write `Registry.count` and `Base.label()`. They can also be accessed through an instance or a value:
   - GDScript can read and write a `pub` static variable by name, through the class and through objects;
   - objects of classes of this language and of GDScript go by their dynamic type. The static method of that name is looked up from that type upward;
@@ -646,36 +646,32 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 6.2 Members that must be assigned
 
-- `_init` may have parameters, and `new(...)` passes arguments to it by position, as in GDScript. When the engine creates an object, it passes no arguments, as with scenes, `instantiate(...)` and `duplicate()`. For these routes, construction parameters are expressed as members that must be assigned, non-null and without default values.
-- Before its scene finishes becoming ready, a `Node` member that must be assigned must be provided by one of these:
+- `_init` may have parameters, and `new(...)` passes arguments to it by position, as in GDScript. When the engine creates an object, it passes no arguments, as with scenes, `instantiate(...)` and `duplicate()`. For these routes, construction parameters are expressed as members that must be assigned, without default values.
+- A member that must be assigned must be provided at creation by one of these:
   - **`_init`**: assigns it on every path, for example from a parameter;
-  - **the scene**: an exported member is provided by the scene;
-  - **the creator**: `instantiate(...)` and `new(...)` take members by name and assign them before returning, as in `BulletScene.instantiate(shooter = self, target = enemy)`. In `PackedScene[T].instantiate(...)`, leaving out a member that the scene resource rules require is a compile error. A member left out of `new(...)` is checked at run time;
-  - **an ancestor**: an ancestor node in the same scene assigns it in its own `_ready`. The assignment goes through `$Child.target = v` or an `@onready` reference, which the scene model can see. Dynamic configuration that it cannot see must be marked `T?`.
-- The compiler checks the values given in the following forms, and other assignments are checked at ready:
-  - assignments on every path in `_init`;
-  - values stored in the scene;
-  - named arguments of `new(...)` and `instantiate(...)`;
-  - assignments by an ancestor in `_ready`, through `$Child.target = v` or an `@onready` reference. **[Known limitation]** Such an assignment is checked only at ready; see the open questions.
-- A member still unassigned at ready is a program error. The error suggests one of the forms above, so that it is checked at compile time.
-- The ready order says when the checks happen. Before ready, reading a member not yet assigned is a program error that states the member name.
+  - **the scene or resource file**: an exported member is provided by the scene or `.tres`, and an unexported member in a `.tres` that `_init` does not assign is a compile error;
+  - **the creator**: `instantiate(...)` and `new(...)` take members by name and assign them before returning, as in `BulletScene.instantiate(shooter = self, target = enemy)`. Leaving out a member that `_init` does not assign in `new(...)` of a known class, or one that the scene resource rules require in `PackedScene[T].instantiate(...)`, is a compile error.
+- When an object is created without a statically known class (such as `Script.new()`), or when a missing-value error on a scene does not prevent running in the editor, the check happens at run time:
+  - on a `Node`, a member still unassigned at ready is a program error suggesting one of the forms above so that it is checked at compile time;
+  - reading an unassigned `Node` member before ready, or an unassigned member on another object, is a program error that states the member name.
 - If `_init` directly reads a member that must be assigned before `_init` has assigned it on every path, the read is a compile error. Reading it indirectly through a call is a program error.
-- A `Resource` has no ready phase. A `.tres` is checked statically, and one made by `new()` in code is checked when read.
 - When `_init` has required parameters, attaching the script by a route without arguments, such as `set_script`, is a program error. `_init` is not run then. A scene or a `.tres` that uses such a script is a compile error.
-- An autoload outlives scenes, so its members that refer to scene nodes must be written `T?`. **[Known limitation]** The first version has no non-null members assigned after ready.
 
-### 6.3 `@onready`
+### 6.3 `@onready` and `@late`
 
 - Combining `@onready` with `@export`, writing `await` in an `@onready` initializer, or directly reading an `@onready` member in `_init` or `_enter_tree` is a compile error. Reading an uninitialized `@onready` member indirectly through a call is a program error that states the member name.
+- `@late` applies to class members and `static var`, marking a variable assigned by later code (not treated as `pub`):
+  - it applies only to a member without an initializer whose type has no default value. Giving it an initializer, using it on a type with a default value (such as `int` or `T?`) or combining it with `@onready` is a compile error. Placing it on a local variable, struct field or interface property is a compile error too;
+  - reading an `@late` member not yet assigned is a program error stating the member name. Directly reading an `@late` instance member in `_init` before assigning it on every path is a compile error;
+  - once assigned, it stays non-null and may be assigned a new value of its type. Assigning `None` is a compile error, and writing `null` across the engine boundary fails the entry check as a program error while keeping the old value. When the referenced object is freed, it follows the rules of objects and nullability without reverting to unassigned;
+  - it may be combined with `@export` (treated as `pub`). A non-null value stored in a scene or `.tres` counts as an assignment, while an absent or null value gives no missing-value error and need not be passed to `instantiate(...)` or `new(...)`.
 
 ### 6.4 Ready order
 
 - A `Node` of this language goes through the following phases in order, with each check done in the phase listed:
   1. Creation: the initializers assign in declaration order, and then `_init` runs. The named arguments of `new(...)` and `instantiate(...)` are assigned next, in written order and through the setters. This is the same as a scene assigning exports;
   2. Parenting (`NOTIFICATION_PARENTED`): `@parent(T)` is checked. When the script is attached to a node that already has a parent, it is checked on attaching;
-  3. Ready: first the members that must be assigned and that the scene or the creator provides are checked. Next the `@onready` members are initialized, and then `_ready` runs;
-  4. Whole scene ready, that is when the owner emits `ready`: the ancestor-assigned members that must be assigned are checked.
-- On a node that has an owner in the scene, an ancestor assigns the unexported members that must be assigned. The rest are provided by the scene or the creator. When an ancestor assigns only after an `await` in its `_ready`, the check of step 4 is a program error.
+  3. Ready: first the members that must be assigned are checked. Next the `@onready` members are initialized, and then `_ready` runs.
 - Reading an uninitialized member of a parent in a child's `_ready` is a program error that explains the cause. The read is legal when the child is added under an already ready parent at run time, so it is not forbidden at compile time. The diagnostic gives two fixes:
   - let the parent's `_ready` configure the child instead;
   - the child declares `async func _ready()` and `@parent(T)`, and writes `await get_parent().ready`.
@@ -772,7 +768,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 ### 7.5 Exports that must be assigned
 
-- An export of a non-null object type must be assigned. One that may lack a value is written `T?`.
+- An export of a non-null object type without `@late` must be assigned. One that may lack a value is written `T?`, and one assigned by later code is marked `@late`.
 - It is checked by how the scene is used:
   - when other scenes instance or inherit the scene, an assignment at any level of the instance and inheritance chain counts. Each instance is checked separately, and marked on the scene it is in;
   - when the scene is used as a root, the scene itself is checked. Such a use is the main scene, `load`/`preload` with a literal path, or a `PackedScene[T]` filled into an export. Values passed to `instantiate(...)` in code count too, and leaving one out is a compile error at the call site;
@@ -1102,6 +1098,7 @@ The following features can be added compatibly after the first version:
   - an ordinary function used implicitly where `async` is expected;
   - spreading into rest parameters at the call site, and rest parameters in function types;
   - field narrowing/conditional binding;
+  - querying whether an `@late` member has been assigned;
   - type patterns of `match`, `match` expressions and bindings in multiple patterns;
   - always-on assertions;
   - debug text that shows values as written in this language;
@@ -1122,7 +1119,3 @@ The following features can be added compatibly after the first version:
 - When native code is generated: at run time, at export, or both.
 - The rules for `@tool` scripts running in the editor.
 - The rules for user-defined generics.
-- The rules for members that are non-null only once ready, which await a design as a whole:
-  - who assigns a member that must be assigned, and which of those assignments the compiler looks for;
-  - assignments by ancestors;
-  - members assigned after ready.
