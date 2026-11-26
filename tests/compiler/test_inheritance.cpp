@@ -116,7 +116,7 @@ func common(a: Middle, b: Sibling, yes: bool) -> Base:
 	var joined = a if yes else b
 	var n: Node = joined
 	return joined
-func call(a: Middle) -> int:
+func count_of(a: Middle) -> int:
 	return a.local() + a.count
 )",
 			p);

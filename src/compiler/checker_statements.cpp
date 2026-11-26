@@ -773,6 +773,10 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			const Expr *outer = std::exchange(assigned, &target);
 			Type target_type = target.kind == ExprKind::Subscript ? check_subscript(target) : check_expr(target);
 			assigned = outer;
+			// GDScript sets a property that an Object lacks by name (architecture §6.6).
+			if (!compound && target_type.is_error() && target.kind == ExprKind::Member && target.base && target.base->type == Type::object("Object") && target.name_token < cls.source->tokens.size()) {
+				fix_by_name({ { { target.name_token, r_stmt.value->range.last }, "set(\"" + target.text + "\", " + cls.source->text_of(r_stmt.value->range) + ")" } }, target.text, false);
+			}
 			if (target.kind != ExprKind::Name && target.kind != ExprKind::Member && target.kind != ExprKind::Subscript) {
 				error(target.range, "Cannot assign to this expression.");
 				check_value(*r_stmt.value);

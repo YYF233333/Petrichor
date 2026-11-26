@@ -741,6 +741,25 @@ TEST_CASE("a call by name flows into every function so named, and the report mar
 	CHECK(migration.notes[0].message == "The type of \"amount\", int, rests on calls by name: res://bullet.pet:5, res://bullet.pet:9.");
 }
 
+// As Starter-Kit-FPS's player and enemies damage what a raycast hits
+// (objects/player.gd:200-205, objects/enemy.gd:52-68); GDScript looks the
+// method up on the object by name. By name, only pub members are found
+// (spec §10.5).
+TEST_CASE("on an Object, a call whose result is dropped and a property written go by name, and each member so named becomes pub") {
+	FakeProject project;
+	project.add_script("res://enemy.gd", "extends Node\nvar health := 100\n\n\nfunc damage(amount):\n\thealth -= amount\n");
+	project.add_script("res://player.gd", "extends Node\nvar health := 100\n\n\nfunc damage(amount):\n\thealth -= amount\n\n\nfunc shoot(id: int, body: Object) -> void:\n\tvar collider = instance_from_id(id)\n\tif collider.has_method(\"damage\"):\n\t\tcollider.damage(5)\n\tbody.health = 0\n\tprint(body.damage(1))\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://enemy.gd", "res://player.gd" }, 10);
+	CHECK(migration.texts.at("res://enemy.pet") == "extends Node\npub var health := 100\n\n\npub func damage(amount: int):\n\thealth -= amount\n");
+	CHECK(migration.texts.at("res://player.pet") == "extends Node\npub var health := 100\n\n\npub func damage(amount: int):\n\thealth -= amount\n\n\nfunc shoot(id: int, body: Object) -> void:\n\tvar collider = instance_from_id(id)\n\tif collider.unwrap().has_method(\"damage\"):\n\t\tcollider.unwrap().call(\"damage\", 5)\n\tbody.set(\"health\", 0)\n\tprint(body.damage(1))\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 2 }, { compiler::FixKind::ByName, 2 } });
+	const auto reached = std::count_if(migration.notes.begin(), migration.notes.end(), [](const compiler::Diagnostic &p_note) { return contains(p_note.message, "it is reached by name, as GDScript does"); });
+	CHECK(reached == 2);
+	// A result used is a Variant, which a person types.
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].message == "Object has no method \"damage()\".");
+}
+
 TEST_CASE("a Variant says nothing of a slot's type, and one that does not fit is an error where it flows in") {
 	FakeProject project;
 	project.add_script("res://audio.gd", "extends Node\nvar data: Dictionary = {}\n\n\nfunc play(sample_name, extra):\n\tprint(sample_name, extra)\n\n\nfunc _ready() -> void:\n\tplay(\"click\", data[\"a\"])\n\tplay(data[\"k\"], data[\"b\"])\n\tvar label\n\tlabel = \"a\"\n\tlabel = data[\"k\"]\n");

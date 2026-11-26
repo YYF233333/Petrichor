@@ -2078,6 +2078,12 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 		}
 		fail_receiver(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
 		call_by_name(r_expr);
+		// GDScript calls it by name; so may call() where nothing uses its
+		// result, which the check then goes on with (architecture §6.6).
+		const bool named = r_expr.discarded && base_type == Type::object("Object") && r_expr.name_token + 1 < cls.source->tokens.size();
+		if (named && fix_by_name({ { { r_expr.name_token, r_expr.name_token + 1 }, "call(\"" + name + "\"" + (r_expr.args.empty() ? "" : ", ") } }, name, true)) {
+			return set(r_expr, Type::of(TypeKind::Variant));
+		}
 		return r_expr.type;
 	}
 	if (base_type.kind == TypeKind::Struct) {

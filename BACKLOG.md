@@ -16,7 +16,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left:
     - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete;
     - an error of the candidate check at the range of another that is about a declaration elsewhere, as a value from a method not yet `pub` that does not fit (architecture §6.6). It withdraws nothing now. Taken as any other error, it would withdraw tanks-of-freedom-ii's `maps` and `online`, written `:= {}` and assigned what `read_json_from_file()` gives (`scripts/services/map_manager.gd:18, 21, 61-62`). Those are types a person would write, so it stays until a rule tells such errors apart.
-  - The rewrites that the survey showed.
+  - The rewrites that the survey showed. Left: a property written on an `Object?` keeps its error without `.unwrap()` (architecture §6.6). That fix tries the write unwrapped, which checks only once `set()` is written. None of the three games has one.
 - Reverse conversion, and the round trips of FPS, Ring and deck_builder_tutorial (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).

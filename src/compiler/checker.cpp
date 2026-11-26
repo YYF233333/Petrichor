@@ -431,6 +431,38 @@ void Checker::fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<boo
 	}
 }
 
+// Gives the error reported last the fix that reaches `p_name` of an Object
+// by name, as GDScript looks it up (architecture §6.6): `p_writes`, and pub
+// for each method so named in the project's classes of this language, or
+// each member for a property, which only then can be found by name (spec
+// §10.5). None, and false, where one cannot be pub.
+bool Checker::fix_by_name(const std::vector<Write> &p_writes, const std::string &p_name, bool p_method) {
+	Fix by_name = writing(p_writes, FixKind::ByName);
+	by_name.title = p_method ? "Call " + p_name + "() by name" : "Set " + p_name + " by name";
+	const auto named = [&](const ClassDecl &p_class, const std::string &p_owner, const auto &p_self) -> bool {
+		const auto pub = [&](const auto &p_decl) {
+			if (p_decl.name != p_name || p_decl.is_pub) {
+				return true;
+			}
+			const std::optional<Fix> made = pub_fix(p_owner, p_decl.name_token, p_decl.range);
+			if (made) {
+				by_name.edits.insert(by_name.edits.end(), made->edits.begin(), made->edits.end());
+			}
+			return made.has_value();
+		};
+		const bool all = p_method ? std::all_of(p_class.functions.begin(), p_class.functions.end(), pub) : std::all_of(p_class.members.begin(), p_class.members.end(), pub);
+		return all && std::all_of(p_class.classes.begin(), p_class.classes.end(), [&](const std::unique_ptr<ClassDecl> &p_inner) { return p_self(*p_inner, p_owner + "::" + p_inner->name, p_self); });
+	};
+	for (const std::string &path : options.project ? options.project->script_paths() : std::vector<std::string>()) {
+		const ClassDecl *header = is_script_path(path) ? classes.header(path) : nullptr;
+		if (header && !named(*header, path, named)) {
+			return false;
+		}
+	}
+	fix(std::move(by_name));
+	return true;
+}
+
 // The edit that makes the type written at `p_written` a T?.
 Fix::Edit Checker::optional_edit(const SourceFile &p_source, const TypeRef &p_written) {
 	const std::string text = p_source.text_of(p_written.range);

@@ -492,10 +492,11 @@ class Checker : public ClassRelation, private CheckContext {
 		// Nothing reported since it began.
 		bool clean() const { return checker.errors.size() == errors; }
 		// Nothing but errors with a fix after which the check goes on as if it
-		// were applied, or one that unwraps (architecture §2.1).
+		// were applied, or one that unwraps or reaches a member by name
+		// (architecture §2.1).
 		bool fixed() const {
 			return std::all_of(checker.errors.begin() + std::ptrdiff_t(errors), checker.errors.end(), [](const Diagnostic &p_error) {
-				return std::any_of(p_error.fixes.begin(), p_error.fixes.end(), [](const Fix &p_fix) { return p_fix.assumed() || p_fix.kind == FixKind::Unwrap; });
+				return std::any_of(p_error.fixes.begin(), p_error.fixes.end(), [](const Fix &p_fix) { return p_fix.assumed() || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::ByName; });
 			});
 		}
 		// What the name at `p_begin` was found to refer to since it began.
@@ -784,6 +785,7 @@ class Checker : public ClassRelation, private CheckContext {
 	TokenRange unparenthesized(TokenRange p_range) const;
 	std::string operand(const Expr &p_expr) const;
 	void fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check);
+	bool fix_by_name(const std::vector<Write> &p_writes, const std::string &p_name, bool p_method);
 	static Fix::Edit optional_edit(const SourceFile &p_source, const TypeRef &p_written);
 	std::optional<Fix::Edit> line_after(const TokenRange &p_range, uint32_t p_indented, const std::string &p_line) const;
 	void fix_optional(const TypeRef &p_written, const std::string &p_owner = std::string());

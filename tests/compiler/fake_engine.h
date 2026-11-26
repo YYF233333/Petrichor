@@ -129,6 +129,9 @@ public:
 		};
 		methods["Object"][methods["Object"].size() - 2].is_vararg = true;
 		methods["Object"].back().is_vararg = true;
+		methods["Object"].push_back(method("set", { { "property", Type::builtin("StringName") }, { "value", t(TypeKind::Variant) } }, t(TypeKind::Void)));
+		methods["Object"].push_back(method("call", { { "method", Type::builtin("StringName") } }, t(TypeKind::Variant)));
+		methods["Object"].back().is_vararg = true;
 		methods["Tween"] = {
 			method("tween_property", { { "object", Type::object("Object") }, { "property", Type::builtin("NodePath") }, { "final_val", t(TypeKind::Variant) }, { "duration", t(TypeKind::Float) } }, Type::object("PropertyTweener", true)),
 		};

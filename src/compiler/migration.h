@@ -232,7 +232,8 @@ public:
 // file.
 // The hints at the slots say why they have no type, with what they
 // received, or what calls by name gave their types and what Variant values
-// they leave out.
+// they leave out; others name each member that an Object is now reached by
+// name for.
 struct Migration {
 	std::map<std::string, std::string> texts;
 	int quoted = 0;
