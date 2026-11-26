@@ -1952,6 +1952,62 @@ std::string Checker::callable_refusal(const Type &p_function) const {
 	return std::string();
 }
 
+// Whether a branch of the value, or of what it casts, is GDScript's null
+// literal.
+static bool null_branch(const Expr &p_value) {
+	const auto null = [](const std::unique_ptr<Expr> &p_branch) { return p_branch && (p_branch->kind == ExprKind::NoneLiteral || null_branch(*p_branch)); };
+	if (p_value.kind == ExprKind::Conditional) {
+		return null(p_value.left) || null(p_value.right);
+	}
+	return p_value.kind == ExprKind::Cast && p_value.left && null_branch(*p_value.left);
+}
+
+// Whether `p_node` tests the variable `p_name` for null after token
+// `p_after`: by its truth, by == or != null, or with is_instance_valid().
+template <typename Node>
+static bool tests_null(const Node &p_node, const std::string &p_name, uint32_t p_after) {
+	const auto named = [&](const std::unique_ptr<Expr> &p_expr) { return p_expr && p_expr->kind == ExprKind::Name && p_expr->text == p_name && p_expr->range.first > p_after; };
+	bool found = false;
+	if constexpr (std::is_same_v<Node, Stmt>) {
+		found = (p_node.kind == StmtKind::If || p_node.kind == StmtKind::While) && named(p_node.condition);
+	} else if constexpr (std::is_same_v<Node, Expr>) {
+		const TokenKind op = p_node.op;
+		const bool compared = (op == TokenKind::EqualEqual || op == TokenKind::BangEqual) && ((p_node.left && p_node.left->kind == ExprKind::NoneLiteral) || (p_node.right && p_node.right->kind == ExprKind::NoneLiteral));
+		if (p_node.kind == ExprKind::Unary) {
+			found = (op == TokenKind::Not || op == TokenKind::Bang) && named(p_node.left);
+		} else if (p_node.kind == ExprKind::Binary) {
+			found = (op == TokenKind::And || op == TokenKind::Or || compared) && (named(p_node.left) || named(p_node.right));
+		} else if (p_node.kind == ExprKind::Conditional) {
+			found = named(p_node.base);
+		} else if (p_node.kind == ExprKind::Call) {
+			found = !p_node.base && p_node.text == "is_instance_valid" && p_node.args.size() == 1 && named(p_node.args[0]);
+		}
+	}
+	for_each_child(p_node, [&](const auto &p_child) { found = found || tests_null(p_child, p_name, p_after); });
+	return found;
+}
+
+// Whether the code tests for null what the class type written at
+// `p_written` in this file is declared for: a local or a parameter after it
+// in its function, a member in the class.
+bool Checker::tested_for_null(const TypeRef &p_written) const {
+	const std::vector<Token> &tokens = cls.source->tokens;
+	const uint32_t first = p_written.range.first;
+	if (first < 2 || tokens[first - 1].kind != TokenKind::Colon || tokens[first - 2].kind != TokenKind::Identifier) {
+		return false;
+	}
+	const auto in = [&](const FuncDecl &p_function) { return p_function.range.first <= first && first <= p_function.range.last; };
+	const FuncDecl *scope = function && in(*function) ? function : nullptr;
+	for (const FuncDecl &each : cls.functions) {
+		scope = scope ? scope : (in(each) ? &each : nullptr);
+	}
+	const std::string &name = tokens[first - 2].text;
+	if (!scope) {
+		return tests_null(cls, name, 0);
+	}
+	return std::any_of(scope->body.begin(), scope->body.end(), [&](const std::unique_ptr<Stmt> &p_stmt) { return tests_null(*p_stmt, name, first); });
+}
+
 // `p_written` is the type of where the value goes, as written for a variable
 // or a parameter in this file or else in that of the class at `p_owner`;
 // `p_converts`, whether GDScript converts the value to its type there.
@@ -1963,6 +2019,12 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		expect_implemented(p_value, p_from, p_to);
 		expect_scene_fits(p_value, p_to);
 		return;
+	}
+	// GDScript holds the null there that the code gives or tests for, not
+	// failing where an unwrap would (architecture §6.6).
+	const bool here = p_owner.empty() || in_this_file(p_owner);
+	if (p_written && p_to.kind == TypeKind::Object && !p_to.is_optional() && (null_branch(p_value) || (p_from.is_optional() && here && tested_for_null(*p_written)))) {
+		write_optional(*p_written, p_owner);
 	}
 	std::string message = std::string("Cannot ") + p_action + " a value of type " + p_from.to_string() + " as " + p_to.to_string() + ".";
 	if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int) {

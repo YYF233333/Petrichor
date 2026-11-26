@@ -455,6 +455,16 @@ TEST_CASE("the loop of fixes makes a type T? where the original assigns or retur
 	CHECK(migration.errors.empty());
 }
 
+// Ring's ball (breakout/scenes/balls/ball.gd:52-54) and balls.gd:24-29: an
+// unwrap there would fail on the null that GDScript holds and tests.
+TEST_CASE("a type written for a T? value becomes T? where a branch of it is null or the code tests it for null, and is unwrapped elsewhere") {
+	FakeProject project;
+	project.add_script("res://hit.gd", "extends Node\n\n\nfunc hit(near: bool) -> void:\n\tvar nearest: Node2D = get_child(0) if near else null\n\tif nearest:\n\t\tnearest.queue_free()\n\tvar found: Node = get_node_or_null(\"Found\")\n\tif not found:\n\t\treturn\n\tfound.queue_free()\n\tvar kept: Node = get_node_or_null(\"Kept\")\n\tkept.queue_free()\n\ttake(get_node_or_null(\"Taken\"))\n\n\nfunc take(node: Node) -> void:\n\tif is_instance_valid(node):\n\t\tnode.queue_free()\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://hit.gd" }, 10);
+	CHECK(migration.texts.at("res://hit.pet") == "extends Node\n\n\nfunc hit(near: bool) -> void:\n\tvar nearest: Node2D? = (get_child(0) if near else null) as Node2D\n\tif nearest != None:\n\t\tnearest.queue_free()\n\tvar found: Node? = get_node_or_null(\"Found\")\n\tif found == None:\n\t\treturn\n\tfound.queue_free()\n\tvar kept: Node = get_node_or_null(\"Kept\").unwrap()\n\tkept.queue_free()\n\ttake(get_node_or_null(\"Taken\"))\n\n\nfunc take(node: Node?) -> void:\n\tif is_instance_valid(node):\n\t\tnode.unwrap().queue_free()\n");
+	CHECK(migration.errors.empty());
+}
+
 // GDScript passes the null to the connected functions, whose parameters take
 // it (modules/gdscript/gdscript_function.cpp:103-106; ed1daf0).
 TEST_CASE("the loop of fixes makes a signal's parameter T? where the original emits null, and the parameters of the functions connected to it") {

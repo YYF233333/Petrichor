@@ -160,12 +160,20 @@ void Checker::needs_element(const Expr &p_inner, const Type &p_needed) {
 // (architecture §6.6): its slot receives that null, and a class type written
 // for it becomes T?.
 void Checker::starts_null(int p_slot, const TypeRef *p_written, const Type &p_type, uint32_t p_name_token) {
-	const std::string file = script_file(options.path);
 	if (p_slot >= 0) {
 		flow(p_slot, Type::of(TypeKind::None), TokenRange{ p_name_token, p_name_token }, Inflows::Part::Implicit);
 	}
-	if (p_written && p_type.kind == TypeKind::Object && !p_type.is_optional() && options.inflows && options.inflows->files.count(file)) {
-		const Fix::Edit edit = optional_edit(*cls.source, *p_written);
+	if (p_written && p_type.kind == TypeKind::Object && !p_type.is_optional()) {
+		write_optional(*p_written);
+	}
+}
+
+// That a migration writes T? for the class type written at `p_written`, in
+// this file or else in that of the class at `p_owner`, as it writes the types.
+void Checker::write_optional(const TypeRef &p_written, const std::string &p_owner) {
+	const std::string file = p_owner.empty() || in_this_file(p_owner) ? script_file(options.path) : script_file(p_owner);
+	if (options.inflows && options.inflows->files.count(file)) {
+		const Fix::Edit edit = optional_edit(file == script_file(options.path) ? *cls.source : *script_header(file)->source, p_written);
 		options.inflows->optional[{ file, edit.change.begin }] = { edit.change.end, edit.change.new_text };
 	}
 }
