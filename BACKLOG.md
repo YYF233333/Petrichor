@@ -239,8 +239,8 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - A pass now holds each scene and resource it reads until it ends, so a file that several scenes share loads once (architecture §2.1). These times of the generated project predate that.
     - Instances nest about 30 deep there, likely deeper than in real projects.
     - Ways left, to choose with the owner:
-      - compile scripts lazily on load, as GDScript's cache does;
-      - read the structure from the scene text;
+      - compile scripts lazily on load, as GDScript's cache does. A load in the editor compiles the script's declarations each time, outside the analysis, and its base's again (`compile_script` in `src/adapter/editor/script_compiler.cpp`). The 292 scripts of tanks-of-freedom-ii took 108 ms each on average, with the errors of a raw migration in them (`87eab4b`);
+      - read the structure from the scene text. A text file then loads no script. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores;
   - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
   - applying it takes about 100 s. Two thirds of it reload the open scene, which reads every rewritten scene again;
   - `EditorFileSystem::update_file` takes 15 ms for each script there. It saves the whole list of global classes, and `update_files` is not bound (`editor/file_system/editor_file_system.cpp:2160-2197, 3730`, `ed1daf0`);
