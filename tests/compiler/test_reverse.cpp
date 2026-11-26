@@ -1,0 +1,143 @@
+#include "compiler/migration.h"
+#include "compiler/reverse.h"
+#include "doctest.h"
+#include "helpers.h"
+
+using namespace petrichor;
+using namespace petrichor::tests;
+
+// Reverse conversion (spec §13.4, architecture §6.6): what it writes back,
+// the files it takes and refuses, and the re-parse check.
+
+namespace {
+
+using Pairs = std::vector<std::pair<std::string, std::string>>;
+
+// The GDScript of res://unit.pet, the only file of a project; or else, each
+// place that keeps it, as "line:column: message".
+std::string reversed(const std::string &p_source) {
+	FakeProject project;
+	project.add_script("res://unit.pet", p_source);
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, {});
+	const std::string defect = reversal.defects.empty() ? std::string() : reversal.defects[0].message;
+	REQUIRE_MESSAGE(defect.empty(), defect);
+	if (reversal.refused.empty()) {
+		return reversal.texts.at("res://unit.pet");
+	}
+	std::string listed;
+	for (const compiler::Diagnostic &refusal : reversal.refused) {
+		listed += std::to_string(refusal.line) + ":" + std::to_string(refusal.column) + ": " + refusal.message + "\n";
+	}
+	return listed;
+}
+
+} // namespace
+
+TEST_CASE("reverse conversion deletes pub, async, .detach(), .unwrap(), @late, @owner and @parent, and the ? of a class") {
+	CHECK(reversed("@owner(Node2D)\nclass_name Unit\nextends Node\n\nsignal hit(target: Node?)\n@late var target: Node\n@late\npub var other: Node\nvar best: Array[Node?] = []\n\n\npub static func make() -> Unit:\n\treturn Unit.new()\n\n\npub async func wait(node: Node?) -> Node?:\n\tawait ready\n\tvar parent: Node = (node as Node2D).unwrap()\n\treturn get_parent().unwrap()\n\n\nfunc _ready() -> void:\n\twait(null).detach()\n\thit.emit(owner)\n") ==
+			"class_name Unit\nextends Node\n\nsignal hit(target: Node)\nvar target: Node\nvar other: Node\nvar best: Array[Node] = []\n\n\nstatic func make() -> Unit:\n\treturn Unit.new()\n\n\nfunc wait(node: Node) -> Node:\n\tawait ready\n\tvar parent: Node = (node as Node2D)\n\treturn get_parent()\n\n\nfunc _ready() -> void:\n\twait(null)\n\thit.emit(owner)\n");
+}
+
+// GDScript holds a value type's T? as an untyped Variant, its None as null
+// (spec §10.1).
+TEST_CASE("reverse conversion leaves a value type's T? untyped, writes None as null and Some(v) as v, in parentheses where it is an operand") {
+	CHECK(reversed("extends Node\nvar hp: int? = None\nvar armor := Some(2)\n\n\nfunc heal(by: int?, times := 1) -> int?:\n\tvar total: int? = Some(by.unwrap() * times)\n\tif total == None:\n\t\treturn None\n\treturn Some(by.unwrap() + 1).unwrap() * 2\n") ==
+			"extends Node\nvar hp = null\nvar armor = 2\n\n\nfunc heal(by, times := 1):\n\tvar total = by * times\n\tif total == null:\n\t\treturn null\n\treturn (by + 1) * 2\n");
+}
+
+TEST_CASE("reverse conversion writes PackedScene[T] as PackedScene and drops this language's names from @warning_ignore") {
+	CHECK(reversed("extends Node\n@export var scene: PackedScene[Node2D]\n@export var scenes: Array[PackedScene[Node2D]] = []\n\n\n@warning_ignore(\"await_in_assignment\")\nfunc f() -> void:\n\t@warning_ignore(\"unused_variable\", \"modified_copy\")\n\tvar text := \"\"\"a\nb\"\"\"\n") ==
+			"extends Node\n@export var scene: PackedScene\n@export var scenes: Array[PackedScene] = []\n\n\nfunc f() -> void:\n\t@warning_ignore(\"unused_variable\")\n\tvar text := \"\"\"a\nb\"\"\"\n");
+}
+
+TEST_CASE("a file that uses what GDScript lacks stays, with each place listed") {
+	CHECK(reversed("extends Node\nstruct Hit:\n\tvar damage: int\n\nenum Command { IDLE, MOVE(target: Vector2) }\nvar twice: Node??\n\n\nfunc parse(text: String) -> Result[int, ConversionError]:\n\tvar n := int.try_from(text)?\n\treturn Ok(n)\n") ==
+			"2:8: GDScript has no struct.\n5:6: GDScript has no enum with payloads.\n6:12: GDScript has no T?? or Variant?, whose two Nones are one null there.\n9:29: GDScript has no Result.\n10:11: GDScript has no Result.\n10:15: GDScript has no try_from().\n10:29: GDScript has no ? operator.\n11:9: GDScript has no Result.\n");
+	CHECK(reversed("extends Node\n\n\nasync func load_all() -> int:\n\tawait ready\n\treturn 1\n\n\nfunc f() -> void:\n\tvar task := load_all()\n\ttask.cancel()\n") == "10:6: GDScript has no Task value.\n11:7: GDScript has no Task value.\n");
+}
+
+TEST_CASE("a file with a form not converted back yet stays, with each place listed") {
+	CHECK(reversed("extends Node\nenum State { IDLE, RUN }\nvar grid: Array[Array[int]] = []\nvar pick: func(int) -> bool\n\n\nfunc f(n: Node?) -> String:\n\tvar state := State(1)\n\treturn n.map(func(x: Node) -> String: return x.name).unwrap_or(\"\")\n") ==
+			"3:17: This is not converted back yet: a typed container inside a typed container.\n4:11: This is not converted back yet: a function type, which GDScript writes Callable.\n8:15: This is not converted back yet: the conversion of an int to an enum.\n9:11: This is not converted back yet: map() of T?.\n9:55: This is not converted back yet: unwrap_or() of T?.\n");
+}
+
+TEST_CASE("converting a class takes its inheritance tree, which a file that cannot convert keeps, and lists what other files lose") {
+	FakeProject project;
+	project.add_script("res://base.pet", "class_name Base\nextends Node\nenum Kind { A, B }\n\n\npub func hit() -> void:\n\tpass\n", "Base");
+	project.add_script("res://child.pet", "extends Base\nconst Hud = preload(\"res://hud.pet\")\n");
+	project.add_script("res://hud.pet", "extends Node\nvar kind: Base.Kind\n");
+	compiler::Reversal reversal = compiler::reverse(fake_engine(), project, { "res://child.pet" });
+	CHECK(reversal.texts == std::map<std::string, std::string>{ { "res://base.pet", "class_name Base\nextends Node\nenum Kind { A, B }\n\n\nfunc hit() -> void:\n\tpass\n" }, { "res://child.pet", "extends Base\nconst Hud = preload(\"res://hud.pet\")\n" } });
+	CHECK(reversal.added == Pairs{ { "res://base.pet", "in the inheritance tree of res://child.pet" } });
+	REQUIRE(reversal.lost.size() == 1);
+	CHECK(reversal.lost[0].file == "res://hud.pet");
+	CHECK(reversal.lost[0].line == 2);
+
+	project.add_script("res://boss.pet", "extends \"res://child.pet\"\nstruct Loot:\n\tvar gold: int\n");
+	reversal = compiler::reverse(fake_engine(), project, { "res://base.pet", "res://none" });
+	CHECK(reversal.texts.empty());
+	CHECK(reversal.left_out == Pairs{ { "res://base.pet", "in the inheritance tree of res://boss.pet, which stays" }, { "res://boss.pet", "it cannot convert, as listed" }, { "res://child.pet", "in the inheritance tree of res://boss.pet, which stays" } });
+	REQUIRE(reversal.refused.size() == 1);
+	CHECK(reversal.refused[0].file == "res://boss.pet");
+	CHECK(reversal.unknown == std::vector<std::string>{ "res://none" });
+}
+
+// GDScript cannot use an enum of a class of this language (spec §11.3).
+TEST_CASE("a file converted takes the trees whose enums and static methods it uses, or stays with them") {
+	FakeProject project;
+	project.add_script("res://base.pet", "class_name Base\nextends Node\npub enum Kind { A, B }\n", "Base");
+	project.add_script("res://loot.pet", "class_name Loot\nextends Node\npub enum Rarity { COMMON }\nstruct Drop:\n\tvar gold: int\n", "Loot");
+	project.add_script("res://user.pet", "extends Node\nvar kind := Base.Kind.A\n");
+	project.add_script("res://shop.pet", "extends Node\nvar rarity: Loot.Rarity\n");
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, { "res://user.pet", "res://shop.pet" });
+	CHECK(reversal.added == Pairs{ { "res://base.pet", "res://user.pet uses Base.Kind of it" } });
+	CHECK(reversal.left_out == Pairs{ { "res://shop.pet", "it uses Loot.Rarity of res://loot.pet, which stays" } });
+	CHECK(reversal.texts.size() == 2);
+}
+
+TEST_CASE("the paths of the files converted are renamed in their scripts") {
+	FakeProject project;
+	project.add_script("res://a.pet", "extends Node\nconst B = preload(\"b.pet\")\nconst C = preload(\"res://c.pet\")\n");
+	project.add_script("res://b.pet", "extends Node\n");
+	project.add_script("res://c.pet", "extends Node\nstruct S:\n\tvar x: int\n");
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, { "res://a.pet", "res://b.pet" });
+	CHECK(reversal.texts.at("res://a.pet") == "extends Node\nconst B = preload(\"b.gd\")\nconst C = preload(\"res://c.pet\")\n");
+	CHECK(reversal.defects.empty());
+}
+
+// Erasing tokens may let their neighbours parse anew, as `1 + 2 as number /
+// 3` became `1 + 2 / 3` in TypeScript (TypeScript#63533).
+TEST_CASE("the re-parse check finds GDScript whose tree differs from the file's without what was erased") {
+	FakeProject project;
+	const std::string source = "extends Node\n\n\nfunc f(a: int, b: int) -> int?:\n\treturn Some(a + b).unwrap() * 2\n";
+	project.add_script("res://unit.pet", source);
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, {});
+	const std::string written = reversal.texts.at("res://unit.pet");
+	CHECK(written == "extends Node\n\n\nfunc f(a: int, b: int):\n\treturn (a + b) * 2\n");
+	const compiler::Erased &erased = reversal.erased.at("res://unit.pet");
+	CHECK(compiler::reparse_difference("res://unit.pet", source, erased, written, {}).empty());
+	const std::string unparenthesized = "extends Node\n\n\nfunc f(a: int, b: int):\n\treturn a + b * 2\n";
+	CHECK(contains(compiler::reparse_difference("res://unit.pet", source, erased, unparenthesized, {}), "at line 5"));
+	CHECK(contains(compiler::reparse_difference("res://unit.pet", source, erased, "extends Node\n\n\nfunc f(a: int, b: int):\n\treturn (a + b\n", {}), "does not parse"));
+}
+
+// What the forward migration writes comes back as the GDScript it came from,
+// but for the strings it wrote in triple quotes and the `_: pass` it added
+// (architecture §6.6).
+TEST_CASE("GDScript migrated and converted back is the original, but for the known rewrites") {
+	FakeProject project;
+	const std::string unit = "class_name Unit\nextends Node\nenum Type { A, B }\nvar target: Node\n\n\nfunc heal() -> void:\n\tpass\n\n\nfunc wait() -> void:\n\tawait ready\n\tvar parent: Node = get_parent()\n\tprint(parent, \"a\nb\")\n\n\nfunc pick(type: Type) -> void:\n\tmatch type:\n\t\tType.A:\n\t\t\twait()\n";
+	const std::string user = "extends Node\n\n\nfunc f(unit: Unit) -> void:\n\tunit.heal()\n\tunit.target = self\n";
+	project.add_script("res://unit.gd", unit, "Unit");
+	project.add_script("res://user.gd", user);
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://unit.gd", "res://user.gd" }, 10);
+	REQUIRE(migration.errors.empty());
+	FakeProject migrated;
+	migrated.add_script("res://unit.pet", migration.texts.at("res://unit.pet"), "Unit");
+	migrated.add_script("res://user.pet", migration.texts.at("res://user.pet"));
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), migrated, {});
+	REQUIRE(reversal.refused.empty());
+	CHECK(reversal.defects.empty());
+	CHECK(reversal.texts.at("res://unit.pet") == "class_name Unit\nextends Node\nenum Type { A, B }\nvar target: Node\n\n\nfunc heal() -> void:\n\tpass\n\n\nfunc wait() -> void:\n\tawait ready\n\tvar parent: Node = get_parent()\n\tprint(parent, \"\"\"a\nb\"\"\")\n\n\nfunc pick(type: Type) -> void:\n\tmatch type:\n\t\tType.A:\n\t\t\twait()\n\t\t_: pass\n");
+	CHECK(reversal.texts.at("res://user.pet") == user);
+}

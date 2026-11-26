@@ -340,13 +340,18 @@ std::string renamed_in_script(const std::string &p_text, const std::string &p_pa
 	std::string result;
 	size_t done = 0;
 	for (const Token &token : source->tokens) {
+		const auto found = token.kind == TokenKind::String ? p_renamed.find(resolved_path(token.text, p_path)) : p_renamed.end();
+		if (found == p_renamed.end()) {
+			continue;
+		}
 		// Its extension ends the literal, before the closing quote.
-		const size_t extension = token.kind == TokenKind::String && p_renamed.count(resolved_path(token.text, p_path)) ? p_text.rfind(".gd", token.end()) : std::string::npos;
+		const std::string from = found->first.substr(found->first.rfind('.'));
+		const size_t extension = p_text.rfind(from, token.end());
 		if (extension == std::string::npos || extension < token.offset) {
 			continue;
 		}
-		result += p_text.substr(done, extension - done) + ".pet";
-		done = extension + 3;
+		result += p_text.substr(done, extension - done) + found->second.substr(found->second.rfind('.'));
+		done = extension + from.size();
 		r_count++;
 	}
 	return result + p_text.substr(done);

@@ -20,15 +20,6 @@ const char *const NAMES[] = {
 	UNUSED_IGNORE,
 };
 
-bool is_name(const std::string &p_name) {
-	for (const char *name : NAMES) {
-		if (p_name == name) {
-			return true;
-		}
-	}
-	return false;
-}
-
 // The last token of the head of the statement or declaration after the
 // annotation that ends at `p_last`, past line breaks and other annotations:
 // the line break that ends the line it starts on, as line breaks inside
@@ -69,6 +60,15 @@ struct Ignore {
 };
 
 } // namespace
+
+bool is_warning_name(const std::string &p_name) {
+	for (const char *name : NAMES) {
+		if (p_name == name) {
+			return true;
+		}
+	}
+	return false;
+}
 
 void apply_warning_ignores(const ClassDecl &p_class, std::vector<Diagnostic> &r_warnings) {
 	const SourceFile &source = *p_class.source;
@@ -126,7 +126,7 @@ void apply_warning_ignores(const ClassDecl &p_class, std::vector<Diagnostic> &r_
 			Diagnostic hint{ source.begin(ignore.arg->range), source.end(ignore.arg->range) };
 			hint.severity = Severity::Hint;
 			hint.warning = UNUSED_IGNORE;
-			if (is_name(ignore.name)) {
+			if (is_warning_name(ignore.name)) {
 				hint.message = "This ignores no \"" + ignore.name + "\" " + (of_hints ? "hint." : "warning.");
 			} else {
 				hint.message = "\"" + ignore.name + "\" is not a warning or hint of this language, so this ignores nothing.";
