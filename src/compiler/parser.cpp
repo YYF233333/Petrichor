@@ -346,6 +346,7 @@ class Parser {
 			return expr;
 		}
 		auto result = make(ExprKind::Conditional, advance());
+		result->op_token = result->range.first;
 		const uint32_t first = expr->range.first;
 		result->left = std::move(expr);
 		result->base = conditional();

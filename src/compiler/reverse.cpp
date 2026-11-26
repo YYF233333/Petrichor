@@ -333,15 +333,33 @@ class Converter {
 	}
 
 	// `(x as T).unwrap()`, which the migration writes where a value of a base
-	// of T goes to T (src/compiler/checker_expressions.cpp:2126-2134), going
-	// to a place that GDScript types `p_place` as well: written back as x,
-	// which GDScript checks there in a debug build as unwrap() checks it
-	// (modules/gdscript/gdscript_vm.cpp:586-603, 1533-1625, 2924-3025,
-	// core/variant/variant_caster.h:135-145, 159-174; ed1daf0).
+	// of T goes to T, and `(x as T).unwrap() if x != None else None` for a
+	// name x that may be None going to T? (Checker::expect_assignable()),
+	// going to a place that GDScript types `p_place` as well: written back as
+	// x, which GDScript checks there in a debug build as unwrap() checks it,
+	// letting null through (modules/gdscript/gdscript_vm.cpp:586-603,
+	// 1533-1625, 2924-3025, core/variant/variant_caster.h:135-145, 159-174;
+	// ed1daf0).
 	void downcast(const Expr *p_value, const Type &p_place) {
-		if (p_value && p_value->kind == ExprKind::Call && p_value->target == Target::LanguageMethod && p_value->text == "unwrap" && p_value->base->kind == ExprKind::Cast && p_place.kind == TypeKind::Object && p_place.unwrapped() == p_value->base->tested.unwrapped()) {
+		const Expr *unwrapped = p_value ? downcast_of(*p_value) : nullptr;
+		if (unwrapped && p_place.kind == TypeKind::Object && p_place.unwrapped() == unwrapped->base->tested.unwrapped()) {
 			downcasts.insert(p_value);
 		}
+	}
+
+	// The `(x as T).unwrap()` of either form.
+	const Expr *downcast_of(const Expr &p_value) const {
+		const auto unwrapped_cast = [](const Expr &p_expr) { return p_expr.kind == ExprKind::Call && p_expr.target == Target::LanguageMethod && p_expr.text == "unwrap" && p_expr.base->kind == ExprKind::Cast; };
+		if (unwrapped_cast(p_value)) {
+			return &p_value;
+		}
+		if (p_value.kind != ExprKind::Conditional || !unwrapped_cast(*p_value.left) || p_value.right->kind != ExprKind::NoneLiteral) {
+			return nullptr;
+		}
+		const Expr &x = *p_value.left->base->left;
+		const Expr &test = *p_value.base;
+		const auto same = [&](const Expr &p_name) { return p_name.kind == ExprKind::Name && p_name.target == x.target && p_name.index == x.index && p_name.text == x.text; };
+		return plain(x) && test.kind == ExprKind::Binary && test.op == TokenKind::BangEqual && same(*test.left) && test.right->kind == ExprKind::NoneLiteral ? p_value.left.get() : nullptr;
 	}
 
 	// Whether GDScript types what a name assigns.
@@ -544,6 +562,14 @@ class Converter {
 			static_reads.push_back({ klass->path + "::" + initializing->name, p_expr.owner + "::" + p_expr.variable->name, at(p_expr.range.last, std::string(LACKS) + "cycle of static initializers, as through " + source.text_of(p_expr.range) + " here.") });
 		}
 		const size_t before = edits.size();
+		if (downcasts.count(&p_expr)) {
+			const Expr &value = *downcast_of(p_expr)->base->left;
+			erase(tokens[p_expr.range.first].offset, tokens[value.range.first].offset);
+			erase(tokens[value.range.last].end(), tokens[p_expr.range.last].end());
+			erased.rewrites[p_expr.kind == ExprKind::Conditional ? p_expr.op_token : p_expr.name_token] = { "__0", { value.range } };
+			expression(value, false);
+			return;
+		}
 		switch (p_expr.kind) {
 			case ExprKind::Await:
 				settled.insert(p_expr.left.get());
@@ -594,14 +620,6 @@ class Converter {
 				}
 				break;
 			case ExprKind::Call:
-				if (downcasts.count(&p_expr)) {
-					const Expr &value = *p_expr.base->left;
-					erase(tokens[p_expr.range.first].offset, tokens[value.range.first].offset);
-					erase(tokens[value.range.last].end(), tokens[p_expr.range.last].end());
-					erased.rewrites[p_expr.name_token] = { "__0", { value.range } };
-					expression(value, false);
-					return;
-				}
 				if (!p_expr.base && (p_expr.target == Target::ScriptFunction || p_expr.target == Target::ScriptMethod) && klass && std::none_of(klass->all_functions.begin(), klass->all_functions.end(), [&](const FuncDecl *p_function) { return p_function->name == p_expr.text; })) {
 					refuse(p_expr.name_token, std::string(NOT_YET) + "a static member of an outer class by its name alone, which GDScript does not find.");
 				}
@@ -1164,7 +1182,9 @@ public:
 			}
 			const bool named = !raw && (p_node.kind == ExprKind::Call || p_node.kind == ExprKind::Member);
 			const bool listing = !raw && (p_node.kind == ExprKind::ArrayLiteral || p_node.kind == ExprKind::DictionaryLiteral);
-			if (const auto found = named || listing ? erased.rewrites.find(named ? p_node.name_token : p_node.range.first) : erased.rewrites.end(); found != erased.rewrites.end()) {
+			const bool conditional = !raw && p_node.kind == ExprKind::Conditional;
+			const uint32_t key = named ? p_node.name_token : (conditional ? p_node.op_token : p_node.range.first);
+			if (const auto found = named || listing || conditional ? erased.rewrites.find(key) : erased.rewrites.end(); found != erased.rewrites.end()) {
 				rewritten(found->second, p_node, false);
 				return;
 			}

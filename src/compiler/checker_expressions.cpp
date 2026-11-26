@@ -2200,13 +2200,21 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 	} else if (is_untyped_scenes(p_from) && p_from.kind == TypeKind::Object && is_typed_scene(p_to.unwrapped())) {
 		read_wide(p_value, p_to); // A scene of unknown root, which the roots that flow in may type (architecture §6.6).
 	} else if (downcast(p_from, p_to)) {
-		// GDScript checks it as the program runs (architecture §6.6). With
-		// `as`, None stands for GDScript's null where the value may be None,
-		// and otherwise the error is where GDScript's is.
+		// GDScript checks it as the program runs (architecture §6.6): its null
+		// goes through, and a value of another class fails where unwrap()
+		// does. A name that reads without calling anything is tested for None
+		// first; another value that may be None gives None for any class.
 		read_wide(p_value, p_to);
 		const std::string cast = operand(p_value) + " as " + p_to.unwrapped().to_string();
+		const bool plain = p_value.kind == ExprKind::Name && (p_value.target == Target::Local || (p_value.target == Target::Member && cls.all_members[size_t(p_value.index)]->getter.empty()));
+		std::string written = "(" + cast + ").unwrap()";
+		if (p_from.is_optional() && p_to.is_optional() && plain) {
+			written += " if " + p_value.text + " != None else None";
+		} else if (p_from.is_optional()) {
+			written = cast;
+		}
 		if (cast.find(".pet") == std::string::npos) {
-			fix({ { p_value.range, p_from.is_optional() ? cast : "(" + cast + ").unwrap()" } }, FixKind::Cast);
+			fix({ { p_value.range, written } }, FixKind::Cast);
 		}
 	}
 }

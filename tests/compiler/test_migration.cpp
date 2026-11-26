@@ -360,10 +360,10 @@ TEST_CASE("a member is narrowed with its setter's parameter, and an override's r
 
 TEST_CASE("where no declaration narrows, a value of a class goes as a subclass through as") {
 	FakeProject project;
-	project.add_script("res://picker.gd", "extends Node\nvar target: Node2D\n\n\nfunc pick(found: Node) -> void:\n\ttarget = found\n\tvar other: Node2D = get_node_or_null(\"Other\")\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = icon\n\tprint(shown)\n");
+	project.add_script("res://picker.gd", "extends Node\nvar target: Node2D\n\n\nfunc pick(found: Node) -> void:\n\ttarget = found\n\tvar other: Node2D = get_node_or_null(\"Other\")\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = icon\n\tprint(shown)\n\n\nfunc near() -> void:\n\tvar found := get_node_or_null(\"Near\")\n\tvar shown: Node2D = found\n\tif shown:\n\t\tprint(shown)\n");
 	project.add_script("res://handler.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tchild_exiting_tree.connect(_on_exiting)\n\n\nfunc _on_exiting(node: Node2D) -> void:\n\tpass\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://picker.gd", "res://handler.gd" }, 10);
-	CHECK(migration.texts.at("res://picker.pet") == "extends Node\n@late var target: Node2D\n\n\nfunc pick(found: Node) -> void:\n\ttarget = (found as Node2D).unwrap()\n\tvar other: Node2D = (get_node_or_null(\"Other\") as Node2D).unwrap()\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = (icon as Texture2D).unwrap()\n\tprint(shown)\n");
+	CHECK(migration.texts.at("res://picker.pet") == "extends Node\n@late var target: Node2D\n\n\nfunc pick(found: Node) -> void:\n\ttarget = (found as Node2D).unwrap()\n\tvar other: Node2D = (get_node_or_null(\"Other\") as Node2D).unwrap()\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = (icon as Texture2D).unwrap()\n\tprint(shown)\n\n\nfunc near() -> void:\n\tvar found := get_node_or_null(\"Near\")\n\tvar shown: Node2D? = (found as Node2D).unwrap() if found != None else None\n\tif shown != None:\n\t\tprint(shown)\n");
 	REQUIRE(migration.errors.size() == 1);
 	CHECK(migration.errors[0].file == "res://handler.pet");
 }

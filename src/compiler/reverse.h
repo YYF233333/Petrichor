@@ -29,8 +29,8 @@ struct Rewrite {
 // (-1), or as their argument, as `Some(v)` (0), by their names, and so the
 // patterns `Some(p)`; the types GDScript leaves out, as a value type's T?
 // (spec §10.1), or writes otherwise, by their names; the calls and member
-// reads written otherwise, by their names, and the guards of match branches,
-// by their first tokens; the patterns written as a bind, with its name; the
+// reads written otherwise, by their names, the conditionals, by their `if`,
+// and the guards of match branches, by their first tokens; the patterns written as a bind, with its name; the
 // statements written after a statement, by its first token; and the calls
 // whose members passed by name are assigned in those.
 struct Erased {

@@ -260,7 +260,7 @@ struct Expr {
 	ExprKind kind = ExprKind::IntLiteral;
 	TokenRange range;
 	uint32_t name_token = 0; // Of the name of a Name, a Member or a Call.
-	uint32_t op_token = 0; // Of the operator of a Unary or a Binary.
+	uint32_t op_token = 0; // Of the operator of a Unary or a Binary, or the `if` of a Conditional.
 
 	int64_t int_value = 0;
 	bool int_overflows = false; // 9223372036854775808 without a unary minus.
