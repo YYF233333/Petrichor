@@ -59,9 +59,11 @@ const char *const USAGE =
 		"  check             checks the project on disk, writing nothing\n"
 		"  build             checks it and writes the bytecode\n"
 		"  format [--check]  formats the scripts, or lists those not formatted\n"
-		"  migrate [--dry-run] [<path>...]\n"
+		"  migrate [--reverse] [--dry-run] [--allow-dirty] [<path>...]\n"
 		"                    migrates the GDScript files under the paths, from the\n"
-		"                    project's root, or all; with --dry-run, only reports\n"
+		"                    project's root, or all, or with --reverse converts the\n"
+		"                    .pet files back; with --dry-run, only reports. It writes\n"
+		"                    only files git can give back, unless --allow-dirty\n"
 		"  lsp               bridges a language client on stdio to the service\n"
 		"\n"
 		"The command runs in the Godot editor open on the project, else in a\n"
@@ -735,7 +737,7 @@ int run(const std::vector<std::string> &p_args) {
 	for (size_t i = 1; i < p_args.size(); i++) {
 		if (p_args[i] == "--godot" && i + 1 < p_args.size()) {
 			godot = p_args[++i];
-		} else if ((command == "format" && p_args[i] == "--check") || (command == "migrate" && (p_args[i] == "--dry-run" || p_args[i].rfind("-", 0) != 0))) {
+		} else if ((command == "format" && p_args[i] == "--check") || (command == "migrate" && (p_args[i] == "--dry-run" || p_args[i] == "--reverse" || p_args[i] == "--allow-dirty" || p_args[i].rfind("-", 0) != 0))) {
 			passed.push_back(p_args[i]);
 		} else {
 			fail("unknown argument " + p_args[i] + ".\n\n" + USAGE);

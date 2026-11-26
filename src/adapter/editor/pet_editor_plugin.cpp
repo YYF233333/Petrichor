@@ -10,6 +10,7 @@
 #include "compiler/formatter.h"
 #include "compiler/lexer.h"
 #include "compiler/migration.h"
+#include "compiler/reverse.h"
 #include "runtime/text.h"
 
 #include <godot_cpp/classes/class_db_singleton.hpp>
@@ -1596,26 +1597,103 @@ std::string diagnostic_line(const compiler::Diagnostic &p_diagnostic) {
 	return p_diagnostic.warning.empty() ? line : line + " (" + p_diagnostic.warning + ")";
 }
 
+// A path as git's porcelain status writes it: in quotes as a C string where it
+// holds what git takes for unusual.
+std::string unquoted(const std::string &p_path) {
+	if (p_path.size() < 2 || p_path.front() != '"') {
+		return p_path;
+	}
+	std::string result;
+	for (size_t i = 1; i + 1 < p_path.size(); i++) {
+		if (p_path[i] != '\\' || i + 2 >= p_path.size()) {
+			result += p_path[i];
+			continue;
+		}
+		const char next = p_path[++i];
+		if (next >= '0' && next <= '7') {
+			result += char(std::stoi(p_path.substr(i, 3), nullptr, 8));
+			i += 2;
+		} else if (next == 't') {
+			result += '\t';
+		} else if (next == 'n') {
+			result += '\n';
+		} else {
+			result += next;
+		}
+	}
+	return result;
+}
+
+// Why git could not give back each of `p_files` that is there now
+// (architecture §6.6), as lines of the report: changes not committed, staged
+// ones too, a file not tracked, or no git or repository to ask.
+std::string unkept(const std::map<std::string, std::optional<std::string>> &p_files) {
+	PackedStringArray paths;
+	for (const auto &[file, each] : p_files) {
+		if (FileAccess::file_exists(to_godot(file))) {
+			paths.push_back(to_godot(file).trim_prefix("res://"));
+		}
+	}
+	if (paths.is_empty()) {
+		return std::string();
+	}
+	const char *const ALLOW = " Pass --allow-dirty to write all the same.\n";
+	const String root = ProjectSettings::get_singleton()->globalize_path("res://");
+	const Array said;
+	const int found = OS::get_singleton()->execute("git", PackedStringArray({ "-C", root, "rev-parse", "--show-toplevel" }), said, true);
+	if (found == -1 || found == 127) {
+		return std::string("error: git cannot be found, which would give back the files written.") + ALLOW;
+	}
+	if (found != 0) {
+		return "error: The project is not in a git repository, which would give back the files written (git: " + to_utf8(said.is_empty() ? String() : String(said[0]).strip_edges()) + ")." + ALLOW;
+	}
+	PackedStringArray args({ "--literal-pathspecs", "-C", root, "-c", "core.quotepath=off", "-c", "status.relativePaths=true", "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--" });
+	args.append_array(paths);
+	const Array listed;
+	if (OS::get_singleton()->execute("git", args, listed, false) != 0 || listed.is_empty()) {
+		return std::string("error: git status failed.") + ALLOW;
+	}
+	std::string lines;
+	for (const String &line : String(listed[0]).split("\n", false)) {
+		if (line.length() < 4) {
+			continue;
+		}
+		const String state = line.substr(0, 2);
+		const String path = state[0] == 'R' || state[0] == 'C' ? line.substr(3).get_slice(" -> ", 1) : line.substr(3);
+		std::string why = "It has changes that are not committed";
+		if (state == "??") {
+			why = "git does not track it";
+		} else if (state == "!!") {
+			why = "git ignores it";
+		}
+		lines += unquoted(to_utf8(path)) + ": error: " + why + ", so git could not give it back once it is written." + ALLOW;
+	}
+	return lines;
+}
+
 } // namespace
 
 // pet migrate (architecture §6.6): the files the paths in `p_args` take, the
-// loop of fixes and the check after it, in memory. Unless `--dry-run` is
-// among `p_args`, it then renames them with their .uid files and rewrites the
-// paths naming them, all or none, as a refactoring writes (§2.3): not over
-// what Godot or an LSP client holds unsaved, nor a file migrated that Godot's
-// script editor has open. Godot reads the project again, and project.godot's
-// settings in memory take the paths it was written with
-// (core/config/project_settings.cpp:359-369; ed1daf0). It exits with 1 when
-// nothing was written for that or a failure.
+// loop of fixes and the check after it, in memory, or with `--reverse` the
+// .pet files converted back (migrate_back()); then write_migrated().
 std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::string> &p_args) {
 	bool dry_run = false;
+	bool reverse = false;
+	bool allow_dirty = false;
 	std::vector<std::string> paths;
 	for (const std::string &arg : p_args) {
 		if (arg == "--dry-run") {
 			dry_run = true;
+		} else if (arg == "--reverse") {
+			reverse = true;
+		} else if (arg == "--allow-dirty") {
+			allow_dirty = true;
 		} else if (arg.rfind("--petrichor-", 0) != 0) {
 			paths.push_back(to_utf8(("res://" + to_godot(arg).replace("\\", "/").trim_prefix("res://")).simplify_path()));
 		}
+	}
+	if (reverse) {
+		return migrate_back(paths, dry_run, allow_dirty);
 	}
 	// The editor makes new scripts from the templates there (editor/file_system/editor_paths.cpp:101; ed1daf0).
 	const std::string templates = to_utf8(String(ProjectSettings::get_singleton()->get_setting("editor/script/templates_search_path", "res://script_templates")));
@@ -1664,16 +1742,73 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 	for (const compiler::Diagnostic &error : migration.errors) {
 		output += diagnostic_line(error) + "\n";
 	}
+	const auto summary = [&](int p_named) {
+		return "petrichor migrate: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(set.added.size()) + " added, " + std::to_string(set.left_out.size()) + " left out, " + std::to_string(migration.typed) + " type(s), " + std::to_string(migration.withdrawn) + " withdrawn, " + std::to_string(fixes) + " fix(es), " + std::to_string(p_named) + " path(s) renamed, " + std::to_string(migration.errors.size()) + " error(s)";
+	};
+	return write_migrated(renamed, migration.texts, output, summary, dry_run, allow_dirty, false);
+}
 
-	// What is written: each file migrated under its new name, with its .uid
-	// file, and each text file naming one.
+// pet migrate --reverse (spec §13.4, architecture §6.6): the .pet files under
+// `p_paths` that convert back, with their trees, and those that stay, each
+// place that keeps one listed, as are the defects that the re-parse check
+// finds, after which nothing is written.
+std::pair<std::string, int> PetEditorPlugin::migrate_back(const std::vector<std::string> &p_paths, bool p_dry_run, bool p_allow_dirty) {
+	const compiler::Reversal reversal = compiler::reverse(ClassDBApi::get(), SceneIndex::get(), p_paths);
+	std::string output;
+	for (const std::string &path : reversal.unknown) {
+		output += relative(path) + ": error: No .pet file is there.\n";
+	}
+	if (!reversal.unknown.empty()) {
+		return { output + "petrichor migrate --reverse: nothing was written", 1 };
+	}
+	std::map<std::string, std::string> renamed;
+	std::map<std::string, std::string> texts;
+	const std::map<std::string, std::string> added(reversal.added.begin(), reversal.added.end());
+	for (const auto &[file, text] : reversal.texts) {
+		renamed[file] = compiler::reversed_path(file);
+		texts[renamed[file]] = text;
+		const auto why = added.find(file);
+		output += relative(file) + " → " + relative(renamed[file]) + (why == added.end() ? "" : ", added: " + why->second) + "\n";
+	}
+	for (const auto &[file, why] : reversal.left_out) {
+		output += relative(file) + ": left out: " + why + "\n";
+	}
+	for (const std::vector<compiler::Diagnostic> *listed : { &reversal.refused, &reversal.lost, &reversal.defects }) {
+		for (const compiler::Diagnostic &each : *listed) {
+			output += diagnostic_line(each) + "\n";
+		}
+	}
+	if (!reversal.defects.empty()) {
+		output += "error: Each of these is a defect of the converter, so nothing is written. Please report it with this output.\n";
+	}
+	const auto summary = [&](int p_named) {
+		return "petrichor migrate --reverse: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(reversal.added.size()) + " added, " + std::to_string(reversal.left_out.size()) + " left out, " + std::to_string(p_named) + " path(s) renamed, " + std::to_string(reversal.defects.size()) + " defect(s)";
+	};
+	const bool kept = renamed.empty() && !reversal.left_out.empty();
+	return write_migrated(renamed, texts, output, summary, p_dry_run, p_allow_dirty, kept || !reversal.defects.empty());
+}
+
+// Renames the files of `p_renamed` with their .uid files, writes their texts
+// from `p_texts` by their new paths, and rewrites the paths naming them, all
+// or none, as a refactoring writes (§2.3): not over what Godot or an LSP
+// client holds unsaved, nor a file renamed that Godot's script editor has
+// open, nor, unless `p_allow_dirty`, a file git could not give back
+// (architecture §6.6). With `p_dry_run` or `p_failed` it writes nothing.
+// Godot reads the project again, and project.godot's settings in memory take
+// the paths it was written with (core/config/project_settings.cpp:359-369;
+// ed1daf0). It exits with 1 when nothing was written for that or a failure.
+std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::string, std::string> &p_renamed, const std::map<std::string, std::string> &p_texts, std::string p_output, const std::function<std::string(int)> &p_summary, bool p_dry_run, bool p_allow_dirty, bool p_failed) {
+	const std::map<std::string, std::string> &renamed = p_renamed;
+	std::string output = std::move(p_output);
+	// What is written: each file under its new name, with its .uid file, and
+	// each text file naming one.
 	std::map<std::string, std::optional<std::string>> bytes;
 	int named = 0;
 	for (const auto &[file, migrated] : renamed) {
 		const std::string had = file_bytes(to_godot(file));
 		compiler::renamed_in_script(had, file, renamed, named);
 		bytes[file] = std::nullopt;
-		bytes[migrated] = byte_order_mark(had) + migration.texts.at(migrated);
+		bytes[migrated] = byte_order_mark(had) + p_texts.at(migrated);
 		if (FileAccess::file_exists(to_godot(file + ".uid"))) {
 			bytes[file + ".uid"] = std::nullopt;
 			bytes[migrated + ".uid"] = file_bytes(to_godot(file + ".uid"));
@@ -1719,15 +1854,20 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 			refused++;
 		}
 	}
-	output += "petrichor migrate: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(set.added.size()) + " added, " + std::to_string(set.left_out.size()) + " left out, " + std::to_string(migration.typed) + " type(s), " + std::to_string(migration.withdrawn) + " withdrawn, " + std::to_string(fixes) + " fix(es), " + std::to_string(named) + " path(s) renamed, " + std::to_string(migration.errors.size()) + " error(s)";
-	if (dry_run) {
+	if (!p_dry_run && !p_allow_dirty && !p_failed) {
+		const std::string unkept_files = unkept(bytes);
+		output += unkept_files;
+		refused += !unkept_files.empty();
+	}
+	output += p_summary(named);
+	if (p_dry_run) {
 		return { output + ", dry run", 0 };
 	}
-	const std::string failed = refused > 0 ? std::string() : write_all(bytes);
+	const std::string failed = refused > 0 || p_failed ? std::string() : write_all(bytes);
 	if (!failed.empty()) {
 		output = relative(failed) + ": error: It cannot be written.\n" + output;
 	}
-	if (refused > 0 || !failed.empty()) {
+	if (refused > 0 || p_failed || !failed.empty()) {
 		return { output + "; nothing was written", 1 };
 	}
 	ProjectSettings *settings = ProjectSettings::get_singleton();

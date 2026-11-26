@@ -19,6 +19,7 @@
 #include <godot_cpp/classes/timer.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -53,7 +54,7 @@ public:
 //   godot --headless -e --path <project> -- --petrichor-check
 //   godot --headless -e --path <project> -- --petrichor-build
 //   godot --headless -e --path <project> -- --petrichor-format [--check]
-//   godot --headless -e --path <project> -- --petrichor-migrate [--dry-run] [<path>...]
+//   godot --headless -e --path <project> -- --petrichor-migrate [--reverse] [--dry-run] [--allow-dirty] [<path>...]
 // has the nodes ask again for their errors when a file or an open scene
 // changes, shows the references found in its panel, offers quick fixes and
 // renames (spec §13.2, §13.3). It runs the language server, headless only
@@ -166,6 +167,8 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void files_written(const std::set<std::string> &p_files);
 	void run_headless(const godot::String &p_command);
 	std::pair<std::string, int> migrate(const std::vector<std::string> &p_args);
+	std::pair<std::string, int> migrate_back(const std::vector<std::string> &p_paths, bool p_dry_run, bool p_allow_dirty);
+	std::pair<std::string, int> write_migrated(const std::map<std::string, std::string> &p_renamed, const std::map<std::string, std::string> &p_texts, std::string p_output, const std::function<std::string(int)> &p_summary, bool p_dry_run, bool p_allow_dirty, bool p_failed);
 	std::optional<std::pair<std::string, int>> run_command(const std::string &p_command, const std::vector<std::string> &p_args, const std::set<std::string> &p_conflicts);
 	void files_changed();
 	void scene_saved(const godot::String &p_path);

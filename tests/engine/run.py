@@ -1147,12 +1147,24 @@ def check_migrate(godot):
             return ran.returncode, ran.stdout.decode("utf-8", "replace"), ran.stderr.decode("utf-8", "replace")
 
         def files():
-            return {path.relative_to(project).as_posix(): path.read_bytes() for path in project.rglob("*") if path.is_file() and not {".godot", "addons"} & set(path.relative_to(project).parts)}
+            return {path.relative_to(project).as_posix(): path.read_bytes() for path in project.rglob("*") if path.is_file() and not {".git", ".godot", "addons"} & set(path.relative_to(project).parts)}
 
+        def git(*args):
+            return subprocess.run(["git", "-C", project, "-c", "user.name=petrichor", "-c", "user.email=petrichor@localhost", *args], capture_output=True, timeout=TIMEOUT, check=True)
+
+        (project / ".gitignore").write_text(".godot/\naddons/\n", encoding="utf-8")
+        git("init", "-q")
+        git("add", "-A")
+        git("commit", "-q", "-m", "GDScript")
         before = files()
         code, out, err = pet("migrate", "--dry-run", "boss.gd", "--godot", godot)
         named = ["boss.gd → boss.pet", "enemy.gd → enemy.pet, added: in the inheritance tree of res://boss.gd"]
         expect("pet migrate: a dry run names the files it takes, and writes nothing", code == 0 and out.splitlines()[:2] == named and out.rstrip().endswith(", dry run") and files() == before, out + err)
+        (project / "level.tscn").write_bytes(before["level.tscn"] + b"\n")
+        code, out, err = pet("migrate", "--godot", godot)
+        refused = "level.tscn: error: It has changes that are not committed, so git could not give it back once it is written. Pass --allow-dirty to write all the same."
+        expect("pet migrate: nothing is written over a file that git could not give back", code == 1 and refused in out.splitlines() and out.rstrip().endswith("; nothing was written"), out + err)
+        (project / "level.tscn").write_bytes(before["level.tscn"])
 
         info = project / ".godot" / "petrichor" / "lsp.json"
         editor = Running(godot, "-e", "--path", str(project), "--", "--petrichor-lsp")
@@ -1198,6 +1210,33 @@ def check_migrate(godot):
             )
             code, out, err = pet("check")
             expect("pet migrate: Godot reads the project again, which then checks without errors", code == 0 and out.rstrip().endswith(", 0 with errors"), out + err)
+
+            migrated = files()
+            code, out, err = pet("migrate", "--reverse")
+            untracked = "boss.pet: error: git does not track it, so git could not give it back once it is written. Pass --allow-dirty to write all the same."
+            changed = "level.tscn: error: It has changes that are not committed, so git could not give it back once it is written. Pass --allow-dirty to write all the same."
+            expect("pet migrate --reverse: nothing is written over what the migration wrote and git has not taken", code == 1 and untracked in out.splitlines() and changed in out.splitlines() and files() == migrated, out + err)
+            code, out, err = pet("migrate", "--reverse", "--allow-dirty")
+            after = {name: text.decode() for name, text in files().items()}
+            converted = ["boss.gd", "enemy.gd", "game.gd", "hud.gd", "stats.gd"]
+            expect(
+                "pet migrate --reverse: with --allow-dirty it renames the .pet files back with their .uid files, rewrites the paths naming them and erases what GDScript lacks",
+                code == 0 and "boss.pet → boss.gd" in out.splitlines()
+                and not [name for name in after if name.endswith(".pet")] and all(after.get(name) for name in converted)
+                and after["boss.gd.uid"] == before["boss.gd.uid"].decode()
+                and 'path="res://boss.gd"' in after["level.tscn"] and 'Game="*res://game.gd"' in after["project.godot"]
+                and 'preload("res://boss.gd")' in after["tool.gd"] and 'preload("res://game.gd")' in after["hud.gd"]
+                and "func hit(amount: int)" in after["enemy.gd"] and "\nfunc roar() -> void:" in after["boss.gd"] and "= enemy.get_parent()\n" in after["game.gd"],
+                out + err,
+            )
+            (project / "reverse_check.gd").write_text(
+                "extends SceneTree\n\n\nfunc _init() -> void:\n"
+                + "".join(f'\tprint("reverse check: {name} ", load("res://{name}") != null)\n' for name in converted)
+                + "\tquit()\n",
+                encoding="utf-8",
+            )
+            code, output = run(godot, "--headless", "--path", str(project), "-s", "res://reverse_check.gd")
+            expect("pet migrate --reverse: the GDScript written loads", code == 0 and all(f"reverse check: {name} true" in output for name in converted) and "Parse Error" not in output, output)
         finally:
             editor.process.kill()
             code, output = editor.finish()
