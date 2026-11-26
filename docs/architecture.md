@@ -927,12 +927,19 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - `x.filter(p)` 写成 `x if x != null and p.call(x) else null`；
     - `expect(消息)` 是 `var` 声明或给名字赋值的整个值时，删去它，并在该语句后另起一行补 `assert(名字 != null, 消息)`；
     - 其余写法使整个文件不转换，报告列出位置。
+  - 迁移为隐式向下转换写下的 `(x as T).unwrap()`，值进入 GDScript 中也写着类型 `T` 的位置时写回 `x`。
+    - 这样的位置是写了类型的变量和成员、函数的参数和返回值。GDScript 在调试构建中在该处检查，类不符时出错，与 `unwrap()` 相同（`modules/gdscript/gdscript_vm.cpp:586-603, 1533-1625, 2924-3025`，`core/variant/variant_caster.h:135-145, 159-174`）。
+    - 其余位置照常去掉 `.unwrap()`，写成 `(x as T)`，类不符时得 null。
   - `State(x)` 写成 `x as State`。GDScript 把 `int` 转为 enum 时不查范围（`modules/gdscript/gdscript_analyzer.cpp:3826-3828`），与去掉 `.unwrap()` 一样，出错时改为 GDScript 原来的行为。常量中的不转换，GDScript 中它不是常量表达式。
   - 元素只在本语言中存在的 `Array(x)` 写成 `Array(x, TYPE_NIL, &"", null)`，`Dictionary(x)` 同理，得到同样的无类型副本（`core/variant/array.cpp:874-879`，`core/variant/dictionary.cpp:753-758`）。
   - `var x := T.new(m = v)` 的具名成员改为语句后另起一行的 `x.m = v`，与调用后按书写顺序经 setter 赋值相同（`src/compiler/lower.cpp:1594-1600`）。`instantiate(...)` 须写明变量类型，GDScript 把它的结果定为 `Node`。其余位置的具名成员不转换。
   - match 的 `Some(p)` 写成 `p`。`p` 是绑定或 `_` 时 GDScript 也接住 `null`，所以前面须有 `None` 分支才这样转换。
     - 前面没有 `None` 分支的 `Some(var x)` 写成 `var x when x != null`，已有的守卫接在后面并加括号。GDScript 按序试各分支，模式匹配后才求值守卫，守卫不成立就试下一个分支（`modules/gdscript/gdscript_compiler.cpp:1938-1983`，`ed1daf0`），与本语言对 `None` 越过 `Some(var x)` 相同。
     - 前面没有 `None` 分支的 `Some(_)` 不转换，守卫无名字可判。
+  - 对象 `T?` 上的 `None` 模式写成 `var _none when not is_instance_valid(_none)`，名字取文件中没有的，已有的守卫同样接在后面。
+    - GDScript 的 `null` 模式先比较类型，已释放对象的类型不是 null（`modules/gdscript/gdscript_compiler.cpp:1435-1453`，`ed1daf0`）。`is_instance_valid()` 把它与 null 同样对待，同本语言读作 `None`（规范 §3.3）。
+    - 嵌在其他模式中或与其他模式并列的这种 `None` 使文件不转换。
+    - `== None` 照常写成 `== null`。GDScript 中对象与 null 的 `==` 同样把已释放对象当作 null（`core/variant/variant_op.h:484-494, 533-543`）。
   - 转回一个类时连带它的整棵继承树，与正向相同；树中有文件不转换时整棵树留下，报告写明是哪个文件。
   - 要转的文件对留下的 `.pet` 类做 GDScript 做不到的类级访问时（规范 §11.3），连带转换那棵树；那棵树转不了，这个文件的树也留下。
   - 只转回部分文件时照样转换，随后在内存中检查留下的 `.pet` 文件，转回的类按其 GDScript 看待（规范 §11.1）。
@@ -950,8 +957,9 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 补上的 `return None` 写回为 `return null`，包括对象类型函数中原本只写的 `return`；
     - 推断写下或改窄的类型。反向只读 `.pet`，分不出哪些类型是推断写下的；它们都经检查器核验，GDScript 照样接受；
     - 真值判断写成的比较、`is_empty()` 和 `is_instance_valid()`。GDScript 的真值即 `is_zero()` 之反，对象按存活判断，与 `!= null` 相同（`core/variant/variant.cpp:878-953`，`core/variant/variant_op.cpp:1120-1122`，`ed1daf0`）；
-    - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。引擎 enum 位置上的 `int` 写成的 `E(x)` 转回 `x as E`：GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6397-6400`，`ed1daf0`），引擎 enum 开放，转换不查范围（规范 §3.7）。
-  - corpus v1 的往返另有两种差异，尚无反向规则：隐式向下转换写下的 `(x as T)`，以及给无 `class_name` 的类补上的 `preload` 常量（[调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/round-trip.md)）。
+    - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。引擎 enum 位置上的 `int` 写成的 `E(x)` 转回 `x as E`：GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6397-6400`，`ed1daf0`），引擎 enum 开放，转换不查范围（规范 §3.7）；
+    - 隐式向下转换在其余位置写下的 `(x as T)`，以及值可能为空时写下的 `x as T`；
+    - 给无 `class_name` 的类补上的 `preload` 常量。GDScript 照样加载它所指的脚本，留下的 `.pet` 也是。它作类型、`is` 和 `new()` 都同原来的类，类不符的赋值和传参照样出错（`modules/gdscript/gdscript_analyzer.cpp:4755-4780, 5720-5729`）。与本语言不同，常量只出现在类型处时，GDScript 也在加载这个类时加载它（规范 §2.1）。
 
 ## 7. 暂不决定
 

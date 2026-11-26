@@ -82,7 +82,7 @@ TEST_CASE("reverse conversion writes the types GDScript has for nested container
 // Spec §6.4, §5.6, §10.1.
 TEST_CASE("reverse conversion assigns members passed by name after the call, matches Some(p) as p after None, and exports a value type's T? as Variant") {
 	CHECK(reversed("class_name Unit\nextends Node\n@export var hp: int?\nvar target: Node\n\n\nfunc f(other: Node?) -> void:\n\tvar unit := Unit.new(target = self)\n\tmatch other:\n\t\tNone:\n\t\t\tpass\n\t\tSome(var o):\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\tSome(3):\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n") ==
-			"class_name Unit\nextends Node\n@export var hp: Variant\nvar target: Node\n\n\nfunc f(other: Node) -> void:\n\tvar unit := Unit.new()\n\tunit.target = self\n\tmatch other:\n\t\tnull:\n\t\t\tpass\n\t\tvar o:\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\t3:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n");
+			"class_name Unit\nextends Node\n@export var hp: Variant\nvar target: Node\n\n\nfunc f(other: Node) -> void:\n\tvar unit := Unit.new()\n\tunit.target = self\n\tmatch other:\n\t\tvar _none when not is_instance_valid(_none):\n\t\t\tpass\n\t\tvar o:\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\t3:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n");
 	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?) -> void:\n\tmatch other:\n\t\tSome(_):\n\t\t\tpass\n\t\tNone:\n\t\t\tpass\n") == "6:3: This is not converted back yet: Some(_) or Some(None), which would take null too, before a branch of None.\n");
 }
 
@@ -103,7 +103,22 @@ TEST_CASE("a file stays whose GDScript would not find an outer class's statics, 
 // when it fails, as this language goes past Some(var x) for None.
 TEST_CASE("reverse conversion guards Some(var x) that comes before None as var x when x != null") {
 	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?, hp: int?) -> void:\n\tmatch other:\n\t\tSome(var o):\n\t\t\tprint(o)\n\t\tNone:\n\t\t\tpass\n\tmatch hp:\n\t\tSome(var h) when h > 2 or h < 0:\n\t\t\tprint(h)\n\t\t_:\n\t\t\tpass\n") ==
-			"extends Node\n\n\nfunc f(other: Node, hp) -> void:\n\tmatch other:\n\t\tvar o when o != null:\n\t\t\tprint(o)\n\t\tnull:\n\t\t\tpass\n\tmatch hp:\n\t\tvar h when h != null and (h > 2 or h < 0):\n\t\t\tprint(h)\n\t\t_:\n\t\t\tpass\n");
+			"extends Node\n\n\nfunc f(other: Node, hp) -> void:\n\tmatch other:\n\t\tvar o when o != null:\n\t\t\tprint(o)\n\t\tvar _none when not is_instance_valid(_none):\n\t\t\tpass\n\tmatch hp:\n\t\tvar h when h != null and (h > 2 or h < 0):\n\t\t\tprint(h)\n\t\t_:\n\t\t\tpass\n");
+}
+
+// Spec §3.3: a freed object reads as None, but GDScript's null pattern tests
+// the type first.
+TEST_CASE("reverse conversion matches None of an object as a bind that is no valid instance, and refuses it inside a pattern") {
+	CHECK(reversed("extends Node\n\n\nfunc f(n: Node?, hp: int?) -> void:\n\tmatch n:\n\t\tnull when hp == None:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n\tmatch hp:\n\t\tNone:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n") ==
+			"extends Node\n\n\nfunc f(n: Node, hp) -> void:\n\tmatch n:\n\t\tvar _none when not is_instance_valid(_none) and (hp == null):\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n\tmatch hp:\n\t\tnull:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n");
+	CHECK(reversed("extends Node\n\n\nfunc f(pair: Array[Node?]) -> void:\n\tmatch pair:\n\t\t[None, _]:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n") == "6:4: This is not converted back yet: None of an object inside a pattern or beside another, which GDScript would not match to a freed object.\n");
+}
+
+// Architecture §6.6: what the migration writes for an implicit downcast goes
+// back as the value where GDScript checks it, as the original did.
+TEST_CASE("reverse conversion writes a downcast back as the value where it goes to a place of its type") {
+	CHECK(reversed("extends Node\nvar label: Label = (get_child(0) as Label).unwrap()\n\n\nfunc take(n: Node2D) -> void:\n\tpass\n\n\nfunc f(n: Node) -> Node2D:\n\tvar shown: Label = (n as Label).unwrap()\n\tlabel = (n as Label).unwrap()\n\ttake((n as Node2D).unwrap())\n\tvar other: Control = (n as Label).unwrap()\n\tvar inferred := (n as Node2D).unwrap()\n\tprint((n as Node2D).unwrap(), shown, other, inferred)\n\treturn (n as Node2D).unwrap()\n") ==
+			"extends Node\nvar label: Label = get_child(0)\n\n\nfunc take(n: Node2D) -> void:\n\tpass\n\n\nfunc f(n: Node) -> Node2D:\n\tvar shown: Label = n\n\tlabel = n\n\ttake(n)\n\tvar other: Control = (n as Label)\n\tvar inferred := (n as Node2D)\n\tprint((n as Node2D), shown, other, inferred)\n\treturn n\n");
 }
 
 // Spec §3.4: the argument of a method is evaluated whether the receiver holds

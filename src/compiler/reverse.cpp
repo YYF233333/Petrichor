@@ -126,6 +126,7 @@ class Converter {
 	std::set<const Expr *> split;
 	std::set<uint32_t> null_kept; // Some(p) patterns whose p takes no null: a branch of None comes before, or a guard tests it.
 	std::set<std::pair<const FuncDecl *, int>> wide; // Locals that GDScript holds untyped or as untyped containers.
+	std::set<const Expr *> downcasts; // `(x as T).unwrap()` written back as x.
 	std::set<std::pair<int, std::string>> said; // Refusals by line, once.
 
 	void refuse(uint32_t p_token, const std::string &p_message) {
@@ -312,6 +313,27 @@ class Converter {
 			default:
 				return false;
 		}
+	}
+
+	// `(x as T).unwrap()`, which the migration writes where a value of a base
+	// of T goes to T (src/compiler/checker_expressions.cpp:2126-2134), going
+	// to a place that GDScript types `p_place` as well: written back as x,
+	// which GDScript checks there in a debug build as unwrap() checks it
+	// (modules/gdscript/gdscript_vm.cpp:586-603, 1533-1625, 2924-3025,
+	// core/variant/variant_caster.h:135-145, 159-174; ed1daf0).
+	void downcast(const Expr *p_value, const Type &p_place) {
+		if (p_value && p_value->kind == ExprKind::Call && p_value->target == Target::LanguageMethod && p_value->text == "unwrap" && p_value->base->kind == ExprKind::Cast && p_place.kind == TypeKind::Object && p_place.unwrapped() == p_value->base->tested.unwrapped()) {
+			downcasts.insert(p_value);
+		}
+	}
+
+	// Whether GDScript types what a name assigns.
+	bool typed(const Expr &p_target) const {
+		if (p_target.kind != ExprKind::Name || p_target.range.first != p_target.range.last) {
+			return false;
+		}
+		const VarDecl *read = p_target.target == Target::Member ? member(p_target.text) : nullptr;
+		return (p_target.target == Target::Local && !wide.count({ function, p_target.index })) || (read && (read->declared_type || read->infers_type));
 	}
 
 	const VarDecl *member(const std::string &p_name) const {
@@ -552,6 +574,14 @@ class Converter {
 				}
 				break;
 			case ExprKind::Call:
+				if (downcasts.count(&p_expr)) {
+					const Expr &value = *p_expr.base->left;
+					erase(tokens[p_expr.range.first].offset, tokens[value.range.first].offset);
+					erase(tokens[value.range.last].end(), tokens[p_expr.range.last].end());
+					erased.rewrites[p_expr.name_token] = { "__0", { value.range } };
+					expression(value, false);
+					return;
+				}
 				if (!p_expr.base && (p_expr.target == Target::ScriptFunction || p_expr.target == Target::ScriptMethod) && klass && std::none_of(klass->all_functions.begin(), klass->all_functions.end(), [&](const FuncDecl *p_function) { return p_function->name == p_expr.text; })) {
 					refuse(p_expr.name_token, std::string(NOT_YET) + "a static member of an outer class by its name alone, which GDScript does not find.");
 				}
@@ -588,6 +618,11 @@ class Converter {
 			for (const std::unique_ptr<Expr> &arg : p_call.args) {
 				typed_literal(*arg);
 			}
+		}
+		// A parameter that GDScript checks as the call is made.
+		const Target checked[] = { Target::ScriptFunction, Target::ScriptMethod, Target::SuperMethod, Target::EngineMethod, Target::NewObject };
+		for (size_t i = 0; std::count(std::begin(checked), std::end(checked), p_call.target) && i < p_call.args.size() && i < p_call.param_types.size(); i++) {
+			downcast(p_call.args[i].get(), p_call.param_types[i]);
 		}
 		switch (p_call.target) {
 			case Target::LanguageMethod:
@@ -723,27 +758,34 @@ class Converter {
 		erased.calls[p_pattern.value->name_token] = 0;
 	}
 
-	// `Some(var x)` that no branch of None comes before as `var x when x !=
-	// null`, which takes no null: GDScript tries each branch in order, its
-	// guard after its pattern, and goes on to the next when either fails
-	// (modules/gdscript/gdscript_compiler.cpp:1938-1983; ed1daf0). A guard
-	// written already follows the test.
-	void guarded(const MatchBranch &p_branch) {
+	// The branch's pattern tested by `p_test` too: GDScript tries each branch
+	// in order, its guard after its pattern, and goes on to the next when
+	// either fails (modules/gdscript/gdscript_compiler.cpp:1938-1983;
+	// ed1daf0). A guard written already follows the test.
+	void guarded(const MatchBranch &p_branch, const std::string &p_test) {
 		const Pattern &pattern = p_branch.patterns[0];
-		const std::string test = pattern.items[0].name + " != null";
-		null_kept.insert(pattern.range.first);
 		if (!p_branch.guard) {
-			erase(tokens[pattern.range.last].end(), tokens[pattern.range.last].end(), " when " + test);
-			erased.rewrites[p_branch.range.first] = { test, {} };
+			erase(tokens[pattern.range.last].end(), tokens[pattern.range.last].end(), " when " + p_test);
+			erased.rewrites[p_branch.range.first] = { p_test, {} };
 			return;
 		}
 		const Expr &guard = *p_branch.guard;
 		const bool own = !atomic(tokens, guard);
-		erase(tokens[guard.range.first].offset, tokens[guard.range.first].offset, test + " and " + (own ? "(" : ""));
+		erase(tokens[guard.range.first].offset, tokens[guard.range.first].offset, p_test + " and " + (own ? "(" : ""));
 		if (own) {
 			erase(tokens[guard.range.last].end(), tokens[guard.range.last].end(), ")");
 		}
-		erased.rewrites[p_branch.range.first] = { test + " and (__0)", { guard.range } };
+		erased.rewrites[p_branch.range.first] = { p_test + " and (__0)", { guard.range } };
+	}
+
+	// A name the file does not use, which GDScript lets a pattern bind
+	// (modules/gdscript/gdscript_parser.cpp:2599-2603; ed1daf0).
+	std::string unused(const std::string &p_name) const {
+		std::string name = p_name;
+		for (int i = 2; std::any_of(tokens.begin(), tokens.end(), [&](const Token &p_token) { return p_token.text == name; }); i++) {
+			name = p_name + std::to_string(i);
+		}
+		return name;
 	}
 
 	static bool is_some(const Pattern &p_pattern) {
@@ -796,6 +838,7 @@ public:
 			}
 			if (p_node.declared_type) {
 				declared(*p_node.declared_type, p_node.type, tokens[p_node.name_token].end(), p_node.is_export);
+				downcast(p_node.initializer.get(), p_node.type);
 			} else {
 				inferred(p_node.name_token, p_node.type, p_node.initializer.get(), p_node.is_export);
 			}
@@ -847,7 +890,12 @@ public:
 			statement(p_node);
 			return;
 		} else if constexpr (std::is_same_v<T, Pattern>) {
-			if (is_some(p_node)) {
+			if (erased.binds.count(p_node.range.first)) {
+				return;
+			}
+			if (is_none(p_node) && p_node.type.kind == TypeKind::Object) {
+				refuse(p_node.range.first, std::string(NOT_YET) + "None of an object inside a pattern or beside another, which GDScript would not match to a freed object.");
+			} else if (is_some(p_node)) {
 				some(p_node);
 			} else if (p_node.kind == PatternKind::Constructor && !is_none(p_node)) {
 				refuse(p_node.range.first, std::string(NOT_YET) + "a pattern of a struct, a variant or a constructor.");
@@ -888,6 +936,7 @@ public:
 		const LocalInfo *local = declares && function && p_stmt.local >= 0 && size_t(p_stmt.local) < function->locals.size() ? &function->locals[size_t(p_stmt.local)] : nullptr;
 		if (local && p_stmt.declared_type) {
 			declared(*p_stmt.declared_type, local->type, tokens[p_stmt.name_token].end(), false);
+			downcast(p_stmt.value.get(), local->type);
 		} else if (local && p_stmt.kind == StmtKind::Var) {
 			inferred(p_stmt.name_token, local->type, p_stmt.value.get(), false);
 			// `var x = v`, which GDScript leaves untyped.
@@ -896,6 +945,11 @@ public:
 			}
 		} else if (local && p_stmt.kind == StmtKind::For && p_stmt.value && (nested(p_stmt.value->type) || untyped(*p_stmt.value))) {
 			wide.insert({ function, p_stmt.local });
+		}
+		if (p_stmt.kind == StmtKind::Return && function && function->return_type_ref) {
+			downcast(p_stmt.value.get(), function->return_type);
+		} else if (p_stmt.kind == StmtKind::Assign && p_stmt.assign_op == TokenKind::Equal && typed(*p_stmt.target)) {
+			downcast(p_stmt.value.get(), p_stmt.target->type);
 		}
 		taken_apart(p_stmt);
 		const Expr *base = p_stmt.kind == StmtKind::Assign && p_stmt.target && (p_stmt.target->kind == ExprKind::Subscript || p_stmt.target->kind == ExprKind::Member) ? p_stmt.target->base.get() : nullptr;
@@ -909,7 +963,18 @@ public:
 					if (none && is_some(pattern)) {
 						null_kept.insert(pattern.range.first);
 					} else if (is_some(pattern) && pattern.items[0].kind == PatternKind::Bind) {
-						guarded(branch);
+						// `Some(var x)` before None, which takes no null.
+						null_kept.insert(pattern.range.first);
+						guarded(branch, pattern.items[0].name + " != null");
+					} else if (is_none(pattern) && pattern.type.kind == TypeKind::Object && branch.patterns.size() == 1) {
+						// GDScript's null pattern tests the type first, which a freed
+						// object's is not (modules/gdscript/gdscript_compiler.cpp:1435-1453;
+						// ed1daf0), but is_instance_valid() takes it as null, as
+						// None takes it here (spec §3.3).
+						const std::string bound = unused("_none");
+						erase(tokens[pattern.range.first].offset, tokens[pattern.range.first].end(), "var " + bound);
+						erased.binds[pattern.range.first] = bound;
+						guarded(branch, "not is_instance_valid(" + bound + ")");
 					}
 				}
 				none = none || (!branch.guard && std::any_of(branch.patterns.begin(), branch.patterns.end(), is_none));
@@ -1120,6 +1185,10 @@ public:
 		} else if constexpr (std::is_same_v<T, Pattern>) {
 			if (!raw && p_node.kind == PatternKind::Constructor && p_node.value && p_node.items.size() == 1 && erased.calls.count(p_node.value->name_token)) {
 				visit(p_node.items[0]);
+				return;
+			}
+			if (const auto bound = raw ? erased.binds.end() : erased.binds.find(p_node.range.first); bound != erased.binds.end()) {
+				line("pattern " + std::to_string(int(PatternKind::Bind)) + " " + bound->second + " ", p_node.range.first);
 				return;
 			}
 			line("pattern " + std::to_string(int(p_node.kind)) + " " + p_node.name + " " + p_node.field + (p_node.rest ? " .." : ""), p_node.range.first);

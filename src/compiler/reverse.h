@@ -30,13 +30,14 @@ struct Rewrite {
 // patterns `Some(p)`; the types GDScript leaves out, as a value type's T?
 // (spec §10.1), or writes otherwise, by their names; the calls and member
 // reads written otherwise, by their names, and the guards of match branches,
-// by their first tokens; the statements written after a
-// statement, by its first token; and the calls whose members passed by name
-// are assigned in those.
+// by their first tokens; the patterns written as a bind, with its name; the
+// statements written after a statement, by its first token; and the calls
+// whose members passed by name are assigned in those.
 struct Erased {
 	std::map<uint32_t, int> calls;
 	std::map<uint32_t, std::string> types; // "" for none.
 	std::map<uint32_t, Rewrite> rewrites;
+	std::map<uint32_t, std::string> binds;
 	std::map<uint32_t, std::vector<Rewrite>> after;
 	std::set<uint32_t> moved;
 };
