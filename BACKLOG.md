@@ -49,7 +49,15 @@ Refactorings that remove code, taken in this order. Each minor release takes one
     - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete;
     - an error of the candidate check at the range of another that is about a declaration elsewhere, as a value from a method not yet `pub` that does not fit (architecture §6.6). It withdraws nothing now. Taken as any other error, it would withdraw tanks-of-freedom-ii's `maps` and `online`, written `:= {}` and assigned what `read_json_from_file()` gives (`scripts/services/map_manager.gd:18, 21, 61-62`). Those are types a person would write, so it stays until a rule tells such errors apart.
   - The rewrites that the survey showed. Left: a property written on an `Object?` keeps its error without `.unwrap()` (architecture §6.6). That fix tries the write unwrapped, which checks only once `set()` is written. None of the three games has one.
-- Reverse conversion, and the round trips of FPS, Ring and deck_builder_tutorial (architecture §5, step 11).
+- Reverse conversion, and the round trips of FPS, Ring and deck_builder_tutorial (architecture §5, step 11). The command, the git check, the trees, the erasures and the re-parse check are in. Left:
+  - the forms that refuse their file for now:
+    - Option methods other than `unwrap()`, among them `expect()`;
+    - `Array(...)` and field reads of what awaiting a signal with several parameters gives;
+    - nested typed containers, function types, `State(x)` and `Dictionary(...)` of a container;
+    - members passed by name to `new()` and `instantiate()`, and match patterns of `None` and `Some(...)`;
+    - a value type's `T?` inside a container type or on an export.
+  - Of deck_builder_tutorial's 116 files, 24 stay. Nested containers keep 3 files and `expect()` 4. Their trees keep 11 more, and class-level accesses to those 7.
+  - Converting part of a project leaves errors in the `.pet` files that stay, beyond the class-level accesses listed: they see the members of the converted classes as `T?` and their enums as `Dictionary` constants (spec §11.1). GDScript callers that pass a wider class to a converted function typed with a `.pet` class fail to parse (Ring's `breakout/scenes/balls/ball.gd:60` once `utility.pet` converts). Should such users be pulled in, as the forward migration pulls GDScript files, or listed? Question for the owner.
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
 
@@ -183,12 +191,10 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - Rewrites that those games need:
     - a member that the value's static type lacks, as after `get_collider()` or `instantiate()` (99 uses; architecture §6.6).
   - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
-  - It drops this language's names from `@warning_ignore`, which GDScript rejects (`modules/gdscript/gdscript_parser.cpp:5126-5128`, `ed1daf0`).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
   - A two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null`, which mean the same in both languages (spec §3.4).
   - A file that stays in GDScript, as one with `@tool`, keeps the files it accesses at class level in GDScript, with their trees (architecture §6.6). Should the migration instead take them, and report the GDScript file that then breaks?
   - Reverse conversion could also have Godot's GDScript compiler check what it writes, and restore the files when that fails, as `cargo fix` does. First check whether an extension can check one GDScript file. It only finds output that does not compile, which a person sees on opening the project anyway, so it comes after the re-parse check (architecture §6.6).
-  - Reverse conversion works from the tokens and the reference table, not by printing the checked AST. The checker rewrites about a dozen forms there, as `print_debug` to `print`.
 - Before 1.0, localize the items this extension adds to the code editor's context menu, "Find References" and "Format" (`src/adapter/editor/pet_editor_plugin.cpp`).
 - When quick fixes insert `@warning_ignore` (0.3), place it after leading doc comments so `##` stays attached to the declaration.
 - Class reference XML for the public classes `CoroutineTask` and `PetScript`, or making `PetScript` internal if F1 does not need it (`src/adapter/register_types.cpp:55-57`).
