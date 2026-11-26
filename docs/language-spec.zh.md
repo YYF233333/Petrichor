@@ -1018,6 +1018,7 @@ GDScript 采用渐进类型，场景中的静态信息（节点路径、信号�
 - 【已知限制】GDScript 除使用实例、调用 `new` 外，还能按名读写 `pub` 静态变量，并读取常量值和 `Player.Inner` 脚本。此外不支持以下类级访问，替代写法是经实例或 autoload 实例方法转发：
   - 调用本语言静态方法；
   - 把本语言 enum、常量或内部类用于 GDScript 类型标注或常量表达式；
+  - 经类按名读取本语言 enum 的值或调用 enum 的方法，如 `Room.Type.B`、`Room.Type.keys()`。可改用 `Room.Type["B"]`、经实例读取，或读取值为该 enum 值的 `pub` 常量；
   - 为本语言编写的 autoload 定型（GDScript 中视为 `Node` 或无类型）。
 - 与 C# 之间的消息用 struct 表达，按字段名 `Dictionary` 编解码并做入口检查。
 

@@ -148,6 +148,7 @@
 | 对象没有脚本实例时，`callp` 只查找引擎注册的方法，所以 Script 资源上的静态方法找不到 | `core/object/object.cpp:800-826` | §11.3 |
 | GDScript 的类型标注不能引用其他语言类所定义的类型 | `modules/gdscript/gdscript_analyzer.cpp:935-937` | §11.3 |
 | GDScript 不把其他语言类的常量当作常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:4321-4330` | §11.3 |
+| GDScript 把其他语言类的常量定型为其值种类的元类型，其后的 `.` 只查该内置类型自己的常量，所以经类读不到 enum 的值 | `modules/gdscript/gdscript_analyzer.cpp:4080-4091, 4321-4329` | §11.3 |
 | GDScript 的常量初始化式必须是常量表达式 | `modules/gdscript/gdscript_analyzer.cpp:2124-2131` | §4.5 |
 | GDScript 在编译期求值两边都是常量的运算，求值无效时报错 | `modules/gdscript/gdscript_analyzer.cpp:3139-3157` | §4.5 |
 | GDScript 在编译期对常量取下标，取不到时报错；字典字面量中重复的常量键是编译错误 | `modules/gdscript/gdscript_analyzer.cpp:3854-3856, 4920-4927` | §4.5 |

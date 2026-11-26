@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 48dcf21c53f3e84b868a18406bf1de44b4e5f345. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 2453ec3b9cf7aa743fb2c8c2755dea90021a58b9. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -1020,6 +1020,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - **[Known limitation]** Besides using instances and calling `new`, GDScript can read and write `pub` static variables by name. It can also read constant values and `Player.Inner` scripts. Beyond that, the following class-level access is not supported. The alternative forwards through an instance method of an instance or of an autoload:
   - calling a static method of this language;
   - using an enum, constant or inner class of this language in a GDScript type annotation or constant expression;
+  - reading an enum value of this language by name through the class, or calling a method of the enum, as in `Room.Type.B` and `Room.Type.keys()`. `Room.Type["B"]`, a read through an instance, or a `pub` constant holding the enum value works instead;
   - typing an autoload written in this language, which GDScript treats as `Node` or as untyped.
 - Messages to and from C# are expressed as structs. They are encoded and decoded as a `Dictionary` by field name, with the entry check.
 
