@@ -146,6 +146,7 @@ struct CheckContext {
 	// Types of locals narrowed by conditions (spec §5.4), innermost last.
 	std::vector<std::unordered_map<int, Type>> narrowed = { {} };
 	int loop_depth = 0;
+	const Stmt *iterating = nullptr; // A for without the loop variable's type, as its value is checked.
 	bool in_predelete = false;
 	bool in_assert = false;
 	// The member whose initializer is being checked: it and the members after
@@ -1020,6 +1021,7 @@ class Checker : public ClassRelation, private CheckContext {
 	std::optional<Type> common_element(std::vector<std::unique_ptr<Expr>> &r_values, size_t p_first, size_t p_step, const std::string &p_what);
 	Type check_dictionary_literal(Expr &r_expr, const Type &p_expected);
 	Type check_cast(Expr &r_expr, const Type &p_expected);
+	std::optional<Fix> array_cast_fix(const Expr &p_cast, const Type &p_from, const Type &p_to, const Type &p_expected) const;
 	Type check_super(Expr &r_expr);
 	std::string no_await() const;
 	void fix_async(FuncDecl &r_function);

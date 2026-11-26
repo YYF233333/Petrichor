@@ -56,6 +56,7 @@ enum class FixKind {
 	StoreFirst, // A setter's store of its value before the await that it waits at.
 	ByName, // call() or set() of a member that an Object lacks, as GDScript finds it by name.
 	Cast, // `as` where a value of a class goes as a subclass, which GDScript checks as the program runs.
+	ArrayCast, // The typed Array itself for `as` to another, which GDScript keeps as it is.
 };
 
 // What fixing all of a kind in a file is called: "Fix all '…' in file".
@@ -93,8 +94,9 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ false, "Store it before the await" },
 	{ false, "Use it by name" },
 	{ false, "Write as" },
+	{ false, "Write the array without as" },
 };
-static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::Cast) + 1);
+static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::ArrayCast) + 1);
 
 // A quick fix of a diagnostic, named by `title`.
 struct Fix {

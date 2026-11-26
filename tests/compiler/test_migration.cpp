@@ -368,6 +368,14 @@ TEST_CASE("where no declaration narrows, a value of a class goes as a subclass t
 	CHECK(migration.errors[0].file == "res://handler.pet");
 }
 
+TEST_CASE("a typed Array cast to another is the Array itself, and a loop over it checks each element as the class cast to") {
+	FakeProject project;
+	project.add_script("res://pools.gd", "extends Node\nvar pool: Array[Resource] = []\nvar names: Array[String] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tfor texture in (pool as Array[Texture2D]):\n\t\tprint(texture)\n\tfor name in (names as Array[String]):\n\t\tprint(name)\n\tvar children = nodes as Array[Node2D]\n\tprint(children.size())\n\tvar kept: Array[Texture2D] = pool as Array[Texture2D]\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://pools.gd" }, 10);
+	CHECK(migration.texts.at("res://pools.pet") == "extends Node\nvar pool: Array[Resource] = []\nvar names: Array[String] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tfor texture: Texture2D in pool:\n\t\tprint(texture)\n\tfor name in names:\n\t\tprint(name)\n\tvar children = nodes\n\tprint(children.size())\n\tvar kept: Array[Texture2D] = pool as Array[Texture2D]\n");
+	CHECK(migration.errors.size() == 1);
+}
+
 TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null, then @late where every read unwraps it") {
 	FakeProject project;
 	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");

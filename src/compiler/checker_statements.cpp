@@ -555,7 +555,9 @@ bool Checker::pattern_fits(const Type &p_pattern, const Type &p_matched) const {
 // `for i in n`, over the elements of an array, over the keys of a
 // Dictionary, over the characters of a String, or over an object (spec §5.7).
 void Checker::check_for(Stmt &r_stmt) {
+	const Stmt *outer = std::exchange(iterating, r_stmt.declared_type ? nullptr : &r_stmt);
 	const Type iterated = check_value(*r_stmt.value);
+	iterating = outer;
 	scopes.emplace_back();
 	const Type element = element_type(r_stmt, iterated);
 	untyped_element(*r_stmt.value, iterated);

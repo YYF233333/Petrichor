@@ -1250,6 +1250,9 @@ Type Checker::check_cast(Expr &r_expr, const Type &p_expected) {
 			fix({ { r_expr.range, cls.source->text_of(r_expr.left->range) } }, FixKind::LiteralCast);
 			return set(r_expr, to);
 		}
+		if (!literal) {
+			fix(array_cast_fix(r_expr, from, to, p_expected));
+		}
 		return r_expr.type;
 	}
 	if (from.kind == TypeKind::Variant) {
@@ -1270,6 +1273,34 @@ Type Checker::check_cast(Expr &r_expr, const Type &p_expected) {
 	Type result = to;
 	result.nullable = from.nullable || !is_a(from, to);
 	return set(r_expr, result);
+}
+
+// The typed Array itself for `x as Array[T]`, which GDScript keeps as it is
+// (modules/gdscript/gdscript_byte_codegen.cpp:1041-1048,
+// modules/gdscript/gdscript_vm.cpp:1627-1643,
+// core/variant/variant_construct.cpp:204; ed1daf0): where its elements are
+// T, or are of a class that T extends and no place expects a type. The loop
+// variable of a for over it then takes T, which each iteration checks (spec
+// §5.7), as GDScript checks a variable written so
+// (modules/gdscript/gdscript_analyzer.cpp:2353-2356).
+std::optional<Fix> Checker::array_cast_fix(const Expr &p_cast, const Type &p_from, const Type &p_to, const Type &p_expected) const {
+	const auto element = [](const Type &p_array) { return p_array.kind == TypeKind::Builtin && p_array.name == "Array" && p_array.args.size() == 1 ? &p_array.args[0] : nullptr; };
+	const Type *from = element(p_from);
+	const Type *to = element(p_to);
+	if (!from || !to) {
+		return std::nullopt;
+	}
+	const bool same = *from == *to;
+	const bool subclass = from->kind == TypeKind::Object && to->kind == TypeKind::Object && !to->nullable && !to->is_interface && to->args.empty() && assignable(*to, *from);
+	if (!same && !(subclass && (p_expected.is_error() || p_expected.kind == TypeKind::Variant))) {
+		return std::nullopt;
+	}
+	std::vector<Write> writes;
+	if (!same && iterating && iterating->value.get() == &p_cast && p_cast.cast_type.args.size() == 1) {
+		writes.push_back({ { iterating->name_token, iterating->name_token }, iterating->name + ": " + cls.source->text_of(p_cast.cast_type.args[0].range) });
+	}
+	writes.push_back({ p_cast.range, operand(*p_cast.left) });
+	return writing(writes, FixKind::ArrayCast);
 }
 
 Type Checker::check_super(Expr &r_expr) {
