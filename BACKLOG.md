@@ -60,6 +60,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - references released by scope (spec §6.8), as a temporary in a `match` header;
   - members without `pub` hidden from access by name (spec §1.2), as a `_get()` that answers for a member's name;
   - a `preload` constant used only in types, which GDScript loads with its class (spec §2.1). The constants the migration adds are of this kind.
+- The corpus round trip ([round-trip](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/round-trip.md), second run at `1c88ead`): 7 of the 525 files converted back differ from the original by more than the known rewrites. Five have an explicit `x as T` at a typed place, which the migration unwraps. Converted back as `x`, they keep its error in a debug build, where the original got null. Whether that is a known rewrite, or the migration should keep the null, is open. The other two are known rewrites that the survey's patterns miss.
 - A value pattern that reads a `T?` holding a freed object matches it as `None` (spec §3.3, §5.6). Converted, GDScript compares the object's type first and does not. Whether it refuses its file or becomes a guard is open.
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
