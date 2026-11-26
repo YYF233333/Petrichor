@@ -9,7 +9,8 @@ Usage:
 Checks the game run, the editor side (placeholders, saving), the language, the
 debugger, hot reload, an exported pack run in a directory without sources with
 each library of export templates, the language server, and the FPS starter
-kit, Ring's breakout and deck_builder_tutorial with their migrated scripts.
+kit, Ring's breakout and deck_builder_tutorial with their migrated scripts
+and converted back.
 Naming groups runs only those, after the build; the groups are those of
 GROUPS, hot reload being part of debugger. The dotnet group, classes written
 in C#, runs on a .NET editor or when named; it needs the .NET SDK 8 or later
@@ -672,7 +673,7 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
     freeing, so the migrated run may only repeat those, and keep no resource
     at exit, other than sounds, that the original does not. With
     `check_format`, the format check first fails on the scripts as the
-    migration left them."""
+    migration left them. Converted back to GDScript, the game runs so again."""
     # A headless frame sleeps, as nothing is drawn (core/os/os.cpp:721-723),
     # unless the frame rate is fixed (main/main.cpp:5170-5172); fixed, each
     # frame advances the game by 1/60 s, however fast it runs.
@@ -738,6 +739,16 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
         expect(f"{name} run: no resources kept at exit that the original frees", resources_in_use(output) <= known_in_use, output)
         for script in scripts:
             expect(f"{name} run: {script.stem} runs migrated", f"{name} check: {script.stem} runs PetScript" in output, output)
+
+        # Architecture §5 step 11: converted back by a headless editor, the
+        # game runs as the original does, with no scan in between.
+        code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-migrate", "--reverse", "--allow-dirty")
+        expect(f"{name} reverse: every script converts back", code == 0 and ", 0 left out, " in output and ", 0 defect(s)" in output, output)
+        code, output = run(godot, "--verbose", "--path", str(migrated), *scene)
+        new_errors = [line for line in errors_in(output) if line not in known_errors and not re.match(r"ERROR: \d+ resources still in use at exit", line)]
+        expect(f"{name} reverse run", code == 0 and not new_errors and f"{name} check: 0 failure(s)" in output, output)
+        expect(f"{name} reverse run: no resources kept at exit that the original frees", resources_in_use(output) <= known_in_use, output)
+        expect(f"{name} reverse run: no script runs PetScript", f"{name} check: " in output and "runs PetScript" not in output, output)
 
 
 def dotnet_build(godot):
