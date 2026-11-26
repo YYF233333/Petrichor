@@ -1524,7 +1524,7 @@ Type Checker::fail_call(Expr &r_call) {
 Type Checker::fail_receiver(Expr &r_call, const std::string &p_message) {
 	fail_call(r_call, p_message);
 	if (r_call.base) {
-		about(r_call.range, { r_call.base->range });
+		about(r_call.range, { typed_by(*r_call.base) });
 	}
 	return r_call.type;
 }

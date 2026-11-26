@@ -850,7 +850,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 由初始值或迭代值定型的局部或循环变量，按同一规则追溯到该值。
   - 撤回接收者只会把值变成同样不合的 `Variant`，还丢掉流入支持的类型。tanks-of-freedom-ii 把 `pivot_rotation.y` 赋给 `int` 成员时，`camera_pivot` 不受牵连（`scenes/camera.gd:101-102`）。它的 `loader.gd` 由调用定型的局部变量出错时，实参 `campaign_name` 和 `mission_no` 也不受牵连（`scenes/map/loader.gd:33-34`）。
   - 所赋值不合时还涉及目标所引用的槽位。值是 `Variant` 时不涉及目标，留作编译错误由人写转换。实参和 `return` 错误不涉及接收的槽位。
-  - 关于接收者本身的错误只涉及接收者引用的槽位，如调用 `Variant`、缺该方法的类或 `T?` 的方法。运算（含比较、`and`、`or` 和复合赋值）仅一个操作数是 `Variant` 而出错时，只涉及给出该操作数类型的槽位。
+  - 关于接收者本身的错误只涉及给出接收者类型的槽位，与值不合时相同，如调用 `Variant`、缺该方法的类或 `T?` 的方法，以及在它们上读成员。Ring 的 `balls.gd` 读 `new_ball.collision_shape.shape.radius` 出错时，`new_ball` 由之定型的 `instantiate_new_ball()` 和 `collision_shape` 不受牵连，因为 `shape` 是引擎属性。运算（含比较、`and`、`or` 和复合赋值）仅一个操作数是 `Variant` 而出错时，只涉及给出该操作数类型的槽位。
   - 无类型 `Array` 或 `Dictionary` 的元素是 `Variant`（经下标、`for` 或 `get()` 读出），错误不涉及容器和下标槽位。
   - 声明在别的文件中不可用（不是 `pub` 或自身有错）的错误不涉及任何槽位。【已知限制】同一范围的其他错误目前也不涉及，如调用尚未补 `pub` 的方法所得的值不合目标。
 - **`int` 并入 `float` 安全核对**：编译器看不出求值变化，由工具自行核对：
@@ -877,11 +877,12 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 信号参数比所连函数的参数宽时不改，留作编译错误（`scenes/relic_handler/relic_handler.gd:14, 78`）：放宽参数要另起名字，包一层 lambda 则 `disconnect` 找不到原函数。
   - 检查器给这类错误提供写 `as` 的备选修复。候选校验不把它算作修复循环会修的错误，所以推断出的类型照旧撤回，而不是在读出处转换。
   - 修复循环只在没有其他修复的一轮写 `as`，因为改为 `T?` 等修复决定值是否可空。
-- **转为带类型 `Array` 的 `as` 写回原数组**：`x` 为 `Array[E]` 时，GDScript 的 `x as Array[T]` 得到同一个数组，不查元素（`modules/gdscript/gdscript_byte_codegen.cpp:1041-1048`，`modules/gdscript/gdscript_vm.cpp:1627-1643`，`core/variant/variant_construct.cpp:204`，`ed1daf0`）。本语言的 `as` 不转容器（规范 §5.3），修复因此写回 `x`。
-  - `E` 即 `T` 时总是如此。`T` 是 `E` 的子类时只在位置不期望类型处如此，读出的元素是 `E`，传给 `T` 的位置照上文写 `as`。
-  - `for` 遍历它而循环变量未写类型时，循环变量写上 `T`，每次迭代检查元素（规范 §5.7）。原文的循环变量不检查而按 `T` 使用，元素不是 `T` 时在这里提前出错。
+- **不转换的 `as` 写回原值**：GDScript 的 `x as T` 转为非类的类型时由 `x` 构造。`x` 已是 `T` 时得到原值；`x` 为 `Array[E]` 而 `T` 为 `Array[T']` 时得到同一个数组，不查元素（`modules/gdscript/gdscript_byte_codegen.cpp:1041-1048`，`modules/gdscript/gdscript_vm.cpp:1627-1643`，`core/variant/variant_construct.cpp:204`，`ed1daf0`）。本语言的 `as` 只转对象（规范 §5.3），修复因此写回 `x`。
+  - `x` 已是 `T` 时总是如此。Ring 的 `oppressive_enemy.gd` 中 `get_direction_to_paddle("bottom") as Vector2` 由此不再撤回推断出的 `-> Vector2`。
+  - `T'` 是 `E` 的子类时只在位置不期望类型处如此，读出的元素是 `E`，传给 `T'` 的位置照上文写 `as`。
+  - `for` 遍历这样的数组而循环变量未写类型时，循环变量写上 `T'`，每次迭代检查元素（规范 §5.7）。原文的循环变量不检查而按 `T'` 使用，元素不是 `T'` 时在这里提前出错。
   - 反向转换保留循环变量的类型，GDScript 对写了子类的循环变量同样逐个检查（`modules/gdscript/gdscript_analyzer.cpp:2353-2356`，`modules/gdscript/gdscript_byte_codegen.cpp:1746-1747`）。Ring 的 `resource_manager.gd` 由此写成 8 处 `for drop_tres: Drop_Info in drop_tres_pool:`。
-  - 期望 `Array[T]` 的位置不提供，留作编译错误。
+  - 期望 `Array[T']` 的位置不提供，留作编译错误。
 - **从根取 autoload 改用名字**：字面量路径如 `$"/root/Audio"` 由自动修复改用其名字（规范 §7.3），反向转换保留名字（GDScript 带 `*` 的 autoload 同为全局名）。
   - 节点在树中时两者取到同一节点：GDScript 的 `$` 是在自己上调 `get_node()`（`modules/gdscript/gdscript_compiler.cpp:743-756`，`ed1daf0`）。绝对路径从最上层须名为 `root` 的祖先（场景树根窗口）走起（`scene/main/node.cpp:1918-1921, 1938`，`scene/main/scene_tree.cpp:2071`），本语言名字在这个根下按名查找。所有 autoload 先挂到根下再入树，就绪时彼此均已在树中（`main/main.cpp:4562-4564`，`scene/main/scene_tree.cpp:586-591`）。
   - 节点不在树中时 GDScript 报错得 `null`，本语言照样取到 autoload（`scene/main/node.cpp:1910`），但真实代码不这样用：tanks-of-freedom-ii 的 125 处都是 `@onready` 初始值，就绪时节点总在树中。`get_node_or_null()` 与另一接收者上的 `get_node()` 只报错不改（前者找不到得 `None`，后者接收者要求值）。
@@ -945,7 +946,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 跨行字符串写成三引号；
     - 不穷尽的 `match` 补上的 `_: pass`；
     - 从根取 autoload 改用的名字；
-    - 转为带类型 `Array` 的 `as` 写回的原数组，以及遍历它的循环变量写上的类型；
+    - 不转换的 `as` 写回的原值，以及遍历这样的数组的循环变量写上的类型；
     - 补上的 `return None` 写回为 `return null`，包括对象类型函数中原本只写的 `return`；
     - 推断写下或改窄的类型。反向只读 `.pet`，分不出哪些类型是推断写下的；它们都经检查器核验，GDScript 照样接受；
     - 真值判断写成的比较、`is_empty()` 和 `is_instance_valid()`。GDScript 的真值即 `is_zero()` 之反，对象按存活判断，与 `!= null` 相同（`core/variant/variant.cpp:878-953`，`core/variant/variant_op.cpp:1120-1122`，`ed1daf0`）；

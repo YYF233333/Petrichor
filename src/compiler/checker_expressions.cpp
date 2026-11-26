@@ -1251,7 +1251,7 @@ Type Checker::check_cast(Expr &r_expr, const Type &p_expected) {
 			return set(r_expr, to);
 		}
 		if (!literal) {
-			fix(array_cast_fix(r_expr, from, to, p_expected));
+			fix(kept_cast_fix(r_expr, from, to, p_expected));
 		}
 		return r_expr.type;
 	}
@@ -1275,23 +1275,21 @@ Type Checker::check_cast(Expr &r_expr, const Type &p_expected) {
 	return set(r_expr, result);
 }
 
-// The typed Array itself for `x as Array[T]`, which GDScript keeps as it is
-// (modules/gdscript/gdscript_byte_codegen.cpp:1041-1048,
+// The value itself for `x as T` to a type not a class, which GDScript
+// constructs from it, keeping it as it is (modules/gdscript/gdscript_byte_codegen.cpp:1041-1048,
 // modules/gdscript/gdscript_vm.cpp:1627-1643,
-// core/variant/variant_construct.cpp:204; ed1daf0): where its elements are
-// T, or are of a class that T extends and no place expects a type. The loop
-// variable of a for over it then takes T, which each iteration checks (spec
-// §5.7), as GDScript checks a variable written so
+// core/variant/variant_construct.cpp:204; ed1daf0): where it is a T, and
+// where it is an Array of a class that the elements of an Array[T] extend
+// and no place expects a type. The loop variable of a for over that Array
+// then takes the elements' class, which each iteration checks (spec §5.7),
+// as GDScript checks a variable written so
 // (modules/gdscript/gdscript_analyzer.cpp:2353-2356).
-std::optional<Fix> Checker::array_cast_fix(const Expr &p_cast, const Type &p_from, const Type &p_to, const Type &p_expected) const {
+std::optional<Fix> Checker::kept_cast_fix(const Expr &p_cast, const Type &p_from, const Type &p_to, const Type &p_expected) const {
 	const auto element = [](const Type &p_array) { return p_array.kind == TypeKind::Builtin && p_array.name == "Array" && p_array.args.size() == 1 ? &p_array.args[0] : nullptr; };
 	const Type *from = element(p_from);
 	const Type *to = element(p_to);
-	if (!from || !to) {
-		return std::nullopt;
-	}
-	const bool same = *from == *to;
-	const bool subclass = from->kind == TypeKind::Object && to->kind == TypeKind::Object && !to->nullable && !to->is_interface && to->args.empty() && assignable(*to, *from);
+	const bool same = p_from == p_to;
+	const bool subclass = from && to && from->kind == TypeKind::Object && to->kind == TypeKind::Object && !to->nullable && !to->is_interface && to->args.empty() && assignable(*to, *from);
 	if (!same && !(subclass && (p_expected.is_error() || p_expected.kind == TypeKind::Variant))) {
 		return std::nullopt;
 	}
@@ -1300,7 +1298,7 @@ std::optional<Fix> Checker::array_cast_fix(const Expr &p_cast, const Type &p_fro
 		writes.push_back({ { iterating->name_token, iterating->name_token }, iterating->name + ": " + cls.source->text_of(p_cast.cast_type.args[0].range) });
 	}
 	writes.push_back({ p_cast.range, operand(*p_cast.left) });
-	return writing(writes, FixKind::ArrayCast);
+	return writing(writes, FixKind::NoConversion);
 }
 
 Type Checker::check_super(Expr &r_expr) {

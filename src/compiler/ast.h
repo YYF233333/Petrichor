@@ -371,7 +371,7 @@ struct Expr {
 // callee, not what it is read or called on nor the arguments; of an element,
 // its container's.
 inline TokenRange typed_by(const Expr &p_value) {
-	if (p_value.kind == ExprKind::Member || p_value.kind == ExprKind::Call) {
+	if ((p_value.kind == ExprKind::Member || p_value.kind == ExprKind::Call) && p_value.name_token != NO_TOKEN) {
 		return { p_value.name_token, p_value.name_token };
 	}
 	return p_value.kind == ExprKind::Subscript ? typed_by(*p_value.base) : p_value.range;

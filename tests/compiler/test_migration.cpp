@@ -368,11 +368,19 @@ TEST_CASE("where no declaration narrows, a value of a class goes as a subclass t
 	CHECK(migration.errors[0].file == "res://handler.pet");
 }
 
-TEST_CASE("a typed Array cast to another is the Array itself, and a loop over it checks each element as the class cast to") {
+TEST_CASE("an as that GDScript converts nothing with is the value itself, and a loop over an Array cast to a subclass checks each element") {
 	FakeProject project;
-	project.add_script("res://pools.gd", "extends Node\nvar pool: Array[Resource] = []\nvar names: Array[String] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tfor texture in (pool as Array[Texture2D]):\n\t\tprint(texture)\n\tfor name in (names as Array[String]):\n\t\tprint(name)\n\tvar children = nodes as Array[Node2D]\n\tprint(children.size())\n\tvar kept: Array[Texture2D] = pool as Array[Texture2D]\n");
+	project.add_script("res://pools.gd", "extends Node\nvar pool: Array[Resource] = []\nvar names: Array[String] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tfor texture in (pool as Array[Texture2D]):\n\t\tprint(texture)\n\tfor name in (names as Array[String]):\n\t\tprint(name)\n\tvar children = nodes as Array[Node2D]\n\tprint(children.size())\n\tvar kept: Array[Texture2D] = pool as Array[Texture2D]\n\tprint(direction() as Vector2)\n\n\nfunc direction():\n\treturn Vector2(1, 0)\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://pools.gd" }, 10);
-	CHECK(migration.texts.at("res://pools.pet") == "extends Node\nvar pool: Array[Resource] = []\nvar names: Array[String] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tfor texture: Texture2D in pool:\n\t\tprint(texture)\n\tfor name in names:\n\t\tprint(name)\n\tvar children = nodes\n\tprint(children.size())\n\tvar kept: Array[Texture2D] = pool as Array[Texture2D]\n");
+	CHECK(migration.texts.at("res://pools.pet") == "extends Node\nvar pool: Array[Resource] = []\nvar names: Array[String] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tfor texture: Texture2D in pool:\n\t\tprint(texture)\n\tfor name in names:\n\t\tprint(name)\n\tvar children = nodes\n\tprint(children.size())\n\tvar kept: Array[Texture2D] = pool as Array[Texture2D]\n\tprint(direction())\n\n\nfunc direction() -> Vector2:\n\treturn Vector2(1, 0)\n");
+	CHECK(migration.errors.size() == 1);
+}
+
+TEST_CASE("an error about a receiver is about what gives it its type, not what it is read on") {
+	FakeProject project;
+	project.add_script("res://maker.gd", "extends Node\n\n\nfunc make():\n\treturn Node.new()\n\n\nfunc f() -> void:\n\tvar made = make()\n\tprint(made.get_node_or_null(\"X\").radius)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://maker.gd" }, 10);
+	CHECK(migration.texts.at("res://maker.pet") == "extends Node\n\n\nfunc make() -> Node:\n\treturn Node.new()\n\n\nfunc f() -> void:\n\tvar made = make()\n\tprint(made.get_node_or_null(\"X\").radius)\n");
 	CHECK(migration.errors.size() == 1);
 }
 
