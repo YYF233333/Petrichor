@@ -56,9 +56,34 @@ TEST_CASE("a file that uses what GDScript lacks stays, with each place listed") 
 	CHECK(reversed("extends Node\n\n\nasync func load_all() -> int:\n\tawait ready\n\treturn 1\n\n\nfunc f() -> void:\n\tvar task := load_all()\n\ttask.cancel()\n") == "10:6: GDScript has no Task value.\n11:7: GDScript has no Task value.\n");
 }
 
-TEST_CASE("a file with a form not converted back yet stays, with each place listed") {
-	CHECK(reversed("extends Node\nenum State { IDLE, RUN }\nvar grid: Array[Array[int]] = []\nvar pick: func(int) -> bool\n\n\nfunc f(n: Node?) -> String:\n\tvar state := State(1)\n\treturn n.map(func(x: Node) -> String: return x.name).unwrap_or(\"\")\n") ==
-			"3:17: This is not converted back yet: a typed container inside a typed container.\n4:11: This is not converted back yet: a function type, which GDScript writes Callable.\n8:15: This is not converted back yet: the conversion of an int to an enum.\n9:11: This is not converted back yet: map() of T?.\n9:55: This is not converted back yet: unwrap_or() of T?.\n");
+// Architecture §6.6: on a name, each is a conditional expression; expect()
+// that a variable or a name takes is an assert after it.
+TEST_CASE("reverse conversion writes the methods of T? on a name as conditional expressions, and expect() as an assert") {
+	CHECK(reversed("extends Node\nvar saved: Node?\n\n\nfunc f(hp: int?, target: Node?, pick: func(Node) -> String) -> void:\n\tvar a: int = hp.unwrap_or(0) + 1\n\tvar b: Node = target.unwrap_or(self)\n\tvar c = target.map(pick)\n\tvar d = target.filter(func(n: Node) -> bool: return n.name == \"a\")\n\tprint(hp.unwrap_or_else(func() -> int: return 2), a, b, c, d)\n\tvar node := target.expect(\"no node\")\n\tsaved = target.expect(\"none saved\")\n\tprint(node)\n") ==
+			"extends Node\nvar saved: Node\n\n\nfunc f(hp, target: Node, pick: Callable) -> void:\n\tvar a: int = (hp if hp != null else 0) + 1\n\tvar b: Node = target if target != null else self\n\tvar c = pick.call(target) if target != null else null\n\tvar d = target if target != null and (func(n: Node) -> bool: return n.name == \"a\").call(target) else null\n\tprint(hp if hp != null else (func() -> int: return 2).call(), a, b, c, d)\n\tvar node := target\n\tassert(node != null, \"no node\")\n\tsaved = target\n\tassert(saved != null, \"none saved\")\n\tprint(node)\n");
+	CHECK(reversed("extends Node\n\n\nfunc f(n: Node?, hp: int?) -> void:\n\tprint(n.expect(\"none\"), get_parent().unwrap_or(n.unwrap()))\n\tvar total := hp.unwrap() + 1\n") ==
+			"5:10: This is not converted back yet: expect() but as the whole value of a variable declared or a name assigned.\n5:39: This is not converted back yet: unwrap_or() of T? on more than a name.\n6:6: This is not converted back yet: `:=` of a value that GDScript reads untyped, here int.\n");
+}
+
+// Spec §9.6: GDScript gives an Array.
+TEST_CASE("reverse conversion reads what awaiting a signal with several parameters gives by index") {
+	CHECK(reversed("extends Node\nsignal done(code: int, body: String)\n\n\nasync func f() -> Array:\n\tvar args = await done\n\tprint(args.body)\n\treturn Array(args)\n") == "extends Node\nsignal done(code: int, body: String)\n\n\nfunc f() -> Array:\n\tvar args = await done\n\tprint(args[1])\n\treturn args\n");
+}
+
+// Spec §3.11, §10.1, §3.8; GDScript casts an int to an enum unchecked.
+TEST_CASE("reverse conversion writes the types GDScript has for nested containers and function types, and an int as an enum by a cast") {
+	CHECK(reversed("extends Node\nenum State { IDLE, RUN }\nvar grid: Array[Array[int]] = []\nvar calls: Array[func()] = []\nvar scores: Dictionary[String, int?] = {}\n\n\nfunc f(n: int, pick: func(int) -> bool) -> void:\n\tvar state := State(n + 1)\n\tvar row: Array[int] = grid[0]\n\tprint(State(n) == state, Array(calls), row, pick, Dictionary(scores))\n") ==
+			"extends Node\nenum State { IDLE, RUN }\nvar grid: Array[Array] = []\nvar calls: Array[Callable] = []\nvar scores: Dictionary = {}\n\n\nfunc f(n: int, pick: Callable) -> void:\n\tvar state := (n + 1) as State\n\tvar row: Array[int] = grid[0]\n\tprint((n as State) == state, Array(calls, TYPE_NIL, &\"\", null), row, pick, Dictionary(scores, TYPE_NIL, &\"\", null, TYPE_NIL, &\"\", null))\n");
+	CHECK(reversed("extends Node\nvar grid: Array[Array[int]] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tgrid.append([1])\n\tvar other = self\n\tother.nodes = []\n") == "extends Node\nvar grid: Array[Array] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tgrid.append([1] as Array[int])\n\tvar other = self\n\tother.nodes = [] as Array[Node]\n");
+	CHECK(reversed("extends Node\nvar grid: Array[Array[int]] = []\n\n\nfunc f() -> void:\n\tvar cell := grid[0][0]\n\tfor row in grid:\n\t\tvar first := row[0]\n") ==
+			"6:6: This is not converted back yet: `:=` of a value that GDScript reads untyped, here int.\n8:7: This is not converted back yet: `:=` of a value that GDScript reads untyped, here int.\n");
+}
+
+// Spec §6.4, §5.6, §10.1.
+TEST_CASE("reverse conversion assigns members passed by name after the call, matches Some(p) as p after None, and exports a value type's T? as Variant") {
+	CHECK(reversed("class_name Unit\nextends Node\n@export var hp: int?\nvar target: Node\n\n\nfunc f(other: Node?) -> void:\n\tvar unit := Unit.new(target = self)\n\tmatch other:\n\t\tNone:\n\t\t\tpass\n\t\tSome(var o):\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\tSome(3):\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n") ==
+			"class_name Unit\nextends Node\n@export var hp: Variant\nvar target: Node\n\n\nfunc f(other: Node) -> void:\n\tvar unit := Unit.new()\n\tunit.target = self\n\tmatch other:\n\t\tnull:\n\t\t\tpass\n\t\tvar o:\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\t3:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n");
+	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?) -> void:\n\tmatch other:\n\t\tSome(var o):\n\t\t\tprint(o)\n\t\tNone:\n\t\t\tpass\n") == "6:3: This is not converted back yet: Some(...) that would take null too, before a branch of None.\n");
 }
 
 TEST_CASE("converting a class takes its inheritance tree, which a file that cannot convert keeps, and lists what other files lose") {

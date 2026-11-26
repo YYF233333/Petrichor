@@ -2,6 +2,7 @@
 
 #include "compiler/diagnostic.h"
 #include "compiler/engine_api.h"
+#include "compiler/lexer.h"
 #include "compiler/project_api.h"
 
 #include <cstdint>
@@ -16,14 +17,27 @@ namespace petrichor::compiler {
 // res://a.pet converted back: res://a.gd.
 std::string reversed_path(const std::string &p_file);
 
-// What converting a file back erased that the tree of its GDScript lacks, by
-// the tokens of the .pet file: the calls that read as their receiver, as
-// `.unwrap()` and `.detach()` (-1), or as their argument, as `Some(v)` (0),
-// by their names; and the types of value types' T? that GDScript leaves
-// untyped, by their names (spec §10.1).
+// GDScript written for an expression or a statement of a .pet file, `__0`,
+// `__1`... standing for the .pet file's expressions at `operands`.
+struct Rewrite {
+	std::string gdscript;
+	std::vector<TokenRange> operands;
+};
+
+// What converting a file back changed of its tree, by the tokens of the .pet
+// file: the calls that read as their receiver, as `.unwrap()` and `.detach()`
+// (-1), or as their argument, as `Some(v)` (0), by their names, and so the
+// patterns `Some(p)`; the types GDScript leaves out, as a value type's T?
+// (spec §10.1), or writes otherwise, by their names; the calls and member
+// reads written otherwise, by their names; the statements written after a
+// statement, by its first token; and the calls whose members passed by name
+// are assigned in those.
 struct Erased {
 	std::map<uint32_t, int> calls;
-	std::set<uint32_t> types;
+	std::map<uint32_t, std::string> types; // "" for none.
+	std::map<uint32_t, Rewrite> rewrites;
+	std::map<uint32_t, std::vector<Rewrite>> after;
+	std::set<uint32_t> moved;
 };
 
 // Reverse conversion (spec §13.4, architecture §6.6) of the .pet files under

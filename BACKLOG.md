@@ -49,14 +49,12 @@ Refactorings that remove code, taken in this order. Each minor release takes one
     - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete;
     - an error of the candidate check at the range of another that is about a declaration elsewhere, as a value from a method not yet `pub` that does not fit (architecture §6.6). It withdraws nothing now. Taken as any other error, it would withdraw tanks-of-freedom-ii's `maps` and `online`, written `:= {}` and assigned what `read_json_from_file()` gives (`scripts/services/map_manager.gd:18, 21, 61-62`). Those are types a person would write, so it stays until a rule tells such errors apart.
   - The rewrites that the survey showed. Left: a property written on an `Object?` keeps its error without `.unwrap()` (architecture §6.6). That fix tries the write unwrapped, which checks only once `set()` is written. None of the three games has one.
-- Reverse conversion, and the round trips of FPS, Ring and deck_builder_tutorial (architecture §5, step 11). The command, the git check, the trees, the erasures and the re-parse check are in. Left:
-  - the forms that refuse their file for now:
-    - Option methods other than `unwrap()`, among them `expect()`;
-    - `Array(...)` and field reads of what awaiting a signal with several parameters gives;
-    - nested typed containers, function types, `State(x)` and `Dictionary(...)` of a container;
-    - members passed by name to `new()` and `instantiate()`, and match patterns of `None` and `Some(...)`;
-    - a value type's `T?` inside a container type or on an export.
-  - Of deck_builder_tutorial's 116 files, 24 stay. Nested containers keep 3 files and `expect()` 4. Their trees keep 10 more, and class-level accesses to those 7.
+- Reverse conversion, and the round trips of FPS, Ring and deck_builder_tutorial (architecture §5, step 11). The command, the git check, the trees, the rewrites and the re-parse check are in, and all 116 files of deck_builder_tutorial convert back and run. Forms that still refuse their file, which it does not meet:
+  - methods of `T?` on more than a name, and `expect()` but as what a variable or a name takes;
+  - `:=` of a value that GDScript reads untyped, which it cannot infer;
+  - members passed by name but where a variable is declared, and `instantiate(...)` with them into `:=`;
+  - `Some(var x)` or `Some(_)` before a branch of `None`;
+  - a typed literal of a class without a global name where GDScript knows no type for it, and `State(x)` in a constant.
   - Converting part of a project leaves errors in the `.pet` files that stay, beyond the class-level accesses listed: they see the members of the converted classes as `T?` and their enums as `Dictionary` constants (spec §11.1). GDScript callers that pass a wider class to a converted function typed with a `.pet` class fail to parse (Ring's `breakout/scenes/balls/ball.gd:60` once `utility.pet` converts). Should such users be pulled in, as the forward migration pulls GDScript files, or listed? Question for the owner.
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).

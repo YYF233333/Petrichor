@@ -897,15 +897,40 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 撤回槽位、依据不全类型与遗留错误采用与 `pet check` 相同的诊断写法；
   - 末行输出计数，如 `petrichor migrate: 4 script(s), 0 added, 2 left out, 9 type(s), 1 withdrawn, 3 fix(es), 6 path(s) renamed, 0 error(s)`。
 - **反向转换**：只读 `.pet` 的 token 与检查结果（引用表和检查后的类型），不依赖正向留下的记录，迁移后人工改过的文件也能转回。改写只删除或替换 token，不打印检查后的语法树，因为检查器在树上改写了约十几种写法。人工写下的 `@late` 直接去掉，GDScript 中的成员同样从 null 开始。
-  - 擦除规则（规范 §1.2、§10.1）：去掉 `pub`、`async`、`@late`、`@owner(T)`、`@parent(T)`、`.unwrap()`、`.detach()` 和对象类型的 `?`。值类型的 `T?` 不写类型，以它推断的 `:=` 改为 `=`，因为 GDScript 推断不出无类型的值。`None` 写成 `null`。`Some(v)` 写成 `v`；它是运算的操作数而 `v` 带运算符时写成 `(v)`。`PackedScene[T]` 写成 `PackedScene`。
+  - 擦除规则（规范 §1.2、§10.1）：去掉 `pub`、`async`、`@late`、`@owner(T)`、`@parent(T)`、`.unwrap()`、`.detach()` 和对象类型的 `?`。`None` 写成 `null`。`Some(v)` 写成 `v`；它是运算的操作数而 `v` 带运算符时写成 `(v)`。`PackedScene[T]` 写成 `PackedScene`。
+  - 类型按 GDScript 能写的写（规范 §3.11、§10.1）：
+    - 值类型的 `T?` 不写类型，以它推断的 `:=` 改为 `=`，因为 GDScript 推断不出无类型的值；
+    - 导出的值类型 `T?` 写成 `Variant`，属性信息与本语言导出的相同（`src/adapter/pet_script.cpp:85`，`modules/gdscript/gdscript_parser.cpp:4850-4854`，`ed1daf0`）；
+    - 函数类型写成 `Callable`；
+    - 嵌套容器只写外层，如 `Array[Array[int]]` 写成 `Array[Array]`；元素含值类型 `T?` 的容器不写类型参数。
+  - GDScript 读作无类型之处：
+    - 以 `:=` 推断这样的值时不转换，因为 GDScript 推断不出（`modules/gdscript/gdscript_analyzer.cpp:2140-2142`）。
+    - 这样的值包括值类型的 `T?`、嵌套容器的元素、`var x = v` 声明的变量，以及以它们为操作数的运算（`:3166-3180`）。
+    - 在这样的对象上赋值或调用，或放进嵌套容器时，带类型容器的字面量写成 `[...] as Array[T]`，GDScript 由此给它类型（`:3808-3815`）。类没有全局名时不转换。
   - `@warning_ignore` 去掉本语言的名字，名字全去掉时删去注解，因为 GDScript 拒绝不认识的名字（`modules/gdscript/gdscript_parser.cpp:5122-5129`，`ed1daf0`）。
-  - 用到 GDScript 没有的特性（规范 §13.4）、有编译错误、导出值类型的 `T?`，或同名 `.gd` 已在时，文件不转换，报告列出每处。
-  - Option 的方法：接收者是简单名字时写成条件表达式。`expect(消息)` 是 `var` 声明或赋值语句的整个值时，删去它，并在该语句后按同一缩进补 `assert(名字 != null, 消息)`。其余写法使整个文件不转换，报告列出位置。
+  - 用到 GDScript 没有的特性（规范 §13.4）、有编译错误，或同名 `.gd` 已在时，文件不转换，报告列出每处。
+  - Option 的方法：接收者是局部变量、参数或无 getter 的本类成员时写成条件表达式，作操作数时加括号。
+    - `x.unwrap_or(d)` 和 `x.or(y)` 写成 `x if x != null else d`；
+    - `x.unwrap_or_else(f)` 和 `x.or_else(f)` 写成 `x if x != null else f.call()`；
+    - `x.map(f)` 和 `x.and_then(f)` 写成 `f.call(x) if x != null else null`；
+    - `x.filter(p)` 写成 `x if x != null and p.call(x) else null`；
+    - `expect(消息)` 是 `var` 声明或给名字赋值的整个值时，删去它，并在该语句后另起一行补 `assert(名字 != null, 消息)`；
+    - 其余写法使整个文件不转换，报告列出位置。
+  - `State(x)` 写成 `x as State`。GDScript 把 `int` 转为 enum 时不查范围（`modules/gdscript/gdscript_analyzer.cpp:3826-3828`），与去掉 `.unwrap()` 一样，出错时改为 GDScript 原来的行为。常量中的不转换，GDScript 中它不是常量表达式。
+  - 元素只在本语言中存在的 `Array(x)` 写成 `Array(x, TYPE_NIL, &"", null)`，`Dictionary(x)` 同理，得到同样的无类型副本（`core/variant/array.cpp:874-879`，`core/variant/dictionary.cpp:753-758`）。
+  - `var x := T.new(m = v)` 的具名成员改为语句后另起一行的 `x.m = v`，与调用后按书写顺序经 setter 赋值相同（`src/compiler/lower.cpp:1594-1600`）。`instantiate(...)` 须写明变量类型，GDScript 把它的结果定为 `Node`。其余位置的具名成员不转换。
+  - match 的 `Some(p)` 写成 `p`。`p` 是绑定或 `_` 时 GDScript 也接住 `null`，所以前面须有 `None` 分支才转换。
   - 转回一个类时连带它的整棵继承树，与正向相同；树中有文件不转换时整棵树留下，报告写明是哪个文件。
   - 要转的文件对留下的 `.pet` 类做 GDScript 做不到的类级访问时（规范 §11.3），连带转换那棵树；那棵树转不了，这个文件的树也留下。
   - 留下的 `.pet` 文件对转回的类做本语言做不到的类级访问时（规范 §11.1），报告列出每处。
   - 写出前复核：每个文件先用本语言解析器按 GDScript 重读输出，语法树须等于 `.pet` 的树去掉擦除的部分。不等时什么都不写，报告为转换器的缺陷并请用户报告。擦除式转换的静默错误出在擦除后相邻 token 的解析变了（如优先级），GDScript 编译器照样接受，只有这一步能发现。
   - 两棵树各打印成规范化的文本按行比较。`.pet` 一侧略去本次擦除记下的调用和类型。两侧都略去总被删去的部分：`pub`、`async`、类型的 `?`、`None` 的写法、`@late`、`@owner`、`@parent`、`PackedScene` 的根类型和本语言的警告名。
+  - 替换成另一种写法的表达式和补上的语句，`.pet` 一侧打印其 GDScript 写法重读的树，其中的操作数仍是 `.pet` 的子树。
+  - 往返的已知改写：迁移再转回的文件与原文只应差以下几处，corpus 的往返据此比对：
+    - 跨行字符串写成三引号；
+    - 不穷尽的 `match` 补上的 `_: pass`；
+    - 从根取 autoload 改用的名字；
+    - 补上的 `return None` 写回为 `return null`，包括对象类型函数中原本只写的 `return`。
 
 ## 7. 暂不决定
 
