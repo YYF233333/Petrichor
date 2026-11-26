@@ -1647,14 +1647,25 @@ std::string unkept(const std::map<std::string, std::optional<std::string>> &p_fi
 	if (found != 0) {
 		return "error: The project is not in a git repository, which would give back the files written (git: " + to_utf8(said.is_empty() ? String() : String(said[0]).strip_edges()) + ")." + ALLOW;
 	}
-	PackedStringArray args({ "--literal-pathspecs", "-C", root, "-c", "core.quotepath=off", "-c", "status.relativePaths=true", "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--" });
-	args.append_array(paths);
-	const Array listed;
-	if (OS::get_singleton()->execute("git", args, listed, false) != 0 || listed.is_empty()) {
-		return std::string("error: git status failed.") + ALLOW;
+	// The engine runs a program by one command line (platform/windows/
+	// os_windows.cpp:1414-1419, 1495; ed1daf0), which Windows takes up to
+	// 32,767 characters; tanks-of-freedom-ii's 292 scripts pass that. So the
+	// paths go a batch at a time.
+	String listed;
+	for (int64_t first = 0; first < paths.size();) {
+		PackedStringArray args({ "--literal-pathspecs", "-C", root, "-c", "core.quotepath=off", "-c", "status.relativePaths=true", "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--" });
+		for (int64_t length = 0; first < paths.size() && (length == 0 || length + paths[first].length() < 16384); first++) {
+			args.push_back(paths[first]);
+			length += paths[first].length() + 3;
+		}
+		const Array batch;
+		if (OS::get_singleton()->execute("git", args, batch, false) != 0 || batch.is_empty()) {
+			return std::string("error: git status failed.") + ALLOW;
+		}
+		listed += String(batch[0]);
 	}
 	std::string lines;
-	for (const String &line : String(listed[0]).split("\n", false)) {
+	for (const String &line : listed.split("\n", false)) {
 		if (line.length() < 4) {
 			continue;
 		}
