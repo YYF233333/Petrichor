@@ -659,6 +659,19 @@ TEST_CASE("a class without a class_name is named in types by a constant that pre
 	CHECK(std::any_of(migration.notes.begin(), migration.notes.end(), [](const compiler::Diagnostic &p_note) { return p_note.file == "res://hud.pet" && p_note.message == "Added const OutcomesCamera = preload(\"res://outcomes/camera.pet\"), const UiOnline = preload(\"res://ui/online/online.pet\") to name classes without a class_name in types."; }));
 }
 
+// As tanks-of-freedom-ii's AI brains take the board, which has no
+// class_name (scenes/board/logic/ai/brains/abstract_unit_brain.gd:1).
+TEST_CASE("a class names a class without a class_name by the constant its base has or gets") {
+	FakeProject project;
+	project.add_script("res://board.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tvar unit = preload(\"res://a_unit_brain.gd\").new()\n\tunit.act(self)\n\tvar brain = preload(\"res://z_brain.gd\").new()\n\tbrain.think(self)\n");
+	project.add_script("res://z_brain.gd", "extends RefCounted\n\n\nfunc think(_board):\n\tpass\n");
+	project.add_script("res://a_unit_brain.gd", "extends \"res://z_brain.gd\"\n\n\nfunc act(board):\n\tprint(board)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://board.gd", "res://z_brain.gd", "res://a_unit_brain.gd" }, 10);
+	CHECK(migration.texts.at("res://z_brain.pet") == "extends RefCounted\n\nconst Board = preload(\"res://board.pet\")\n\n\npub func think(_board: Board):\n\tpass\n");
+	CHECK(migration.texts.at("res://a_unit_brain.pet") == "extends \"res://z_brain.pet\"\n\n\npub func act(board: Board):\n\tprint(board)\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("an empty container takes the types of the elements and keys put in it, or else stays untyped") {
 	FakeProject project;
 	project.add_script("res://e.gd", "extends Node\nvar names = []\nvar scores = {}\n\n\nfunc gather(nodes: Array[Node]) -> void:\n\tvar picked = []\n\tnames.append(\"a\")\n\tscores[\"a\"] = 1\n\tfor child in nodes:\n\t\tpicked.push_back(child)\n\tvar mixed = []\n\tmixed.append(1)\n\tmixed.append(\"x\")\n\tvar unused = {}\n\tprint(picked, mixed, unused)\n");

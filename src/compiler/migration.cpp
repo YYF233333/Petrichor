@@ -1003,6 +1003,7 @@ class Aliases {
 		std::map<std::string, std::string> added; // By name: the scripts of those to add.
 		std::set<std::string> taken;
 		uint32_t at = 0; // Where they go: after the class's header.
+		std::string base; // The file of the migration whose class this one extends, if any.
 	};
 	const EngineApi &engine;
 	const ProjectApi &project;
@@ -1059,7 +1060,19 @@ class Aliases {
 			}
 		};
 		collect(collect, decl);
+		const std::string base = decl.extends_path ? resolved_path(decl.extends, p_file) : project.global_class_path(decl.extends);
+		file.base = texts.count(base) ? base : std::string();
 		return file;
+	}
+
+	// The files of the migration whose classes the file's inherits from,
+	// nearest first.
+	std::vector<std::string> bases(const std::string &p_file) {
+		std::vector<std::string> found;
+		for (std::string at = of(p_file).base; !at.empty() && std::find(found.begin(), found.end(), at) == found.end(); at = of(at).base) {
+			found.push_back(at);
+		}
+		return found;
 	}
 
 public:
@@ -1067,21 +1080,46 @@ public:
 			engine(p_engine), project(p_project), texts(p_texts) {}
 
 	// The constant that names the script's class in the file: one the file
-	// has, or one to add, named after the script's file, with the names of
-	// its directories before it, the nearest first, until no other name of
-	// the file, global class, engine class or autoload has it. "" when none
-	// is free.
+	// has or inherits, or one to add, named after the script's file, with the
+	// names of its directories before it, the nearest first, until no other
+	// name of the file, of its bases, global class, engine class or autoload
+	// has it, nor one that a class below it adds for another script. "" when
+	// none is free.
 	std::string name(const std::string &p_file, const std::string &p_script) {
 		File &file = of(p_file);
 		const auto found = file.names.find(p_script);
 		if (found != file.names.end()) {
 			return found->second;
 		}
+		const std::vector<std::string> above = bases(p_file);
+		for (const std::string &each : above) {
+			const auto inherited = of(each).names.find(p_script);
+			if (inherited != of(each).names.end() && !inherited->second.empty()) {
+				return file.names[p_script] = inherited->second;
+			}
+		}
+		const auto free = [&](const std::string &p_name) {
+			if (file.taken.count(p_name) || engine.class_exists(p_name) || !project.global_class_path(p_name).empty() || !project.autoload_path(p_name).empty()) {
+				return false;
+			}
+			if (std::any_of(above.begin(), above.end(), [&](const std::string &p_base) { return of(p_base).taken.count(p_name) > 0; })) {
+				return false;
+			}
+			for (const auto &[other, text] : texts) {
+				const std::vector<std::string> theirs = bases(other);
+				const File &below = of(other);
+				const auto added = below.added.find(p_name);
+				if (std::find(theirs.begin(), theirs.end(), p_file) != theirs.end() && below.taken.count(p_name) && (added == below.added.end() || added->second != p_script)) {
+					return false;
+				}
+			}
+			return true;
+		};
 		const std::string base = file_name(p_script);
 		std::string name = pascal_case(base.substr(0, base.rfind('.')));
 		std::string folder = p_script.substr(0, p_script.find_last_of('/'));
 		while (!name.empty()) {
-			if (!file.taken.count(name) && !engine.class_exists(name) && project.global_class_path(name).empty() && project.autoload_path(name).empty()) {
+			if (free(name)) {
 				file.taken.insert(name);
 				file.names[p_script] = name;
 				file.added[name] = p_script;
@@ -1100,13 +1138,23 @@ public:
 		return std::string();
 	}
 
-	// The constants to add to the file for the scripts given, sorted, with
-	// where they go.
-	std::pair<uint32_t, std::string> added(const std::string &p_file, const std::set<std::string> &p_scripts) {
+	// The constants to add to the file for the scripts that the types written
+	// in it name, of `p_named` by file, sorted, with where they go; but one
+	// that a base adds too, which the class inherits.
+	std::pair<uint32_t, std::string> added(const std::string &p_file, const std::map<std::string, std::set<std::string>> &p_named) {
+		const auto names = [&](const std::string &p_in, const std::string &p_script) {
+			const auto found = p_named.find(p_in);
+			return found != p_named.end() && found->second.count(p_script) > 0;
+		};
+		const std::vector<std::string> above = bases(p_file);
 		File &file = of(p_file);
 		std::string text;
 		for (const auto &[name, script] : file.added) {
-			if (p_scripts.count(script)) {
+			const auto inherited = [&](const std::string &p_base) {
+				const auto there = of(p_base).added.find(name);
+				return there != of(p_base).added.end() && there->second == script && names(p_base, script);
+			};
+			if (names(p_file, script) && std::none_of(above.begin(), above.end(), inherited)) {
 				text += "const " + name + " = preload(\"" + script + "\")\n";
 			}
 		}
@@ -1402,7 +1450,7 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		}
 		// The constants go after the header, as written by no slot.
 		for (const auto &[file, scripts] : aliased_by_file) {
-			const auto [at, text] = aliases.added(file, scripts);
+			const auto [at, text] = aliases.added(file, aliased_by_file);
 			if (!text.empty()) {
 				insertions[file].push_back({ at, at, text, { file, UINT32_MAX } });
 			}
