@@ -1036,7 +1036,7 @@ class Printer {
 	const SourceFile &source;
 	const Erased &erased;
 	const std::map<std::string, std::string> &renamed;
-	const std::string &path;
+	const std::string path; // A copy: the GDScript's is a temporary.
 	int depth = 0;
 
 	void line(const std::string &p_label, uint32_t p_token) {

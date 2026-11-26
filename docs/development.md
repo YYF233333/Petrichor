@@ -95,6 +95,7 @@ Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/
 ### 崩溃符号化与残留进程
 
 - **DLL 内崩溃**：回溯里出现 `petrichor.windows.editor.x86_64.dll+0x…` 时，Godot 不会解析扩展 DLL 的 PDB。先用 `scons debug_symbols=yes` 重新构建，再运行 `llvm-symbolizer --obj=tests/engine/project/bin/petrichor.windows.editor.x86_64.dll --relative-address 0x<offset>` 解析源码位置。
+- **macOS 上无声退出**：Godot 在 macOS 上只截获 `SIGSEGV`、`SIGFPE`、`SIGILL` 和 `SIGTRAP`（`platform/macos/crash_handler_macos.mm:276-279`，`ed1daf0`），libmalloc 发现坏指针时的 `SIGABRT` 不打印任何东西。引擎测试失败时，CI 把系统的崩溃报告传为 `crash-reports-*` 产物（`.ips`，JSON）。CI 的库不带符号：用 `llvm-objdump --macho --arch=arm64 --function-starts` 取函数起点，再按函数引用的字符串常量认出帧所在的函数。
 - **挂起或残留的 Godot 进程**：`quit()` 之前的 GDScript 报错会让测试挂起并锁住 DLL；把原生进程输出管道接到 `Select-Object -First N` 时，读取停了但进程还在后台跑。用 `Get-CimInstance Win32_Process -Filter "Name like 'godot%'"` 排查，只杀自己启动的 `--headless` 进程；手动跑游戏建议放进 `Start-Job` 并配合 `Wait-Job -Timeout` 限时。
 
 ### 导入崩溃与 FPS 差异排查
