@@ -950,7 +950,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 补上的 `return None` 写回为 `return null`，包括对象类型函数中原本只写的 `return`；
     - 推断写下或改窄的类型。反向只读 `.pet`，分不出哪些类型是推断写下的；它们都经检查器核验，GDScript 照样接受；
     - 真值判断写成的比较、`is_empty()` 和 `is_instance_valid()`。GDScript 的真值即 `is_zero()` 之反，对象按存活判断，与 `!= null` 相同（`core/variant/variant.cpp:878-953`，`core/variant/variant_op.cpp:1120-1122`，`ed1daf0`）；
-    - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。引擎 enum 位置上的 `int` 写成的 `E(x)` 转回 `x as E`：GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6326-6336`，`ed1daf0`），引擎 enum 开放，转换不查范围（规范 §3.7）。
+    - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。引擎 enum 位置上的 `int` 写成的 `E(x)` 转回 `x as E`：GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6397-6400`，`ed1daf0`），引擎 enum 开放，转换不查范围（规范 §3.7）。
   - corpus v1 的往返另有两种差异，尚无反向规则：隐式向下转换写下的 `(x as T)`，以及给无 `class_name` 的类补上的 `preload` 常量（[调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/round-trip.md)）。
 
 ## 7. 暂不决定

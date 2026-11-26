@@ -2121,7 +2121,7 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		fix({ { p_value.range, p_to.name + "(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::PackedArray);
 	} else if (p_from.kind == TypeKind::Int && to.kind == TypeKind::Enum && to.values->is_engine) {
 		// GDScript takes the int as it is (modules/gdscript/gdscript_analyzer.cpp:
-		// 6326-6336; ed1daf0), and the conversion to an open enum keeps it
+		// 6397-6400; ed1daf0), and the conversion to an open enum keeps it
 		// unchecked (spec §3.7).
 		fix({ { p_value.range, enum_spelling(to) + "(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::EngineEnum);
 	} else if (p_from.kind == TypeKind::None && p_written) {
