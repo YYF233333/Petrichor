@@ -20,7 +20,6 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - Reverse conversion, and the round trips of FPS, Ring and deck_builder_tutorial (architecture §5, step 11).
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
-- The lints (Editor), if time remains. Otherwise they move to 0.4.
 
 ## Language
 
