@@ -383,6 +383,33 @@ TEST_CASE("load() of a literal path in the project is typed as preload() types i
 	find_instruction(function_named(result.module, "f"), bytecode::Op::CHECK_OBJECT);
 }
 
+// As deck_builder_tutorial's run.gd passes its views' scenes to
+// _change_view(scene: PackedScene) and assigns their members after
+// (scenes/run/run.gd:99-108, 160-165).
+TEST_CASE("a PackedScene[S] that goes where a wider PackedScene is expected may leave instantiate() nothing that one does not ask for (spec §7.4)") {
+	FakeProject project;
+	project.add_script("res://battle.pet", "class_name Battle\nextends Node2D\n@export pub var stats: Resource\n@export pub var music: Resource\n@export pub var relics: Node\npub var target: Node\n", "Battle");
+	compiler::Scene battle;
+	battle.path = "res://battle.tscn";
+	battle.nodes = { { ".", "Node2D", "res://battle.pet" } };
+	battle.nodes[0].properties = { { "music", compiler::SceneValue{ "Object", "Resource" } } };
+	project.scenes = { battle };
+	const auto checked = [&](const std::string &p_body) {
+		return compile_in("extends Node\nconst BATTLE := preload(\"res://battle.tscn\")\n\nfunc change(scene: PackedScene) -> void:\n\tprint(scene)\n\nfunc f(s: PackedScene[Battle]) -> void:\n\t" + p_body + "\n", project);
+	};
+	// What a scene known statically does not give; of another, what is not exported.
+	const compiler::CompileResult known = checked("change(BATTLE)");
+	REQUIRE(known.errors.size() == 1);
+	CHECK(known.errors[0].message == "res://battle.tscn leaves \"stats\", \"relics\" and \"target\" to instantiate(), but a PackedScene does not ask for them.");
+	REQUIRE(known.errors[0].fixes.size() == 2);
+	CHECK(known.errors[0].fixes[0].title == "Write Resource?, Node?");
+	CHECK(known.errors[0].fixes[1].title == "Mark them @late");
+	CHECK(known.errors[0].fixes[1].edits.size() == 3);
+	CHECK(contains(messages(checked("change(s)")), "A PackedScene[Battle] leaves \"target\" to instantiate(), but a PackedScene does not ask for it."));
+	CHECK(contains(messages(checked("var t: PackedScene[Node2D] = s")), "A PackedScene[Battle] leaves \"target\" to instantiate(), but a PackedScene[Node2D] does not ask for it."));
+	CHECK(messages(checked("var t: PackedScene[Battle] = s\n\tadd_child(t.instantiate(target = self))")).empty());
+}
+
 TEST_CASE("instantiate() of a scene known statically takes the exports it does not assign; so may no PackedScene[T] it converts to (spec §7.4)") {
 	FakeProject project;
 	project.add_script("res://enemy.pet", "class_name Enemy\nextends Node3D\n@export pub var player: Node3D\n@export pub var camera: Node3D\npub var target: Node\n", "Enemy");

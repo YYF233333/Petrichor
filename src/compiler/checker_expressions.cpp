@@ -1830,12 +1830,12 @@ bool Checker::check_written_back(const Expr &p_target) {
 	return false;
 }
 
-// A scene statically known going to a PackedScene[T] that is not, whose
-// instantiate(...) asks only for the members of T that must be assigned
-// and are not exported (spec §7.4). The scene may leave no other member
-// to it. A conditional not folded converts each branch.
+// A scene going to a PackedScene[T] or a PackedScene whose instantiate(...)
+// asks for less (spec §7.4): T asks only for its members that must be
+// assigned and are not exported, a PackedScene for none. A conditional not
+// folded converts each branch.
 void Checker::expect_scene_fits(const Expr &p_value, const Type &p_to) {
-	if (!is_typed_scene(p_to)) {
+	if (p_to.kind != TypeKind::Object || p_to.name != "PackedScene") {
 		return;
 	}
 	if (p_value.kind == ExprKind::Conditional && !p_value.constant) {
@@ -1843,32 +1843,61 @@ void Checker::expect_scene_fits(const Expr &p_value, const Type &p_to) {
 		expect_scene_fits(*p_value.right, p_to);
 		return;
 	}
-	if (const std::optional<Scene> scene = known_scene(p_value)) {
-		report_unfit_scene(*scene, p_to, [&](const std::string &p_why) { error(p_value.range, scene->path + " " + p_why); });
+	const std::optional<Scene> scene = known_scene(p_value);
+	const Type from = p_value.type.unwrapped();
+	if (scene || is_typed_scene(from)) {
+		report_unfit_scene(scene ? &*scene : nullptr, from, p_to, [&](const std::string &p_why) { error(p_value.range, (scene ? scene->path : "A " + from.to_string()) + " " + p_why); });
 	}
 }
 
-// Reports through `p_report` what a scene leaves to instantiate(...) that a
-// PackedScene[T] does not ask for, as the error says it after the scene;
-// an export so left may become T?, as GDScript leaves it null. T does not
-// ask for what its _init assigns.
-void Checker::report_unfit_scene(const Scene &p_scene, const Type &p_to, const std::function<void(const std::string &)> &p_report) {
-	const SceneNode *root = p_scene.find_node(".");
-	const std::string script = !root ? std::string() : root->script.empty() ? root->instance_script
-																			: root->script;
+// Reports through `p_report` what a scene of type `p_from` leaves to
+// instantiate(...) that `p_to` does not ask for, as the error says it after
+// the scene: a scene statically known, `p_known`, the members of its root
+// that it does not give; another, the members of its root's class that must
+// be assigned and are not exported. Neither asks for what _init assigns.
+// They may become T? if exported, as GDScript leaves them null, or @late.
+void Checker::report_unfit_scene(const Scene *p_known, const Type &p_from, const Type &p_to, const std::function<void(const std::string &)> &p_report) {
+	const SceneNode *root = p_known ? p_known->find_node(".") : nullptr;
+	std::string script = p_known ? std::string() : p_from.args[0].script;
+	if (root) {
+		script = root->script.empty() ? root->instance_script : root->script;
+	}
 	const ClassDecl *made = is_script_path(script) ? script_decl(script) : nullptr;
-	const Type &taken = p_to.args[0];
-	const ClassDecl *asks = taken.kind == TypeKind::Object && !taken.is_interface && !taken.script.empty() ? script_decl(taken.script) : nullptr;
+	const Type *taken = is_typed_scene(p_to) ? &p_to.args[0] : nullptr;
+	const ClassDecl *asks = taken && taken->kind == TypeKind::Object && !taken->is_interface && !taken->script.empty() ? script_decl(taken->script) : nullptr;
+	std::vector<const VarDecl *> left;
 	for (const VarDecl *member : made ? made->all_members : std::vector<const VarDecl *>()) {
 		const bool asked = !member->is_export && asks && !init_assigns(*asks, member->name) && find_named(asks->all_members, member->name);
-		if (member->must_assign && !init_assigns(*made, member->name) && !asked && (!member->is_export || !stored_value(p_scene, ".", member->name).value_or(false))) {
-			p_report("leaves \"" + member->name + "\" to instantiate(), but a " + p_to.to_string() + " does not ask for it.");
-			if (member->is_export && member->declared_type) {
-				fix_optional(*member->declared_type, declaring(*made, *member, &ClassDecl::members).path);
-			}
-			return;
+		const bool given = member->is_export && (!p_known || stored_value(*p_known, ".", member->name).value_or(false));
+		if (member->must_assign && !init_assigns(*made, member->name) && !asked && !given) {
+			left.push_back(member);
 		}
 	}
+	if (left.empty()) {
+		return;
+	}
+	std::string names;
+	for (size_t i = 0; i < left.size(); i++) {
+		names += (i == 0 ? "\"" : (i + 1 == left.size() ? " and \"" : ", \"")) + left[i]->name + "\"";
+	}
+	p_report("leaves " + names + " to instantiate(), but a " + p_to.to_string() + " does not ask for " + (left.size() == 1 ? "it." : "them."));
+	Fix optional{ std::string(), FixKind::Optional, {} };
+	Fix late{ left.size() == 1 ? "Mark it @late" : "Mark them @late", FixKind::Late, {} };
+	for (const VarDecl *member : left) {
+		const std::string owner = declaring(*made, *member, &ClassDecl::members).path;
+		const std::string file = in_this_file(owner) ? std::string() : script_file(owner);
+		const SourceFile &source = file.empty() ? *cls.source : *script_header(file)->source;
+		if (member->is_export && member->declared_type) {
+			optional.edits.push_back(optional_edit(source, *member->declared_type));
+			optional.edits.back().file = file;
+			optional.title += (optional.title.empty() ? "Write " : ", ") + optional.edits.back().change.new_text;
+		}
+		late.edits.push_back({ file, { source.begin(member->range), source.begin(member->range), std::string(), "@late " } });
+	}
+	if (!optional.edits.empty()) {
+		fix(std::move(optional));
+	}
+	fix(std::move(late));
 }
 
 // Why the engine would lose a None of a value of the type (spec §10.1), as

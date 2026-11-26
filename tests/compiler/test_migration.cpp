@@ -375,6 +375,23 @@ TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves w
 	CHECK(migration.errors.empty());
 }
 
+// As deck_builder_tutorial's run.gd passes its battle's scene to
+// _change_view(scene: PackedScene), then gives it its stats
+// (scenes/run/run.gd:99-108, 160-165).
+TEST_CASE("an export that a scene passed as a wider PackedScene leaves to the code becomes T?, as GDScript leaves it null, then @late") {
+	FakeProject project;
+	project.add_script("res://battle.gd", "class_name Battle\nextends Node2D\n@export var stats: Resource\n@export var music: Resource\n\n\nfunc start() -> void:\n\tprint(stats.duplicate(), music)\n", "Battle");
+	project.add_script("res://run.gd", "extends Node\nconst BATTLE_SCENE := preload(\"res://battle.tscn\")\n\n\nfunc change_view(scene: PackedScene) -> void:\n\tprint(scene)\n\n\nfunc _ready() -> void:\n\tchange_view(BATTLE_SCENE)\n");
+	compiler::Scene battle;
+	battle.path = "res://battle.tscn";
+	battle.nodes = { { ".", "Node2D", "res://battle.gd" } };
+	battle.nodes[0].properties = { { "music", compiler::SceneValue{ "Object", "Resource" } } };
+	project.scenes = { battle };
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://battle.gd", "res://run.gd" }, 10);
+	CHECK(migration.texts.at("res://battle.pet") == "class_name Battle\nextends Node2D\n@late @export var stats: Resource\n@export var music: Resource\n\n\nfunc start() -> void:\n\tprint(stats.duplicate(), music)\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a variable declared without a value starts as null in GDScript, which makes a class T? unless _init assigns it") {
 	FakeProject project;
 	project.add_script("res://deck.gd", "class_name Deck\nextends Resource\nvar pile: Node\nvar keeper: Node\nvar count\nvar picked\n\n\nfunc _init() -> void:\n\tkeeper = Node.new()\n\n\nfunc fill() -> void:\n\tpile = Node.new()\n\tcount = 0\n\tpicked = Node.new()\n\n\nfunc show() -> void:\n\tvar shown := pile.name\n\tprint(shown, keeper.name, count)\n\n\nfunc pick(nodes: Array[Node], at: int):\n\tvar left: Node\n\tif at > 0:\n\t\tleft = nodes[at - 1]\n\tif left and left.name != \"\":\n\t\treturn left\n", "Deck");

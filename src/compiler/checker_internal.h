@@ -1034,7 +1034,7 @@ class Checker : public ClassRelation, private CheckContext {
 	std::string constant_root(const Expr &p_expr) const;
 	bool check_written_back(const Expr &p_target);
 	void expect_scene_fits(const Expr &p_value, const Type &p_to);
-	void report_unfit_scene(const Scene &p_scene, const Type &p_to, const std::function<void(const std::string &)> &p_report);
+	void report_unfit_scene(const Scene *p_known, const Type &p_from, const Type &p_to, const std::function<void(const std::string &)> &p_report);
 	void each_stored_scene(const Type &p_type, const SceneValue &p_value, const std::function<void(const Scene &, const Type &)> &p_f);
 	std::string encoding_loss(const Type &p_type, const std::string &p_who, bool p_fix, bool p_copied = false, const std::string &p_what = std::string()) const;
 	static std::string fitting_call(const Type &p_two_level);

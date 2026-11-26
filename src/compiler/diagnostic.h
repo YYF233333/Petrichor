@@ -52,6 +52,7 @@ enum class FixKind {
 	NullPattern,
 	Receiver, // self.f() for a method that a direct call f() of a utility function's name misses.
 	GetNodeOrNull, // For $X that a scene lacks and another has.
+	Late, // @late for a member that must be assigned and that later code assigns.
 	ByName, // call() or set() of a member that an Object lacks, as GDScript finds it by name.
 	Cast, // `as` where a value of a class goes as a subclass, which GDScript checks as the program runs.
 };
@@ -87,6 +88,7 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ false, "Match both levels of null" },
 	{ false, "Write the receiver" },
 	{ false, "Write get_node_or_null()" },
+	{ false, "Mark it @late" },
 	{ false, "Use it by name" },
 	{ false, "Write as" },
 };

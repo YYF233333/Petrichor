@@ -1067,7 +1067,7 @@ void Checker::check_stored_exports() {
 					errors.back().runs = value->type == "Nil" && member->type.kind == TypeKind::Object;
 				} else if (value) {
 					each_stored_scene(member->type, *value, [&](const Scene &p_stored, const Type &p_to) {
-						report_unfit_scene(p_stored, p_to, [&](const std::string &p_why) { error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + p_stored.path + ", which " + p_why); });
+						report_unfit_scene(&p_stored, Type::of(TypeKind::Error), p_to, [&](const std::string &p_why) { error_in_scene(at, p_scene, p_node, p_scene.path + ": \"" + name + "\" of " + p_shown + " holds " + p_stored.path + ", which " + p_why); });
 					});
 				}
 			}
