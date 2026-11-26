@@ -108,14 +108,14 @@ Petrichor is in its 0.x preview series to gather feedback on the language semant
 - Before 0.9, language semantics may still change, and release notes list every breaking change. From 0.9 onward, upgrades do not silently change what existing code means; any breaking semantic change turns the old form into a compile error.
 - A few constructs deliberately behave differently from GDScript without a compile error. The [spec](docs/language-spec.md#12-relation-to-gdscript) lists each one, and they stay open for feedback until 0.9.
 - Compiled bytecode is not compatible across builds, so upgrading recompiles every script.
-- Editor lints and the two-way GDScript migration tool are planned for 0.3. Manual migration takes over twenty edits per hundred lines, so real projects are best tried with that tool. Files sticking to GDScript-compatible features convert back to GDScript even if Petrichor is discontinued. Files using Petrichor-only features such as `struct` or `Result` are skipped, with their locations listed.
+- The two-way GDScript migration tool is planned for 0.3, and editor lints for 0.4. Manual migration takes over twenty edits per hundred lines, so real projects are best tried with that tool. Files sticking to GDScript-compatible features convert back to GDScript even if Petrichor is discontinued. Files using Petrichor-only features such as `struct` or `Result` are skipped, with their locations listed.
 - Supports Godot 4.7 and later.
 
 Roadmap overview:
 
 - **0.2.x (current: 0.2.1)**: Core static language, scene checking, built-in editor and LSP/VS Code tooling, `pet` CLI, and prebuilt desktop libraries.
-- **0.3**: Two-way GDScript migration tool, toolchain performance budgets on 1,000-script projects, and editor lints (moving to 0.4 if needed).
-- **0.4**: `@tool`, Android/iOS/Web export libraries in CI, compatibility probes for Godot 4.4–4.6 and double-precision builds, and persistent headless service probes.
+- **0.3**: Two-way GDScript migration tool and toolchain performance budgets on 1,000-script projects.
+- **0.4**: `@tool`, editor lints, Android/iOS/Web export libraries in CI, compatibility probes for Godot 4.4–4.6 and double-precision builds, and persistent headless service probes.
 - **0.9 (language freeze)**: Remaining pre-1.0 designs (post-ready non-null members, tuples and multi-argument signal `await`, user-defined generics), plus the no-silent-breakage upgrade guarantee.
 
 See the detailed roadmap in [Architecture](docs/architecture.md#5-推进顺序) (Chinese) and open items in [BACKLOG.md](BACKLOG.md).
