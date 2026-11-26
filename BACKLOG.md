@@ -156,6 +156,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
   - A two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null`, which mean the same in both languages (spec §3.4).
   - A file that stays in GDScript, as one with `@tool`, keeps the files it accesses at class level in GDScript, with their trees (architecture §6.6). Should the migration instead take them, and report the GDScript file that then breaks?
+  - Reverse conversion could also have Godot's GDScript compiler check what it writes, and restore the files when that fails, as `cargo fix` does. First check whether an extension can check one GDScript file. It only finds output that does not compile, which a person sees on opening the project anyway, so it comes after the re-parse check (architecture §6.6).
   - Reverse conversion works from the tokens and the reference table, not by printing the checked AST. The checker rewrites about a dozen forms there, as `print_debug` to `print`.
 - Before 1.0, localize the items this extension adds to the code editor's context menu, "Find References" and "Format" (`src/adapter/editor/pet_editor_plugin.cpp`).
 - When quick fixes insert `@warning_ignore` (0.3), place it after leading doc comments so `##` stays attached to the declaration.
