@@ -1130,7 +1130,8 @@ def check_migrate(godot):
     files, rewrites the paths naming them, writes the types it infers and
     applies the fixes that keep the meaning, leaving out the script templates
     from the project setting. Godot then reads the project again, which checks
-    without errors."""
+    without errors. Converted back by a headless editor, the GDScript loads
+    in a game run that no editor scanned for, the scene by its script's uid."""
     with tempfile.TemporaryDirectory() as tmp:
         project = Path(tmp).resolve() / "migrate"
         shutil.copytree(HERE / "migrate", project)
@@ -1210,34 +1211,6 @@ def check_migrate(godot):
             )
             code, out, err = pet("check")
             expect("pet migrate: Godot reads the project again, which then checks without errors", code == 0 and out.rstrip().endswith(", 0 with errors"), out + err)
-
-            migrated = files()
-            code, out, err = pet("migrate", "--reverse")
-            untracked = "boss.pet: error: git does not track it, so git could not give it back once it is written. Pass --allow-dirty to write all the same."
-            changed = "level.tscn: error: It has changes that are not committed, so git could not give it back once it is written. Pass --allow-dirty to write all the same."
-            expect("pet migrate --reverse: nothing is written over what the migration wrote and git has not taken", code == 1 and untracked in out.splitlines() and changed in out.splitlines() and files() == migrated, out + err)
-            code, out, err = pet("migrate", "--reverse", "--allow-dirty")
-            after = {name: text.decode() for name, text in files().items()}
-            converted = ["boss.gd", "enemy.gd", "game.gd", "hud.gd", "stats.gd"]
-            expect(
-                "pet migrate --reverse: with --allow-dirty it renames the .pet files back with their .uid files, rewrites the paths naming them and erases what GDScript lacks",
-                code == 0 and "boss.pet → boss.gd" in out.splitlines()
-                and not [name for name in after if name.endswith(".pet")] and all(after.get(name) for name in converted)
-                and after["boss.gd.uid"] == before["boss.gd.uid"].decode()
-                and 'path="res://boss.gd"' in after["level.tscn"] and 'Game="*res://game.gd"' in after["project.godot"]
-                and 'preload("res://boss.gd")' in after["tool.gd"] and 'preload("res://game.gd")' in after["hud.gd"]
-                and "func hit(amount: int) -> void:" in after["enemy.gd"].splitlines() and "func roar() -> void:" in after["boss.gd"].splitlines()
-                and "\tvar parent: Node = enemy.get_parent()" in after["game.gd"].splitlines(),
-                out + err,
-            )
-            (project / "reverse_check.gd").write_text(
-                "extends SceneTree\n\n\nfunc _init() -> void:\n"
-                + "".join(f'\tprint("reverse check: {name} ", load("res://{name}") != null)\n' for name in converted)
-                + "\tquit()\n",
-                encoding="utf-8",
-            )
-            code, output = run(godot, "--headless", "--path", str(project), "-s", "res://reverse_check.gd")
-            expect("pet migrate --reverse: the GDScript written loads", code == 0 and all(f"reverse check: {name} true" in output for name in converted) and "Parse Error" not in output, output)
         finally:
             editor.process.kill()
             code, output = editor.finish()
@@ -1249,6 +1222,40 @@ def check_migrate(godot):
                 except OSError:
                     time.sleep(0.1)
         expect("pet migrate: the service reports no errors", "ERROR" not in output, output)
+
+        migrated = files()
+        code, out, err = pet("migrate", "--reverse", "--godot", godot)
+        untracked = "boss.pet: error: git does not track it, so git could not give it back once it is written. Pass --allow-dirty to write all the same."
+        changed = "level.tscn: error: It has changes that are not committed, so git could not give it back once it is written. Pass --allow-dirty to write all the same."
+        expect("pet migrate --reverse: nothing is written over what the migration wrote and git has not taken", code == 1 and untracked in out.splitlines() and changed in out.splitlines() and files() == migrated, out + err)
+        code, out, err = pet("migrate", "--reverse", "--allow-dirty", "--godot", godot)
+        after = {name: text.decode() for name, text in files().items()}
+        converted = ["boss.gd", "enemy.gd", "game.gd", "hud.gd", "stats.gd"]
+        expect(
+            "pet migrate --reverse: with --allow-dirty it renames the .pet files back with their .uid files, rewrites the paths naming them and erases what GDScript lacks",
+            code == 0 and "boss.pet → boss.gd" in out.splitlines()
+            and not [name for name in after if name.endswith(".pet")] and all(after.get(name) for name in converted)
+            and after["boss.gd.uid"] == before["boss.gd.uid"].decode()
+            and 'path="res://boss.gd"' in after["level.tscn"] and 'Game="*res://game.gd"' in after["project.godot"]
+            and 'preload("res://boss.gd")' in after["tool.gd"] and 'preload("res://game.gd")' in after["hud.gd"]
+            and "func hit(amount: int) -> void:" in after["enemy.gd"].splitlines() and "func roar() -> void:" in after["boss.gd"].splitlines()
+            and "\tvar parent: Node = enemy.get_parent()" in after["game.gd"].splitlines(),
+            out + err,
+        )
+        # A run of the game, which takes the scripts by the uid cache and the
+        # global classes as the editor left them, without a scan.
+        (project / "reverse_check.gd").write_text(
+            "extends SceneTree\n\n\nfunc _init() -> void:\n"
+            + "".join(f'\tprint("reverse check: {name} ", load("res://{name}") != null)\n' for name in converted)
+            + '\tvar level: Node = load("res://level.tscn").instantiate()\n'
+            + '\tprint("reverse check: level ", level.get_node("Boss").get_script().resource_path)\n'
+            + "\tlevel.free()\n"
+            + "\tquit()\n",
+            encoding="utf-8",
+        )
+        code, output = run(godot, "--headless", "--path", str(project), "-s", "res://reverse_check.gd")
+        loaded = [f"reverse check: {name} true" for name in converted] + ["reverse check: level res://boss.gd"]
+        expect("pet migrate --reverse: the GDScript written loads in a game run, the scene by its script's uid", code == 0 and all(line in output.splitlines() for line in loaded) and "ERROR" not in output, output)
 
 
 FOLDS_CASE = sys.platform in ("win32", "darwin")

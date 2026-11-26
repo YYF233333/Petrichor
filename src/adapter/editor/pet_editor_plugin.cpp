@@ -1886,13 +1886,21 @@ std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::
 			reread.insert(file);
 		}
 	}
+	// The old files first, which drops their uids, which the new ones then
+	// take; each saves the uid cache and the global classes, which a game run
+	// reads as they are (editor/file_system/editor_file_system.cpp:2415-2427,
+	// 2450, 2496-2503, 2552-2554, 2160-2195, core/io/resource_uid.cpp:343-380,
+	// main/main.cpp:2287; ed1daf0).
+	EditorFileSystem *file_system = EditorInterface::get_singleton()->get_resource_filesystem();
+	for (const auto &[file, migrated] : renamed) {
+		file_system->update_file(to_godot(file));
+	}
 	if (lsp) {
-		// The old files first, which drops their uids, which the new ones then
-		// take (editor/file_system/editor_file_system.cpp:2415-2423, 2450, 2496-2501; ed1daf0).
-		for (const auto &[file, migrated] : renamed) {
-			EditorInterface::get_singleton()->get_resource_filesystem()->update_file(to_godot(file));
-		}
 		files_written(reread);
+	} else {
+		for (const auto &[file, migrated] : renamed) {
+			file_system->update_file(to_godot(migrated));
+		}
 	}
 	return { output, 0 };
 }

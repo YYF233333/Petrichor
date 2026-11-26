@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3]
 
-[ext_resource type="Script" path="res://boss.gd" id="1"]
+[ext_resource type="Script" uid="uid://bossmigrated" path="res://boss.gd" id="1"]
 [ext_resource type="Resource" path="res://stats.tres" id="2"]
 
 [node name="Level" type="Node"]
