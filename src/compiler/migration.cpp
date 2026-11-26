@@ -1138,23 +1138,28 @@ public:
 		return std::string();
 	}
 
-	// The constants to add to the file for the scripts that the types written
-	// in it name, of `p_named` by file, sorted, with where they go; but one
-	// that a base adds too, which the class inherits.
+	// The constants to add to the file, sorted, with where they go: those that
+	// the types written in it or in a class below it name, of `p_named` by
+	// file, where no class farther up that adds the same has it for them.
 	std::pair<uint32_t, std::string> added(const std::string &p_file, const std::map<std::string, std::set<std::string>> &p_named) {
-		const auto names = [&](const std::string &p_in, const std::string &p_script) {
-			const auto found = p_named.find(p_in);
-			return found != p_named.end() && found->second.count(p_script) > 0;
-		};
-		const std::vector<std::string> above = bases(p_file);
 		File &file = of(p_file);
 		std::string text;
 		for (const auto &[name, script] : file.added) {
-			const auto inherited = [&](const std::string &p_base) {
-				const auto there = of(p_base).added.find(name);
-				return there != of(p_base).added.end() && there->second == script && names(p_base, script);
+			const auto adds = [&](const std::string &p_in) {
+				const auto there = of(p_in).added.find(name);
+				return there != of(p_in).added.end() && there->second == script;
 			};
-			if (names(p_file, script) && std::none_of(above.begin(), above.end(), inherited)) {
+			const auto has_it = [&](const auto &p_named_in) {
+				const auto named = of(p_named_in.first).names.find(script);
+				if (!p_named_in.second.count(script) || named == of(p_named_in.first).names.end() || named->second != name) {
+					return false;
+				}
+				std::vector<std::string> line = bases(p_named_in.first);
+				line.insert(line.begin(), p_named_in.first);
+				const auto top = std::find_if(line.rbegin(), line.rend(), adds);
+				return top != line.rend() && *top == p_file;
+			};
+			if (std::any_of(p_named.begin(), p_named.end(), has_it)) {
 				text += "const " + name + " = preload(\"" + script + "\")\n";
 			}
 		}
@@ -1448,8 +1453,9 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			}
 			aliased_by_file[slot.first].insert(aliased_in[slot].begin(), aliased_in[slot].end());
 		}
-		// The constants go after the header, as written by no slot.
-		for (const auto &[file, scripts] : aliased_by_file) {
+		// The constants go after the header, as written by no slot; in a base
+		// too for the classes below it.
+		for (const auto &[file, text_of_file] : original) {
 			const auto [at, text] = aliases.added(file, aliased_by_file);
 			if (!text.empty()) {
 				insertions[file].push_back({ at, at, text, { file, UINT32_MAX } });
