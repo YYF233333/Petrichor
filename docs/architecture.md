@@ -910,6 +910,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - `@warning_ignore` 去掉本语言的名字，名字全去掉时删去注解，因为 GDScript 拒绝不认识的名字（`modules/gdscript/gdscript_parser.cpp:5122-5129`，`ed1daf0`）。
   - 用到 GDScript 没有的特性（规范 §13.4）、有编译错误，或同名 `.gd` 已在时，文件不转换，报告列出每处。
   - Option 的方法：接收者是局部变量、参数或无 getter 的本类成员时写成条件表达式，作操作数时加括号。
+    - 本语言的方法调用总是先求值实参（规范 §3.4），条件表达式只求值用到的一支。所以实参须求值看不出来：字面量、`self`、lambda、包着这类值的 `Some`、不经调用即可读的名字、常量、作值的方法或类，以及以它们为操作数的运算。`/` 和 `%` 除外，因为除数为零时出错。
+    - 实参为其他写法的，如 `x.unwrap_or(spawn())`，使文件不转换。
     - `x.unwrap_or(d)` 和 `x.or(y)` 写成 `x if x != null else d`；
     - `x.unwrap_or_else(f)` 和 `x.or_else(f)` 写成 `x if x != null else f.call()`；
     - `x.map(f)` 和 `x.and_then(f)` 写成 `f.call(x) if x != null else null`；
@@ -919,7 +921,9 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - `State(x)` 写成 `x as State`。GDScript 把 `int` 转为 enum 时不查范围（`modules/gdscript/gdscript_analyzer.cpp:3826-3828`），与去掉 `.unwrap()` 一样，出错时改为 GDScript 原来的行为。常量中的不转换，GDScript 中它不是常量表达式。
   - 元素只在本语言中存在的 `Array(x)` 写成 `Array(x, TYPE_NIL, &"", null)`，`Dictionary(x)` 同理，得到同样的无类型副本（`core/variant/array.cpp:874-879`，`core/variant/dictionary.cpp:753-758`）。
   - `var x := T.new(m = v)` 的具名成员改为语句后另起一行的 `x.m = v`，与调用后按书写顺序经 setter 赋值相同（`src/compiler/lower.cpp:1594-1600`）。`instantiate(...)` 须写明变量类型，GDScript 把它的结果定为 `Node`。其余位置的具名成员不转换。
-  - match 的 `Some(p)` 写成 `p`。`p` 是绑定或 `_` 时 GDScript 也接住 `null`，所以前面须有 `None` 分支才转换。
+  - match 的 `Some(p)` 写成 `p`。`p` 是绑定或 `_` 时 GDScript 也接住 `null`，所以前面须有 `None` 分支才这样转换。
+    - 前面没有 `None` 分支的 `Some(var x)` 写成 `var x when x != null`，已有的守卫接在后面并加括号。GDScript 按序试各分支，模式匹配后才求值守卫，守卫不成立就试下一个分支（`modules/gdscript/gdscript_compiler.cpp:1938-1983`，`ed1daf0`），与本语言对 `None` 越过 `Some(var x)` 相同。
+    - 前面没有 `None` 分支的 `Some(_)` 不转换，守卫无名字可判。
   - 转回一个类时连带它的整棵继承树，与正向相同；树中有文件不转换时整棵树留下，报告写明是哪个文件。
   - 要转的文件对留下的 `.pet` 类做 GDScript 做不到的类级访问时（规范 §11.3），连带转换那棵树；那棵树转不了，这个文件的树也留下。
   - 只转回部分文件时照样转换，随后在内存中检查留下的 `.pet` 文件，转回的类按其 GDScript 看待（规范 §11.1）。

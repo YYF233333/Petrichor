@@ -124,7 +124,7 @@ class Converter {
 	// Calls that a statement after theirs takes apart: expect(), whose message
 	// goes to an assert, and new() or instantiate() with members by name.
 	std::set<const Expr *> split;
-	std::set<uint32_t> some_after_none; // Some(p) patterns that a branch of None comes before.
+	std::set<uint32_t> null_kept; // Some(p) patterns whose p takes no null: a branch of None comes before, or a guard tests it.
 	std::set<std::pair<const FuncDecl *, int>> wide; // Locals that GDScript holds untyped or as untyped containers.
 	std::set<std::pair<int, std::string>> said; // Refusals by line, once.
 
@@ -327,6 +327,56 @@ class Converter {
 		return p_expr.target == Target::Local || (read && read->getter.empty() && read->getter_index < 0);
 	}
 
+	// Whether evaluating an expression cannot be observed, so that GDScript
+	// may evaluate it only where it uses it: a literal, self, a lambda, Some
+	// of such a value, a name that reads without calling anything, a constant,
+	// a method or a class as a value, and operators over those but / and %,
+	// which fail on a zero.
+	bool unobserved(const Expr &p_expr) const {
+		switch (p_expr.kind) {
+			case ExprKind::IntLiteral:
+			case ExprKind::FloatLiteral:
+			case ExprKind::StringLiteral:
+			case ExprKind::BoolLiteral:
+			case ExprKind::NoneLiteral:
+			case ExprKind::Self:
+			case ExprKind::Lambda:
+				return true;
+			case ExprKind::Name:
+			case ExprKind::Member:
+				if (plain(p_expr)) {
+					return true;
+				}
+				switch (p_expr.target) {
+					case Target::Constant:
+					case Target::EngineConstant:
+					case Target::BuiltinConstant:
+					case Target::MethodValue:
+					case Target::EngineMethodValue:
+					case Target::StaticValue:
+					case Target::EngineStaticValue:
+					case Target::NewValue:
+					case Target::ClassScript:
+						// The base of a member is a type, or a value read.
+						return !p_expr.base || (p_expr.base->kind == ExprKind::Name && (p_expr.base->target == Target::None || p_expr.base->target == Target::ClassScript)) || unobserved(*p_expr.base);
+					default:
+						return false;
+				}
+			case ExprKind::Unary:
+			case ExprKind::Cast:
+			case ExprKind::TypeTest:
+				return unobserved(*p_expr.left);
+			case ExprKind::Binary:
+				return p_expr.op != TokenKind::Slash && p_expr.op != TokenKind::Percent && unobserved(*p_expr.left) && unobserved(*p_expr.right);
+			case ExprKind::Conditional:
+				return unobserved(*p_expr.left) && unobserved(*p_expr.base) && unobserved(*p_expr.right);
+			case ExprKind::Call:
+				return p_expr.target == Target::Some && unobserved(*p_expr.args[0]);
+			default:
+				return false;
+		}
+	}
+
 	// A call that reads as its receiver (-1), or as its argument (0) in
 	// parentheses where it is an operand and not one token or call already.
 	void collapse(const Expr &p_call, int p_inner, bool p_operand) {
@@ -359,11 +409,17 @@ class Converter {
 	}
 
 	// The methods of T? but unwrap() and expect() on a name, as GDScript's
-	// conditional expression (architecture §6.6); other receivers stay.
+	// conditional expression (architecture §6.6); other receivers stay, and
+	// so do arguments that GDScript would not always evaluate where it could
+	// be seen, as this language evaluates the arguments of a call (spec §3.4).
 	void option_method(const Expr &p_call, bool p_operand) {
 		const Expr *receiver = p_call.base.get();
 		if (!receiver || !plain(*receiver) || p_call.args.size() != 1) {
 			refuse(p_call.name_token, std::string(NOT_YET) + p_call.text + "() of T? on more than a name.");
+			return;
+		}
+		if (!unobserved(*p_call.args[0])) {
+			refuse(p_call.name_token, std::string(NOT_YET) + p_call.text + "() of T? whose argument may have effects, which GDScript would evaluate only where it uses it.");
 			return;
 		}
 		const std::string x = receiver->text;
@@ -637,19 +693,42 @@ class Converter {
 	}
 
 	// `Some(p)` as `p`, which GDScript matches against null too unless it is
-	// a value, an array or a dictionary, or a branch of None comes before it
-	// (spec §3.4, §5.6).
+	// a value, an array or a dictionary, a branch of None comes before it, or
+	// a guard tests it (spec §3.4, §5.6).
 	void some(const Pattern &p_pattern) {
 		const Pattern &inner = p_pattern.items[0];
 		const bool takes_null = inner.kind == PatternKind::Bind || inner.kind == PatternKind::Wildcard || (inner.kind == PatternKind::Value && inner.value->kind == ExprKind::NoneLiteral);
-		if (takes_null && !some_after_none.count(p_pattern.range.first)) {
-			refuse(p_pattern.range.first, std::string(NOT_YET) + "Some(...) that would take null too, before a branch of None.");
+		if (takes_null && !null_kept.count(p_pattern.range.first)) {
+			refuse(p_pattern.range.first, std::string(NOT_YET) + "Some(_) or Some(None), which would take null too, before a branch of None.");
 			return;
 		}
 		const uint32_t open = p_pattern.value->name_token + 1;
 		erase(tokens[p_pattern.range.first].offset, tokens[open].end());
 		erase(tokens[p_pattern.range.last].offset, tokens[p_pattern.range.last].end());
 		erased.calls[p_pattern.value->name_token] = 0;
+	}
+
+	// `Some(var x)` that no branch of None comes before as `var x when x !=
+	// null`, which takes no null: GDScript tries each branch in order, its
+	// guard after its pattern, and goes on to the next when either fails
+	// (modules/gdscript/gdscript_compiler.cpp:1938-1983; ed1daf0). A guard
+	// written already follows the test.
+	void guarded(const MatchBranch &p_branch) {
+		const Pattern &pattern = p_branch.patterns[0];
+		const std::string test = pattern.items[0].name + " != null";
+		null_kept.insert(pattern.range.first);
+		if (!p_branch.guard) {
+			erase(tokens[pattern.range.last].end(), tokens[pattern.range.last].end(), " when " + test);
+			erased.rewrites[p_branch.range.first] = { test, {} };
+			return;
+		}
+		const Expr &guard = *p_branch.guard;
+		const bool own = !atomic(tokens, guard);
+		erase(tokens[guard.range.first].offset, tokens[guard.range.first].offset, test + " and " + (own ? "(" : ""));
+		if (own) {
+			erase(tokens[guard.range.last].end(), tokens[guard.range.last].end(), ")");
+		}
+		erased.rewrites[p_branch.range.first] = { test + " and (__0)", { guard.range } };
 	}
 
 	static bool is_some(const Pattern &p_pattern) {
@@ -804,7 +883,9 @@ public:
 			for (const MatchBranch &branch : p_stmt.branches) {
 				for (const Pattern &pattern : branch.patterns) {
 					if (none && is_some(pattern)) {
-						some_after_none.insert(pattern.range.first);
+						null_kept.insert(pattern.range.first);
+					} else if (is_some(pattern) && pattern.items[0].kind == PatternKind::Bind) {
+						guarded(branch);
 					}
 				}
 				none = none || (!branch.guard && std::any_of(branch.patterns.begin(), branch.patterns.end(), is_none));
@@ -839,9 +920,10 @@ public:
 		erase(tokens[p_annotation.name_token + 1].end(), tokens[p_annotation.range.last].offset, joined);
 	}
 
-	// The text with the edits applied; nullopt where two overlap.
+	// The text with the edits applied, what is written at a byte before what
+	// replaces it; nullopt where two overlap.
 	std::optional<std::string> applied() {
-		std::sort(edits.begin(), edits.end(), [](const Edit &p_a, const Edit &p_b) { return p_a.begin < p_b.begin; });
+		std::stable_sort(edits.begin(), edits.end(), [](const Edit &p_a, const Edit &p_b) { return p_a.begin < p_b.begin || (p_a.begin == p_b.begin && p_a.end < p_b.end); });
 		std::string result;
 		uint32_t done = 0;
 		for (const Edit &edit : edits) {
@@ -1019,7 +1101,21 @@ public:
 			children(p_node);
 		} else if constexpr (std::is_same_v<T, MatchBranch>) {
 			line("branch", p_node.range.first);
-			children(p_node);
+			// The guard written for Some(var x), the one written after it.
+			const auto guard = raw ? erased.rewrites.end() : erased.rewrites.find(p_node.range.first);
+			if (guard == erased.rewrites.end()) {
+				children(p_node);
+				return;
+			}
+			depth++;
+			for (const Pattern &pattern : p_node.patterns) {
+				visit(pattern);
+			}
+			rewritten(guard->second, p_node, false);
+			for (const std::unique_ptr<Stmt> &stmt : p_node.body) {
+				visit(*stmt);
+			}
+			depth--;
 		} else if constexpr (std::is_same_v<T, Annotation>) {
 			if (p_node.name == "late") {
 				return;

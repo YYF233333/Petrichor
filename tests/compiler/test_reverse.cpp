@@ -83,7 +83,21 @@ TEST_CASE("reverse conversion writes the types GDScript has for nested container
 TEST_CASE("reverse conversion assigns members passed by name after the call, matches Some(p) as p after None, and exports a value type's T? as Variant") {
 	CHECK(reversed("class_name Unit\nextends Node\n@export var hp: int?\nvar target: Node\n\n\nfunc f(other: Node?) -> void:\n\tvar unit := Unit.new(target = self)\n\tmatch other:\n\t\tNone:\n\t\t\tpass\n\t\tSome(var o):\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\tSome(3):\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n") ==
 			"class_name Unit\nextends Node\n@export var hp: Variant\nvar target: Node\n\n\nfunc f(other: Node) -> void:\n\tvar unit := Unit.new()\n\tunit.target = self\n\tmatch other:\n\t\tnull:\n\t\t\tpass\n\t\tvar o:\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\t3:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n");
-	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?) -> void:\n\tmatch other:\n\t\tSome(var o):\n\t\t\tprint(o)\n\t\tNone:\n\t\t\tpass\n") == "6:3: This is not converted back yet: Some(...) that would take null too, before a branch of None.\n");
+	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?) -> void:\n\tmatch other:\n\t\tSome(_):\n\t\t\tpass\n\t\tNone:\n\t\t\tpass\n") == "6:3: This is not converted back yet: Some(_) or Some(None), which would take null too, before a branch of None.\n");
+}
+
+// GDScript tries the guard after the pattern and goes on to the next branch
+// when it fails, as this language goes past Some(var x) for None.
+TEST_CASE("reverse conversion guards Some(var x) that comes before None as var x when x != null") {
+	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?, hp: int?) -> void:\n\tmatch other:\n\t\tSome(var o):\n\t\t\tprint(o)\n\t\tNone:\n\t\t\tpass\n\tmatch hp:\n\t\tSome(var h) when h > 2 or h < 0:\n\t\t\tprint(h)\n\t\t_:\n\t\t\tpass\n") ==
+			"extends Node\n\n\nfunc f(other: Node, hp) -> void:\n\tmatch other:\n\t\tvar o when o != null:\n\t\t\tprint(o)\n\t\tnull:\n\t\t\tpass\n\tmatch hp:\n\t\tvar h when h != null and (h > 2 or h < 0):\n\t\t\tprint(h)\n\t\t_:\n\t\t\tpass\n");
+}
+
+// Spec §3.4: the argument of a method is evaluated whether the receiver holds
+// a value or not, and GDScript's conditional expression evaluates one side.
+TEST_CASE("the methods of T? stay when GDScript would skip an argument that may have effects") {
+	CHECK(reversed("extends Node\nconst MAX = 9\nenum State { IDLE, RUN }\n\n\nfunc spawn() -> Node:\n\treturn Node.new()\n\n\nfunc named(n: Node) -> String:\n\treturn n.name\n\n\nfunc f(hp: int?, n: Node?, by: int, items: Array[int]) -> void:\n\tprint(hp.unwrap_or(-by * MAX), hp.unwrap_or(State.RUN), hp.or(Some(by)), n.map(named))\n\tprint(n.unwrap_or(spawn()))\n\tprint(hp.unwrap_or(by / 2))\n\tprint(hp.unwrap_or(items[0]))\n") ==
+			"16:10: This is not converted back yet: unwrap_or() of T? whose argument may have effects, which GDScript would evaluate only where it uses it.\n17:11: This is not converted back yet: unwrap_or() of T? whose argument may have effects, which GDScript would evaluate only where it uses it.\n18:11: This is not converted back yet: unwrap_or() of T? whose argument may have effects, which GDScript would evaluate only where it uses it.\n");
 }
 
 TEST_CASE("converting a class takes its inheritance tree, which a file that cannot convert keeps, and lists the errors it causes in the files that stay, which see GDScript") {
