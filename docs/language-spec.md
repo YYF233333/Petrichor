@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 425414ce0730fee8fc77d42eb2fb6da1ef1bd897. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 48dcf21c53f3e84b868a18406bf1de44b4e5f345. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -681,7 +681,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 - A setter runs immediately; before ready, accessing an `@onready` member or child node is a program error stating its name. A node-syncing setter is written in one of two ways:
   - it stores the value first, syncs when `is_node_ready()` is true, and syncs once in `_ready`;
-  - it is declared `async` and writes `if not is_node_ready(): await ready` before it accesses the nodes, so the statements after that run only once the node is ready.
+  - it is declared `async` and writes `if not is_node_ready(): await ready` before it accesses the nodes, so the statements after that run only once the node is ready. A member that must be assigned must be stored before the `await`. When a path reaches the `await` without assigning the member directly and without calling a method on `self`, it is a compile error, because the member is then certainly unassigned at ready.
 - For a property without a backing field whose getter reads a child node directly, reading it before ready is a program error stating the unready node. A property that is never written does not run its setter at ready, and an exported property whose default value bypasses a node-syncing setter gives a hint.
 
 ### 6.6 Destruction
@@ -764,7 +764,8 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - The members that `instantiate(...)` must be given depend on whether the scene is statically known:
   - statically known, which means `preload`, `load` with a literal path, and constants initialized with them. The members that must be assigned and that the scene does not provide must be passed;
   - any other `PackedScene[T]`, which means exports, variables, parameters and return values. The unexported members of `T` that must be assigned must be passed (the scene itself provides the exported ones);
-  - a statically known scene can convert implicitly to the latter kind of `PackedScene[T]` (such as for an export, assignment, argument, return or container element). The conversion checks the members of the root node's actual class that must be assigned and are not provided by the scene. Only unexported members of `T` that must be assigned may remain, or it is a compile error at the conversion.
+  - a statically known scene can convert implicitly to the latter kind of `PackedScene[T]` (such as for an export, assignment, argument, return or container element). The conversion checks the members of the root node's actual class that must be assigned and are not provided by the scene. Only unexported members of `T` that must be assigned may remain, or it is a compile error at the conversion;
+  - when a `PackedScene[S]` converts to a wider `PackedScene[T]`, or to a `PackedScene` written without `[T]`, the members that `S` requires and `T` does not are checked as left out, which is a compile error at the conversion.
 - `load` with a runtime path gives `Resource`, with nullability by the rules of engine APIs. `instantiate()` of such a scene gives `Node`, and a concrete type needs an explicit conversion.
 
 ### 7.5 Exports that must be assigned
