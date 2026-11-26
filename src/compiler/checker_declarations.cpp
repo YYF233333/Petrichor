@@ -480,9 +480,13 @@ void Checker::check_member_declaration(size_t p_index) {
 	if (member.initializer) {
 		initializing = registered->second;
 		initializing_onready = member.is_onready;
+		untyped_value = member.declared_type ? nullptr : member.initializer.get();
+		untyped_name = member.name_token;
+		untyped_fixed = false;
 		const Type value = check_value(*member.initializer, type);
 		initializing = -1;
 		initializing_onready = false;
+		untyped_value = nullptr;
 		flow(container.empty() ? member.slot : -1, value, member.initializer->range);
 		if (typed) {
 			expect_assignable(*member.initializer, value, type, "assign", member.declared_type ? &*member.declared_type : nullptr);
@@ -746,8 +750,12 @@ void Checker::check_static_declaration(size_t p_index) {
 	const bool typed = variable.declared_type || variable.slot >= 0;
 	if (variable.initializer && !(loading() && typed)) {
 		static_initializing = int(p_index);
+		untyped_value = variable.declared_type ? nullptr : variable.initializer.get();
+		untyped_name = variable.name_token;
+		untyped_fixed = false;
 		const Type value = check_value(*variable.initializer, type);
 		static_initializing = -1;
+		untyped_value = nullptr;
 		flow(container.empty() ? variable.slot : -1, value, variable.initializer->range);
 		if (typed) {
 			expect_assignable(*variable.initializer, value, type, "assign", variable.declared_type ? &*variable.declared_type : nullptr);

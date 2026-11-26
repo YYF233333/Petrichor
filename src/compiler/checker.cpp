@@ -509,6 +509,27 @@ void Checker::fix_optional(const TypeRef &p_written, const std::string &p_owner)
 	fix(Fix{ "Write " + edit.change.new_text, FixKind::Optional, { edit } });
 }
 
+// Gives the error reported last at `p_literal`, which has no type, the fix
+// that declares the variable whose initializer holds it the untyped
+// container that GDScript makes of the initializer, when the literal is
+// reached through literals only, whose elements then go where a Variant is
+// expected (spec §3.13, architecture §6.6). An empty initializer says
+// nothing of its elements, which the code that fills it may.
+void Checker::fix_untyped(const Expr &p_literal) {
+	const auto reaches = [&](const Expr &p_at, const auto &p_self) -> bool {
+		const bool literal = p_at.kind == ExprKind::ArrayLiteral || p_at.kind == ExprKind::DictionaryLiteral;
+		return &p_at == &p_literal || (literal && std::any_of(p_at.args.begin(), p_at.args.end(), [&](const std::unique_ptr<Expr> &p_arg) { return p_self(*p_arg, p_self); }));
+	};
+	if (!untyped_value || untyped_value->args.empty() || !reaches(*untyped_value, reaches)) {
+		return;
+	}
+	// Over the colon of :=, which GDScript types as the literal.
+	const uint32_t last = untyped_name + (cls.source->tokens[untyped_name + 1].kind == TokenKind::Colon);
+	const std::string type = untyped_value->kind == ExprKind::ArrayLiteral ? "Array" : "Dictionary";
+	fix({ { TokenRange{ untyped_name, last }, cls.source->tokens[untyped_name].text + ": " + type + (last > untyped_name ? " " : "") } }, FixKind::Untyped);
+	untyped_fixed = true;
+}
+
 // Gives the error reported last the fix that makes the parameter `p_param`,
 // in this file or else in that of the class at `p_owner`, take the T? that a
 // signal passes it, as GDScript passes the null on (architecture §6.6).

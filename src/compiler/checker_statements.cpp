@@ -719,17 +719,22 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			Type type = Type::of(TypeKind::Error);
 			int slot = -1;
 			const std::string container = empty_container(r_stmt.value.get());
+			const bool retyped = options.inflows && options.inflows->retyped.count({ script_file(options.path), cls.source->tokens[r_stmt.name_token].offset });
 			if (r_stmt.declared_type) {
 				type = resolve(*r_stmt.declared_type, false);
 				slot = wide_slot({ Inflows::Kind::Local, r_stmt.name }, r_stmt.name_token, *r_stmt.declared_type, type);
-			} else if (!r_stmt.value || r_stmt.value->kind == ExprKind::NoneLiteral || !container.empty()) {
+			} else if (!r_stmt.value || r_stmt.value->kind == ExprKind::NoneLiteral || !container.empty() || retyped) {
 				slot = untyped_slot({ Inflows::Kind::Local, r_stmt.name, {}, 0, 0, 0, {}, {}, container }, r_stmt.name_token);
 				type = tried(slot);
 			}
 			const bool typed = r_stmt.declared_type || slot >= 0;
 			Type value;
 			if (r_stmt.value) {
+				untyped_value = r_stmt.declared_type ? nullptr : r_stmt.value.get();
+				untyped_name = r_stmt.name_token;
+				untyped_fixed = false;
 				value = check_value(*r_stmt.value, type);
+				untyped_value = nullptr;
 				flow(container.empty() ? slot : -1, value, r_stmt.value->range);
 				if (typed) {
 					expect_assignable(*r_stmt.value, value, type, "assign", r_stmt.declared_type ? &*r_stmt.declared_type : nullptr);
@@ -851,6 +856,12 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			// A Variant says nothing of the target's type (architecture §6.6).
 			if (errors.size() > reported && value.kind != TypeKind::Variant) {
 				about(r_stmt.value->range, { typed_by(*r_stmt.value), target.range });
+				// GDScript holds a local declared with a value and no type as a
+				// Variant, which takes a value of another type.
+				const LocalInfo *declared = local >= 0 ? &function->locals[local] : nullptr;
+				if (declared && declared->slot < 0 && !declared->written && declared->token < cls.source->tokens.size() && !compound && errors.back().fixes.empty() && options.inflows && options.inflows->files.count(script_file(options.path))) {
+					options.inflows->reassigned.insert({ script_file(options.path), cls.source->tokens[declared->token].offset });
+				}
 			}
 			return;
 		}

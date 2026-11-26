@@ -565,13 +565,13 @@ namespace {
 
 // The fix of the error that the loop of fixes applies: the first of the
 // automatic kinds, IntConversion, Async, Unwrap, Optional, ReturnNone,
-// Wildcard, ByName, Cast or NoConversion, unless it edits a file outside those
-// migrated.
+// Wildcard, ByName, Cast, NoConversion, Untyped or Owner, unless it edits a
+// file outside those migrated.
 // Optional comes first only for a value that a scene or a creator lacks, for
 // a null assigned, passed or returned where a type is written and for a
 // parameter that a signal passes a T?; ReturnNone where GDScript returns null.
 const Fix *loop_fix(const Diagnostic &p_error, const Migrated &p_project) {
-	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.assumed() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::Optional || p_fix.kind == FixKind::ReturnNone || p_fix.kind == FixKind::Wildcard || p_fix.kind == FixKind::ByName || p_fix.kind == FixKind::Cast || p_fix.kind == FixKind::NoConversion; });
+	const auto fix = std::find_if(p_error.fixes.begin(), p_error.fixes.end(), [&](const Fix &p_fix) { return p_fix.assumed() || p_fix.kind == FixKind::Async || p_fix.kind == FixKind::Unwrap || p_fix.kind == FixKind::Optional || p_fix.kind == FixKind::ReturnNone || p_fix.kind == FixKind::Wildcard || p_fix.kind == FixKind::ByName || p_fix.kind == FixKind::Cast || p_fix.kind == FixKind::NoConversion || p_fix.kind == FixKind::Untyped || p_fix.kind == FixKind::Owner; });
 	const bool inside = fix != p_error.fixes.end() && std::all_of(fix->edits.begin(), fix->edits.end(), [&](const Fix::Edit &p_edit) { return p_project.texts.count(p_edit.file.empty() ? p_error.file : p_edit.file) > 0; });
 	return inside ? &*fix : nullptr;
 }
@@ -584,6 +584,7 @@ std::map<std::string, CompileResult> checked_with(const EngineApi &p_engine, con
 	each_record(r_inflows.records, [](auto &r_record) { r_record.clear(); });
 	r_inflows.unknown.clear();
 	r_inflows.widened.clear();
+	r_inflows.reassigned.clear();
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
 	analysis.inflows = &r_inflows;
@@ -1281,6 +1282,12 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			if (inflows.slots[i].valued) {
 				continue; // An int as the checks go.
 			}
+			// What GDScript holds, not what the values merge into: those read
+			// the local, which a merge would type in turn.
+			if (inflows.retyped.count(inflows.slots[i].key)) {
+				next[inflows.slots[i].key] = Type::of(TypeKind::Variant);
+				continue;
+			}
 			const auto wide = inflows.wide.find(inflows.slots[i].key);
 			// What another such declaration gives says nothing of the inner
 			// type until it narrows, as a Variant says nothing of a type.
@@ -1298,12 +1305,16 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		}
 		return next;
 	};
-	// The declarations that a round found read where a subclass is expected
-	// are slots from the next one; whether there are new ones.
+	// The declarations that a round found read where a subclass is expected,
+	// and the locals it found assigned another type, are slots from the next
+	// one; whether there are new ones.
 	const auto widen = [&] {
 		bool grew = false;
 		for (const Inflows::Key &key : inflows.widened) {
 			grew = inflows.wide.emplace(key, Inflows::Wide()).second || grew;
+		}
+		for (const Inflows::Key &key : inflows.reassigned) {
+			grew = inflows.retyped.insert(key).second || grew;
 		}
 		return grew;
 	};

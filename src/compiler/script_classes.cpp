@@ -780,6 +780,14 @@ std::vector<Scene> ScriptClasses::scenes_with_script(const std::string &p_script
 	});
 }
 
+std::vector<Scene> ScriptClasses::scenes_placing(const std::string &p_script) {
+	return answer<std::vector<Scene>>("scenes placing " + p_script, [p_script](ScriptClasses &r_classes) {
+		return r_classes.scenes_where([&](const Scene &p_scene) {
+			return std::any_of(p_scene.nodes.begin(), p_scene.nodes.end(), [&](const SceneNode &p_node) { return r_classes.is_or_extends(p_node.script.empty() ? p_node.instance_script : p_node.script, p_script); });
+		});
+	});
+}
+
 std::vector<Scene> ScriptClasses::scenes_instancing(const std::string &p_scene) {
 	return answer<std::vector<Scene>>("scenes instancing the scene " + p_scene, [p_scene](ScriptClasses &r_classes) {
 		return r_classes.scenes_where([&](const Scene &p_each) {

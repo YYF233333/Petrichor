@@ -1649,6 +1649,7 @@ Type Checker::check_member_access(Expr &r_expr) {
 		// The check goes on with what it reads unwrapped (architecture §2.1).
 		Type read = Type::of(TypeKind::Error);
 		fix_unwrap(r_expr.base, [&] { return !(read = check_member_access(r_expr)).is_error(); });
+		fix_owner(base, builtin::MemberName::Kind::Property, r_expr.text);
 		return set(r_expr, read);
 	}
 	if (base_type.kind == TypeKind::Variant) {

@@ -203,6 +203,9 @@ public:
 	// and those that instance the scene or inherit it.
 	std::vector<Scene> scenes_with_script(const std::string &p_script);
 	std::vector<Scene> scenes_instancing(const std::string &p_scene);
+	// Those in which a node has the script or a subclass, attached or as the
+	// root of a scene it instances.
+	std::vector<Scene> scenes_placing(const std::string &p_script);
 	// A reverse question of the check of a scene: how it is used as a root
 	// (spec §7.5), as "res://spawner.gd loads the scene"; "" when it is not.
 	// The main scene is, and so is a scene that a script of this language or

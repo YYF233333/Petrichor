@@ -160,6 +160,12 @@ struct CheckContext {
 	int static_initializing = -1;
 	// Checking a constant's initializer, which may come before the members' types are known.
 	bool in_constant = false;
+	// The initializer of the variable without a type being checked, the token
+	// of its name, which fix_untyped() may write the type after, and whether
+	// it did.
+	const Expr *untyped_value = nullptr;
+	uint32_t untyped_name = 0;
+	bool untyped_fixed = false;
 	// The struct whose method or field's default value is being checked (spec
 	// §3.6), and its type.
 	const StructDecl *structure = nullptr;
@@ -793,6 +799,8 @@ class Checker : public ClassRelation, private CheckContext {
 	static Fix::Edit late_edit(const SourceFile &p_source, const VarDecl &p_member);
 	std::optional<Fix::Edit> line_after(const TokenRange &p_range, uint32_t p_indented, const std::string &p_line) const;
 	void fix_optional(const TypeRef &p_written, const std::string &p_owner = std::string());
+	void fix_untyped(const Expr &p_literal);
+	void fix_owner(const Expr &p_base, builtin::MemberName::Kind p_kind, const std::string &p_name);
 	void fix_taking_none(const Type &p_passed, const ParamDecl *p_param, const std::string &p_owner);
 	const TypeRef *type_written_for(const Expr &p_target) const;
 	bool variant_in_gdscript(const Expr &p_target) const;
@@ -1018,7 +1026,8 @@ class Checker : public ClassRelation, private CheckContext {
 	Type check_conditional(Expr &r_expr, const Type &p_expected);
 	Type check_subscript(Expr &r_expr);
 	Type check_array_literal(Expr &r_expr, const Type &p_expected);
-	std::optional<Type> common_element(std::vector<std::unique_ptr<Expr>> &r_values, size_t p_first, size_t p_step, const std::string &p_what);
+	std::optional<Type> common_element(Expr &r_literal, size_t p_first, size_t p_step, const std::string &p_what);
+	Type untyped_or_error(Expr &r_literal, const char *p_container);
 	Type check_dictionary_literal(Expr &r_expr, const Type &p_expected);
 	Type check_cast(Expr &r_expr, const Type &p_expected);
 	std::optional<Fix> kept_cast_fix(const Expr &p_cast, const Type &p_from, const Type &p_to, const Type &p_expected) const;

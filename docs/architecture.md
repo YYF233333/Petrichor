@@ -154,9 +154,10 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - packed 数组位置上不是字面量的 `Array` 套上该类型构造（如 `PackedVector2Array(points)`），GDScript 也接受它并逐个元素转换（`core/variant/variant.cpp:814-819, 2076-2084, 2185-2191`，`core/variant/variant_construct.h:637-655`，`ed1daf0`）。字面量在这里本就是该 packed 数组（规范 §3.13），无需修复；
     - 多参信号结果的字面量下标改为它所指的字段，`Array` 位置上的结果套上 `Array(r)`，写作 `Array` 的局部变量去掉类型而取得字段（§6.6）。检查器按去掉类型后的局部变量继续检查；
     - 位置期望的正是 `as` 所转的容器类型时，去掉字面量上的 `as`。字面量本就取位置的类型，GDScript 也把它定为所转类型（`modules/gdscript/gdscript_analyzer.cpp:3808-3815`，`ed1daf0`）；
+    - 期望 enum 处的 `int` 套上 `E(x)`。引擎的 enum 开放，转换不查范围；本语言的 enum 只在 `int` 是它某个值的常量时提供（规范 §3.7）。GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6397-6400`，`ed1daf0`），两种都与它同值；
     - 静态代码中裸写的 `new()` 前补上类名，内部类补它自己的名字（deck_builder_tutorial 的 `scenes/modifier_handler/modifier_value.gd:13`）。GDScript 在运行它的脚本上调用裸写的 `new()`，静态代码经类调用时即是本类（`modules/gdscript/gdscript_compiler.cpp:654-661`，`modules/gdscript/gdscript_vm.cpp:656-666`，`modules/gdscript/gdscript.cpp:928-947`，`ed1daf0`）。经子类实例调用静态函数时 GDScript 取实例的脚本，它对这种调用给出警告（`modules/gdscript/gdscript_analyzer.cpp:3699-3703`）。方法中裸写的 `new()` 取 `self` 的脚本，可能是子类，因此不提供；无 `class_name` 的文件类没有名字可写，同样不提供；
     - 补上 `pub`（若声明会因此露出不带 `pub` 的类型，则不提供）。
-  - 其余种类（如 `.unwrap()`、改为 `T?`、补上 `async`、`await`、null 模式和写 `as`）只作备选；自动修复排在首位且无需输入。
+  - 其余种类（如 `.unwrap()`、改为 `T?`、补上 `async`、`await`、null 模式、写 `as`、检查所转值的 `E(x)`、无类型容器和 `@owner(T)`）只作备选；自动修复排在首位且无需输入。
   - `int` 位置上的 `float` 套上 `int(x)` 也只作备选，因为本语言写的代码在这里更常是该把变量写成 `float`。GDScript 在它写了类型（含 `:=`）的位置向零取整转换并给出警告（`modules/gdscript/gdscript_analyzer.cpp:3062-3064, 6370-6374`，`modules/gdscript/gdscript_byte_codegen.cpp:934-939, 992-997`，`modules/gdscript/gdscript_vm.cpp:1433-1438`，`core/variant/variant_construct.cpp:69`，`ed1daf0`），迁移因此直接应用它（§6.6）。检查器同样按已经套上继续检查。复合赋值不提供：GDScript 转换的是运算结果（`modules/gdscript/gdscript_compiler.cpp:1346-1381`）。以值定型、没写 `:=` 的变量也不提供，它在 GDScript 中是 `Variant`，照存 `float`。
   - 一键修复（`compiler::fix_all()`）每次只应用本脚本中的一种自动修复。同种修复区间重叠或起点相同时跳过后者留给下次，两个错误给出的同一修复只应用一次；跨种类批量修复属于迁移工具（§6.6）。
   - 改写会给操作数加括号（名字、成员、调用、下标、字面量和已在括号中的除外）。检查器在原树上暂时改写并重检来判断改写能否通过（如加上 `.unwrap()` 后成员能否找到），通不过就不提供。这次检查的报错、引用和警告随即撤回，补全时不做这种验证。
@@ -802,6 +803,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 没写类型、无初始值或初始值为 `null` 的成员、静态变量和局部变量；
   - 没写类型、以 `[]` 或 `{}` 初始化的上述变量，槽位是其元素和键；
   - 没写类型也没写 `:=`、以 `int` 值初始化的上述变量，GDScript 中它是 `Variant`。初始值算一个流入，推断中它始终按 `int` 检查，只在 `float` 按下文规则并入时写下 `float`。tanks-of-freedom-ii 的子类给 `var delay = 0` 赋 `0.3`，由此写成 `var delay: float = 0`（`scenes/board/logic/scripting/outcomes/base_outcome.gd:3`）；未并入的保持 `int`，留下的赋值错误不套 `int(x)`（§2.1）；
+  - 没写类型、以值定型的局部变量，某轮检查发现给它赋了类型不合的值（`Variant` 和有修复转换的除外）时，下一轮起作槽位，只试 GDScript 中它的 `Variant`。所赋的值常读它本身，合并会随之摇摆。tanks-of-freedom-ii 的 `scenes/map_editor/story/stories/types/base_edit_action.gd:63-65` 先存文本、再存 `int(...)`，由此写成 `Variant`；`scenes/ui/menu/settings/setting_text.gd:32-34` 随后在它上面调用 `to_int()`，撤回后保持原文；
   - 由场景定型且被其他文件读取的成员（如 `@onready var camera = $Camera`，§2.4；只由本文件读则仍由场景定型，规范 §7.1）；
   - 由资源定型且被其他文件读取的常量（如 `const STYLE := preload("res://style.tres")`）。
 - **流入证据**：
@@ -864,13 +866,15 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 
 修复循环复用编辑器的快速修复（§2.1），每个错误取第一个符合条件的修复（含场景检查给出的修复，如给信号方法补 `pub`）。单轮修复按 `compiler::fixed_together()` 一并应用，改到集合外文件的修复跳过；不再应用修复或达到 10 轮上限时停止（达上限在报告写明）。
 
-- **原文定意的六类备选修复**：以下备选修复在原文写法已定下意图时直接应用：
+- **原文定意的八类备选修复**：以下备选修复在原文写法已定下意图时直接应用：
   - **补 `async`**：原文含 `await` 的函数只要签名不多出错误就补 `async`（参数缺类型也照补）。覆盖链上方法同步补齐以保持一致，顶端覆盖有返回值引擎虚函数或 `_init` 时不提供（规范 §9.1）。丢弃结果的调用随后由自动修复补 `.detach()`：GDScript 协程运行到第一处挂起就返回、调用方接着执行，与 `detach` 相同（`modules/gdscript/gdscript_vm.cpp:2586-2597, 2641-2654`，`ed1daf0`）。反向转换去掉 `async` 和 `.detach()`，无 `await` 函数在 GDScript 中照常运行到底。作 setter 的函数和内联 `set(value):` 照补，写入属性处不补 `.detach()`：写入即启动 setter 并在它首次挂起时接着执行（规范 §4.4），GDScript 调用 setter 后同样丢弃返回值（`modules/gdscript/gdscript_compiler.cpp:1360-1365`）。
   - **补 `.unwrap()`**：原文未判空就使用的值补 `.unwrap()`，与 GDScript 在同一处出错。
   - **改为 `T?`**：场景、资源或 `instantiate()` 未给值的导出改为 `T?`（GDScript 运行时给 `null`，后续未判空使用照样补 `.unwrap()`，反向转换写回 `T`）。场景转为更宽的 `PackedScene` 时留给创建者的导出同样如此（规范 §7.4）。deck_builder_tutorial 的 `run.gd` 把各视图的场景传给 `_change_view(scene: PackedScene)`，之后才给 11 个导出赋值，其中 6 个随后写成 `@late`（`scenes/run/run.gd:99-108, 151-211`）。setter 可能先到 `await` 才存值的必须赋值成员也改为 `T?`（规范 §6.5），GDScript 中它在存值之前一直是 `null`。把存值移到 `await` 之前的修复不自动应用，因为那样就绪前已有值。deck_builder_tutorial 的五个导出由此写成 `T?`（`scenes/relic_handler/relic_ui.gd:4, 10-15` 等）。原文把字面量 `null` 赋给 `T` 变量、从 `-> T` 函数返回或只写 `return` 时同样改为 `T?`，因为 GDScript 接受 `null` 作为任何对象类型（`modules/gdscript/gdscript_analyzer.cpp:6411-6414`，`ed1daf0`）。写了对象类型而无初始值的声明也改为 `T?`，规范 §6.2 证明有值的除外，与推断同一规则：deck_builder_tutorial 中 `create_instance()` 之后才赋值的 `var deck: CardPile`（`custom_resources/character_stats.gd:17`）写成 `CardPile?`。这条由推断在写类型时一并写下，不等检查报错，因为经 GDScript 或 `Script` 值创建的对象到运行时才检查。写了对象类型的声明所收的值有一支是字面量 `null` 时（如 `x if c else null`），推断同样写下 `T?`。值为 `T?` 而代码随后判空时也是如此：判空指真值、与 `null` 比较或 `is_instance_valid()`，局部变量和参数看所在函数，成员看本类。GDScript 在那里存着 null 照常运行，补 `.unwrap()` 则在赋值处出错。Ring 的 `breakout/scenes/balls/ball.gd:52` 由此写成 `Node2D?`，其后的真值判断改为 `!= None` 并收窄。成员只因就绪前未见赋值才写作 `T?` 时，若所赋的值都是 `T`、每处读取都已补上 `.unwrap()`，且集合外没有本语言的文件引用它，就改写为 `@late T` 并去掉这些 `.unwrap()`。读取未赋值的 `@late` 成员与对 `None` 调用 `.unwrap()` 在同一处报程序错误（规范 §6.3）。具名 setter 的参数同样写 `T`；改写后检查在其声明、setter 或这些读取处报出新错误的（如 `_init` 直接读取），保持 `T?`。判空、比较、原样传递或存入另一个 `T?` 成员的不改，因为 `@late` 会把错误提前到这些读取处。集合外 GDScript 的引用看不到，与其余推断相同。deck_builder_tutorial 由此有 24 个成员写成 `@late`，`.unwrap()` 从 376 个降到 227 个。setter 的参数按规则取成员的类型，成员改为 `T?` 后，具名 setter 仍写 `T` 的参数由这类修复一并改为 `T?`（deck_builder_tutorial 的 `scenes/ui/mana_ui.gd:9`）。原文 `emit(null)` 的信号参数同样改为 `T?`。GDScript 不按信号的声明检查 `emit` 的实参，原样传给所连函数（`core/variant/variant_call.cpp:1985-1987, 2507`，`modules/gdscript/gdscript_analyzer.cpp:5914-5933, 6073-6086`，`core/object/object.cpp:1251-1294`，`ed1daf0`）。所连函数写了对象类型的参数也接受 null（`modules/gdscript/gdscript_vm.cpp:593-603`，`modules/gdscript/gdscript_function.cpp:103-106, 122-126`）。代码或场景所连函数仍写 `T` 的参数随后由这类修复改为 `T?`，其用处照常补 `.unwrap()`。deck_builder_tutorial 跳过卡牌奖励时 `card_reward_selected.emit(null)`，所连 `_on_card_reward_taken()` 的参数随之写成 `Card?`（`scenes/ui/card_rewards.gd:4, 29`，`scenes/battle_reward/battle_reward.gd:63, 113`）。
   - **补 `return None`**：返回 `T?` 或 `Variant` 的函数中，只写的 `return` 改为 `return None`；走到末尾的路径在函数体末尾另起一行补上 `return None`。两者都是 GDScript 返回的 `null`。
   - **套 `int(x)`**：GDScript 写了 `int` 的位置上的 `float` 套上 `int(x)`，与 GDScript 同样向零取整（§2.1）。
   - **补 `_: pass`**：`match` 因不穷尽又无 `_` 报错时（规范 §5.6），在最后一个分支之后按分支缩进补上 `_: pass`。GDScript 把分支编成一串 if/else，没有分支匹配就什么都不执行（`modules/gdscript/gdscript_compiler.cpp:1938-1943, 1983, 1999-2002`，`ed1daf0`）。编辑器中它只作备选，因为用户也可能想处理余下的值；反向转换保留它。
+  - **声明无类型容器**：无目标类型的字面量定不出元素类型时（如 `[null]`，或值的类型各不相同的字典），给未写类型的变量写上 `Array` 或 `Dictionary`（`:=` 一并改写）。字面量须是变量的整个初始值，或经字面量的元素含在其中。检查器随即按已写上继续检查。这就是 GDScript 中该值的类型，元素由此进入 `Variant` 位置（规范 §3.13）。编辑器中它只作备选，因为用户也可能写出元素类型。初始值是空字面量时不提供，元素由填入它的代码给出（上文槽位）。tanks-of-freedom-ii 由此写下 16 处，如 `scenes/board/logic/observers/observer.gd:4` 的 `[null]` 和 `scenes/map/builder.gd:248-251` 中套着空字典的字典。
+  - **补 `@owner(T)`**：读 `owner` 的成员而文件类未声明 `@owner` 时（规范 §7.3），取场景中放置它的各节点的 owner 的最近公共类 `T`，`T` 有该成员才在类头前补上 `@owner(T)`。节点的 owner 是存它的场景的根，它本身是场景根时取实例化该场景处的 owner。放置在作为根使用的场景根上，或类中判断 `owner` 是否为 null 时不提供：GDScript 照常判断，`@owner(T)` 则在读取时报程序错误。场景之外放置的节点看不到，与其余推断相同；反向转换按擦除规则去掉它。Ring 的 `breakout/scenes/components/interval_hurt_component.gd:26` 和 `health_component.gd:36` 由此读到 `modulate` 和 `global_position`。
 - **隐式向下转换写 `as`**：改不了声明的（上文“写宽了的类型”）在值上写 `as`，结果是否可空随值而定。值非空写 `(x as T).unwrap()`，得 `T`；值可空写 `x as T`，得 `T?`，再按流入和上面几类处理。
   - GDScript 给带类型变量赋值时放过 `null`，类不符时调试版报错，发布版不检查（`modules/gdscript/gdscript_vm.cpp:1533-1625`，`ed1daf0`）。值非空时与 GDScript 在同一处出错；值可空时类不符得 `None`，到使用处才出错。
   - deck_builder_tutorial 中 `stats = value.create_instance()` 由 `Resource` 到 `EnemyStats`（`scenes/enemy/enemy.gd:30`），`target = get_tree().get_first_node_in_group("player")` 由 `Node?` 到 `Node2D`（`scenes/enemy/enemy_action_picker.gd:11`）。
@@ -957,7 +961,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 补上的 `return None` 写回为 `return null`，包括对象类型函数中原本只写的 `return`；
     - 推断写下或改窄的类型。反向只读 `.pet`，分不出哪些类型是推断写下的；它们都经检查器核验，GDScript 照样接受；
     - 真值判断写成的比较、`is_empty()` 和 `is_instance_valid()`。GDScript 的真值即 `is_zero()` 之反，对象按存活判断，与 `!= null` 相同（`core/variant/variant.cpp:878-953`，`core/variant/variant_op.cpp:1120-1122`，`ed1daf0`）；
-    - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。引擎 enum 位置上的 `int` 写成的 `E(x)` 转回 `x as E`：GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6397-6400`，`ed1daf0`），引擎 enum 开放，转换不查范围（规范 §3.7）；
+    - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。期望 enum 处的 `int` 写成的 `E(x)` 转回 `x as E`：GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6397-6400`，`ed1daf0`），引擎 enum 开放，本语言 enum 只在 `int` 是其某个值的常量时这样写，转换都不改变它（规范 §3.7）；
+    - 声明无类型容器写下的 `Array` 或 `Dictionary`，GDScript 照样接受；
     - 隐式向下转换在其余位置写下的 `(x as T)`，以及值可能为空时写下的 `x as T`；
     - 给无 `class_name` 的类补上的 `preload` 常量。GDScript 照样加载它所指的脚本，留下的 `.pet` 也是。它作类型、`is` 和 `new()` 都同原来的类，类不符的赋值和传参照样出错（`modules/gdscript/gdscript_analyzer.cpp:4755-4780, 5720-5729`）。与本语言不同，常量只出现在类型处时，GDScript 也在加载这个类时加载它（规范 §2.1）。
   - 语言测试转回后，逐条比较检查的结果（第 5 步第 11 项的验收）。

@@ -133,6 +133,12 @@ struct Inflows {
 	// By such a declaration, the types that reads of its value, or of the
 	// elements of its untyped Arrays, needed in any round.
 	std::map<Key, std::vector<Type>> needed;
+	// Locals declared with a value and no type that a check found assigned a
+	// value of another type, not a Variant, which no fix converts. The next
+	// round takes each as a slot (retyped), which tries the Variant that
+	// GDScript holds.
+	std::set<Key> reassigned;
+	std::set<Key> retyped;
 
 	// The slot's index, once found.
 	int slot(const Slot &p_slot);

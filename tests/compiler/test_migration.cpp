@@ -596,12 +596,16 @@ TEST_CASE("an int joins a float in a member by its reads in every file, but not 
 // the int 0, which prints as 0, while -0.0 prints as -0 (spec §1.2).
 // As tanks-of-freedom-ii's units turn their shadows off
 // (scenes/tiles/units/heroes/hero.gd:39).
-TEST_CASE("an int where an enum of the engine is expected is converted to the enum, which keeps it unchecked as GDScript does") {
+// The conversion of another int checks it, where GDScript keeps it (spec §3.7).
+TEST_CASE("an int where an enum is expected is converted to it where the conversion keeps it as GDScript does: of the engine, or one of the values") {
 	FakeProject project;
-	project.add_script("res://g.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tInput.mouse_mode = 2\n");
+	project.add_script("res://g.gd", "extends Node\nenum SpeedUnit { KMH, MPH }\nvar unit := SpeedUnit.KMH\n\n\nfunc _ready() -> void:\n\tInput.mouse_mode = 2\n\tunit = 1\n\tunit = randi() % 2\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
-	CHECK(migration.texts.at("res://g.pet") == "extends Node\n\n\nfunc _ready() -> void:\n\tInput.mouse_mode = Input.MouseMode(2)\n");
-	CHECK(migration.errors.empty());
+	CHECK(migration.texts.at("res://g.pet") == "extends Node\nenum SpeedUnit { KMH, MPH }\nvar unit := SpeedUnit.KMH\n\n\nfunc _ready() -> void:\n\tInput.mouse_mode = Input.MouseMode(2)\n\tunit = SpeedUnit(1)\n\tunit = randi() % 2\n");
+	REQUIRE(migration.errors.size() == 1);
+	REQUIRE(migration.errors[0].fixes.size() == 1);
+	CHECK(migration.errors[0].fixes[0].kind == compiler::FixKind::CheckedEnum);
+	CHECK(migration.errors[0].fixes[0].title == "Write SpeedUnit(randi() % 2)");
 }
 
 TEST_CASE("a float into an int that GDScript wrote is converted, and a float joins an int value where every read keeps") {
@@ -704,6 +708,55 @@ TEST_CASE("a type written over := keeps the initializer, and an assigned value t
 	CHECK(migration.texts.at("res://f.pet") == "extends Node\n\n\nfunc _ready() -> void:\n\tvar points: Array[Vector2] = []\n\tpoints.append(Vector2.ZERO)\n\tvar labels = []\n\tlabels.append(Label.new())\n\tlabels[0].text = 3\n");
 	REQUIRE(migration.notes.size() == 1);
 	CHECK(migration.notes[0].message == "\"labels\" is left without a type: Array[Label] does not check. It receives an element Label (res://f.pet:8).");
+}
+
+// As tanks-of-freedom-ii's settings read an int from a text field
+// (scenes/ui/menu/settings/setting_text.gd:32-35). GDScript holds each as a
+// Variant; a Variant assigned says nothing of the type.
+TEST_CASE("a local declared with a value that is assigned another type is written the Variant that GDScript holds") {
+	FakeProject project;
+	project.add_script("res://p.gd", "extends Node\n\n\nfunc parse(text: String, data: Dictionary) -> void:\n\tvar value = text\n\tvalue = text.to_int()\n\tprint(value)\n\tvar kept = text\n\tkept = kept.to_int()\n\tvar content = text\n\tcontent = data[\"k\"]\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://p.gd" }, 10);
+	CHECK(migration.texts.at("res://p.pet") == "extends Node\n\n\nfunc parse(text: String, data: Dictionary) -> void:\n\tvar value: Variant = text\n\tvalue = text.to_int()\n\tprint(value)\n\tvar kept = text\n\tkept = kept.to_int()\n\tvar content = text\n\tcontent = data[\"k\"]\n");
+	REQUIRE(migration.notes.size() == 1);
+	CHECK(migration.notes[0].message == "\"kept\" is left without a type: Variant does not check. It receives String (res://p.pet:8).");
+	REQUIRE(migration.errors.size() == 2);
+	CHECK(contains(migration.errors[0].message, "Cannot assign a value of type int as String"));
+	CHECK(contains(migration.errors[1].message, "Cannot assign a value of type Variant as String"));
+}
+
+// As Ring's components tint and place their owners
+// (breakout/scenes/components/interval_hurt_component.gd:26,
+// health_component.gd:36). One that tests owner for null keeps GDScript's
+// test, which the read with @owner(T) would fail on (spec §7.3).
+TEST_CASE("a member of owner that the class of the owners in the scenes has declares @owner of that class") {
+	FakeProject project;
+	project.add_script("res://tint.gd", "extends Node\n\n\nfunc _ready() -> void:\n\towner.z_index = 1\n");
+	project.add_script("res://guarded.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tif owner != null:\n\t\towner.z_index = 1\n");
+	for (const char *root : { "Label", "TextureRect" }) {
+		compiler::Scene scene;
+		scene.path = std::string("res://") + root + ".tscn";
+		scene.nodes = { { ".", root }, { "Tint", "Node", "res://tint.gd" }, { "Guarded", "Node", "res://guarded.gd" } };
+		project.scenes.push_back(scene);
+	}
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://tint.gd", "res://guarded.gd" }, 10);
+	CHECK(migration.texts.at("res://tint.pet") == "@owner(Control)\nextends Node\n\n\nfunc _ready() -> void:\n\towner.z_index = 1\n");
+	CHECK(migration.texts.at("res://guarded.pet") == "extends Node\n\n\nfunc _ready() -> void:\n\tif owner != null:\n\t\towner.z_index = 1\n");
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].file == "res://guarded.pet");
+}
+
+// As tanks-of-freedom-ii's observers and map builder hold them
+// (scenes/board/logic/observers/observer.gd:4, scenes/map/builder.gd:248-251).
+TEST_CASE("a variable whose literal has no element type is declared the untyped container that GDScript holds") {
+	FakeProject project;
+	project.add_script("res://o.gd", "extends Node\nvar observed = [null]\n\n\nfunc _ready() -> void:\n\tvar scripts = {\n\t\t\"stories\": {},\n\t\t\"triggers\": [1, \"a\"]\n\t}\n\tvar result := {\"status\": null}\n\tvar count = [null].size()\n\tprint(observed, scripts, result, count)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://o.gd" }, 10);
+	CHECK(migration.texts.at("res://o.pet") == "extends Node\nvar observed: Array = [null]\n\n\nfunc _ready() -> void:\n\tvar scripts: Dictionary = {\n\t\t\"stories\": {},\n\t\t\"triggers\": [1, \"a\"]\n\t}\n\tvar result: Dictionary = {\"status\": null}\n\tvar count = [null].size()\n\tprint(observed, scripts, result, count)\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Untyped, 3 } });
+	// Declaring the variable does not type a literal that a call takes.
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(contains(migration.errors[0].message, "None does not say"));
 }
 
 TEST_CASE("a signal connected in a scene flows into the parameters of its method") {

@@ -818,6 +818,7 @@ Type Checker::check_language_method(Expr &r_expr, const Type &p_base, const Type
 		// The check goes on with what it gives unwrapped (architecture §2.1).
 		Type given = Type::of(TypeKind::Error);
 		fix_unwrap(r_expr.base, [&] { return !(given = type_method_call(r_expr, p_expected)).is_error(); });
+		fix_owner(*r_expr.base, builtin::MemberName::Kind::Method, name);
 		// GDScript calls a method that the class does not have by name.
 		const Type inner = p_base.unwrapped();
 		const ClassDecl *decl = is_script_path(inner.script) ? script_decl(inner.script) : nullptr;
@@ -1129,12 +1130,14 @@ Type Checker::check_array_literal(Expr &r_expr, const Type &p_expected) {
 	const std::optional<Type> place_element = element_of(expected);
 	if (!place_element) {
 		if (r_expr.args.empty()) {
-			return fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
+			fail(r_expr, "An empty array needs a declared type, for example var a: Array[int] = [].");
+			fix_untyped(r_expr);
+			return r_expr.type;
 		}
 		// Otherwise its elements' common type gives it (spec §4.3).
-		const std::optional<Type> element = common_element(r_expr.args, 0, 1, "elements");
+		const std::optional<Type> element = common_element(r_expr, 0, 1, "elements");
 		if (!element) {
-			return set(r_expr, Type::of(TypeKind::Error));
+			return untyped_or_error(r_expr, "Array");
 		}
 		r_expr.param_types.assign(r_expr.args.size(), *element);
 		return set(r_expr, Type::array(*element));
@@ -1156,9 +1159,21 @@ Type Checker::check_array_literal(Expr &r_expr, const Type &p_expected) {
 	return set(r_expr, expected);
 }
 
+// A literal whose elements have no type: the untyped container where its
+// errors give the fix that declares it so, as the check goes on as if it
+// were applied (fix_untyped()); otherwise an error.
+Type Checker::untyped_or_error(Expr &r_literal, const char *p_container) {
+	if (&r_literal != untyped_value || !untyped_fixed) {
+		return set(r_literal, Type::of(TypeKind::Error));
+	}
+	r_literal.param_types.assign(r_literal.args.size(), Type::of(TypeKind::Variant));
+	return set(r_literal, Type::builtin(p_container));
+}
+
 // The common type of the values at `p_first`, `p_first + p_step`… of a
 // literal, which have no type to go to; nullopt after reporting.
-std::optional<Type> Checker::common_element(std::vector<std::unique_ptr<Expr>> &r_values, size_t p_first, size_t p_step, const std::string &p_what) {
+std::optional<Type> Checker::common_element(Expr &r_literal, size_t p_first, size_t p_step, const std::string &p_what) {
+	std::vector<std::unique_ptr<Expr>> &r_values = r_literal.args;
 	std::optional<Type> common;
 	bool ok = true;
 	for (size_t i = p_first; i < r_values.size(); i += p_step) {
@@ -1169,12 +1184,14 @@ std::optional<Type> Checker::common_element(std::vector<std::unique_ptr<Expr>> &
 		}
 		if (type.kind == TypeKind::None) {
 			error(r_values[i]->range, "None does not say which T? the " + p_what + " are; declare the type.");
+			fix_untyped(r_literal);
 			ok = false;
 			continue;
 		}
 		const Type next = common ? common_type(*common, type) : type;
 		if (next.is_error()) {
 			error(r_values[i]->range, "The " + p_what + " have types " + common->to_string() + " and " + type.to_string() + ", which have no common type; declare the type.");
+			fix_untyped(r_literal);
 			ok = false;
 			continue;
 		}
@@ -1197,18 +1214,20 @@ Type Checker::check_dictionary_literal(Expr &r_expr, const Type &p_expected) {
 	const Type expected = wanted.kind == TypeKind::Variant ? Type::builtin("Dictionary") : wanted;
 	const std::optional<std::pair<Type, Type>> entries = entries_of(expected);
 	if (!entries && r_expr.args.empty()) {
-		return fail_call(r_expr, "An empty dictionary needs a declared type, for example var d: Dictionary[String, int] = {}.");
+		fail(r_expr, "An empty dictionary needs a declared type, for example var d: Dictionary[String, int] = {}.");
+		fix_untyped(r_expr);
+		return r_expr.type;
 	}
 	if (!entries) {
-		const std::optional<Type> key = r_expr.bool_value ? std::optional<Type>(Type::builtin("StringName")) : common_element(r_expr.args, 0, 2, "keys");
+		const std::optional<Type> key = r_expr.bool_value ? std::optional<Type>(Type::builtin("StringName")) : common_element(r_expr, 0, 2, "keys");
 		if (r_expr.bool_value) {
 			for (size_t i = 0; i < r_expr.args.size(); i += 2) {
 				check_value(*r_expr.args[i], *key);
 			}
 		}
-		const std::optional<Type> value = common_element(r_expr.args, 1, 2, "values");
+		const std::optional<Type> value = common_element(r_expr, 1, 2, "values");
 		if (!key || !value) {
-			return set(r_expr, Type::of(TypeKind::Error));
+			return untyped_or_error(r_expr, "Dictionary");
 		}
 		for (size_t i = 0; i + 1 < r_expr.args.size(); i += 2) {
 			r_expr.param_types.push_back(*key);
@@ -2058,6 +2077,50 @@ bool Checker::tested_for_null(const TypeRef &p_written) const {
 	return std::any_of(scope->body.begin(), scope->body.end(), [&](const std::unique_ptr<Stmt> &p_stmt) { return tests_null(*p_stmt, name, first); });
 }
 
+// Gives the error reported last, at the member `p_name` of `p_base`, the fix
+// that declares @owner(T) (spec §7.3) when `p_base` reads `owner` of a file's
+// class without it. T is the nearest class of the owners that the scenes give
+// its nodes, which has the member: of each, the root of the scene that stores
+// it, or of each scene that instances that one where it is the root. None
+// when it is the root of a scene used as a root, or when the class tests
+// `owner` for null, which the read with @owner(T) fails on instead.
+void Checker::fix_owner(const Expr &p_base, builtin::MemberName::Kind p_kind, const std::string &p_name) {
+	if (p_base.kind != ExprKind::Name || p_base.text != "owner" || p_base.target != Target::SelfProperty || cls.owner_ref || !cls.name.empty() || tests_null(cls, "owner", 0)) {
+		return;
+	}
+	const auto placed = [&](const SceneNode &p_node) { return extends_script(p_node.script.empty() ? p_node.instance_script : p_node.script, options.path); };
+	std::optional<Type> common;
+	for (const Scene &scene : classes.scenes_placing(options.path)) {
+		for (const SceneNode &node : scene.nodes) {
+			const ViewNode *at = placed(node) ? view_node(scene, node.path) : nullptr;
+			const ViewNode *owner = at && !at->owner.empty() ? view_node(scene, at->owner) : nullptr;
+			if (at && !owner && !classes.root_use(scene.path).empty()) {
+				return;
+			}
+			if (!owner) {
+				continue;
+			}
+			const std::string &script = owner->node.script.empty() ? owner->node.instance_script : owner->node.script;
+			const ClassDecl *header = is_script_path(script) ? script_header(script) : nullptr;
+			const Type type = header ? script_class_type(*header, script) : (script.empty() ? Type::object(owner->node.type) : Type::of(TypeKind::Error));
+			common = common ? common_type(*common, type) : type;
+			if (common->is_error()) {
+				return;
+			}
+		}
+	}
+	const std::string written = common ? common->to_string() : std::string();
+	if (!common || written.find(".pet") != std::string::npos || !named_member(*common, p_kind, p_name).found) {
+		return;
+	}
+	// Before the keyword of the header that comes first, class_name or extends,
+	// which a class with `owner` has.
+	const uint32_t header = std::min(cls.class_name_token, cls.extends_token) - 1;
+	Fix declared = writing({ { TokenRange{ header, header }, "@owner(" + written + ")\n" + cls.source->tokens[header].text } }, FixKind::Owner);
+	declared.title = "Write @owner(" + written + ")";
+	fix(std::move(declared));
+}
+
 // `p_written` is the type of where the value goes, as written for a variable
 // or a parameter in this file or else in that of the class at `p_owner`;
 // `p_converts`, whether GDScript converts the value to its type there.
@@ -2119,11 +2182,13 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		// 2076-2084, 2185-2191, core/variant/variant_construct.h:637-655;
 		// ed1daf0).
 		fix({ { p_value.range, p_to.name + "(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::PackedArray);
-	} else if (p_from.kind == TypeKind::Int && to.kind == TypeKind::Enum && to.values->is_engine) {
+	} else if (p_from.kind == TypeKind::Int && to.kind == TypeKind::Enum) {
 		// GDScript takes the int as it is (modules/gdscript/gdscript_analyzer.cpp:
-		// 6397-6400; ed1daf0), and the conversion to an open enum keeps it
-		// unchecked (spec §3.7).
-		fix({ { p_value.range, enum_spelling(to) + "(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::EngineEnum);
+		// 6397-6400; ed1daf0). E(x) keeps it so for an enum of the engine,
+		// which is open, and for one of the values; it checks any other
+		// (spec §3.7).
+		const bool kept = to.values->is_engine || (p_value.constant && p_value.constant->kind == ConstValue::Kind::Int && to.values->has(p_value.constant->i));
+		fix({ { p_value.range, enum_spelling(to) + "(" + cls.source->text_of(p_value.range) + ")" } }, kept ? FixKind::Enum : FixKind::CheckedEnum);
 	} else if (p_from.kind == TypeKind::None && p_written) {
 		fix_optional(*p_written, p_owner); // As GDScript holds the null.
 	} else if (p_from.is_optional() && !p_to.is_optional() && assignable(p_from.unwrapped(), p_to)) {

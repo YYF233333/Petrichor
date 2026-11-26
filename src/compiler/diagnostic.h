@@ -40,7 +40,7 @@ enum class FixKind {
 	ArgumentsLocal, // A local written Array for a signal's arguments, without the type, which takes them.
 	LiteralCast, // A literal for one cast to the container type its place expects.
 	OwnClass, // Class.new() for a bare new() where GDScript calls it on the class.
-	EngineEnum, // E(x) of an int where an enum of the engine, which E(x) does not check, is expected.
+	Enum, // E(x) of an int where E is expected that keeps it as it is: of the engine, which is open, or one of E's values.
 	// The ones offered for the user to choose.
 	FloatResult, // float arguments where the result's type or value then changes.
 	Unwrap,
@@ -58,6 +58,9 @@ enum class FixKind {
 	ByName, // call() or set() of a member that an Object lacks, as GDScript finds it by name.
 	Cast, // `as` where a value of a class goes as a subclass, which GDScript checks as the program runs.
 	NoConversion, // The value itself for `as` to a type not a class, where GDScript keeps it as it is.
+	Untyped, // Array or Dictionary for a variable whose literal has no element type, as GDScript holds it.
+	CheckedEnum, // E(x) of another int where this language's enum E is expected, which checks that it is one of the values.
+	Owner, // @owner(T) for a member of `owner` that the class of the owners the scenes give has.
 };
 
 // What fixing all of a kind in a file is called: "Fix all '…' in file".
@@ -80,7 +83,7 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ true, "Declare the arguments without Array" },
 	{ true, "Write the literal without as" },
 	{ true, "Write the class before new()" },
-	{ true, "Convert to the engine's enum" },
+	{ true, "Convert to the enum" },
 	{ false, "Write the int arguments as float" },
 	{ false, "Write .unwrap()" },
 	{ false, "Make the type T?" },
@@ -97,8 +100,11 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ false, "Use it by name" },
 	{ false, "Write as" },
 	{ false, "Write the value without as" },
+	{ false, "Declare the untyped container" },
+	{ false, "Convert to the enum, which checks it" },
+	{ false, "Declare the owner's class" },
 };
-static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::NoConversion) + 1);
+static_assert(sizeof(FIX_KINDS) / sizeof(FIX_KINDS[0]) == size_t(FixKind::Owner) + 1);
 
 // A quick fix of a diagnostic, named by `title`.
 struct Fix {
