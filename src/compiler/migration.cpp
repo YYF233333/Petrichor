@@ -246,8 +246,17 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 	for (const std::string &file : asked_templates) {
 		result.left_out.emplace_back(file, "a script template, from which the editor makes new scripts");
 	}
-	// The trees with @tool stay in GDScript, and so does what a file staying
-	// there accesses at class level.
+	// A plugin stays in GDScript unless a path asks for a file of it (spec
+	// §1), and so do the trees with @tool, and what a file staying there
+	// accesses at class level.
+	const auto plugin = [](const std::string &p_file) {
+		const std::string addons = "res://addons/";
+		return p_file.rfind(addons, 0) == 0 ? p_file.substr(0, p_file.find('/', addons.size())) : std::string();
+	};
+	std::set<std::string> asked_plugins;
+	for (const auto &[file, why] : taken) {
+		asked_plugins.insert(p_paths.empty() ? std::string() : plugin(file));
+	}
 	std::map<std::string, std::string> left;
 	const auto leave = [&](const std::string &p_file, const std::string &p_why, const std::string &p_tree) {
 		left.emplace(p_file, p_why);
@@ -255,6 +264,11 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 			left.emplace(member, "in the inheritance tree of " + p_file + p_tree);
 		}
 	};
+	for (const std::string &file : scripts.files) {
+		if (!plugin(file).empty() && !asked_plugins.count(plugin(file))) {
+			leave(file, std::string(), ", of a plugin left out");
+		}
+	}
 	for (const std::string &tool : scripts.tools) {
 		leave(tool, "it has @tool", ", which has @tool");
 	}
@@ -289,10 +303,19 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 			}
 		}
 	}
+	std::set<std::string> plugins; // Named once each.
 	for (const auto &[file, why] : taken) {
-		if (left.count(file)) {
+		if (!left.count(file)) {
+			continue;
+		}
+		if (!plugin(file).empty() && !asked_plugins.count(plugin(file))) {
+			plugins.insert(plugin(file));
+		} else {
 			result.left_out.emplace_back(file, left.at(file));
 		}
+	}
+	for (const std::string &folder : plugins) {
+		result.left_out.emplace_back(folder, "a plugin, which migrates only when a path names it");
 	}
 	std::sort(result.left_out.begin(), result.left_out.end());
 	for (const auto &[file, why] : taken) {

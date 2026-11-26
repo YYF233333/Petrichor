@@ -156,13 +156,14 @@ void each_record(Inflows::Records &r_records, const F &p_f) {
 // project when none) takes (architecture §6.6). Their whole inheritance trees
 // come with them (spec §11.2), and the GDScript files that make a class-level
 // access to them that GDScript cannot make to a class of this language (spec
-// §11.3). The trees with a file with @tool are left out (spec §13.4), and
-// then a file that one left out accesses so, with its tree. So are the
-// script templates, the files under `p_templates`.
+// §11.3). The trees with a file of a plugin under res://addons/ that no
+// path asks for are left out (spec §1), and those with a file with @tool
+// (spec §13.4), and then a file that one left out accesses so, with its
+// tree. So are the script templates, the files under `p_templates`.
 struct MigrationSet {
 	std::set<std::string> files;
 	std::vector<std::pair<std::string, std::string>> added; // Each with why.
-	std::vector<std::pair<std::string, std::string>> left_out; // Each with why, by path.
+	std::vector<std::pair<std::string, std::string>> left_out; // Each with why, by path; a plugin by its folder.
 	std::vector<std::string> unknown; // Paths given without a GDScript file there.
 };
 MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_project, const std::vector<std::string> &p_paths, const std::string &p_templates = std::string());

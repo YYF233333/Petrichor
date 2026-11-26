@@ -66,6 +66,30 @@ TEST_CASE("a migration leaves out the trees with @tool, and what a file left out
 						   });
 }
 
+// Third-party plugins stay GDScript (spec §1), as Ring's dialogue manager;
+// so does what inherits from one (§11.2) or what one calls at class level.
+TEST_CASE("a migration leaves out each plugin under addons/ that no path asks for, with the files that must stay with it") {
+	FakeProject project;
+	project.add_script("res://addons/dialogue/manager.gd", "class_name DialogueManager\nextends Node\n", "DialogueManager");
+	project.add_script("res://addons/dialogue/balloon.gd", "extends Node\n");
+	project.add_script("res://addons/dialogue/starter.gd", "extends Node\n\n\nfunc f() -> void:\n\tGame.start()\n");
+	project.add_script("res://addons/grid/grid.gd", "extends Node\n");
+	project.add_script("res://ring_manager.gd", "extends DialogueManager\n");
+	project.add_script("res://game.gd", "class_name Game\nextends Node\n\n\nstatic func start() -> void:\n\tpass\n", "Game");
+	project.add_script("res://main.gd", "extends Node\n");
+	const compiler::MigrationSet whole = compiler::migration_set(fake_engine(), project, {});
+	CHECK(whole.files == std::set<std::string>{ "res://main.gd" });
+	CHECK(whole.left_out == Pairs{
+									{ "res://addons/dialogue", "a plugin, which migrates only when a path names it" },
+									{ "res://addons/grid", "a plugin, which migrates only when a path names it" },
+									{ "res://game.gd", "res://addons/dialogue/starter.gd, left out, calls the static method start() of it" },
+									{ "res://ring_manager.gd", "in the inheritance tree of res://addons/dialogue/manager.gd, of a plugin left out" },
+							});
+	const compiler::MigrationSet asked = compiler::migration_set(fake_engine(), project, { "res://addons/dialogue/manager.gd" });
+	CHECK(asked.files == std::set<std::string>{ "res://addons/dialogue/manager.gd", "res://ring_manager.gd" });
+	CHECK(asked.left_out.empty());
+}
+
 TEST_CASE("a migration of the whole project, and of a directory, takes every GDScript file there") {
 	FakeProject project;
 	project.add_script("res://a/one.gd", "extends Node\n");
