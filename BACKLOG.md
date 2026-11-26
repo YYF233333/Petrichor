@@ -121,7 +121,10 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - A refactoring in Godot that changes a script the LSP client has unsaved changes to is refused (architecture §2.3). The server cannot save the client's text. Should it instead write the file and leave the conflict to the client?
 - Godot 4.8 writes the nodes of a scene embedded in a scene file as sections of that file. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
-- "Fix all" can be listed where it applies one fix. `fixes_all` counts the distinct fixes of a kind to list it (`src/adapter/editor/script_compiler.cpp`), and `fix_all` drops those whose edits clash (`src/compiler/compiler.cpp`). Read from the code, not reproduced. `fix_all` could report how many it applies, and the item be listed from that count.
+- "Fix all" takes one round, so it leaves a fix nested in another of its kind (`fix_all` in `src/compiler/compiler.cpp`). Read from the code, not run.
+  - In `connect("died", Callable(self, "_on_died"))` of a signal and a method that are not `pub`, it rewrites the call and leaves the `Callable`. A second "Fix all", or the fix itself, takes that.
+  - With one such line the item is listed and applies one fix. `fixes_all` counts the distinct fixes to list it (`src/adapter/editor/script_compiler.cpp`).
+  - Candidates: rounds until no fix applies, as `migrate()` runs them; or the item listed only when a round applies two.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). `pet` imports a fresh clone first.
