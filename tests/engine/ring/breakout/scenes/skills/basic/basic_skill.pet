@@ -1,0 +1,6 @@
+extends Skill
+
+func apply_effect():
+	BreakoutManager.balls.all_split()
+	(BreakoutManager.paddle as Paddle).unwrap().change_length_buff(99, 20.0)
+	return true

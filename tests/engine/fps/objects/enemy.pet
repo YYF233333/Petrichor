@@ -1,6 +1,8 @@
-extends Node3D implements Combat.Damageable
+extends Node3D
 
-@export pub var player: Node3D
+const Player = preload("res://objects/player.pet")
+
+@export var player: Node3D
 
 @onready var raycast = $RayCast
 @onready var muzzle_a = $MuzzleA
@@ -17,7 +19,7 @@ func _ready():
 	target_position = position
 
 
-func _process(delta: float):
+func _process(delta):
 	self.look_at(player.position + Vector3(0, 0.5, 0), Vector3.UP, true)  # Look at player
 	target_position.y += (cos(time * 5) * 1) * delta  # Sine movement (up and down)
 
@@ -30,7 +32,7 @@ func _process(delta: float):
 pub func damage(amount: float):
 	Audio.play("sounds/enemy_hurt.ogg")
 
-	health -= int(amount)
+	health = int(health - amount)
 
 	if health <= 0 and !destroyed:
 		destroy()
@@ -51,7 +53,7 @@ pub func _on_timer_timeout():
 	if raycast.is_colliding():
 		var collider = raycast.get_collider()
 
-		if collider is Combat.Damageable:
+		if collider is Player:  # Raycast collides with player
 
 			# Play muzzle flash animation(s)
 

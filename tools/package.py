@@ -74,8 +74,8 @@ def addon_files(libraries, allow_missing):
 def demo_files(addon, top, godot):
     """The FPS starter kit at its pinned commit, with the migrated scripts in
     place of its own (architecture §5 step 4) and the plugin. With an
-    editor, the scripts are formatted, as tests/engine/fps keeps them as
-    written by hand."""
+    editor, the scripts are formatted, as tests/engine/fps keeps them as the
+    migration left them."""
     kit = pinned("thirdparty/starter-kit-fps")
     with tempfile.TemporaryDirectory() as tmp:
         project = Path(tmp)

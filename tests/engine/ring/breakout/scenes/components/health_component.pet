@@ -1,33 +1,41 @@
-@owner(Combat.Combatant)
-class_name HealthComponent
 extends Node
+class_name HealthComponent
 
 pub signal health_change #use to update health_bar
 pub signal died
 
 pub var current_health: int
 
-@export pub var show_floating_text: bool = true
+@export var show_floating_text: bool = true
 var floating_text_scene = preload("res://breakout/scenes/ui/floating_text.tscn")
 
 # Called when the node enters the scene tree for the first time.
 func _ready():
-	current_health = owner.init_health
+	if (owner is Brick) || (owner is Enemy):
+		pass
+	else:
+		#debug
+		print_debug("health component has wrong owner")
+		queue_free()
+
+	var combatant: Object = owner.unwrap()
+	current_health = int(combatant.get("init_health"))
 
 
 pub func take_damage(value: int):
 	#debug
 	var prev_health = current_health
+	var combatant: Object = owner.unwrap()
 
-	current_health = min(max(current_health - value, 0), owner.max_health)
+	current_health = min(max(current_health - value, 0), int(combatant.get("max_health")))
 	health_change.emit()
 
 	if show_floating_text:
 		#加载伤害 UI 组件
-		var floating_text = floating_text_scene.instantiate()
+		var floating_text = floating_text_scene.instantiate() as FloatingText
 		get_tree().get_first_node_in_group("foregrounds").unwrap().add_child(floating_text)
 
-		floating_text.global_position = owner.global_position + \
+		floating_text.global_position = (owner as Node2D).unwrap().global_position + \
 			Vector2(randi_range(-8,8),randi_range(-4,4)-16)
 
 		var health_change_value = current_health - prev_health
@@ -42,18 +50,20 @@ pub func take_damage(value: int):
 
 
 func set_max_health(value: int):
-	owner.max_health = max(value, 0)
-	if current_health > owner.max_health:
-		current_health = owner.max_health
+	var combatant: Object = owner.unwrap()
+	combatant.set("max_health", max(value, 0))
+	if current_health > int(combatant.get("max_health")):
+		current_health = int(combatant.get("max_health"))
 	health_change.emit()
 	Callable(check_death).call_deferred()
 
 
 func get_health_percent() -> float:
-	if owner.max_health <= 0:
-		return 0.0
+	var combatant: Object = owner.unwrap()
+	if int(combatant.get("max_health")) <= 0:
+		return 0
 	else:
-		return min(current_health/float(owner.max_health), 1.0)
+		return min(current_health/float(combatant.get("max_health")), 1.0)
 
 
 func check_death():

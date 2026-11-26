@@ -460,14 +460,13 @@ def prepare_deck(project):
 
 
 def migrate(project, migrated):
-    """Puts each migrated script in place of its GDScript original
-    (architecture §5 steps 4 and 6); a script without one, such as the FPS
-    kit's combat.pet, is added."""
+    """Puts each migrated script in place of its GDScript original, as the
+    migration tool does (architecture §3)."""
     replaced = {}
     for script in migrated.rglob("*.pet"):
         relative = script.relative_to(migrated)
         original = project / relative.with_suffix(".gd")
-        original.unlink(missing_ok=True)
+        original.unlink()
         original.with_name(original.name + ".uid").unlink(missing_ok=True)
         shutil.copy(script, project / relative)
         replaced["res://" + relative.with_suffix(".gd").as_posix()] = "res://" + relative.as_posix()
@@ -660,14 +659,20 @@ def resources_in_use(output):
     return {line for line in output.splitlines() if line.startswith("Resource still in use: ") and not re.search(r"\.(ogg|wav|mp3)\b", line)}
 
 
+def errors_in(output):
+    """The error lines of a run, each from its ERROR on: Godot writes errors
+    to stderr and the rest to stdout, which the pipe may join mid-line."""
+    return [line[line.index("ERROR"):] for line in output.splitlines() if "ERROR" in line]
+
+
 def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *scene):
-    """A real project runs with its migrated scripts (architecture §5 steps 4
-    and 6). The original reports errors of its own in a headless run, such as
-    the FPS kit's sounds still playing at exit and weapon models it removes
-    without freeing, so the migrated run may only repeat those, and keep no
-    resource at exit, other than sounds, that the original does not. With
-    `check_format`, the format check first fails on the scripts written by
-    hand (README)."""
+    """A real project runs with its migrated scripts (architecture §3). The
+    original reports errors of its own in a headless run, such as the FPS
+    kit's sounds still playing at exit and weapon models it removes without
+    freeing, so the migrated run may only repeat those, and keep no resource
+    at exit, other than sounds, that the original does not. With
+    `check_format`, the format check first fails on the scripts as the
+    migration left them."""
     # A headless frame sleeps, as nothing is drawn (core/os/os.cpp:721-723),
     # unless the frame rate is fixed (main/main.cpp:5170-5172); fixed, each
     # frame advances the game by 1/60 s, however fast it runs.
@@ -693,12 +698,12 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
             # quick. The migrated build below starts from the imported copy and
             # is checked in full.
             expect(f"{name} original analysis baseline", ", 0 with errors" in output, output)
-            known_build_errors = {line for line in output.splitlines() if "ERROR" in line}
+            known_build_errors = set(errors_in(output))
         code, output = run(godot, "--verbose", "--path", str(original), *scene)
         expect(f"{name} original run", code == 0 and f"{name} check: 0 failure(s)" in output, output)
         if not scripts:
             return
-        known_errors = {line for line in output.splitlines() if "ERROR" in line}
+        known_errors = set(errors_in(output))
         known_in_use = resources_in_use(output)
 
         # The original as imported, so that no asset is imported again, which
@@ -710,8 +715,8 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
         (migrated / ".godot" / "global_script_class_cache.cfg").unlink()
         migrate(migrated, migrated_scripts)
         # Spec §13.2: the migrated game is built and run formatted; the
-        # scripts written by hand are not. A byte order mark is no text, and
-        # stays.
+        # scripts as the migration left them are not. A byte order mark is
+        # no text, and stays.
         bom = migrated / "bom_check.pet"
         bom.write_bytes(b"\xef\xbb\xbfextends Node\nvar x=1\n")
         if check_format:
@@ -724,14 +729,11 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
         formatted_bom = bom.read_bytes()
         expect(f"{name} format: a byte order mark stays", formatted_bom.startswith(b"\xef\xbb\xbfextends") and b"var x = 1" in formatted_bom, formatted_bom.decode("utf-8", "replace"))
         code, output = run(godot, "-e", "--path", str(migrated), "--", "--petrichor-build")
-        new_build_errors = [line for line in output.splitlines() if "ERROR" in line and line not in known_build_errors]
+        new_build_errors = [line for line in errors_in(output) if line not in known_build_errors]
         expect(f"{name} build", code == 0 and not new_build_errors, "\n".join(new_build_errors) if code == 0 else output)
         expect(f"{name} build: every script compiles", ", 0 with errors" in output, output)
         code, output = run(godot, "--verbose", "--path", str(migrated), *scene)
-        new_errors = [
-            line for line in output.splitlines()
-            if "ERROR" in line and line not in known_errors and not re.match(r"ERROR: \d+ resources still in use at exit", line)
-        ]
+        new_errors = [line for line in errors_in(output) if line not in known_errors and not re.match(r"ERROR: \d+ resources still in use at exit", line)]
         expect(f"{name} run", code == 0 and not new_errors and f"{name} check: 0 failure(s)" in output, output)
         expect(f"{name} run: no resources kept at exit that the original frees", resources_in_use(output) <= known_in_use, output)
         for script in scripts:

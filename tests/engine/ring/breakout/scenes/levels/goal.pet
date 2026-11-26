@@ -1,0 +1,42 @@
+extends Node
+class_name Goal
+
+# Called when the node enters the scene tree for the first time.
+func _ready() -> void:
+	pass # Replace with function body.
+
+
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _process(delta: float) -> void:
+	pass
+
+
+# general func
+func get_bricks() -> Array[Node]:
+	return $Bricks.get_children()
+
+func get_enemies() -> Array[Node]:
+	return $Enemies.get_children()
+
+func get_drops() -> Array[Node]:
+	return $Drops.get_children()
+
+func load_bricks_to_node(bricks: Node, reset: bool = true):
+	for brick in self.get_bricks():
+		brick.get_parent().unwrap().remove_child(brick)
+		bricks.call_deferred("add_child", brick)
+
+func load_enemies_to_node(enemies: Node, reset: bool = true):
+	for enemy in self.get_enemies():
+		enemy.get_parent().unwrap().remove_child(enemy)
+		enemies.call_deferred("add_child", enemy)
+
+func load_drops_to_node(drops: Node, reset: bool = true):
+	for drop in self.get_drops():
+		drop.get_parent().unwrap().remove_child(drop)
+		drops.call_deferred("add_child", drop)
+
+pub func load_all_to_level(level: Node, reset: bool = true):
+	load_bricks_to_node(level.get_node("./Bricks"), reset)
+	load_enemies_to_node(level.get_node("./Enemies"), reset)
+	load_drops_to_node(level.get_node("./Drops"), reset)

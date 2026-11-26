@@ -1,0 +1,6 @@
+extends Consumable
+
+
+func apply_effect():
+	BreakoutManager.balls.shoot_new_ball(false, 0)
+	return true

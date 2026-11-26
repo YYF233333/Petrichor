@@ -1,6 +1,6 @@
 # Trying Petrichor with this demo
 
-This is Kenney's Starter Kit FPS with its eight scripts translated to Petrichor. `NOTICE.md` names the source and the licences. The GDScript originals are in [the kit's repository](https://github.com/KenneyNL/Starter-Kit-FPS), for comparing side by side.
+This is Kenney's Starter Kit FPS with its seven scripts migrated to Petrichor. `NOTICE.md` names the source and the licences. The GDScript originals are in [the kit's repository](https://github.com/KenneyNL/Starter-Kit-FPS), for comparing side by side.
 
 ## Run it
 
@@ -20,7 +20,7 @@ These are suggestions, and none is required. Each takes a minute and shows one c
 
    Renaming the node instead rewrites `$Cooldown` in `player.pet`.
 
-2. **Clear an export that must be set.** In `scenes/main.tscn`, select `Enemies/enemy-flying4` and clear `Player` in the Inspector. The enemy's script declares `@export pub var player: Node3D`, which is not nullable:
+2. **Clear an export that must be set.** In `scenes/main.tscn`, select `Enemies/enemy-flying4` and clear `Player` in the Inspector. The enemy's script declares `@export var player: Node3D`, which is not nullable:
 
    > res://scenes/main.tscn: Enemies/enemy-flying4 has no value for "player", an export that must be assigned.
 
@@ -28,10 +28,8 @@ These are suggestions, and none is required. Each takes a minute and shows one c
 
    > res://objects/enemy.tscn: the signal "timeout" of Timer is connected to _on_timer_timeout(), which this class does not declare.
 
-4. **Change an interface.** In `scripts/combat.pet`, change `damage(amount: float)` to `damage(amount: int)`. `player.pet` and `enemy.pet` both implement it, and `player.pet` calls it with a `float`:
+4. **Change a method's parameter.** In `objects/enemy.pet`, change `damage(amount: float)` to `damage(amount: int)`. `player.pet` calls it with the weapon's damage, a `float`:
 
-   > "damage()" does not have the signature that Combat.Damageable declares, func(int).
-   >
    > Cannot pass a value of type float as int. Convert explicitly with int(x).
 
 5. **Read a value that may be missing.** In `_process` of `objects/enemy.pet`, read the player through a nullable local:

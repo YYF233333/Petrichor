@@ -1,38 +1,38 @@
+extends StaticBody2D
 class_name Brick
-extends StaticBody2D implements Combat.Combatant
 
 @export_group("Info")
-@export pub var brick_id: int
-@export pub var brick_name: String
-@export_multiline pub var brick_description: String
+@export var brick_id: int
+@export var brick_name: String
+@export_multiline var brick_description: String
 
 @export_group("Basic")
-@export pub var init_type: int
-@export pub var max_health: int
-@export pub var init_health: int
-@export pub var sprites : Array[Texture2D]
-@export pub var hit_flash : bool = true
+@export var init_type: int
+@export var max_health: int
+@export var init_health: int
+@export var sprites : Array[Texture]
+@export var hit_flash : bool = true
 
 @export_group("Bonus")
-@export pub var point: int
-@export pub var drop_percent_scale: float = 1.0 #1.0表示正常掉率
-@export pub var hit_by_ball_player_charge: int = 1 #被球击中时玩家获得多少充能
+@export var point: int
+@export var drop_percent_scale: float = 1.0 #1.0表示正常掉率
+@export var hit_by_ball_player_charge: int = 1 #被球击中时玩家获得多少充能
 
-@export pub var lucky_drop: bool = false #会进行lucky drop
-@export pub var unique_drop_name: String
+@export var lucky_drop: bool = false #会进行lucky drop
+@export var unique_drop_name: String
 
 @export_group("", "")
 
-pub var type: int
+var type: int
 
 # component
-@onready pub var health_component: HealthComponent = $HealthComponent
-@onready var interval_hurt_component: IntervalHurtComponent = $IntervalHurtComponent
-@onready var chain_area: Area2D = $ChainArea
+@onready var health_component = $HealthComponent as HealthComponent
+@onready var interval_hurt_component = $IntervalHurtComponent as IntervalHurtComponent
+@onready var chain_area = $ChainArea as Area2D
 @onready var hit_flash_animation_player: AnimationPlayer = $HitFlashAnimationPlayer
 
-@onready var health_bar: ProgressBar = $HealthBar
-@onready var health_label: Label = $HealthLabel
+@onready var health_bar = $HealthBar as ProgressBar
+@onready var health_label = $HealthLabel as Label
 
 
 func _ready():
@@ -54,21 +54,21 @@ func _ready():
 	_individual_ready()
 
 
-pub func check_init_type():
+func check_init_type():
 	#debug
 	# check if init_type correspond with other stats
-	if false:
+	if 0 != 0:
 		print_debug("type seems not correct")
 
 
-pub func set_type(new_type : int):
+func set_type(new_type : int):
 	type = new_type
 	if type < 0:
 		return
-	$Sprite2D.texture = sprites[type]
+	$Sprite2D.texture = (sprites[type] as Texture2D).unwrap()
 
 
-pub func show_health():
+func show_health():
 	health_bar.max_value = max_health
 	health_bar.value = health_component.current_health
 
@@ -82,7 +82,7 @@ func _show_lucky_drop():
 		$LuckyDropHintParticles.emitting = false
 
 
-pub func _individual_ready():
+func _individual_ready():
 	pass
 
 
@@ -92,11 +92,10 @@ func hit_by_ball(ball: Ball):
 
 
 pub func hit_by_laser_beam(laser_beam: LaserBeam):
-	# GDScript truncated the float damage silently.
 	physic_hurt(int(ValueManager.laser_beam_damage))
 
 
-pub func physic_hurt(value: int):
+func physic_hurt(value: int):
 	health_component.take_damage(value)
 	if hit_flash:
 		hit_flash_animation_player.play("hit_flash")
@@ -106,7 +105,7 @@ func _on_area_2d_body_entered(body: Node2D):
 	if body is Ball:
 		hit_by_ball(body)
 
-pub func _on_health_change():
+func _on_health_change():
 	var current_health = health_component.current_health
 	if current_health > 0:
 		show_health()
@@ -119,5 +118,5 @@ func _on_died():
 	#$Area2D/CollisionShape2D.disabled = true
 	#shard_emitter.shatter()
 	#await shard_emitter.delete_timer.timeout
-	BreakoutManager.brick_broken.emit(name)
+	BreakoutManager.brick_broken.emit(self.name)
 	queue_free()

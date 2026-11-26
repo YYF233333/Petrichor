@@ -1,14 +1,16 @@
-extends CharacterBody3D implements Combat.Damageable
+extends CharacterBody3D
+
+const Enemy = preload("res://objects/enemy.pet")
 
 @export_subgroup("Properties")
-@export pub var movement_speed = 5
-@export_range(0, 100) pub var number_of_jumps: int = 2
-@export pub var jump_strength = 8
+@export var movement_speed = 5
+@export_range(0, 100) var number_of_jumps: int = 2
+@export var jump_strength = 8
 
 @export_subgroup("Weapons")
-@export pub var weapons: Array[Weapon] = []
+@export var weapons: Array[Weapon] = []
 
-@onready var weapon = weapons[weapon_index]
+@late var weapon: Weapon
 var weapon_index := 0
 
 var mouse_sensitivity = 700
@@ -18,6 +20,7 @@ var mouse_captured := true
 
 var movement_velocity: Vector3
 var rotation_target: Vector3
+
 var input_mouse: Vector2
 
 var health: int = 100
@@ -29,7 +32,7 @@ var jumps_remaining: int
 
 var container_offset = Vector3(1.2, -1.1, -2.75)
 
-var tween: Tween?
+@late var tween: Tween
 
 pub signal health_updated(health: int)
 
@@ -40,16 +43,17 @@ pub signal health_updated(health: int)
 @onready var sound_footsteps = $SoundFootsteps
 @onready var blaster_cooldown = $Cooldown
 
-@export pub var crosshair: TextureRect
+@export var crosshair: TextureRect
 
 # Functions
 
 func _ready():
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
+	weapon = weapons[weapon_index] # Weapon must never be nil
 	initiate_change_weapon(weapon_index)
 
-func _process(delta: float):
+func _process(delta):
 	# Handle functions
 	handle_controls(delta)
 	handle_gravity(delta)
@@ -94,7 +98,7 @@ func _process(delta: float):
 
 # Mouse movement
 
-func _input(event: InputEvent):
+func _input(event):
 	if event is InputEventMouseMotion and mouse_captured:
 		input_mouse = event.relative / mouse_sensitivity
 		handle_rotation(event.relative.x, event.relative.y, false)
@@ -117,7 +121,7 @@ func handle_controls(delta: float):
 
 	# Handle Controller Rotation
 	var rotation_input := Input.get_vector("camera_right", "camera_left", "camera_down", "camera_up")
-	if rotation_input != Vector2.ZERO:
+	if rotation_input != Vector2():
 		handle_rotation(rotation_input.x, rotation_input.y, true, delta)
 
 	# Shooting
@@ -199,7 +203,7 @@ func action_shoot():
 
 			# Hitting an enemy
 
-			if collider is Combat.Damageable:
+			if collider is Enemy:
 				collider.damage(weapon.damage)
 
 			# Creating an impact animation
@@ -237,11 +241,10 @@ func action_weapon_toggle():
 func initiate_change_weapon(index: int):
 	weapon_index = index
 
-	var t = get_tree().create_tween()
-	tween = t
-	t.set_ease(Tween.EASE_OUT_IN)
-	t.tween_property(container, "position", container_offset - Vector3(0, 1, 0), 0.1)
-	t.tween_callback(change_weapon) # Changes the model
+	tween = get_tree().create_tween()
+	tween.set_ease(Tween.EASE_OUT_IN)
+	tween.tween_property(container, "position", container_offset - Vector3(0, 1, 0), 0.1)
+	tween.tween_callback(change_weapon) # Changes the model
 
 # Switches the weapon model (off-screen)
 
@@ -252,7 +255,6 @@ func change_weapon():
 
 	for n in container.get_children():
 		container.remove_child(n)
-		n.queue_free()
 
 	# Step 2. Place new weapon model in container
 
@@ -272,8 +274,8 @@ func change_weapon():
 	raycast.target_position = Vector3(0, 0, -1) * weapon.max_distance
 	crosshair.texture = weapon.crosshair
 
-pub func damage(amount: float):
-	health -= int(amount)
+pub func damage(amount: int):
+	health -= amount
 	health_updated.emit(health) # Update health on HUD
 
 	if health < 0:

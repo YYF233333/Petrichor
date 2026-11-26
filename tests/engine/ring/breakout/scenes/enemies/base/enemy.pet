@@ -1,50 +1,50 @@
+extends CharacterBody2D
 class_name Enemy
-extends CharacterBody2D implements Combat.Combatant
 
 @export_group("Info")
-@export pub var enemy_id: int
-@export pub var enemy_name: String
-@export_multiline pub var enemy_description: String
+@export var enemy_id: int
+@export var enemy_name: String
+@export_multiline var enemy_description: String
 
 @export_group("Basic")
-@export pub var max_health: int
-@export pub var init_health: int
-@export pub var basic_speed: float
-@export pub var basic_acceleration: float
-@export pub var basic_damage: float = 1.0
+@export var max_health: int
+@export var init_health: int
+@export var basic_speed: float
+@export var basic_acceleration: float
+@export var basic_damage: float = 1.0
 
-@export pub var init_type: int
-@export pub var sprites : Array[Texture2D]
+@export var init_type: int
+@export var sprites : Array[Texture]
 
-@export pub var unstoppable: bool = false #TODO: 能否被击退。现在还不好用，没knockback和板贴贴会卡球
+@export var unstoppable: bool = false #TODO: 能否被击退。现在还不好用，没knockback和板贴贴会卡球
 
 @export_group("Bonus")
-@export pub var point: int
-@export pub var drop_percent_scale: float = 1.0 #1.0表示正常掉率
-@export pub var hit_by_ball_player_charge: int = 1 #被球击中时玩家获得多少充能
+@export var point: int
+@export var drop_percent_scale: float = 1.0 #1.0表示正常掉率
+@export var hit_by_ball_player_charge: int = 1 #被球击中时玩家获得多少充能
 
-@export pub var lucky_drop: bool = false #会进行lucky drop
-@export pub var unique_drop_name: String
+@export var lucky_drop: bool = false #会进行lucky drop
+@export var unique_drop_name: String
 
 @export_group("", "")
 
 #component
-@onready var health_component: HealthComponent = $HealthComponent
-@onready var interval_hurt_component: IntervalHurtComponent = $IntervalHurtComponent
-@onready var chain_area: Area2D = $ChainArea
+@onready var health_component = $HealthComponent as HealthComponent
+@onready var interval_hurt_component = $IntervalHurtComponent as IntervalHurtComponent
+@onready var chain_area = $ChainArea as Area2D
 
-@onready var hit_flash_animation_player: AnimationPlayer = $HitFlashAnimationPlayer
+@onready var hit_flash_animation_player = $HitFlashAnimationPlayer as AnimationPlayer
 
-@onready var health_bar: ProgressBar = $HealthBar
-@onready var health_label: Label = $HealthLabel
+@onready var health_bar = $HealthBar as ProgressBar
+@onready var health_label = $HealthLabel as Label
 
-@onready pub var knock_back_timer: Timer = $KnockBackTimer
-@onready var attack_cooldown_timer: Timer = $AttackCooldownTimer
+@onready var knock_back_timer = $KnockBackTimer as Timer
+@onready var attack_cooldown_timer = $AttackCooldownTimer as Timer
 
 @export_group("Basic")
 #stat
-pub var type: int
-@export pub var direction: Vector2 = Vector2(1.0, 0.0):
+var type: int
+@export var direction: Vector2 = Vector2(1.0, 0.0):
 	set(value):
 		direction = value
 		if direction.is_zero_approx():
@@ -57,7 +57,7 @@ pub var type: int
 pub var current_speed: float:
 	set(value):
 		current_speed = max(value, 0.0)
-pub var current_direction: Vector2:
+var current_direction: Vector2:
 	set(value):
 		current_direction = value
 		if not direction.is_zero_approx():
@@ -96,21 +96,19 @@ func _physics_process(delta):
 	update_stat(delta)
 
 	var collision = move_and_collide(velocity * delta)
-	if collision == None:
-		return
-	var collider = collision.get_collider() as Node2D
+	var collider:Node2D? = (collision.get_collider() if collision != None else null) as Node2D
 
 	if collider != None:
 		if collider.is_in_group("walls"):
-			bounce_off_walls(collision)
+			bounce_off_walls(collision.unwrap())
 		elif collider.is_in_group("bricks"):
-			bounce_off_bricks(collision, (collider as Brick).unwrap())
+			bounce_off_bricks(collision.unwrap(), (collider as Brick).unwrap())
 		elif collider.is_in_group("enemies"):
-			bounce_off_enemies(collision, (collider as Enemy).unwrap())
+			bounce_off_enemies(collision.unwrap(), (collider as Enemy).unwrap())
 		elif collider.is_in_group("balls"):
-			bounce_off_balls(collision, (collider as Ball).unwrap())
+			bounce_off_balls(collision.unwrap(), (collider as Ball).unwrap())
 		elif collider.is_in_group("paddles"):
-			bounce_off_paddles(collision, (collider as Paddle).unwrap())
+			bounce_off_paddles(collision.unwrap(), (collider as Paddle).unwrap())
 		else:
 			print_debug("what's this?")
 
@@ -143,7 +141,7 @@ func bounce_off_balls(ball : KinematicCollision2D, collider: Ball):
 func bounce_off_paddles(paddle : KinematicCollision2D, collider: Paddle):
 	knocked_back(paddle, collider)
 
-func knocked_back(collision : KinematicCollision2D, collider: Node2D, force: float = 100.0):
+func knocked_back(collision : KinematicCollision2D, collider: Node2D, force: float = 100):
 	if unstoppable:
 		return
 
@@ -170,7 +168,7 @@ func knocked_back(collision : KinematicCollision2D, collider: Node2D, force: flo
 	knock_back_timer.wait_time = knock_back_time
 	knock_back_timer.start()
 
-pub func get_direction_to_paddle(type: String = "center") -> Vector2:
+func get_direction_to_paddle(type: String = "center") -> Vector2:
 	var paddle_node = BreakoutManager.paddle
 	if paddle_node != None:
 		match type:
@@ -181,8 +179,8 @@ pub func get_direction_to_paddle(type: String = "center") -> Vector2:
 	return Vector2.UP
 
 
-pub func update_stat(delta: float):
-	if knock_back_timer.time_left == 0.0:
+func update_stat(delta: float):
+	if knock_back_timer.time_left == 0:
 		current_direction = direction
 		current_speed = move_toward(current_speed, basic_speed, basic_acceleration * delta)
 	velocity = current_direction * current_speed
@@ -198,10 +196,10 @@ func init_velocity():
 	velocity = direction * basic_speed
 
 
-pub func check_init_type():
+func check_init_type():
 	#debug
 	# check if init_type correspond with other stats
-	if false:
+	if 0 != 0:
 		print_debug("type seems not correct")
 
 
@@ -209,7 +207,7 @@ func set_type(new_type : int):
 	type = new_type
 	if type < 0:
 		return
-	$Sprite2D.texture = sprites[type]
+	$Sprite2D.texture = (sprites[type] as Texture2D).unwrap()
 
 func show_health():
 	health_bar.max_value = max_health
@@ -236,7 +234,6 @@ func hit_by_ball(ball: Ball):
 pub func hit_by_laser_beam(laser_beam: LaserBeam):
 	#TODO: 减速&视效
 	current_speed /= 2.0
-	# GDScript truncated the float damage silently.
 	physic_hurt(int(ValueManager.laser_beam_damage))
 
 
@@ -249,7 +246,7 @@ func _on_area_2d_body_entered(body: Node2D):
 	if body is Ball:
 		hit_by_ball(body)
 	elif body is Paddle:
-		if attack_cooldown_timer.time_left == 0.0:
+		if attack_cooldown_timer.time_left == 0:
 			attack_player()
 
 func attack_player():
@@ -274,5 +271,5 @@ func _on_health_change():
 		show_health()
 
 func _on_died():
-	BreakoutManager.enemy_defeated.emit(name)
+	BreakoutManager.enemy_defeated.emit(self.name)
 	queue_free()

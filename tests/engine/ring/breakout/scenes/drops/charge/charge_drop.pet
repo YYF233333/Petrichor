@@ -1,0 +1,9 @@
+extends Drop
+
+var charge_percent: float = 0.5
+var charge: int
+
+func apply_effect():
+	if BreakoutManager.skill != None:
+		charge = ceili(BreakoutManager.skill.unwrap().max_charge * charge_percent)
+		BreakoutManager.skill_charge.emit(charge)

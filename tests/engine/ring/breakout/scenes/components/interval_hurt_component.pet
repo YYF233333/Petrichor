@@ -1,8 +1,8 @@
 @owner(CanvasItem)
-class_name IntervalHurtComponent
 extends Node
+class_name IntervalHurtComponent
 
-@export pub var health_component: HealthComponent
+@export var health_component: HealthComponent
 
 # timer
 @onready var fire_hurt_timer = $FireHurtTimer as Timer
@@ -11,9 +11,6 @@ extends Node
 var fire_debuff_layer: int = 0:
 	set(value):
 		if fire_debuff_layer == 0 && value > 0:
-			# ValueManager.fire_hurt_interval, which the GDScript read here, was
-			# removed upstream (4822437, 2024-06-27); nothing raises the debuff,
-			# so the timer keeps the wait time its scene gives it.
 			fire_hurt_timer.start()
 		fire_debuff_layer = max(value, 0)
 		if fire_debuff_layer == 0:

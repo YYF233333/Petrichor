@@ -453,7 +453,7 @@ src/pet/               命令行的可执行文件 pet，不依赖 Godot
 gen/                   生成的源码：内置类型的表、格式标识
 build/                 目标文件和静态库
 tests/compiler/        doctest，与引擎的单元测试相同
-tests/engine/          以无界面模式运行的 Godot 项目及其运行器；fps/、ring/ 和 deck/ 中是 FPS 项目、Ring 和 deck_builder_tutorial 迁移后的脚本，dotnet/ 是与 C# 混用的项目
+tests/engine/          以无界面模式运行的 Godot 项目及其运行器；fps/、ring/ 和 deck/ 中是 FPS 项目、Ring 和 deck_builder_tutorial 经工具迁移、再由人工收尾的脚本，dotnet/ 是与 C# 混用的项目
 tests/acceptance/      发布包的验收：用官方编辑器和导出模板编辑、导出和运行一个项目
 benchmarks/            各基准及其 GDScript 对照版本，以及运行器（§4）
 tools/                 提交钩子和检查、打包脚本和演示包的说明、规范的翻译说明
@@ -475,10 +475,11 @@ thirdparty/deck_builder_tutorial/  git 子模块：corpus v1 所用提交的 dec
   - `await` 期间所属对象或信号源被释放；
   - 信号同步发出后再次挂起，以及同一个挂起点被恢复两次；
   - GDScript 调用本语言后，本语言再等待外部信号。
-- **真实代码**：让[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中的 FPS 和 Ring 代码，以及迁移工具迁移的 deck_builder_tutorial 真正跑起来。
+- **真实代码**：让[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)所用的 FPS 项目和 Ring，以及 deck_builder_tutorial 真正跑起来。
+  - 三者的脚本都是迁移工具的输出再经人工收尾，只用反向转换能转回的写法（规范 §13.4）。
   - 迁移测试复制原项目并换入迁移后的脚本，未迁移部分保持 GDScript。迁移后的运行只能报告原项目也报告的错误，退出时也只能占用原项目占用的资源。
-  - deck_builder_tutorial 的脚本是工具的输出再经人工收尾。检查脚本从主菜单开局，经地图打完一场战斗，再领取奖励。随机数固定，每次跑同一局。
-  - Ring 测试不需要 .NET：`tests/engine/ring/ring_check.tscn` 代替 `Root.cs`，发出 Ring 的 `main.md` 构造的消息。C# 的 `Call()` 与 GDScript 动态调用一样，都经引擎按名字派发。
+  - deck_builder_tutorial 的检查脚本从主菜单开局，经地图打完一场战斗，再领取奖励。随机数固定，每次跑同一局。
+  - Ring 的 `main.gd` 属于视觉小说，要用测试不复制的 C# 运行时，所以保持 GDScript。Ring 测试不需要 .NET：`tests/engine/ring/ring_check.tscn` 代替 `Root.cs`，发出 Ring 的 `main.md` 构造的消息。C# 的 `Call()` 与 GDScript 动态调用一样，都经引擎按名字派发。
 
 编译器测试经同一个辅助函数编译源码，自动校验 §2.1 的三项约定：
 

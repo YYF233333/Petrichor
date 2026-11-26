@@ -7,9 +7,9 @@ extends Node
 const FRAMES := 300
 # The bricks and enemies that the starting level (goal_2.tscn) does not have,
 # some of them in no level of Ring's; placed as a level places them, so that
-# their scripts run too.
+# their scripts run too. Only the base brick has a ShardEmitter.
 const PLACED := {
-	"Level/Bricks": ["bricks/basic_brick/basic_brick", "bricks/charge_brick/charge_brick", "bricks/heal_brick/heal_brick", "bricks/indestructible_brick/indestructible_brick"],
+	"Level/Bricks": ["bricks/base/brick", "bricks/basic_brick/basic_brick", "bricks/charge_brick/charge_brick", "bricks/heal_brick/heal_brick", "bricks/indestructible_brick/indestructible_brick"],
 	"Level/Enemies": ["enemies/oppressive_enemy/oppressive_enemy"],
 }
 
@@ -64,6 +64,8 @@ func _ready() -> void:
 			breakout.get_node(parent_path).add_child(placed)
 			x += 181
 
+	_check_drops(breakout)
+
 	# Seen early too: an enemy may be defeated before the frames are over.
 	for i in FRAMES:
 		await get_tree().process_frame
@@ -76,7 +78,7 @@ func _ready() -> void:
 	get_tree().quit()
 
 
-# These public calls are also made by Ring's remaining GDScript scripts.
+# Utility's public calls, as the paddle, the enemies and the consumables make them.
 func _check_utility(manager: Node) -> bool:
 	var utility := get_node("/root/Utility")
 	var target := Node2D.new()
@@ -111,10 +113,22 @@ func _check_utility(manager: Node) -> bool:
 	await get_tree().create_timer(0.15).timeout
 	_check(target.modulate.is_equal_approx(stopped), "the immediate end hint also stops")
 	target.free()
-
-	utility.wait_with_end_hint(null, 0.05, 0.01)
-	await get_tree().create_timer(0.1).timeout
 	return true
+
+
+const DROPS := ["base/drop", "charge/charge_drop", "fast/fast_drop", "heal/heal_drop", "laser_beam/laser_beam_drop", "long/long_drop", "short/short_drop", "slow/slow_drop", "split/split_drop"]
+
+
+# Each drop as the paddle catches it, which no level of Ring's spawns on its
+# own in the frames the check runs: it applies its effect, then goes.
+func _check_drops(breakout: Node) -> void:
+	var paddle: Node2D = breakout.get_node("Paddle")
+	for drop_path in DROPS:
+		var drop: Node2D = load("res://breakout/scenes/drops/%s.tscn" % drop_path).instantiate()
+		breakout.get_node("Level/Drops").add_child(drop)
+		drop.get_node("Area2D").body_entered.emit(paddle)
+		_check(drop.is_queued_for_deletion(), "the paddle catches %s, which applies its effect" % drop_path.get_file())
+	_see_scripts()
 
 
 # The scripts of the nodes in the tree, and the scripts they extend, by path.
@@ -129,13 +143,27 @@ func _see_scripts() -> void:
 			script = script.get_base_script()
 
 
-# run.py checks the line of each migrated script.
+# run.py checks the line of each migrated script. The scripts the run did not
+# reach are made here, which runs their initializers: the resources', those of
+# screens the run does not open, and heal_brick.pet, as heal_brick.tscn has
+# charge_brick.gd.
 func _report_scripts() -> void:
 	for path in seen_scripts:
 		print("ring check: %s runs %s" % [path.get_file().get_basename(), seen_scripts[path]])
-	# No node has these: combat.pet declares the interface and has no GDScript
-	# original, and heal_brick.tscn has charge_brick.gd, so that no scene of
-	# Ring's uses heal_brick.gd.
-	for path in ["res://breakout/scenes/components/combat.pet", "res://breakout/scenes/bricks/heal_brick/heal_brick.pet"]:
-		if ResourceLoader.exists(path):
-			print("ring check: %s runs %s" % [path.get_file().get_basename(), load(path).get_class()])
+	for path in _scripts("res://breakout"):
+		if not seen_scripts.has(path):
+			var made: Object = load(path).new()
+			print("ring check: %s runs %s, made by the check" % [path.get_file().get_basename(), made.get_script().get_class()])
+			if made is Node:
+				made.free()
+
+
+func _scripts(directory: String) -> Array[String]:
+	var found: Array[String] = []
+	for file in DirAccess.get_files_at(directory):
+		if file.get_extension() == "pet":
+			found.append(directory.path_join(file))
+	for child in DirAccess.get_directories_at(directory):
+		if child != "addons":
+			found.append_array(_scripts(directory.path_join(child)))
+	return found

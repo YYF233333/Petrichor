@@ -8,7 +8,7 @@ extends Brick
 	#preload("res://assets/Brick-Red.png")
 #]
 
-pub func _individual_ready():
+func _individual_ready():
 	point = type * 50 + 100
 	drop_percent_scale = type * 0.125 + 1.0
 
@@ -18,11 +18,11 @@ func check_type():
 		print_debug("type seems not correct")
 
 
-pub func physic_hurt(value: int):
+func physic_hurt(value: int):
 	health_component.take_damage(min(value,1))
 
 
-pub func _on_health_change():
+func _on_health_change():
 	var current_health = health_component.current_health
 	if current_health > 0:
 		set_type(current_health-1)

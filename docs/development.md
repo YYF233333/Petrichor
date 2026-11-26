@@ -120,7 +120,7 @@ Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/
 - **打包**：运行 `python tools/package.py <库目录> <版本> <输出目录>`。
   - `<库目录>` 可直接传入 `gh run download` 拉下的 CI 产物目录，库文件嵌套在任意层级都行。
   - 默认只要缺少任一平台库就会失败；本地只有本机库时加上 `--allow-missing`。
-  - 传入 `--godot <编辑器>` 可顺便格式化演示包里的 `.pet` 文件（要求 `<库目录>` 中包含本机 editor 库）。仓库里的 `tests/engine/fps/` 保持手写格式，因为 fps 测试组会验证格式化结果；编辑器格式化时会导入项目并生成 `.uid` 文件，打包脚本只取改动后的 `.pet` 文件。
+  - 传入 `--godot <编辑器>` 可顺便格式化演示包里的 `.pet` 文件（要求 `<库目录>` 中包含本机 editor 库）。仓库里的 `tests/engine/fps/` 保持迁移留下的格式，因为 fps 测试组会验证格式化结果；编辑器格式化时会导入项目并生成 `.uid` 文件，打包脚本只取改动后的 `.pet` 文件。
 - **验收**：运行 `python tests/acceptance/run.py <官方编辑器> <模板目录> <插件包> [<演示包>]`。
   - 导出模板取自官方 `Godot_v4.7.2-stable_export_templates.tpz`（本质是 zip，只需解压当前平台的模板）。
   - 验收脚本会把模板直接写进导出预设的 `custom_template`，不会改动编辑器的数据目录。

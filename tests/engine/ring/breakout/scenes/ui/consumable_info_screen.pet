@@ -1,0 +1,31 @@
+extends PanelContainer
+
+class_name ConsumableInfoScreen
+
+@export var consumable: Consumable?
+
+@onready var sprite: TextureRect = $MarginContainer/VBoxContainer/HBoxContainer/Sprite
+@onready var rest_times_label: Label = $MarginContainer/VBoxContainer/HBoxContainer/Sprite/RestTimesLabel
+@onready var name_label: Label = $MarginContainer/VBoxContainer/HBoxContainer/NameLabel
+@onready var description_label: Label = $MarginContainer/VBoxContainer/DescriptionLabel
+
+func _ready() -> void:
+	update()
+
+pub func hint_not_available():
+	if consumable.unwrap().rest_times == 0:
+		Utility.hint_not_available(rest_times_label)
+	else:
+		Utility.hint_not_available(description_label)
+
+pub func update():
+	if not is_instance_valid(consumable):
+		sprite.texture = None
+		rest_times_label.text = str(0)
+		name_label.text = ""
+		description_label.text = ""
+	else:
+		sprite.set("texture", consumable.unwrap().texture_normal)
+		rest_times_label.text = str(consumable.unwrap().rest_times)
+		name_label.text = consumable.unwrap().consumable_info.consumable_name
+		description_label.text = consumable.unwrap().consumable_info.consumable_description

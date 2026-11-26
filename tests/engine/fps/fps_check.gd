@@ -91,13 +91,10 @@ func _ready() -> void:
 			_check(not meshes.is_empty() and meshes.all(func(mesh): return mesh.layers == 2), "weapon %d's model renders on layer 2 only" % i)
 		_check(player.crosshair.texture == weapons[i].crosshair, "weapon %d shows its crosshair" % i)
 
-	# An enemy shoots what is Combat.Damageable in front of it: with the player
-	# held there, the HUD's health drops.
+	# An enemy shoots the player in front of it: with the player held there,
+	# the HUD's health drops.
 	var enemies := _nodes_with_script(scene, "enemy")
 	_check(enemies.size() == 4, "the scene has its four enemies")
-	# combat.pet, which declares the interface, has no GDScript original.
-	if ResourceLoader.exists("res://scripts/combat.pet"):
-		print("fps check: combat runs %s" % load("res://scripts/combat.pet").get_class())
 	if not enemies.is_empty():
 		var enemy: Node3D = enemies[0]
 		var start := player.global_position

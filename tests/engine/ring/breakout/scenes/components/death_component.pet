@@ -1,12 +1,11 @@
-@owner(Combat.Combatant)
-class_name DeathComponent
 extends Node2D
+class_name DeathComponent
 
 #TODO: 多种掉落物随机抽
-@export_enum("basic_enemy","basic_brick"," ") pub var death_type: String = " "
+@export_enum("basic_enemy","basic_brick"," ") var death_type: String = " "
 
-@export pub var health_component: HealthComponent
-@export pub var sprite_2d: Sprite2D
+@export var health_component: HealthComponent
+@export var sprite_2d: Sprite2D
 
 @onready var animation_player: AnimationPlayer = $AnimationPlayer
 @onready var pop_gpu_particles_2d: GPUParticles2D = $PopGPUParticles2D
@@ -17,7 +16,8 @@ func _ready():
 	health_component.died.connect(_on_died)
 
 func spawn_unique_drop(spawn_global_position: Vector2):
-	ResourceManager.spawn_unique_drop(spawn_global_position, owner.unique_drop_name)
+	var dying: Object = owner.unwrap()
+	ResourceManager.spawn_unique_drop(spawn_global_position, String(dying.get("unique_drop_name")))
 
 func spawn_standard_drop(spawn_global_position: Vector2):
 	ResourceManager.spawn_random_drop(spawn_global_position)
@@ -26,21 +26,23 @@ func spawn_lucky_drop(spawn_global_position: Vector2):
 	ResourceManager.spawn_random_lucky_drop(spawn_global_position)
 
 func spawn_drop(spawn_global_position: Vector2):
-	if owner.lucky_drop:
-		if owner.unique_drop_name != "":
+	var dying: Object = owner.unwrap()
+	if bool(dying.get("lucky_drop")):
+		if String(dying.get("unique_drop_name")) != "":
 			spawn_unique_drop(spawn_global_position)
 		else:
 			spawn_lucky_drop(spawn_global_position)
-	elif randf() <= ValueManager.current_drop_percent * owner.drop_percent_scale:
-		if owner.unique_drop_name != "":
+	elif randf() <= ValueManager.current_drop_percent * float(dying.get("drop_percent_scale")):
+		if String(dying.get("unique_drop_name")) != "":
 			spawn_unique_drop(spawn_global_position) # 想稳定掉落指定drop且不闪光，将drop percent调成100就行
 		else:
 			spawn_standard_drop(spawn_global_position)
 
 func _on_died():
-	BreakoutManager.point_scored.emit(owner.point)
+	var dying: Object = owner.unwrap()
+	BreakoutManager.point_scored.emit(int(dying.get("point")))
 
-	var spawn_global_position = owner.global_position
+	var spawn_global_position = (owner as Node2D).unwrap().global_position
 
 	spawn_drop(spawn_global_position)
 
@@ -50,8 +52,6 @@ func _spawn_particles(spawn_global_position: Vector2):
 	var foregrounds = get_tree().get_first_node_in_group("foregrounds")
 	get_parent().unwrap().remove_child(self)
 	foregrounds.unwrap().add_child(self)
-	# remove_child() took this node out of its owner's subtree, so owner is
-	# None now, and is not read again.
 	global_position = spawn_global_position
 
 	match death_type:
