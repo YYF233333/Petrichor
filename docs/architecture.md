@@ -919,9 +919,10 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 在这样的对象上赋值或调用，或放进嵌套容器时，带类型容器的字面量写成 `[...] as Array[T]`，GDScript 由此给它类型（`:3808-3815`）。类没有全局名时不转换。
   - `@warning_ignore` 去掉本语言的名字，名字全去掉时删去注解，因为 GDScript 拒绝不认识的名字（`modules/gdscript/gdscript_parser.cpp:5122-5129`，`ed1daf0`）。
   - 用到 GDScript 没有的特性（规范 §13.4）、有编译错误，或同名 `.gd` 已在时，文件不转换，报告列出每处。
-  - GDScript 不接受的两种写法也使文件不转换：
+  - GDScript 不接受的三种写法也使文件不转换：
     - 内部类只写名字读外层类的静态变量或调用其静态函数。GDScript 只经外层类名找到它们（`modules/gdscript/gdscript_analyzer.cpp:4228-4256, 4270-4275`，`ed1daf0`），只写名字的 `log` 会读成数学函数；
-    - 返回值的函数靠穷尽而无 `_` 的 `match` 覆盖返回路径（规范 §5.6）。GDScript 只在有接住任意值的分支时才这样算（`modules/gdscript/gdscript_parser.cpp:2467-2475, 2543`）。
+    - 返回值的函数靠穷尽而无 `_` 的 `match` 覆盖返回路径（规范 §5.6）。GDScript 只在有接住任意值的分支时才这样算（`modules/gdscript/gdscript_parser.cpp:2467-2475, 2543`）；
+    - 静态变量的初始化式经它读的静态变量（含其中 lambda 读的）绕回自己。GDScript 解析变量时连带解析初始化式读到的成员，绕回时报错（`modules/gdscript/gdscript_analyzer.cpp:984-987, 1052-1054, 2110, 4198-4199`）；本语言运行时报为成环（规范 §4.8）。环上的每个文件都不转换。
   - Option 的方法：接收者是局部变量、参数或无 getter 的本类成员时写成条件表达式，作操作数时加括号。
     - 本语言的方法调用总是先求值实参（规范 §3.4），条件表达式只求值用到的一支。所以实参须求值看不出来：字面量、`self`、lambda、包着这类值的 `Some`、不经调用即可读的名字、常量、作值的方法或类，以及以它们为操作数的运算。`/` 和 `%` 除外，因为除数为零时出错。
     - 实参为其他写法的，如 `x.unwrap_or(spawn())`，使文件不转换。
@@ -964,11 +965,17 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。期望 enum 处的 `int` 写成的 `E(x)` 转回 `x as E`：GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6397-6400`，`ed1daf0`），引擎 enum 开放，本语言 enum 只在 `int` 是其某个值的常量时这样写，转换都不改变它（规范 §3.7）；
     - 声明无类型容器写下的 `Array` 或 `Dictionary`，GDScript 照样接受；
     - 隐式向下转换在其余位置写下的 `(x as T)`，以及值可能为空时写下的 `x as T`；
-    - 给无 `class_name` 的类补上的 `preload` 常量。GDScript 照样加载它所指的脚本，留下的 `.pet` 也是。它作类型、`is` 和 `new()` 都同原来的类，类不符的赋值和传参照样出错（`modules/gdscript/gdscript_analyzer.cpp:4755-4780, 5720-5729`）。与本语言不同，常量只出现在类型处时，GDScript 也在加载这个类时加载它（规范 §2.1）。
+    - 写了类型之处的显式 `x as T`，迁移补上 `.unwrap()`，转回写成 `x`。类不符时原文得 null，转回的文件在调试构建中出错，迁移后的文件本已在 `unwrap()` 处出错；
+    - 给无 `class_name` 的类补上的 `preload` 常量。GDScript 照样加载它所指的脚本，留下的 `.pet` 也是。它作类型、`is` 和 `new()` 都同原来的类，类不符的赋值和传参照样出错（`modules/gdscript/gdscript_analyzer.cpp:4755-4780, 5720-5729`）。
+  - 转回的已知差异：转回的文件照 GDScript 的做法运行而不报错，与本语言只差以下几处：
+    - 不带 `pub` 的成员，GDScript 按名访问也找得到，且先于 `_get()`；本语言在此隐藏它（规范 §10.5）。正向迁移把按名用到的成员改为 `pub`，迁移来的文件遇不到；
+    - `match` 头部求出的临时值，本语言在进入分支前释放（规范 §6.8）；GDScript 把它留在栈上，`match` 结束时也不清除，直到那一格另作他用或函数返回（`modules/gdscript/gdscript_compiler.cpp:1909-1912, 2004`，`modules/gdscript/gdscript_byte_codegen.cpp:1907-1909`）；
+    - 只作类型的 `preload` 常量，GDScript 加载这个类时就加载它所指的脚本，运行其静态初始化；本语言不加载（规范 §2.1）；
+    - 值模式读到持有已释放对象的 `T?`，本语言按 `None` 匹配（规范 §3.3、§5.6），GDScript 先比较类型而不匹配（`modules/gdscript/gdscript_compiler.cpp:1435-1453`）。
   - 语言测试转回后，逐条比较检查的结果（第 5 步第 11 项的验收）。
     - 本语言出错之处转回后照 GDScript 的做法，所以比较略去检查本语言自有行为的检查。它们在 `language_test.gd` 中以 `OWN` 开头。
-    - 自有行为包括程序错误、其文本及其后果，以及 GDScript 另有做法的规则。后者如引用的释放时机（规范 §6.8）、按名访问不带 `pub` 的成员（§1.2）和只作类型的 `preload` 常量（§2.1）。
-    - 两种脚本留下不转换：GDScript 解析不了的静态初始化环，以及按名访问使测试自己的代码出错的脚本。
+    - 自有行为包括程序错误、其文本及其后果，以及上面转回的已知差异。
+    - 按名访问使测试自己的代码出错的脚本留下不转换。
 
 ## 7. 暂不决定
 
