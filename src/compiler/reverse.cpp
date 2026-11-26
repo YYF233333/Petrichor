@@ -296,6 +296,10 @@ class Converter {
 				}
 				return untyped(*p_expr.left) || untyped(*p_expr.right);
 			case ExprKind::Call:
+				// A function type is Callable there, whose call() gives Variant.
+				if (p_expr.target == Target::CallValue) {
+					return p_expr.type.kind != TypeKind::Variant;
+				}
 				// The conditional expressions that option_method() writes give
 				// the type of both values, or else Variant (:5189-5202).
 				if (p_expr.target != Target::LanguageMethod || p_expr.language->of != LanguageFunction::Of::Option) {
@@ -539,7 +543,18 @@ class Converter {
 			case ExprKind::Lambda:
 				visit(*p_expr.function);
 				return;
+			case ExprKind::Name:
+				// GDScript finds an outer class's static members only through its
+				// name (modules/gdscript/gdscript_analyzer.cpp:4228-4256, 4270-4275;
+				// ed1daf0).
+				if (p_expr.target == Target::StaticVar && klass && std::none_of(klass->all_static_vars.begin(), klass->all_static_vars.end(), [&](const VarDecl *p_var) { return p_var->name == p_expr.text; })) {
+					refuse(p_expr.range.first, std::string(NOT_YET) + "a static member of an outer class by its name alone, which GDScript does not find.");
+				}
+				break;
 			case ExprKind::Call:
+				if (!p_expr.base && (p_expr.target == Target::ScriptFunction || p_expr.target == Target::ScriptMethod) && klass && std::none_of(klass->all_functions.begin(), klass->all_functions.end(), [&](const FuncDecl *p_function) { return p_function->name == p_expr.text; })) {
+					refuse(p_expr.name_token, std::string(NOT_YET) + "a static member of an outer class by its name alone, which GDScript does not find.");
+				}
 				call(p_expr, p_operand);
 				break;
 			default:
@@ -879,6 +894,15 @@ public:
 			typed_literal(*p_stmt.value);
 		}
 		if (p_stmt.kind == StmtKind::Match) {
+			// GDScript counts a match as returning only with a branch that takes
+			// any value (modules/gdscript/gdscript_parser.cpp:2467-2475, 2543;
+			// ed1daf0), this language also when it is exhaustive (spec §5.6).
+			const auto any = [](const MatchBranch &p_branch) { return !p_branch.guard && std::any_of(p_branch.patterns.begin(), p_branch.patterns.end(), [](const Pattern &p_pattern) { return p_pattern.kind == PatternKind::Wildcard || p_pattern.kind == PatternKind::Bind; }); };
+			const auto returns = [](const MatchBranch &p_branch) { return !p_branch.body.empty() && p_branch.body.back()->kind == StmtKind::Return; };
+			const bool typed = function && function->return_type_ref && function->return_type.kind != TypeKind::Void && function->return_type.kind != TypeKind::Option;
+			if (typed && std::none_of(p_stmt.branches.begin(), p_stmt.branches.end(), any) && std::all_of(p_stmt.branches.begin(), p_stmt.branches.end(), returns)) {
+				refuse(p_stmt.range.first, std::string(NOT_YET) + "a match that returns on every path without _, which GDScript does not count as returning.");
+			}
 			bool none = false;
 			for (const MatchBranch &branch : p_stmt.branches) {
 				for (const Pattern &pattern : branch.patterns) {
@@ -962,12 +986,13 @@ class Printer {
 		depth--;
 	}
 
-	std::string literal(const Expr &p_expr) const {
-		const auto found = p_expr.kind == ExprKind::StringLiteral ? renamed.find(resolved_path(p_expr.text, path)) : renamed.end();
+	// A path written in the file, as `extends` or a string names one.
+	std::string literal(const std::string &p_text) const {
+		const auto found = renamed.find(resolved_path(p_text, path));
 		if (found == renamed.end()) {
-			return p_expr.text;
+			return p_text;
 		}
-		return p_expr.text.substr(0, p_expr.text.rfind('.')) + found->second.substr(found->second.rfind('.'));
+		return p_text.substr(0, p_text.rfind('.')) + found->second.substr(found->second.rfind('.'));
 	}
 
 	// While a rewrite's GDScript prints, what its `__0`... stand for, and that
@@ -1064,7 +1089,7 @@ public:
 			const bool moved = named && erased.moved.count(p_node.name_token);
 			char number[64];
 			std::snprintf(number, sizeof(number), "%lld %.17g", static_cast<long long>(p_node.int_value), p_node.float_value);
-			std::string label = "expr " + std::to_string(int(p_node.kind)) + " " + (p_node.kind == ExprKind::NoneLiteral ? std::string() : std::to_string(int(p_node.op))) + " " + literal(p_node) + " " + number + (p_node.bool_value ? " true" : "");
+			std::string label = "expr " + std::to_string(int(p_node.kind)) + " " + (p_node.kind == ExprKind::NoneLiteral ? std::string() : std::to_string(int(p_node.op))) + " " + (p_node.kind == ExprKind::StringLiteral ? literal(p_node.text) : p_node.text) + " " + number + (p_node.bool_value ? " true" : "");
 			// Unchecked, the members passed by name are arguments by name.
 			for (const std::vector<std::string> *names : { &p_node.arg_names, &p_node.member_names }) {
 				for (const std::string &name : moved ? std::vector<std::string>() : *names) {
@@ -1149,7 +1174,7 @@ public:
 			line("func " + p_node.name + (p_node.is_static ? " static" : "") + (p_node.has_body ? "" : " bodiless") + " of=" + p_node.accessor_of, p_node.name_token);
 			children(p_node);
 		} else if constexpr (std::is_same_v<T, ClassDecl>) {
-			line("class " + p_node.name + " " + p_node.class_name + " extends " + p_node.extends + (p_node.is_abstract ? " abstract" : "") + (p_node.static_unload ? " static_unload" : "") + " " + p_node.icon, p_node.name_token);
+			line("class " + p_node.name + " " + p_node.class_name + " extends " + literal(p_node.extends) + (p_node.is_abstract ? " abstract" : "") + (p_node.static_unload ? " static_unload" : "") + " " + p_node.icon, p_node.name_token);
 			depth++;
 			for_each_child(p_node, [&](const auto &p_child) {
 				if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, TypeRef>) {

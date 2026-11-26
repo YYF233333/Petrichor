@@ -910,10 +910,13 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 嵌套容器只写外层，如 `Array[Array[int]]` 写成 `Array[Array]`；元素含值类型 `T?` 的容器不写类型参数。
   - GDScript 读作无类型之处：
     - 以 `:=` 推断这样的值时不转换，因为 GDScript 推断不出（`modules/gdscript/gdscript_analyzer.cpp:2140-2142`）。
-    - 这样的值包括值类型的 `T?`、嵌套容器的元素、`var x = v` 声明的变量，以及以它们为操作数的运算（`:3166-3180`）。
+    - 这样的值包括值类型的 `T?`、嵌套容器的元素、`var x = v` 声明的变量、函数值 `call()` 的结果（GDScript 中它是 `Callable`），以及以它们为操作数的运算（`:3166-3180`）。
     - 在这样的对象上赋值或调用，或放进嵌套容器时，带类型容器的字面量写成 `[...] as Array[T]`，GDScript 由此给它类型（`:3808-3815`）。类没有全局名时不转换。
   - `@warning_ignore` 去掉本语言的名字，名字全去掉时删去注解，因为 GDScript 拒绝不认识的名字（`modules/gdscript/gdscript_parser.cpp:5122-5129`，`ed1daf0`）。
   - 用到 GDScript 没有的特性（规范 §13.4）、有编译错误，或同名 `.gd` 已在时，文件不转换，报告列出每处。
+  - GDScript 不接受的两种写法也使文件不转换：
+    - 内部类只写名字读外层类的静态变量或调用其静态函数。GDScript 只经外层类名找到它们（`modules/gdscript/gdscript_analyzer.cpp:4228-4256, 4270-4275`，`ed1daf0`），只写名字的 `log` 会读成数学函数；
+    - 返回值的函数靠穷尽而无 `_` 的 `match` 覆盖返回路径（规范 §5.6）。GDScript 只在有接住任意值的分支时才这样算（`modules/gdscript/gdscript_parser.cpp:2467-2475, 2543`）。
   - Option 的方法：接收者是局部变量、参数或无 getter 的本类成员时写成条件表达式，作操作数时加括号。
     - 本语言的方法调用总是先求值实参（规范 §3.4），条件表达式只求值用到的一支。所以实参须求值看不出来：字面量、`self`、lambda、包着这类值的 `Some`、不经调用即可读的名字、常量、作值的方法或类，以及以它们为操作数的运算。`/` 和 `%` 除外，因为除数为零时出错。
     - 实参为其他写法的，如 `x.unwrap_or(spawn())`，使文件不转换。
@@ -943,7 +946,11 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 不穷尽的 `match` 补上的 `_: pass`；
     - 从根取 autoload 改用的名字；
     - 转为带类型 `Array` 的 `as` 写回的原数组，以及遍历它的循环变量写上的类型；
-    - 补上的 `return None` 写回为 `return null`，包括对象类型函数中原本只写的 `return`。
+    - 补上的 `return None` 写回为 `return null`，包括对象类型函数中原本只写的 `return`；
+    - 推断写下或改窄的类型。反向只读 `.pet`，分不出哪些类型是推断写下的；它们都经检查器核验，GDScript 照样接受；
+    - 真值判断写成的比较、`is_empty()` 和 `is_instance_valid()`。GDScript 的真值即 `is_zero()` 之反，对象按存活判断，与 `!= null` 相同（`core/variant/variant.cpp:878-953`，`core/variant/variant_op.cpp:1120-1122`，`ed1daf0`）；
+    - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。
+  - corpus v1 的往返另有两种差异，尚无反向规则：隐式向下转换写下的 `(x as T)`，以及给无 `class_name` 的类补上的 `preload` 常量（[调查](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/round-trip.md)）。
 
 ## 7. 暂不决定
 

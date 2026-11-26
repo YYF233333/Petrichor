@@ -54,7 +54,12 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - `:=` of a value that GDScript reads untyped, which it cannot infer;
   - members passed by name but where a variable is declared, and `instantiate(...)` with them into `:=`;
   - `Some(_)` before a branch of `None`;
-  - a typed literal of a class without a global name where GDScript knows no type for it, and `State(x)` in a constant.
+  - a typed literal of a class without a global name where GDScript knows no type for it, and `State(x)` in a constant;
+  - an outer class's static member by its name alone, and a match that returns on every path without `_`.
+- The corpus round trip ([round-trip](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/round-trip.md)) leaves two differences without a reverse rule. Each needs one before 0.3:
+  - `(x as T).unwrap()` that an implicit downcast wrote comes back as `(x as T)`. Where the original errors in a debug build, it then gives null. Written back as `x` where the value goes to a place of type `T`, GDScript would check it there again;
+  - the `preload` constant written for a class without `class_name` stays, also when it names a `.pet` file that stays.
+- The language tests converted back (the `reverse` group, run when named): 51 scripts convert, and the run differs at 24 checks before it stops. The checks test what only this language does: the program errors of `@late`, `@onready` read before ready, a freed self, `$X` of another class and `@parent`, and their texts. A static initialization cycle between two converted classes becomes a GDScript parse error. Which checks the comparison skips is open.
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
 

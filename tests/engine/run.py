@@ -14,7 +14,8 @@ and converted back.
 Naming groups runs only those, after the build; the groups are those of
 GROUPS, hot reload being part of debugger. The dotnet group, classes written
 in C#, runs on a .NET editor or when named; it needs the .NET SDK 8 or later
-on PATH.
+on PATH. The reverse group, the language tests converted back to GDScript,
+runs when named.
 
 Environment:
     PETRICHOR_PREBUILT=1          the libraries in tests/engine/project/bin were
@@ -23,6 +24,7 @@ Environment:
 """
 
 import configparser
+import difflib
 import hashlib
 import json
 import os
@@ -64,7 +66,7 @@ GAME_OUTPUT = [
     "greeter: _ready, message = set from GDScript",
 ]
 
-GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "pet", "fps", "ring", "deck", "dotnet"]
+GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "pet", "fps", "ring", "deck", "reverse", "dotnet"]
 LSP = HERE / "lsp"
 DOTNET = HERE / "dotnet"
 DOTNET_ASSEMBLY = Path(".godot", "mono", "temp", "bin", "Debug", "DotnetCheck.dll")
@@ -588,13 +590,15 @@ def main():
         finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, False, "res://ring_check.tscn"))
     if wanted("deck"):
         finishes.append(beside("deck", run_migration_group, godot, "deck", prepare_deck, DECK_MIGRATED, False, "res://scenes/ui/main_menu.tscn"))
+    if "reverse" in only:
+        finishes.append(beside("reverse", run_reverse_group, godot))
     dotnet = dotnet_build(godot)
     if "dotnet" in only or (not only and dotnet):
         finishes.append(beside("dotnet", run_dotnet_group, godot, dotnet))
     elif not only:
         print(f"dotnet: skipped, as {godot} is not a .NET build")
 
-    if not only or (only - {"lsp", "pet", "fps", "ring", "deck", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
+    if not only or (only - {"lsp", "pet", "fps", "ring", "deck", "reverse", "dotnet"} and ("editor" in only or not project_bytecode_current(godot))):
         # The game reads the bytecode the editor writes (architecture §2.4).
         # The checked build runs on an imported project, as import_project()
         # explains.
@@ -751,6 +755,62 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
         expect(f"{name} reverse run", code == 0 and not new_errors and f"{name} check: 0 failure(s)" in output, output)
         expect(f"{name} reverse run: no resources kept at exit that the original frees", resources_in_use(output) <= known_in_use, output)
         expect(f"{name} reverse run: no script runs PetScript", f"{name} check: " in output and "runs PetScript" not in output, output)
+
+
+def language_checks(output):
+    """What the language tests found: each check, each expected error and the count."""
+    return [line for line in output.splitlines() if re.match(r"^\w+: (ok: |FAILED: |expected error: |\d+ failure\(s\)$)", line)]
+
+
+def run_reverse_group(godot):
+    """Architecture §5 step 11: in a copy of the test project, the language
+    tests' scripts that convert back to GDScript give the results they gave,
+    line for line. Converted, a script can give errors to the .pet files that
+    stay, which see it as GDScript (spec §11.1), and to the GDScript calling
+    it, which GDScript reports as it loads (architecture §6.6). So each
+    script that those name stays, with its inheritance tree, until none has
+    an error; one converted back that GDScript refuses is a failure."""
+    with tempfile.TemporaryDirectory() as tmp:
+        original = Path(tmp) / "original"
+        shutil.copytree(PROJECT, original, ignore=shutil.ignore_patterns(".godot"))
+        import_project(godot, original)
+
+        def results(project):
+            code, output = run(godot, "-e", "--path", str(project), "--", "--petrichor-build")
+            return output + run(godot, "--path", str(project), "res://language/language.tscn")[1]
+
+        output = results(original)
+        before = language_checks(output)
+        expect("reverse: the language tests run", ", 0 with errors" in output and before, output)
+        code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-migrate", "--reverse", "--dry-run", "--allow-dirty")
+        candidates = re.findall(r"^(\S+\.pet) → ", output, flags=re.M)
+        text = {file: (original / file).read_text(encoding="utf-8") for file in candidates}
+        kept = set()
+        for attempt in range(8):
+            project = Path(tmp) / str(attempt)
+            shutil.copytree(original, project)
+            code, output = run(godot, "-e", "--path", str(project), "--", "--petrichor-migrate", "--reverse", "--allow-dirty", *sorted(set(candidates) - kept))
+            converted = re.findall(r"^(\S+\.pet) → ", output, flags=re.M)
+            # The file whose tree brought back one kept.
+            pulled = {why for file, why in re.findall(r"^(\S+\.pet) → \S+, added: in the inheritance tree of res://(\S+\.pet)", output, flags=re.M) if file in kept}
+            staying = set(re.findall(r"^(\S+\.pet):[\d:]* error: (?!GDScript has no|This is not converted back yet|It has compile errors)", output, flags=re.M))
+            calling = set()
+            if not pulled and not staying:
+                output = results(project)
+                # The GDScript files that fail to load, at their lines.
+                failed = {(file, int(line)) for file, line in re.findall(r"at: GDScript::reload \(res://(\S+?):(\d+)\)", output)}
+                if not failed or {file for file, _ in failed} & {file[:-4] + ".gd" for file in converted}:
+                    break
+                calling = {word for file, line in failed for word in re.findall(r"\w+", ((project / file).read_text(encoding="utf-8").splitlines() + [""])[line - 1])}
+            words = set(re.findall(r"\w+", " ".join((project / file).read_text(encoding="utf-8") for file in staying)))
+            more = pulled | {file for file in converted if Path(file).stem in words or words & set(re.findall(r"(?m)^class_name (\w+)", text.get(file, ""))) or calling & set(re.findall(r"\b(?:func|var|signal|const) (\w+)", text.get(file, "")))}
+            if more <= kept:
+                break
+            kept |= more
+        expect("reverse: the scripts convert back, and GDScript and the .pet files that stay load them", code == 0 and converted and ", 0 defect(s), 0 error(s)" in output and "Failed to load script" not in output, output)
+        after = language_checks(output)
+        different = "\n".join(difflib.unified_diff(before, after, "before", "converted back", n=0, lineterm=""))
+        expect(f"reverse: the {len(converted)} script(s) converted back give the {len(before)} results they gave", not different, different)
 
 
 def dotnet_build(godot):

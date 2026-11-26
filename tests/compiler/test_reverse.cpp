@@ -86,6 +86,19 @@ TEST_CASE("reverse conversion assigns members passed by name after the call, mat
 	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?) -> void:\n\tmatch other:\n\t\tSome(_):\n\t\t\tpass\n\t\tNone:\n\t\t\tpass\n") == "6:3: This is not converted back yet: Some(_) or Some(None), which would take null too, before a branch of None.\n");
 }
 
+// GDScript counts a match as returning only with a branch that takes any
+// value, this language also when it is exhaustive (spec §5.6).
+TEST_CASE("a function that returns through an exhaustive match without _ stays") {
+	CHECK(reversed("extends Node\nenum Mode { CALM, ANGRY }\n\n\nfunc name_of(mode: Mode) -> String:\n\tmatch mode:\n\t\tMode.CALM:\n\t\t\treturn \"calm\"\n\t\tMode.ANGRY:\n\t\t\treturn \"angry\"\n") == "6:2: This is not converted back yet: a match that returns on every path without _, which GDScript does not count as returning.\n");
+}
+
+// GDScript finds an outer class's static members only through its name, and
+// a Callable's call() gives Variant.
+TEST_CASE("a file stays whose GDScript would not find an outer class's statics, or could not infer what a function value returns") {
+	CHECK(reversed("extends Node\nstatic var log: Array[String] = []\n\n\nstatic func doubled(x: int) -> int:\n\treturn x * 2\n\n\nclass Inner:\n\tstatic func f(make: func(int) -> int) -> void:\n\t\tlog.append(\"a\")\n\t\tprint(doubled(1))\n\t\tvar made := make.call(1)\n") ==
+			"11:3: This is not converted back yet: a static member of an outer class by its name alone, which GDScript does not find.\n12:9: This is not converted back yet: a static member of an outer class by its name alone, which GDScript does not find.\n13:7: This is not converted back yet: `:=` of a value that GDScript reads untyped, here int.\n");
+}
+
 // GDScript tries the guard after the pattern and goes on to the next branch
 // when it fails, as this language goes past Some(var x) for None.
 TEST_CASE("reverse conversion guards Some(var x) that comes before None as var x when x != null") {
@@ -139,8 +152,10 @@ TEST_CASE("the paths of the files converted are renamed in their scripts") {
 	project.add_script("res://a.pet", "extends Node\nconst B = preload(\"b.pet\")\nconst C = preload(\"res://c.pet\")\n");
 	project.add_script("res://b.pet", "extends Node\n");
 	project.add_script("res://c.pet", "extends Node\nstruct S:\n\tvar x: int\n");
-	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, { "res://a.pet", "res://b.pet" });
+	project.add_script("res://d.pet", "extends \"b.pet\"\n");
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, { "res://a.pet", "res://d.pet" });
 	CHECK(reversal.texts.at("res://a.pet") == "extends Node\nconst B = preload(\"b.gd\")\nconst C = preload(\"res://c.pet\")\n");
+	CHECK(reversal.texts.at("res://d.pet") == "extends \"b.gd\"\n");
 	CHECK(reversal.defects.empty());
 }
 
