@@ -132,7 +132,6 @@ pub func reset():
 			consumable.rest_times = rest_times
 			consumable.transformed = transformed
 			consumables.add_consumable_instance(consumable)
-			consumable.free()
 
 
 		var selected_skill := String(init_message["selected_skill"])

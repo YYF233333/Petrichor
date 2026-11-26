@@ -53,15 +53,17 @@ String PetLanguage::_get_extension() const {
 
 void PetLanguage::_finish() {
 	debugger::set_language(nullptr);
-	std::lock_guard<std::mutex> lock(kept_mutex);
-	// A static variable may hold the script again, through an object or a
-	// container of its class; GDScript clears its static variables at exit
-	// too (modules/gdscript/gdscript.cpp:1453, 2261; ed1daf0).
-	for (const Ref<PetScript> script : kept_scripts) {
-		if (const std::shared_ptr<const ClassImage> image = script.is_valid() ? script->get_image() : nullptr) {
-			image->clear_statics();
+	// A static variable or a constant may hold the script again, through an
+	// object or a container of its class, and keeps what it preloads. GDScript
+	// clears every script still loaded at exit, its constants and static
+	// variables with it (modules/gdscript/gdscript.cpp:1343, 1453, 1471,
+	// 2239-2265; ed1daf0).
+	for (const Ref<PetScript> &script : PetScript::loaded()) {
+		if (const std::shared_ptr<const ClassImage> image = script->get_image()) {
+			image->clear_values();
 		}
 	}
+	std::lock_guard<std::mutex> lock(kept_mutex);
 	kept_scripts.clear();
 }
 

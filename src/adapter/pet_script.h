@@ -86,6 +86,8 @@ public:
 	// The nodes in the editor with a script of this language ask again for the
 	// errors marked on them.
 	static void update_warnings();
+	// Every script of this language that is still referenced.
+	static std::vector<godot::Ref<PetScript>> loaded();
 	// The instance of this script on the object; null for a placeholder.
 	PetInstance *find_instance(godot::Object *p_object) const;
 	// In debug builds, the class of each live instance, and where code of this

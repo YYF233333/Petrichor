@@ -224,7 +224,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
   - 适配层在脚本加载时初始化静态变量（编辑器中除外），被另一类静态初始化先行用到的类在当时触发初始化。使用未初始化静态变量与初始化成环，都由初始化状态和本线程进行中的初始化发现。
   - 含静态变量的脚本在整个运行中保持加载，带 `@static_unload` 的也不例外（规范 §4.8），其他类读写静态变量时持有的存储指针靠这一点保持有效。
   - 引擎对本线程正在加载的文件只给空值（`core/io/resource_loader.cpp:1046-1056`），而静态初始化可能要建本类的对象或带类型容器。这时脚本取自本线程的加载登记；仍取不到就报程序错误，不建只按原生类定型的容器（`core/variant/array.cpp:885-897`）。
-  - 退出时静态变量清回默认值，打破经本类对象或容器指回脚本的环，与 GDScript 一样（`modules/gdscript/gdscript.cpp:1453, 2261`）。
+  - 退出时每个仍加载的脚本的静态变量和常量都清回默认值，与 GDScript 一样（`modules/gdscript/gdscript.cpp:1343, 1453, 1471, 2239-2265`）。这打破经本类对象或容器指回脚本的环，也放开泄漏对象的脚本所 `preload` 的资源。Ring 泄漏的 `old_model` 节点由此不再占着它 `preload` 的 `new_model.tres`（`breakout/scenes/consumables/old_model/old_model.gd:42-43`）。
 
 #### 协程栈帧与 Task 运行时
 

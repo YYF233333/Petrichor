@@ -217,9 +217,9 @@ public:
 	// This image and its inner classes take the static variables of
 	// `p_previous`, an image of the same class with the same declarations.
 	void adopt_statics(const ClassImage &p_previous) const;
-	// Its static variables and its inner classes' back to their defaults, and
-	// the constants that wait empty, which may hold the script.
-	void clear_statics() const;
+	// Its static variables and constants, and its inner classes', back to
+	// their defaults: what may hold the script, and what it preloads.
+	void clear_values() const;
 
 	// Whether the two differ only in function bodies, so that instances of
 	// `p_other` can switch to this image (spec §12.4).

@@ -656,8 +656,10 @@ def main():
 def resources_in_use(output):
     """What a --verbose run reports as still in use at exit, apart from sounds:
     a stopped sound's playback is released only when the audio thread next
-    mixes, so which sounds are still held at exit depends on timing."""
-    return {line for line in output.splitlines() if line.startswith("Resource still in use: ") and not re.search(r"\.(ogg|wav|mp3)\b", line)}
+    mixes, so which sounds are still held at exit depends on timing. A
+    GDScript file is named as migrated, as the engine names a script of this
+    language: without a class."""
+    return {re.sub(r"\.gd \(GDScript\)$", ".pet ()", line) for line in output.splitlines() if line.startswith("Resource still in use: ") and not re.search(r"\.(ogg|wav|mp3)\b", line)}
 
 
 def errors_in(output):

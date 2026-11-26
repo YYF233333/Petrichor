@@ -413,26 +413,11 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 		set_image(nullptr);
 		return false;
 	}
-	std::vector<Ref<PetScript>> live;
-	{
-		std::lock_guard<std::mutex> lock(scripts_mutex);
-		for (PetScript *script : scripts) {
-			if (script == this) {
-				continue;
-			}
-			// A script whose last reference went on another thread is still
-			// listed until its destructor takes the lock; it gives a null Ref.
-			Ref<PetScript> ref(script);
-			if (ref.is_valid()) {
-				live.push_back(ref);
-			}
-		}
-	}
 	std::vector<std::pair<Ref<PetScript>, std::shared_ptr<const ClassImage>>> updates;
 	String error;
-	for (const Ref<PetScript> &script : live) {
-		if (!script->inner_path.is_empty()) {
-			continue; // It takes its image with its file's.
+	for (const Ref<PetScript> &script : loaded()) {
+		if (script.ptr() == this || !script->inner_path.is_empty()) {
+			continue; // An inner class takes its image with its file's.
 		}
 		const auto old = script->get_image();
 		bool dependent = old && depends_on(*old, p_image->path);
@@ -512,6 +497,20 @@ void PetScript::update_warnings() {
 			node->update_configuration_warnings();
 		}
 	}
+}
+
+std::vector<Ref<PetScript>> PetScript::loaded() {
+	std::vector<Ref<PetScript>> live;
+	std::lock_guard<std::mutex> lock(scripts_mutex);
+	for (PetScript *script : scripts) {
+		// A script whose last reference went on another thread is still listed
+		// until its destructor takes the lock; it gives a null Ref.
+		Ref<PetScript> ref(script);
+		if (ref.is_valid()) {
+			live.push_back(ref);
+		}
+	}
+	return live;
 }
 
 std::vector<std::pair<String, Site>> PetScript::live_instances() {

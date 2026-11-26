@@ -550,21 +550,22 @@ void ClassImage::adopt_statics(const ClassImage &p_previous) const {
 	}
 }
 
-void ClassImage::clear_statics() const {
+void ClassImage::clear_values() const {
+	// The values go once the variables and constants hold defaults, in case
+	// releasing one runs code that reads them.
 	if (statics) {
-		// The values go once the variables hold defaults, in case releasing
-		// one runs code that reads them.
 		Statics cleared(statics->layout);
 		std::swap(cleared.data, statics->data);
 	}
-	for (const uint32_t index : waiting) {
-		const ValueType storage = types[module.constants[index].type].storage;
-		values[index] = Variant();
-		destroy_value(storage, native_values[index]);
-		construct_value(storage, native_values[index]);
+	std::vector<Variant> released(values.size());
+	std::swap(released, values);
+	for (uint32_t index = 0; index < native_values.size(); index++) {
+		if (native_values[index]) {
+			clear_value(types[module.constants[index].type], native_values[index]);
+		}
 	}
 	for (const std::shared_ptr<const ClassImage> &inner : inner_classes) {
-		inner->clear_statics();
+		inner->clear_values();
 	}
 }
 
