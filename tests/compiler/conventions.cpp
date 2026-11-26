@@ -356,6 +356,12 @@ void check_recovery(const std::string &p_source, const std::function<void(const 
 				exempt_to++;
 			}
 		}
+		// A triple quote cut in half leaves a string open to the next one.
+		const std::string whole = file.text.substr(start, end - start);
+		if (whole.find("\"\"\"") != std::string::npos || whole.find("'''") != std::string::npos) {
+			exempt_from = int(line + 2);
+			exempt_to = int(file.line_starts.size()) + 1;
+		}
 		for (const StatementStart &statement : starts) {
 			// A lambda whose head is cut leaves its body to the code around it.
 			const bool headless = std::find(statement.lambdas.begin(), statement.lambdas.end(), int(line + 1)) != statement.lambdas.end();
