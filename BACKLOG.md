@@ -56,7 +56,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
     - nested typed containers, function types, `State(x)` and `Dictionary(...)` of a container;
     - members passed by name to `new()` and `instantiate()`, and match patterns of `None` and `Some(...)`;
     - a value type's `T?` inside a container type or on an export.
-  - Of deck_builder_tutorial's 116 files, 24 stay. Nested containers keep 3 files and `expect()` 4. Their trees keep 11 more, and class-level accesses to those 7.
+  - Of deck_builder_tutorial's 116 files, 24 stay. Nested containers keep 3 files and `expect()` 4. Their trees keep 10 more, and class-level accesses to those 7.
   - Converting part of a project leaves errors in the `.pet` files that stay, beyond the class-level accesses listed: they see the members of the converted classes as `T?` and their enums as `Dictionary` constants (spec §11.1). GDScript callers that pass a wider class to a converted function typed with a `.pet` class fail to parse (Ring's `breakout/scenes/balls/ball.gd:60` once `utility.pet` converts). Should such users be pulled in, as the forward migration pulls GDScript files, or listed? Question for the owner.
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
