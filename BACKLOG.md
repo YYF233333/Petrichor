@@ -56,10 +56,11 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - `Some(_)` before a branch of `None`;
   - a typed literal of a class without a global name where GDScript knows no type for it, and `State(x)` in a constant;
   - an outer class's static member by its name alone, and a match that returns on every path without `_`.
-- The corpus round trip ([round-trip](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/round-trip.md)) leaves two differences without a reverse rule. Each needs one before 0.3:
-  - `(x as T).unwrap()` that an implicit downcast wrote comes back as `(x as T)`. Where the original errors in a debug build, it then gives null. Written back as `x` where the value goes to a place of type `T`, GDScript would check it there again;
-  - the `preload` constant written for a class without `class_name` stays, also when it names a `.pet` file that stays.
-- The language tests converted back (the `reverse` group, run when named): 51 scripts convert, and the run differs at 24 checks before it stops. The checks test what only this language does: the program errors of `@late`, `@onready` read before ready, a freed self, `$X` of another class and `@parent`, and their texts. A static initialization cycle between two converted classes becomes a GDScript parse error. Which checks the comparison skips is open.
+- Converted back, a file gives up three rules of this language that differ from GDScript without an error, and runs as GDScript does (the `reverse` group skips their checks, architecture §6.6). Whether such a file should stay, listed, is open:
+  - references released by scope (spec §6.8), as a temporary in a `match` header;
+  - members without `pub` hidden from access by name (spec §1.2), as a `_get()` that answers for a member's name;
+  - a `preload` constant used only in types, which GDScript loads with its class (spec §2.1). The constants the migration adds are of this kind.
+- A value pattern that reads a `T?` holding a freed object matches it as `None` (spec §3.3, §5.6). Converted, GDScript compares the object's type first and does not. Whether it refuses its file or becomes a guard is open.
 - One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
 

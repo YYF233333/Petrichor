@@ -8,14 +8,13 @@ Usage:
 
 Checks the game run, the editor side (placeholders, saving), the language, the
 debugger, hot reload, an exported pack run in a directory without sources with
-each library of export templates, the language server, and the FPS starter
-kit, Ring's breakout and deck_builder_tutorial with their migrated scripts
-and converted back.
+each library of export templates, the language server, the language tests
+converted back to GDScript, and the FPS starter kit, Ring's breakout and
+deck_builder_tutorial with their migrated scripts and converted back.
 Naming groups runs only those, after the build; the groups are those of
 GROUPS, hot reload being part of debugger. The dotnet group, classes written
 in C#, runs on a .NET editor or when named; it needs the .NET SDK 8 or later
-on PATH. The reverse group, the language tests converted back to GDScript,
-runs when named.
+on PATH.
 
 Environment:
     PETRICHOR_PREBUILT=1          the libraries in tests/engine/project/bin were
@@ -577,8 +576,8 @@ def main():
     if not editor_library.is_file():
         sys.exit(f"{editor_library} is missing. Build it with: scons")
 
-    # The lsp, pet, fps, ring and deck groups prepare projects of their own, so
-    # they run beside the groups of the test project.
+    # The lsp, pet, fps, ring, deck and reverse groups prepare projects of
+    # their own, so they run beside the groups of the test project.
     finishes = []
     if wanted("lsp"):
         finishes.append(beside("lsp", run_lsp_group, godot))
@@ -590,7 +589,7 @@ def main():
         finishes.append(beside("ring", run_migration_group, godot, "ring", prepare_ring, RING_MIGRATED, False, "res://ring_check.tscn"))
     if wanted("deck"):
         finishes.append(beside("deck", run_migration_group, godot, "deck", prepare_deck, DECK_MIGRATED, False, "res://scenes/ui/main_menu.tscn"))
-    if "reverse" in only:
+    if wanted("reverse"):
         finishes.append(beside("reverse", run_reverse_group, godot))
     dotnet = dotnet_build(godot)
     if "dotnet" in only or (not only and dotnet):
@@ -758,8 +757,10 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
 
 
 def language_checks(output):
-    """What the language tests found: each check, each expected error and the count."""
-    return [line for line in output.splitlines() if re.match(r"^\w+: (ok: |FAILED: |expected error: |\d+ failure\(s\)$)", line)]
+    """What the language tests' checks found, but those of this language's
+    own program errors (OWN in language_test.gd). A check of errors is ok
+    only with the errors it expects."""
+    return [line for line in output.splitlines() if re.match(r"^\w+: (ok|FAILED): (?!\(own\) )", line)]
 
 
 def run_reverse_group(godot):
@@ -785,15 +786,21 @@ def run_reverse_group(godot):
         code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-migrate", "--reverse", "--dry-run", "--allow-dirty")
         candidates = re.findall(r"^(\S+\.pet) → ", output, flags=re.M)
         text = {file: (original / file).read_text(encoding="utf-8") for file in candidates}
-        kept = set()
+        # Scripts that the test cannot run converted: GDScript cannot resolve
+        # static initializers that read each other (Could not resolve external
+        # class member), which this language runs and reports as a cycle; and
+        # by name GDScript finds members without pub, which this language's
+        # _get() answers for, before the test's own code compares the value.
+        kept = {"language/static_cycle_a.pet", "language/static_cycle_b.pet", "language/property_hooks.pet", "language/property_hooks_sub.pet"}
         for attempt in range(8):
             project = Path(tmp) / str(attempt)
             shutil.copytree(original, project)
-            code, output = run(godot, "-e", "--path", str(project), "--", "--petrichor-migrate", "--reverse", "--allow-dirty", *sorted(set(candidates) - kept))
-            converted = re.findall(r"^(\S+\.pet) → ", output, flags=re.M)
+            code, migrated = run(godot, "-e", "--path", str(project), "--", "--petrichor-migrate", "--reverse", "--allow-dirty", *sorted(set(candidates) - kept))
+            output = migrated
+            converted = re.findall(r"^(\S+\.pet) → ", migrated, flags=re.M)
             # The file whose tree brought back one kept.
-            pulled = {why for file, why in re.findall(r"^(\S+\.pet) → \S+, added: in the inheritance tree of res://(\S+\.pet)", output, flags=re.M) if file in kept}
-            staying = set(re.findall(r"^(\S+\.pet):[\d:]* error: (?!GDScript has no|This is not converted back yet|It has compile errors)", output, flags=re.M))
+            pulled = {why for file, why in re.findall(r"^(\S+\.pet) → \S+, added: in the inheritance tree of res://(\S+\.pet)", migrated, flags=re.M) if file in kept}
+            staying = set(re.findall(r"^(\S+\.pet):[\d:]* error: (?!GDScript has no|This is not converted back yet|It has compile errors)", migrated, flags=re.M))
             calling = set()
             if not pulled and not staying:
                 output = results(project)
@@ -807,7 +814,7 @@ def run_reverse_group(godot):
             if more <= kept:
                 break
             kept |= more
-        expect("reverse: the scripts convert back, and GDScript and the .pet files that stay load them", code == 0 and converted and ", 0 defect(s), 0 error(s)" in output and "Failed to load script" not in output, output)
+        expect("reverse: the scripts convert back, and GDScript and the .pet files that stay load them", code == 0 and converted and ", 0 defect(s), 0 error(s)" in migrated and "Failed to load script" not in output, migrated + output)
         after = language_checks(output)
         different = "\n".join(difflib.unified_diff(before, after, "before", "converted back", n=0, lineterm=""))
         expect(f"reverse: the {len(converted)} script(s) converted back give the {len(before)} results they gave", not different, different)

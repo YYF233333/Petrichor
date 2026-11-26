@@ -960,6 +960,10 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 修复写下的转换：`int(x)`、`float(x)`、packed array 的构造和写成 `6.0` 的 `6`，以及改用方法或信号本身的 `call_deferred()` 和 `emit()`。引擎 enum 位置上的 `int` 写成的 `E(x)` 转回 `x as E`：GDScript 照收 `int`（`modules/gdscript/gdscript_analyzer.cpp:6397-6400`，`ed1daf0`），引擎 enum 开放，转换不查范围（规范 §3.7）；
     - 隐式向下转换在其余位置写下的 `(x as T)`，以及值可能为空时写下的 `x as T`；
     - 给无 `class_name` 的类补上的 `preload` 常量。GDScript 照样加载它所指的脚本，留下的 `.pet` 也是。它作类型、`is` 和 `new()` 都同原来的类，类不符的赋值和传参照样出错（`modules/gdscript/gdscript_analyzer.cpp:4755-4780, 5720-5729`）。与本语言不同，常量只出现在类型处时，GDScript 也在加载这个类时加载它（规范 §2.1）。
+  - 语言测试转回后，逐条比较检查的结果（第 5 步第 11 项的验收）。
+    - 本语言出错之处转回后照 GDScript 的做法，所以比较略去检查本语言自有行为的检查。它们在 `language_test.gd` 中以 `OWN` 开头。
+    - 自有行为包括程序错误、其文本及其后果，以及 GDScript 另有做法的规则。后者如引用的释放时机（规范 §6.8）、按名访问不带 `pub` 的成员（§1.2）和只作类型的 `preload` 常量（§2.1）。
+    - 两种脚本留下不转换：GDScript 解析不了的静态初始化环，以及按名访问使测试自己的代码出错的脚本。
 
 ## 7. 暂不决定
 

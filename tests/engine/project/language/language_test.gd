@@ -5,6 +5,11 @@ extends Node
 #   godot --headless --path . res://language/language.tscn
 
 const ErrorLog := preload("res://error_log.gd")
+# Begins what a check says when it checks what only this language does: a
+# program error, its text or what follows from it, or a rule that GDScript
+# does otherwise. Converted back, a script does what GDScript does there
+# (architecture §6.6), so the reverse group (run.py) does not compare it.
+const OWN := "(own) "
 
 var failures := 0
 var errors := ErrorLog.new()
@@ -177,12 +182,12 @@ func _late() -> void:
 	late.target_name()
 	late.shared_name()
 	late.set("target", null)
-	_check_errors(["late_check.pet:16: \"target\" has not been assigned.", "late_check.pet:19: \"LateCheck.shared\" has not been assigned."], "reading an @late member or static variable before it is assigned is a program error that names it, and the node becomes ready without it")
+	_check_errors(["late_check.pet:16: \"target\" has not been assigned.", "late_check.pet:19: \"LateCheck.shared\" has not been assigned."], OWN + "reading an @late member or static variable before it is assigned is a program error that names it, and the node becomes ready without it")
 	_check(late.aim(self) == name and late.shared_name() == name and late.gradient == null, "an @late member reads once code assigns it; GDScript reads null before")
 	late.target = late
 	late.set("target", null)
-	_check_errors(["late_check.pet:6: \"target\" was not written: expected Node, found None."], "null from the engine onto an assigned @late member is a program error")
-	_check(late.target_name() == late.name, "an @late member takes another value, and keeps it when null is refused")
+	_check_errors(["late_check.pet:6: \"target\" was not written: expected Node, found None."], OWN + "null from the engine onto an assigned @late member is a program error")
+	_check(late.target_name() == late.name, OWN + "an @late member takes another value, and keeps it when null is refused")
 	late.queue_free()
 	var late_stored: LateCheck = load("res://language/late.tscn").instantiate()
 	_check(late_stored.gradient is Gradient, "a scene that stores an @late export assigns it")
@@ -195,8 +200,8 @@ func _values(c: LanguageCheck, v: ValuesCheck, texture: ImageTexture) -> void:
 	var made := ResourceCheck.new()
 	_check(made.resource_name == "made" and made.get_reference_count() == 1, "a RefCounted of this language uses self in _init() and is held once")
 	var half_made := InitCheck.new()
-	_check_errors(["init_check.pet:7: Division by zero."], "the program error of the member initializer")
-	_check(not half_made.init_ran, "a program error in a member initializer ends the construction before _init()")
+	_check_errors(["init_check.pet:7: Division by zero."], OWN + "the program error of the member initializer")
+	_check(not half_made.init_ran, OWN + "a program error in a member initializer ends the construction before _init()")
 	var ordered := OrderCheck.new()
 	_check(ordered.seen == 0 and ordered.later == 9 and ordered.written == 1 and ordered.overwritten == 3, "member initializers run in declaration order, literals among them")
 	_check(v.scaled(2) == Vector3(2, 4, 6), "Vector3 * float through the engine's operator")
@@ -484,10 +489,10 @@ func _detached_self(v: ValuesCheck) -> void:
 	var read_after_detach = lost_script.detach_and_read()
 	var read_after_signal = firing.fire_and_read()
 	var read_through_call = v.through_detached(called)
-	_check_errors(["free_check.pet:22: self was freed, or lost its script, while this method ran.", "free_check.pet:34: self was freed, or lost its script, while this method ran.", "free_check.pet:22: self was freed, or lost its script, while this method ran."], "the program errors of reading a member of a detached self")
-	_check(read_after_detach == 0 and lost_script.get_script() == null, "reading a member after self lost its script is a program error")
-	_check(read_after_signal == 0 and firing.get_script() == null, "reading a member after a signal handler took the emitter's script is a program error")
-	_check(read_through_call == 0 and v.after_failure == 0, "the same through a call from another class, which it ends too")
+	_check_errors(["free_check.pet:22: self was freed, or lost its script, while this method ran.", "free_check.pet:34: self was freed, or lost its script, while this method ran.", "free_check.pet:22: self was freed, or lost its script, while this method ran."], OWN + "the program errors of reading a member of a detached self")
+	_check(read_after_detach == 0 and lost_script.get_script() == null, OWN + "reading a member after self lost its script is a program error")
+	_check(read_after_signal == 0 and firing.get_script() == null, OWN + "reading a member after a signal handler took the emitter's script is a program error")
+	_check(read_through_call == 0 and v.after_failure == 0, OWN + "the same through a call from another class, which it ends too")
 	var returning := FreeCheck.new()
 	_check(returning.detach_and_return(21) == 42 and returning.get_script() == null, "a method that removes its script and then uses no member or self ends normally")
 	for node in [lost_script, firing, called, returning]:
@@ -520,9 +525,9 @@ func _division_by_zero(c: LanguageCheck) -> void:
 func _onready() -> void:
 	var nodes: Node = load("res://language/nodes.tscn").instantiate()
 	var early = nodes.early_text()
-	_check_errors(["nodes_check.pet:16: \"caption_label\" is read before the node is ready."], "the program error names the @onready member")
+	_check_errors(["nodes_check.pet:16: \"caption_label\" is read before the node is ready."], OWN + "the program error names the @onready member")
 	var early_length = nodes.early_length()
-	_check_errors(["nodes_check.pet:33: \"caption_length\" is read before the node is ready."], "so does one of a value type, which is never None")
+	_check_errors(["nodes_check.pet:33: \"caption_length\" is read before the node is ready."], OWN + "so does one of a value type, which is never None")
 	add_child(nodes)
 	_check(early == "" and nodes.ready_text() == "from the scene" and nodes.early_text() == "from the scene", "@onready members are set when the node is ready, and reading one before is a program error")
 	_check(early_length == 0 and nodes.early_length() == "from the scene".length(), "an @onready member of a value type is read once its initializer has run (spec §6.3)")
@@ -539,7 +544,7 @@ func _onready() -> void:
 	impostor.free()
 	var gone = nodes.caption_node()
 	# The engine reports the missing node too, as for GDScript.
-	_check_errors(["nodes_check.pet:25: Expected Label, found Node.", "Node not found: \"Caption\" (relative to \"/root/LanguageTest/NodesCheck\").", "nodes_check.pet:25: Expected Label, found None."], "the program errors give the class $X expects and what it found")
+	_check_errors(["nodes_check.pet:25: Expected Label, found Node.", "Node not found: \"Caption\" (relative to \"/root/LanguageTest/NodesCheck\").", "nodes_check.pet:25: Expected Label, found None."], OWN + "the program errors give the class $X expects and what it found")
 	_check(replaced == null and gone == null, "$X whose node has changed class or is gone is a program error")
 
 
@@ -563,6 +568,9 @@ func _freed_references() -> void:
 	_check(orphan.get_child_count() == 0 and orphan.owner == null, "and the engine does not get it")
 	_check(not refs.valid(), "is_instance_valid() of a freed object in a T is false")
 	_check(refs.identities() == [true, true, false, true, false, true, false], "== compares objects by ObjectID, two freed ones too, and a freed one in a T? is None (spec §5.2)")
+	var matcher := FreeCheck.new()
+	_check(matcher.matched_freed() == "none", "a match takes a freed object in a T? as None")
+	matcher.free()
 	orphan.free()
 	refs.free()
 
@@ -656,9 +664,9 @@ func _releases() -> void:
 	_check(releases.statement() == "a,next", "a temporary is released at the end of its statement")
 	_check(releases.block() == "in,b,out", "a local is released when its block is left, not after its last use")
 	_check(releases.iterations() == "end0,l0,end1,l1,k,after", "a loop's locals are released at the end of each iteration and at break")
-	_check(releases.headers() == "c,if,w,m,arm,bound,n,it,it,i0,i1,after", "a header's temporaries are released before its block, and a for loop keeps what it iterates over")
-	_check(releases.deleted() == "true,slot", "a RefCounted being deleted calls its own engine methods and properties (spec §6.6)")
-	_check_errors(["release_check.pet:46: self cannot be used as a value while the object is being deleted: nothing may keep it."], "self as a value in a helper of PREDELETE is a program error")
+	_check(releases.headers() == "c,if,w,m,arm,bound,n,it,it,i0,i1,after", OWN + "a header's temporaries are released before its block, and a for loop keeps what it iterates over")
+	_check(releases.deleted() == "true,slot", OWN + "a RefCounted being deleted calls its own engine methods and properties (spec §6.6)")
+	_check_errors(["release_check.pet:46: self cannot be used as a value while the object is being deleted: nothing may keep it."], OWN + "self as a value in a helper of PREDELETE is a program error")
 
 
 # Spec §3.8: Dictionary[K, V], elements assigned in place, keys that cannot change.
@@ -747,8 +755,8 @@ func _frames_and_freeing(c: LanguageCheck) -> void:
 	var freeing := FreeCheck.new()
 	var freer := FreeCheck.new()
 	_check(freer.free_other(freeing) == 0, "a call whose callee read a member after freeing self gives the default value")
-	_check_errors(["free_check.pet:17: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet:16 in function 'free_and_read'."], "the program error of reading a member after self was freed, which says where (spec §3.3)")
-	_check(not is_instance_valid(freeing), "a method of this language that frees self frees it")
+	_check_errors(["free_check.pet:17: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet:16 in function 'free_and_read'."], OWN + "the program error of reading a member after self was freed, which says where (spec §3.3)")
+	_check(not is_instance_valid(freeing), OWN + "a method of this language that frees self frees it")
 	var queued := FreeCheck.new()
 	freer.queue(queued)
 	await get_tree().process_frame
@@ -756,13 +764,13 @@ func _frames_and_freeing(c: LanguageCheck) -> void:
 	_check(c.frames > frames_before, "_process runs every frame")
 	_check(c.deferred == 2, "Callable.call_deferred() with an argument runs at the end of the frame")
 	freer.call_queued()
-	_check_errors(["free_check.pet:48: The function value's object was freed. queue_free() was called on it at res://language/free_check.pet:45 in function 'queue'."], "an object deleted at the end of the frame shows where queue_free() was called")
+	_check_errors(["free_check.pet:48: The function value's object was freed. queue_free() was called on it at res://language/free_check.pet:45 in function 'queue'."], OWN + "an object deleted at the end of the frame shows where queue_free() was called")
 	freer.free_on_thread()
-	_check_errors(["free_check.pet:56: The object was freed. It was freed at res://language/free_check.pet:54 in function '<lambda>'."], "a free on a thread that has ended shows where")
+	_check_errors(["free_check.pet:56: The object was freed. It was freed at res://language/free_check.pet:54 in function '<lambda>'."], OWN + "a free on a thread that has ended shows where")
 	freer.free_in_init()
-	_check_errors(["free_check.pet:66: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet::FreedInInit:65 in function '_init'."], "new as a value whose _init() frees self and then fails touches the object no more (spec §3.3)")
+	_check_errors(["free_check.pet:66: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet::FreedInInit:65 in function '_init'."], OWN + "new as a value whose _init() frees self and then fails touches the object no more (spec §3.3)")
 	freer.free_through(FreeCheck.new())
-	_check_errors(["free_check.pet:76: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet:75 in function 'freed_by'."], "an engine method called on a self freed through another reference is a program error")
+	_check_errors(["free_check.pet:76: self was freed, or lost its script, while this method ran. It was freed at res://language/free_check.pet:75 in function 'freed_by'."], OWN + "an engine method called on a self freed through another reference is a program error")
 	freer.free()
 
 
@@ -793,14 +801,14 @@ func _parent_requirement() -> void:
 	parented.parent_x()
 	var plain_parent := Node.new()
 	plain_parent.add_child(parented)
-	_check_errors(["parent_check.pet:7: Expected Node2D, found None.", "parent_check.pet:2: The parent: expected Node2D, found Node (@parent)."], "@parent is checked as the node gets a parent, and get_parent() without one is a program error")
+	_check_errors(["parent_check.pet:7: Expected Node2D, found None.", "parent_check.pet:2: The parent: expected Node2D, found Node (@parent)."], OWN + "@parent is checked as the node gets a parent, and get_parent() without one is a program error")
 	var fitting := Node.new()
 	parent_2d.add_child(fitting)
 	fitting.set_script(ParentCheck)
 	var misplaced := Node.new()
 	plain_parent.add_child(misplaced)
 	misplaced.set_script(ParentCheck)
-	_check_errors(["parent_check.pet:2: The parent: expected Node2D, found Node (@parent)."], "@parent is checked as the script joins a node that has a parent")
+	_check_errors(["parent_check.pet:2: The parent: expected Node2D, found Node (@parent)."], OWN + "@parent is checked as the script joins a node that has a parent")
 	plain_parent.free()
 	parent_2d.free()
 
@@ -1012,14 +1020,14 @@ func _static_variables() -> void:
 	load("res://language/static_cycle_a.pet")
 	_check_errors(["static_cycle_b.pet:2: Static initialization cycle: StaticCycleA.x → StaticCycleB.y → StaticCycleA.x.", "static_cycle_a.pet:3: StaticCycleB.y cannot be used: the static initialization of StaticCycleB failed."], "a cycle between static initializations is a program error that lists it")
 	load("res://language/static_order.pet")
-	_check_errors(["static_order.pet:8: static_order.pet.b is used before its initializer runs: static variables are initialized in declaration order."], "a static variable used before its initializer runs is a program error")
+	_check_errors(["static_order.pet:8: static_order.pet.b is used before its initializer runs: static variables are initialized in declaration order."], OWN + "a static variable used before its initializer runs is a program error")
 	var unload_user = load("res://language/static_unload_user.pet").new()
 	var bumps := [unload_user.bump(), unload_user.bump(), unload_user.bump()]
 	_check(bumps == ["1ab", "2abb", "3abbb"], "a class marked @static_unload stays loaded, with its static variables (spec §4.8): %s" % [bumps])
 	var preload_log: Script = load("res://language/preload_log.pet")
 	var preload_user = load("res://language/preload_user.pet").new()
 	var exported_hint: Dictionary = preload_user.get_property_list().filter(func(property): return property.name == "exported")[0]
-	_check(not preload_user.typed(RefCounted.new()) and preload_log.get("ran") == ["valued"], "loading a file loads a script its constant names as a value, and not one it names only in types, also in an export (spec §2.1): %s" % [preload_log.get("ran")])
+	_check(not preload_user.typed(RefCounted.new()) and preload_log.get("ran") == ["valued"], OWN + "loading a file loads a script its constant names as a value, and not one it names only in types, also in an export (spec §2.1): %s" % [preload_log.get("ran")])
 	_check(exported_hint.hint == PROPERTY_HINT_RESOURCE_TYPE and exported_hint.hint_string == "Resource", "an export of a class without a global name is picked by the nearest class along its bases that has one, as in GDScript")
 	var cycle_board: Node = load("res://language/cycle_board.pet").new()
 	_check(cycle_board.owns_abilities(), "a file that a preload names only as a type preloads that file in turn, and both load and run (spec §2.1, §7.6)")
@@ -1122,7 +1130,7 @@ func _annotations() -> void:
 	for method in reference_rpc:
 		for key in rpc_defaults:
 			same_rpc = same_rpc and own_rpc.get(method, {}).get(key, rpc_defaults[key]) == reference_rpc[method].get(key, rpc_defaults[key])
-	_check(same_rpc, "@rpc configures methods as in GDScript: %s" % own_rpc)
+	_check(same_rpc, "@rpc configures methods as in GDScript%s" % ("" if same_rpc else ": %s" % own_rpc))
 	annotated.call("hit", 4)
 	_check(annotated.hit_count() == 4, "the engine finds a method with @rpc by name")
 	var icons := {}
@@ -1142,19 +1150,19 @@ func _abstract() -> void:
 	for method in action_script.get_script_method_list():
 		if method.name == "cost":
 			cost_flags = method.flags
-	_check(action_script.is_abstract() and not action_script.can_instantiate() and not strike.get_script().is_abstract() and cost_flags & METHOD_FLAG_VIRTUAL_REQUIRED, "the engine sees which classes and methods are abstract")
+	_check(action_script.is_abstract() and not action_script.can_instantiate() and not strike.get_script().is_abstract() and cost_flags & METHOD_FLAG_VIRTUAL_REQUIRED, OWN + "the engine sees which classes and methods are abstract")
 	var abstract_classes := {}
 	for entry in ProjectSettings.get_global_class_list():
 		abstract_classes[entry["class"]] = entry["is_abstract"]
 	_check(abstract_classes.get(&"AbstractAction") == true and abstract_classes.get(&"AbstractStrike") == false, "the global class list marks abstract classes")
 	Resource.new().set_script(action_script)
-	_check_errors(["Cannot set object script. Script 'res://language/abstract_action.pet' should not be abstract."], "the engine gives no object an abstract script")
+	_check_errors(["Cannot set object script. Script '%s' should not be abstract." % action_script.resource_path], "the engine gives no object an abstract script")
 
 
 # Spec §10.1: GDScript checks the members and new() of this language's classes.
 func _gdscript_static_view() -> void:
 	var classes := ProjectSettings.get_global_class_list().filter(func(c): return c["class"] == &"TypedGreeter")
-	_check(classes.size() == 1 and classes[0]["language"] == &"Petrichor", "class_name registers a global class")
+	_check(classes.size() == 1 and classes[0]["language"] == &"Petrichor", OWN + "class_name registers a global class")
 	_check(_compiles("""
 var g: TypedGreeter = TypedGreeter.new()
 var s: String = g.greet()
@@ -1177,7 +1185,7 @@ g.free()"""), "a typed use of the class compiles, and awaits an async method, wh
 	_check(not _compiles("var s: Array[String] = TypedGreeter.new().scores()"), "a method's typed array result is checked")
 	_check_errors(["Parse Error: Cannot assign a value of type Array[int] to variable \"s\" with specified type Array[String]."], "GDScript reports the typed array result")
 	_check(not _compiles("var n: Node2D = TypedGreeter.new()"), "new() has the type of the class")
-	_check_errors(["Parse Error: Cannot assign a value of type res://language/typed_greeter.pet to variable \"n\" with specified type Node2D."], "GDScript reports the type of new()")
+	_check_errors(["Parse Error: Cannot assign a value of type res://language/typed_greeter.pet to variable \"n\" with specified type Node2D."], OWN + "GDScript reports the type of new()")
 	# With redundant_await raised to an error in this project, awaiting a call
 	# typed String fails.
 	_check(not _compiles("var r = await TypedGreeter.new().greet()"), "awaiting a typed result is a redundant await")

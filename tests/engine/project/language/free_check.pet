@@ -77,3 +77,14 @@ pub func freed_by(me: FreeCheck):
 
 pub func free_through(other: FreeCheck):
 	other.freed_by(other)
+
+# A freed object in a T? is None, also to a pattern (spec §3.3, §5.6).
+pub func matched_freed() -> String:
+	var made := Node.new()
+	var node: Node? = made
+	made.free()
+	match node:
+		None:
+			return "none"
+		_:
+			return "some"
