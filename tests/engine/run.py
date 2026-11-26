@@ -786,12 +786,10 @@ def run_reverse_group(godot):
         listed_code, listed = run(godot, "-e", "--path", str(original), "--", "--petrichor-migrate", "--reverse", "--dry-run", "--allow-dirty")
         candidates = re.findall(r"^(\S+\.pet) → ", listed, flags=re.M)
         text = {file: (original / file).read_text(encoding="utf-8") for file in candidates}
-        # Scripts that the test cannot run converted: GDScript cannot resolve
-        # static initializers that read each other (Could not resolve external
-        # class member), which this language runs and reports as a cycle; and
-        # by name GDScript finds members without pub, which this language's
-        # _get() answers for, before the test's own code compares the value.
-        kept = {"language/static_cycle_a.pet", "language/static_cycle_b.pet", "language/property_hooks.pet", "language/property_hooks_sub.pet"}
+        # Scripts that the test cannot run converted: by name GDScript finds
+        # members without pub, which this language's _get() answers for,
+        # before the test's own code compares the value.
+        kept = {"language/property_hooks.pet", "language/property_hooks_sub.pet"}
         for attempt in range(8):
             project = Path(tmp) / str(attempt)
             shutil.copytree(original, project)

@@ -107,6 +107,17 @@ std::string lacking(const Type &p_type) {
 	return std::string();
 }
 
+// A static variable that the initializer of one reads, lambdas in it too,
+// each as its class's path, "::" and its name. GDScript resolves what an
+// initializer reads as it resolves the variable, and fails where that
+// comes back to it (modules/gdscript/gdscript_analyzer.cpp:984-987,
+// 1052-1054, 2110, 4198-4199; ed1daf0).
+struct StaticRead {
+	std::string from;
+	std::string to;
+	Diagnostic at; // The refusal where it reads, should the reads cycle.
+};
+
 // The edits that write a .pet file's checked tree back in GDScript, by
 // deleting or replacing its tokens (architecture §6.6), what they erase from
 // its tree, and each place GDScript lacks.
@@ -128,15 +139,21 @@ class Converter {
 	std::set<std::pair<const FuncDecl *, int>> wide; // Locals that GDScript holds untyped or as untyped containers.
 	std::set<const Expr *> downcasts; // `(x as T).unwrap()` written back as x.
 	std::set<std::pair<int, std::string>> said; // Refusals by line, once.
+	const VarDecl *initializing = nullptr; // The static variable whose initializer this is.
+
+	Diagnostic at(uint32_t p_token, const std::string &p_message) const {
+		const Token &token = tokens[std::min<size_t>(p_token, tokens.size() - 1)];
+		Diagnostic diagnostic{ token.offset, token.end(), p_message };
+		const SourcePosition position = source.position(token.offset);
+		diagnostic.line = position.line;
+		diagnostic.column = position.column;
+		diagnostic.file = path;
+		return diagnostic;
+	}
 
 	void refuse(uint32_t p_token, const std::string &p_message) {
-		const Token &token = tokens[std::min<size_t>(p_token, tokens.size() - 1)];
-		Diagnostic refusal{ token.offset, token.end(), p_message };
-		const SourcePosition position = source.position(token.offset);
-		refusal.line = position.line;
-		refusal.column = position.column;
-		refusal.file = path;
-		if (said.emplace(position.line, p_message).second) {
+		Diagnostic refusal = at(p_token, p_message);
+		if (said.emplace(refusal.line, p_message).second) {
 			refused.push_back(std::move(refusal));
 		}
 	}
@@ -523,6 +540,9 @@ class Converter {
 		if (!lacks.empty() && (p_expr.type.kind != TypeKind::Task || !settled.count(&p_expr))) {
 			refuse(p_expr.range.first, lacks);
 		}
+		if (initializing && p_expr.target == Target::StaticVar && p_expr.variable) {
+			static_reads.push_back({ klass->path + "::" + initializing->name, p_expr.owner + "::" + p_expr.variable->name, at(p_expr.range.last, std::string(LACKS) + "cycle of static initializers, as through " + source.text_of(p_expr.range) + " here.") });
+		}
 		const size_t before = edits.size();
 		switch (p_expr.kind) {
 			case ExprKind::Await:
@@ -800,6 +820,7 @@ public:
 	std::vector<Edit> edits;
 	Erased erased;
 	std::vector<Diagnostic> refused;
+	std::vector<StaticRead> static_reads;
 
 	Converter(const std::string &p_path, const SourceFile &p_source, const EngineApi &p_engine, const std::set<std::string> &p_globals) :
 			path(p_path), source(p_source), tokens(p_source.tokens), text(p_source.text), engine(p_engine), globals(p_globals) {}
@@ -843,7 +864,9 @@ public:
 				inferred(p_node.name_token, p_node.type, p_node.initializer.get(), p_node.is_export);
 			}
 			if (p_node.initializer) {
+				initializing = p_node.is_static ? &p_node : nullptr;
 				visit(*p_node.initializer);
+				initializing = nullptr;
 			}
 			return;
 		} else if constexpr (std::is_same_v<T, ParamDecl>) {
@@ -1508,6 +1531,7 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 		Erased erased;
 		std::vector<Diagnostic> refused;
 		ForeignClass view; // As reflection would show its GDScript, its base by its old path.
+		std::vector<StaticRead> static_reads;
 	};
 	std::map<std::string, Converted> converted;
 	std::set<std::string> globals;
@@ -1554,12 +1578,43 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 			result.defects.push_back({ 0, 0, "Two of its erasures overlap." });
 			result.defects.back().file = p_file;
 		}
-		return converted[p_file] = { text.value_or(std::string()), converter.erased, converter.refused, view };
+		return converted[p_file] = { text.value_or(std::string()), converter.erased, converter.refused, view, converter.static_reads };
+	};
+	// Whether the static read leads back to the variable that reads it.
+	const auto cycles = [&](const StaticRead &p_read) {
+		std::set<std::string> seen;
+		std::vector<const StaticRead *> next{ &p_read };
+		while (!next.empty()) {
+			const StaticRead *read = next.back();
+			next.pop_back();
+			if (read->to == p_read.from) {
+				return true;
+			}
+			if (seen.insert(read->to).second && std::binary_search(files.begin(), files.end(), script_file(read->to))) {
+				for (const StaticRead &each : convert(script_file(read->to)).static_reads) {
+					if (each.from == read->to) {
+						next.push_back(&each);
+					}
+				}
+			}
+		}
+		return false;
 	};
 	// The file of a tree that cannot convert, or "".
 	const auto refusing = [&](const std::string &p_root) {
 		for (const std::string &file : trees[p_root]) {
 			if (!convert(file).refused.empty()) {
+				return file;
+			}
+		}
+		for (const std::string &file : trees[p_root]) {
+			Converted &each = converted.at(file);
+			for (const StaticRead &read : each.static_reads) {
+				if (cycles(read)) {
+					each.refused.push_back(read.at);
+				}
+			}
+			if (!each.refused.empty()) {
 				return file;
 			}
 		}

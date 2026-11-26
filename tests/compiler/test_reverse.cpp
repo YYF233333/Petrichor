@@ -99,6 +99,22 @@ TEST_CASE("a file stays whose GDScript would not find an outer class's statics, 
 			"11:3: This is not converted back yet: a static member of an outer class by its name alone, which GDScript does not find.\n12:9: This is not converted back yet: a static member of an outer class by its name alone, which GDScript does not find.\n13:7: This is not converted back yet: `:=` of a value that GDScript reads untyped, here int.\n");
 }
 
+// GDScript resolves what a static variable's initializer reads as it
+// resolves the variable, and cannot where that comes back to it; this
+// language reports the cycle as it runs (spec §4.8).
+TEST_CASE("the files stay whose static initializers read each other") {
+	FakeProject project;
+	project.add_script("res://a.pet", "class_name A\nextends RefCounted\npub static var x: int = B.y + 1\npub static var z: int = B.y\n", "A");
+	project.add_script("res://b.pet", "class_name B\nextends RefCounted\npub static var y: int = A.x + 1\n", "B");
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, {});
+	CHECK(reversal.texts.empty());
+	std::string listed;
+	for (const compiler::Diagnostic &refusal : reversal.refused) {
+		listed += refusal.file + ":" + std::to_string(refusal.line) + ":" + std::to_string(refusal.column) + ": " + refusal.message + "\n";
+	}
+	CHECK(listed == "res://a.pet:3:27: GDScript has no cycle of static initializers, as through B.y here.\nres://b.pet:3:27: GDScript has no cycle of static initializers, as through A.x here.\n");
+}
+
 // GDScript tries the guard after the pattern and goes on to the next branch
 // when it fails, as this language goes past Some(var x) for None.
 TEST_CASE("reverse conversion guards Some(var x) that comes before None as var x when x != null") {
