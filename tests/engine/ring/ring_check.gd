@@ -23,6 +23,11 @@ func _check(ok: bool, what: String) -> void:
 
 
 func _ready() -> void:
+	# The same game in every run, which the engine would start from a random
+	# seed (scene/main/scene_tree.cpp:2064; ed1daf0): the run's errors are
+	# compared with the original's, and on some balls two hits in a frame kill
+	# a brick twice, which Ring reports as an error.
+	seed(1)
 	var breakout: Node = load("res://breakout/scenes/breakout/breakout.tscn").instantiate()
 	add_child(breakout)
 	var manager := get_node("/root/BreakoutManager")
