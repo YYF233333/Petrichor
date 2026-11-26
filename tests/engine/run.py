@@ -1226,7 +1226,8 @@ def check_migrate(godot):
                 and after["boss.gd.uid"] == before["boss.gd.uid"].decode()
                 and 'path="res://boss.gd"' in after["level.tscn"] and 'Game="*res://game.gd"' in after["project.godot"]
                 and 'preload("res://boss.gd")' in after["tool.gd"] and 'preload("res://game.gd")' in after["hud.gd"]
-                and "func hit(amount: int)" in after["enemy.gd"] and "\nfunc roar() -> void:" in after["boss.gd"] and "= enemy.get_parent()\n" in after["game.gd"],
+                and "func hit(amount: int) -> void:" in after["enemy.gd"].splitlines() and "func roar() -> void:" in after["boss.gd"].splitlines()
+                and "\tvar parent: Node = enemy.get_parent()" in after["game.gd"].splitlines(),
                 out + err,
             )
             (project / "reverse_check.gd").write_text(
