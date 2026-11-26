@@ -165,6 +165,16 @@ jobs:
       - name: Engine tests
         run: python tests/engine/run.py godot/${{ matrix.binary }}
 
+      # Of a crash the engine's handler does not catch, as SIGBUS
+      # (platform/macos/crash_handler_macos.mm:276-279; ed1daf0), only the
+      # system's report tells where.
+      - if: failure() && startsWith(matrix.platform, 'macos')
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-reports-${{ matrix.platform }}-${{ matrix.godot }}
+          path: ~/Library/Logs/DiagnosticReports
+          if-no-files-found: ignore
+
   # Spec §11.1 and §11.3 with classes written in C#, on the official .NET
   # editor.
   dotnet:

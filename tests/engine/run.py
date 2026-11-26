@@ -783,8 +783,8 @@ def run_reverse_group(godot):
         output = results(original)
         before = language_checks(output)
         expect("reverse: the language tests run", ", 0 with errors" in output and before, output)
-        code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-migrate", "--reverse", "--dry-run", "--allow-dirty")
-        candidates = re.findall(r"^(\S+\.pet) → ", output, flags=re.M)
+        listed_code, listed = run(godot, "-e", "--path", str(original), "--", "--petrichor-migrate", "--reverse", "--dry-run", "--allow-dirty")
+        candidates = re.findall(r"^(\S+\.pet) → ", listed, flags=re.M)
         text = {file: (original / file).read_text(encoding="utf-8") for file in candidates}
         # Scripts that the test cannot run converted: GDScript cannot resolve
         # static initializers that read each other (Could not resolve external
@@ -814,7 +814,8 @@ def run_reverse_group(godot):
             if more <= kept:
                 break
             kept |= more
-        expect("reverse: the scripts convert back, and GDScript and the .pet files that stay load them", code == 0 and converted and ", 0 defect(s), 0 error(s)" in migrated and "Failed to load script" not in output, migrated + output)
+        ran = f"The dry run exited with {listed_code}" + (f", listing none:\n{listed}" if not candidates else "") + f"\nThe migration exited with {code}:\n{migrated}\n"
+        expect("reverse: the scripts convert back, and GDScript and the .pet files that stay load them", code == 0 and converted and ", 0 defect(s), 0 error(s)" in migrated and "Failed to load script" not in output, ran + (output if output != migrated else ""))
         after = language_checks(output)
         different = "\n".join(difflib.unified_diff(before, after, "before", "converted back", n=0, lineterm=""))
         expect(f"reverse: the {len(converted)} script(s) converted back give the {len(before)} results they gave", not different, different)
