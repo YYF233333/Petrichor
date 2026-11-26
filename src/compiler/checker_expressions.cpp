@@ -2080,9 +2080,9 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 	if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int) {
 		message += " Convert explicitly with int(x).";
 	}
-	if (p_to.unwrapped().kind == TypeKind::Enum && (p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum)) {
-		const std::string name = enum_spelling(p_to.unwrapped());
-		message += " Convert explicitly with " + name + "(x), which checks that it is one of the values.";
+	const Type &to = p_to.unwrapped();
+	if (to.kind == TypeKind::Enum && (p_from.kind == TypeKind::Int || p_from.kind == TypeKind::Enum)) {
+		message += " Convert explicitly with " + enum_spelling(to) + "(x)" + (to.values->is_engine ? "." : ", which checks that it is one of the values.");
 	}
 	const bool untyped_view = p_to.kind == TypeKind::Builtin && p_to.args.empty() && p_to.name == p_from.name;
 	if (p_to.kind == TypeKind::Variant || untyped_view) {
@@ -2119,6 +2119,11 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		// 2076-2084, 2185-2191, core/variant/variant_construct.h:637-655;
 		// ed1daf0).
 		fix({ { p_value.range, p_to.name + "(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::PackedArray);
+	} else if (p_from.kind == TypeKind::Int && to.kind == TypeKind::Enum && to.values->is_engine) {
+		// GDScript takes the int as it is (modules/gdscript/gdscript_analyzer.cpp:
+		// 6326-6336; ed1daf0), and the conversion to an open enum keeps it
+		// unchecked (spec §3.7).
+		fix({ { p_value.range, enum_spelling(to) + "(" + cls.source->text_of(p_value.range) + ")" } }, FixKind::EngineEnum);
 	} else if (p_from.kind == TypeKind::None && p_written) {
 		fix_optional(*p_written, p_owner); // As GDScript holds the null.
 	} else if (p_from.is_optional() && !p_to.is_optional() && assignable(p_from.unwrapped(), p_to)) {

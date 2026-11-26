@@ -594,6 +594,16 @@ TEST_CASE("an int joins a float in a member by its reads in every file, but not 
 // tanks-of-freedom-ii reads its camera's angles negated and through float()
 // (scenes/camera.gd:50, 293). A negated read is not kept: GDScript's -0 is
 // the int 0, which prints as 0, while -0.0 prints as -0 (spec §1.2).
+// As tanks-of-freedom-ii's units turn their shadows off
+// (scenes/tiles/units/heroes/hero.gd:39).
+TEST_CASE("an int where an enum of the engine is expected is converted to the enum, which keeps it unchecked as GDScript does") {
+	FakeProject project;
+	project.add_script("res://g.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tInput.mouse_mode = 2\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
+	CHECK(migration.texts.at("res://g.pet") == "extends Node\n\n\nfunc _ready() -> void:\n\tInput.mouse_mode = Input.MouseMode(2)\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a float into an int that GDScript wrote is converted, and a float joins an int value where every read keeps") {
 	FakeProject project;
 	project.add_script("res://base.gd", "extends Node\nvar delay = 0\nvar steps = 0\nvar angle = 0\nvar turns = 0\n\n\nfunc run() -> void:\n\tvar t := 0\n\tt = 1.5\n\tt += 0.5\n\tsteps = 2.5\n\tprint(t, delay > 0, Vector2(delay, 0), steps / 2, deg_to_rad(-angle), float(turns))\n");

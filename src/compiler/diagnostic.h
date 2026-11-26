@@ -40,6 +40,7 @@ enum class FixKind {
 	ArgumentsLocal, // A local written Array for a signal's arguments, without the type, which takes them.
 	LiteralCast, // A literal for one cast to the container type its place expects.
 	OwnClass, // Class.new() for a bare new() where GDScript calls it on the class.
+	EngineEnum, // E(x) of an int where an enum of the engine, which E(x) does not check, is expected.
 	// The ones offered for the user to choose.
 	FloatResult, // float arguments where the result's type or value then changes.
 	Unwrap,
@@ -79,6 +80,7 @@ inline constexpr FixKindInfo FIX_KINDS[] = {
 	{ true, "Declare the arguments without Array" },
 	{ true, "Write the literal without as" },
 	{ true, "Write the class before new()" },
+	{ true, "Convert to the engine's enum" },
 	{ false, "Write the int arguments as float" },
 	{ false, "Write .unwrap()" },
 	{ false, "Make the type T?" },
