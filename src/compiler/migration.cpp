@@ -1542,6 +1542,138 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 	r_result.typed = int(written.size());
 }
 
+// A member written T? only because nothing shows it assigned before ready
+// (spec §6.2), which is assigned only T values and whose every read the
+// loop of fixes unwrapped, fails where an @late member fails (spec §6.3):
+// it becomes one, with its setter's parameter, unless the check then
+// reports an error at one of its places (architecture §6.6).
+static void write_late(const EngineApi &p_engine, Migrated &r_project, const std::function<std::vector<Diagnostic>()> &p_check, Migration &r_result) {
+	Inflows recorded;
+	for (const auto &[file, text] : r_project.texts) {
+		recorded.files.insert(file);
+	}
+	const std::map<std::string, CompileResult> checked = checked_with(p_engine, r_project, recorded);
+	const std::string unwrap = ".unwrap()";
+	// What each edit replaces, by file and where it begins: to where, and with what.
+	using Edits = std::map<std::pair<std::string, uint32_t>, std::pair<uint32_t, std::string>>;
+	struct Late {
+		Edits edits;
+		std::vector<std::pair<std::string, Inflows::Range>> places;
+		bool refused = false;
+	};
+	std::map<std::pair<std::string, std::string>, Late> members; // By class and name.
+	for (const auto &[file, text] : r_project.texts) {
+		std::vector<Diagnostic> ignored;
+		const ClassDecl decl = parse(text, ignored);
+		const SourceFile &source = *decl.source;
+		const auto unmarked = [&](const TypeRef &p_type) { return Edits::value_type({ file, source.end(p_type.range) - 1 }, { source.end(p_type.range), std::string() }); };
+		for (const auto *list : { &decl.members, &decl.static_vars }) {
+			for (const VarDecl &variable : *list) {
+				const std::string written = variable.declared_type ? source.text_of(variable.declared_type->range) : std::string();
+				if (variable.initializer || written.empty() || written.back() != '?' || recorded.nullable.count({ file, source.tokens[variable.name_token].offset })) {
+					continue;
+				}
+				Late &late = members[{ file, variable.name }];
+				const uint32_t begin = source.begin(variable.range);
+				late.edits = { { { file, begin }, { begin, "@late " } }, unmarked(*variable.declared_type) };
+				late.places = { { file, { begin, source.end(variable.declared_type->range) } } };
+				const auto setter = std::find_if(decl.functions.begin(), decl.functions.end(), [&](const FuncDecl &p_function) { return p_function.name == variable.setter; });
+				if (setter != decl.functions.end()) {
+					late.places.push_back({ file, { source.begin(setter->range), source.end(setter->range) } });
+					// An inline setter's parameter takes the member's type.
+					if (setter->params.size() == 1 && setter->params[0].declared_type && source.text_of(setter->params[0].declared_type->range) == written) {
+						late.edits.insert(unmarked(*setter->params[0].declared_type));
+					}
+				}
+			}
+		}
+	}
+	// Each read is unwrapped, and each other reference assigned to. A file
+	// outside the migration is not edited; of those, the checks see only the
+	// scripts of this language.
+	for (const auto &[path, result] : checked) {
+		const auto text = r_project.texts.find(path);
+		for (const Reference &reference : result.references) {
+			const auto found = reference.declares || !reference.scene.empty() || reference.target.kind != DeclId::Kind::Script ? members.end() : members.find({ reference.target.scope, reference.target.name });
+			if (found == members.end()) {
+				continue;
+			}
+			if (text == r_project.texts.end()) {
+				found->second.refused = true;
+				continue;
+			}
+			const std::string &source = text->second;
+			const size_t next = source.find_first_not_of(" \t", reference.end);
+			if (source.compare(reference.end, unwrap.size(), unwrap) == 0) {
+				const uint32_t end = reference.end + uint32_t(unwrap.size());
+				found->second.edits[{ path, reference.end }] = { end, std::string() };
+				found->second.places.push_back({ path, { reference.begin, end } });
+			} else if (next == std::string::npos || source[next] != '=' || source[next + 1] == '=') {
+				found->second.refused = true;
+			}
+		}
+	}
+	const std::map<std::string, std::string> before = r_project.texts;
+	std::set<std::tuple<std::string, uint32_t, std::string>> reported;
+	for (const Diagnostic &error : r_result.errors) {
+		reported.emplace(error.file, error.begin, error.message);
+	}
+	while (true) {
+		std::map<std::string, Edits> edits;
+		int unwraps = 0;
+		for (const auto &[name, late] : members) {
+			for (const auto &[at, edit] : late.refused ? Edits() : late.edits) {
+				edits[at.first].insert({ at, edit });
+				unwraps += edit.first - at.second == unwrap.size();
+			}
+		}
+		r_project.texts = before;
+		if (edits.empty()) {
+			return;
+		}
+		for (const auto &[file, in_file] : edits) {
+			for (auto each = in_file.rbegin(); each != in_file.rend(); ++each) {
+				r_project.texts.at(file).replace(each->first.second, each->second.first - each->first.second, each->second.second);
+			}
+		}
+		// Where a byte of the text written was before.
+		const auto original = [&](const std::string &p_file, uint32_t p_offset) {
+			int64_t shift = 0;
+			for (const auto &[at, edit] : edits[p_file]) {
+				if (p_offset < at.second + shift) {
+					break;
+				}
+				if (p_offset < at.second + shift + int64_t(edit.second.size())) {
+					return at.second;
+				}
+				shift += int64_t(edit.second.size()) - (edit.first - at.second);
+			}
+			return uint32_t(p_offset - shift);
+		};
+		std::vector<Diagnostic> errors = p_check();
+		bool refused = false;
+		for (const Diagnostic &error : errors) {
+			const uint32_t begin = original(error.file, error.begin);
+			const uint32_t end = original(error.file, error.end);
+			if (reported.count({ error.file, begin, error.message })) {
+				continue;
+			}
+			for (auto &[name, late] : members) {
+				const bool at = std::any_of(late.places.begin(), late.places.end(), [&](const auto &p_place) { return p_place.first == error.file && p_place.second.first <= end && begin <= p_place.second.second; });
+				refused = refused || (at && !late.refused);
+				late.refused = late.refused || at;
+			}
+		}
+		if (!refused) {
+			if ((r_result.fixes[FixKind::Unwrap] -= unwraps) == 0) {
+				r_result.fixes.erase(FixKind::Unwrap);
+			}
+			r_result.errors = std::move(errors);
+			return;
+		}
+	}
+}
+
 Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const std::set<std::string> &p_files, int p_rounds) {
 	Migrated project(p_project, p_files);
 	Migration result;
@@ -1549,24 +1681,26 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 	infer(p_engine, project, p_rounds, result);
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
-	while (true) {
-		// The errors of the scripts and of the checks of the scenes, which find
-		// the fixes of connected methods too.
+	// The errors of the scripts and of the checks of the scenes, which find
+	// the fixes of connected methods too.
+	const auto check = [&] {
 		std::vector<Diagnostic> errors;
-		{
-			const Analysis::Pass pass(analysis, &project);
-			for (const std::string &path : project.script_paths()) {
-				const std::optional<std::string> source = is_script_path(path) ? project.script_source(path) : std::nullopt;
-				for (const Diagnostic &error : source ? analysis.compile(path, *source)->errors : std::vector<Diagnostic>()) {
-					errors.push_back(error);
-					errors.back().file = path;
-				}
-			}
-			for (const std::string &path : project.scene_paths()) {
-				const std::shared_ptr<const CompileResult> checked = analysis.check_scene(path);
-				errors.insert(errors.end(), checked->errors.begin(), checked->errors.end());
+		const Analysis::Pass pass(analysis, &project);
+		for (const std::string &path : project.script_paths()) {
+			const std::optional<std::string> source = is_script_path(path) ? project.script_source(path) : std::nullopt;
+			for (const Diagnostic &error : source ? analysis.compile(path, *source)->errors : std::vector<Diagnostic>()) {
+				errors.push_back(error);
+				errors.back().file = path;
 			}
 		}
+		for (const std::string &path : project.scene_paths()) {
+			const std::shared_ptr<const CompileResult> checked = analysis.check_scene(path);
+			errors.insert(errors.end(), checked->errors.begin(), checked->errors.end());
+		}
+		return errors;
+	};
+	while (true) {
+		std::vector<Diagnostic> errors = check();
 		std::vector<std::pair<const Fix *, std::string>> fixes;
 		for (const Diagnostic &error : errors) {
 			if (const Fix *fix = loop_fix(error, project)) {
@@ -1596,6 +1730,7 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 		}
 		result.rounds++;
 	}
+	write_late(p_engine, project, check, result);
 	result.texts = project.texts;
 	return result;
 }

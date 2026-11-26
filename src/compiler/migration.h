@@ -112,6 +112,9 @@ struct Inflows {
 	// GDScript starts as null, and nothing shows assigned before a read: by
 	// where each begins, with its end and its text as T?.
 	std::map<Key, std::pair<uint32_t, std::string>> optional;
+	// The declarations that a value not shown to be a T is assigned to: a T?,
+	// None, a Variant or one of unknown type.
+	std::set<Key> nullable;
 	// Declarations with a class written for them whose value a check read
 	// where a subclass is expected, by where their names are (a function's
 	// for what it returns), exports of scenes of unknown roots, Arrays of

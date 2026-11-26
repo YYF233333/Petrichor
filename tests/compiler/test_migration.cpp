@@ -197,14 +197,14 @@ TEST_CASE("a function with an await is made async though its parameter is left w
 // where the setter first waits (spec §4.4).
 TEST_CASE("a setter with an await is made async, and a member made T? makes its setter take T?") {
 	FakeProject project;
-	project.add_script("res://relic_ui.gd", "extends Node\nvar relic: Node : set = set_relic\nvar label := \"\":\n\tset(value):\n\t\tif not is_node_ready():\n\t\t\tawait ready\n\t\tlabel = value\n\n\nfunc set_relic(new_relic: Node) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\trelic = new_relic\n\n\nfunc put(node: Node) -> void:\n\trelic = node\n\tlabel = \"put\"\n");
+	project.add_script("res://relic_ui.gd", "extends Node\nvar relic: Node : set = set_relic\nvar label := \"\":\n\tset(value):\n\t\tif not is_node_ready():\n\t\t\tawait ready\n\t\tlabel = value\n\n\nfunc set_relic(new_relic: Node) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\trelic = new_relic\n\n\nfunc put(node: Node) -> void:\n\trelic = node\n\tlabel = \"put\"\n\tprint(relic)\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://relic_ui.gd" }, 10);
-	CHECK(migration.texts.at("res://relic_ui.pet") == "extends Node\nvar relic: Node? : set = set_relic\nvar label := \"\":\n\tasync set(value):\n\t\tif not is_node_ready():\n\t\t\tawait ready\n\t\tlabel = value\n\n\nasync func set_relic(new_relic: Node?) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\trelic = new_relic\n\n\nfunc put(node: Node) -> void:\n\trelic = node\n\tlabel = \"put\"\n");
+	CHECK(migration.texts.at("res://relic_ui.pet") == "extends Node\nvar relic: Node? : set = set_relic\nvar label := \"\":\n\tasync set(value):\n\t\tif not is_node_ready():\n\t\t\tawait ready\n\t\tlabel = value\n\n\nasync func set_relic(new_relic: Node?) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\trelic = new_relic\n\n\nfunc put(node: Node) -> void:\n\trelic = node\n\tlabel = \"put\"\n\tprint(relic)\n");
 	CHECK(migration.errors.empty());
 }
 
 // A node below a scene's root has no creator (spec §6.2).
-TEST_CASE("a member that only an ancestor assigns in its _ready becomes T?") {
+TEST_CASE("a member that only an ancestor assigns in its _ready becomes @late") {
 	FakeProject project;
 	project.add_script("res://bar.gd", "extends Node\nvar target: Node\n\n\nfunc show_it() -> void:\n\tprint(target.name)\n");
 	project.add_script("res://hud.gd", "extends Node\n\n\nfunc _ready() -> void:\n\t$Bar.target = self\n");
@@ -213,7 +213,7 @@ TEST_CASE("a member that only an ancestor assigns in its _ready becomes T?") {
 	main.nodes = { { ".", "Node", "res://hud.gd" }, { "Bar", "Node", "res://bar.gd" } };
 	project.scenes = { main };
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://bar.gd", "res://hud.gd" }, 10);
-	CHECK(migration.texts.at("res://bar.pet") == "extends Node\npub var target: Node?\n\n\nfunc show_it() -> void:\n\tprint(target.unwrap().name)\n");
+	CHECK(migration.texts.at("res://bar.pet") == "extends Node\n@late pub var target: Node\n\n\nfunc show_it() -> void:\n\tprint(target.name)\n");
 	CHECK(migration.errors.empty());
 }
 
@@ -263,8 +263,8 @@ TEST_CASE("an export written PackedScene takes the class of the roots of the sce
 	bat.resources = { { bat.path, "res://stats.gd", { { "one", stored }, { "two", stored } } } };
 	project.scenes = { enemy, boss, bat };
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://enemy.gd", "res://boss.gd", "res://stats.gd", "res://spawner.gd" }, 10);
-	CHECK(migration.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var one: PackedScene[Enemy]\n@export var two: PackedScene[Enemy]\n@export var none: PackedScene[Node]?\n");
-	CHECK(migration.texts.at("res://enemy.pet") == "class_name Enemy\nextends Node2D\n@export var target: Node2D?\n");
+	CHECK(migration.texts.at("res://stats.pet") == "class_name Stats\nextends Resource\n@export var one: PackedScene[Enemy]\n@export var two: PackedScene[Enemy]\n@late @export var none: PackedScene[Node]\n");
+	CHECK(migration.texts.at("res://enemy.pet") == "class_name Enemy\nextends Node2D\n@late @export var target: Node2D\n");
 	CHECK(migration.errors.empty());
 }
 
@@ -297,7 +297,7 @@ TEST_CASE("an export written Array[PackedScene] takes the class of the roots of 
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://event.gd", "res://gamble.gd", "res://pool.gd", "res://room.gd", "res://map.gd" }, 10);
 	CHECK(migration.texts.at("res://pool.pet") == "class_name Pool\nextends Resource\n@export var rooms: Array[PackedScene[EventRoom]]\n@export var spare: Array[PackedScene]\n\n\npub func pick() -> PackedScene[EventRoom]:\n\treturn rooms.pick_random()\n");
 	CHECK(migration.texts.at("res://room.pet") == "class_name Room\nextends Resource\n@export var scene: PackedScene[EventRoom]\n");
-	CHECK(migration.texts.at("res://event.pet") == "class_name EventRoom\nextends Control\n@export var stats: Resource?\n");
+	CHECK(migration.texts.at("res://event.pet") == "class_name EventRoom\nextends Control\n@late @export var stats: Resource\n");
 	CHECK(migration.errors.empty());
 }
 
@@ -320,12 +320,12 @@ TEST_CASE("where no declaration narrows, a value of a class goes as a subclass t
 	project.add_script("res://picker.gd", "extends Node\nvar target: Node2D\n\n\nfunc pick(found: Node) -> void:\n\ttarget = found\n\tvar other: Node2D = get_node_or_null(\"Other\")\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = icon\n\tprint(shown)\n");
 	project.add_script("res://handler.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tchild_exiting_tree.connect(_on_exiting)\n\n\nfunc _on_exiting(node: Node2D) -> void:\n\tpass\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://picker.gd", "res://handler.gd" }, 10);
-	CHECK(migration.texts.at("res://picker.pet") == "extends Node\nvar target: Node2D?\n\n\nfunc pick(found: Node) -> void:\n\ttarget = (found as Node2D).unwrap()\n\tvar other: Node2D = (get_node_or_null(\"Other\") as Node2D).unwrap()\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = (icon as Texture2D).unwrap()\n\tprint(shown)\n");
+	CHECK(migration.texts.at("res://picker.pet") == "extends Node\n@late var target: Node2D\n\n\nfunc pick(found: Node) -> void:\n\ttarget = (found as Node2D).unwrap()\n\tvar other: Node2D = (get_node_or_null(\"Other\") as Node2D).unwrap()\n\tprint(other)\n\n\nfunc tip(icon: Resource) -> void:\n\tvar shown: Texture2D = (icon as Texture2D).unwrap()\n\tprint(shown)\n");
 	REQUIRE(migration.errors.size() == 1);
 	CHECK(migration.errors[0].file == "res://handler.pet");
 }
 
-TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null") {
+TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves without a value a T?, as GDScript gives it null, then @late where every read unwraps it") {
 	FakeProject project;
 	project.add_script("res://stats.gd", "extends Resource\n@export var portrait: Texture2D\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");
 	project.add_script("res://hud.gd", "extends Node\n@export var icon: Texture2D\n");
@@ -344,10 +344,10 @@ TEST_CASE("the loop of fixes makes an export that a scene or a resource leaves w
 	project.scenes = { hero, main, badge };
 	project.main = main.path;
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://stats.gd", "res://hud.gd", "res://badge.gd", "res://shelf.gd" }, 10);
-	CHECK(migration.texts.at("res://stats.pet") == "extends Resource\n@export var portrait: Texture2D?\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.unwrap().duplicate()\n");
-	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n@export var icon: Texture2D?\n");
-	CHECK(migration.texts.at("res://badge.pet") == "extends Node\n@export var art: Texture2D?\n");
-	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 1 }, { compiler::FixKind::Optional, 3 } });
+	CHECK(migration.texts.at("res://stats.pet") == "extends Resource\n@late @export var portrait: Texture2D\n\n\nfunc copy() -> Texture2D:\n\treturn portrait.duplicate()\n");
+	CHECK(migration.texts.at("res://hud.pet") == "extends Node\n@late @export var icon: Texture2D\n");
+	CHECK(migration.texts.at("res://badge.pet") == "extends Node\n@late @export var art: Texture2D\n");
+	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Optional, 3 } });
 	CHECK(migration.errors.empty());
 }
 
@@ -357,8 +357,21 @@ TEST_CASE("a variable declared without a value starts as null in GDScript, which
 	// Read through a member that is not pub yet, and passed unwrapped to a call on another.
 	project.add_script("res://table.gd", "extends Node\n\n\nfunc clear(deck: Deck, other: Deck) -> Array[Node]:\n\tdeck.pile.add_child(other.pile)\n\treturn [deck.pile]\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://deck.gd", "res://table.gd" }, 10);
-	CHECK(migration.texts.at("res://table.pet") == "extends Node\n\n\nfunc clear(deck: Deck, other: Deck) -> Array[Node]:\n\tdeck.pile.unwrap().add_child(other.pile.unwrap())\n\treturn [deck.pile.unwrap()]\n");
-	CHECK(migration.texts.at("res://deck.pet") == "class_name Deck\nextends Resource\npub var pile: Node?\nvar keeper: Node\nvar count: int\nvar picked: Node?\n\n\nfunc _init() -> void:\n\tkeeper = Node.new()\n\n\nfunc fill() -> void:\n\tpile = Node.new()\n\tcount = 0\n\tpicked = Node.new()\n\n\nfunc show() -> void:\n\tvar shown := pile.unwrap().name\n\tprint(shown, keeper.name, count)\n\n\nfunc pick(nodes: Array[Node], at: int) -> Node?:\n\tvar left: Node?\n\tif at > 0:\n\t\tleft = nodes[at - 1]\n\tif left != None and left.name != \"\":\n\t\treturn left\n\treturn None\n");
+	CHECK(migration.texts.at("res://table.pet") == "extends Node\n\n\nfunc clear(deck: Deck, other: Deck) -> Array[Node]:\n\tdeck.pile.add_child(other.pile)\n\treturn [deck.pile]\n");
+	CHECK(migration.texts.at("res://deck.pet") == "class_name Deck\nextends Resource\n@late pub var pile: Node\nvar keeper: Node\nvar count: int\n@late var picked: Node\n\n\nfunc _init() -> void:\n\tkeeper = Node.new()\n\n\nfunc fill() -> void:\n\tpile = Node.new()\n\tcount = 0\n\tpicked = Node.new()\n\n\nfunc show() -> void:\n\tvar shown := pile.name\n\tprint(shown, keeper.name, count)\n\n\nfunc pick(nodes: Array[Node], at: int) -> Node?:\n\tvar left: Node?\n\tif at > 0:\n\t\tleft = nodes[at - 1]\n\tif left != None and left.name != \"\":\n\t\treturn left\n\treturn None\n");
+	CHECK(migration.errors.empty());
+}
+
+// .unwrap() of None and a read of an unassigned @late member are both
+// program errors (spec §3.4, §6.3).
+TEST_CASE("a T? member becomes @late, with its setter's parameter, where only T values are assigned to it and every read unwraps it") {
+	FakeProject project;
+	project.add_script("res://hand.gd", "class_name Hand\nextends Node\nvar card: Node\nvar target: Node : set = set_target\nvar tested: Node\nvar cleared: Node\nvar found: Node\nvar seen: Node\n\n\nfunc set_target(value: Node) -> void:\n\ttarget = value\n\n\nfunc _ready() -> void:\n\tcard = Node.new()\n\ttarget = self\n\ttested = self\n\tcleared = self\n\tfound = get_node_or_null(\"Found\")\n\tseen = self\n\n\nfunc play() -> void:\n\tprint(card.name, target.name, cleared.name, found.name)\n\tif tested:\n\t\tprint(tested.name)\n\tcleared = null\n", "Hand");
+	// Outside the migration, which does not edit it.
+	project.add_script("res://viewer.pet", "extends Node\n\n\nfunc view(hand: Hand) -> void:\n\tprint(hand.seen.unwrap().name)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://hand.gd" }, 10);
+	CHECK(contains(migration.texts.at("res://hand.pet"), "\npub var seen: Node?\n"));
+	CHECK(migration.texts.at("res://hand.pet") == "class_name Hand\nextends Node\n@late var card: Node\n@late var target: Node : set = set_target\nvar tested: Node?\nvar cleared: Node?\nvar found: Node?\npub var seen: Node?\n\n\nfunc set_target(value: Node) -> void:\n\ttarget = value\n\n\nfunc _ready() -> void:\n\tcard = Node.new()\n\ttarget = self\n\ttested = self\n\tcleared = self\n\tfound = get_node_or_null(\"Found\")\n\tseen = self\n\n\nfunc play() -> void:\n\tprint(card.name, target.name, cleared.unwrap().name, found.unwrap().name)\n\tif tested != None:\n\t\tprint(tested.unwrap().name)\n\tcleared = null\n");
 	CHECK(migration.errors.empty());
 }
 
@@ -369,7 +382,7 @@ TEST_CASE("a read or a call through a T? receiver gives what it gives unwrapped 
 	FakeProject project;
 	project.add_script("res://camera.gd", "extends Node\nvar pivot\nvar rng\nvar angle\nvar spin\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\trng = RandomNumberGenerator.new()\n\n\nfunc aim() -> void:\n\tangle = pivot.rotation.y\n\tspin = rng.randf_range(0.0, 1.0)\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://camera.gd" }, 10);
-	CHECK(migration.texts.at("res://camera.pet") == "extends Node\nvar pivot: Node3D?\nvar rng: RandomNumberGenerator?\nvar angle: float\nvar spin: float\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\trng = RandomNumberGenerator.new()\n\n\nfunc aim() -> void:\n\tangle = pivot.unwrap().rotation.y\n\tspin = rng.unwrap().randf_range(0.0, 1.0)\n");
+	CHECK(migration.texts.at("res://camera.pet") == "extends Node\n@late var pivot: Node3D\n@late var rng: RandomNumberGenerator\nvar angle: float\nvar spin: float\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\trng = RandomNumberGenerator.new()\n\n\nfunc aim() -> void:\n\tangle = pivot.rotation.y\n\tspin = rng.randf_range(0.0, 1.0)\n");
 	CHECK(migration.errors.empty());
 }
 
@@ -677,7 +690,7 @@ TEST_CASE("an error at a value is about the slots that give it its type, not wha
 	FakeProject project;
 	project.add_script("res://camera.gd", "extends Node\nvar pivot\nvar angle = 0\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\taim(\"a\")\n\n\nfunc find(key):\n\tprint(key)\n\treturn Node.new()\n\n\nfunc aim(key) -> void:\n\tvar turned = pivot.rotation\n\tangle = turned.y\n\tprint(angle)\n\tvar found = find(key)\n\tfound.open()\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://camera.gd" }, 10);
-	CHECK(migration.texts.at("res://camera.pet") == "extends Node\nvar pivot: Node3D?\nvar angle = 0\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\taim(\"a\")\n\n\nfunc find(key: String):\n\tprint(key)\n\treturn Node.new()\n\n\nfunc aim(key: String) -> void:\n\tvar turned = pivot.unwrap().rotation\n\tangle = turned.y\n\tprint(angle)\n\tvar found = find(key)\n\tfound.open()\n");
+	CHECK(migration.texts.at("res://camera.pet") == "extends Node\n@late var pivot: Node3D\nvar angle = 0\n\n\nfunc _ready() -> void:\n\tpivot = Node3D.new()\n\taim(\"a\")\n\n\nfunc find(key: String):\n\tprint(key)\n\treturn Node.new()\n\n\nfunc aim(key: String) -> void:\n\tvar turned = pivot.rotation\n\tangle = turned.y\n\tprint(angle)\n\tvar found = find(key)\n\tfound.open()\n");
 	CHECK(migration.withdrawn == 1);
 	CHECK(std::any_of(migration.errors.begin(), migration.errors.end(), [](const compiler::Diagnostic &p_error) { return p_error.line == 18 && contains(p_error.message, "Cannot assign a value of type float as int"); }));
 }
