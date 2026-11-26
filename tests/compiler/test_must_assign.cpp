@@ -112,6 +112,29 @@ TEST_CASE("_init reads a member that must be assigned only once it has assigned 
 	CHECK(contains(init("\ttarget.position = Vector3.ZERO"), "_init reads \"target\" before assigning it"));
 }
 
+// As deck_builder_tutorial's async setters of exports awaited ready before
+// they stored (scenes/relic_handler/relic_ui.gd:4, 10-15).
+TEST_CASE("a setter of a member that must be assigned stores it before an await, unless it first calls a method of self, which may (spec §6.5)") {
+	const auto setter = [](const std::string &p_body) {
+		return "extends Node\n@export var relic: Node : set = set_relic\n\nasync func set_relic(new_relic: Node) -> void:\n" + p_body + "\n\nfunc store(value: Node) -> void:\n\trelic = value\n";
+	};
+	const std::string waits = setter("\tif not is_node_ready():\n\t\tawait ready\n\n\trelic = new_relic\n\tprint(relic)");
+	const compiler::CompileResult result = compile(waits);
+	REQUIRE_MESSAGE(result.errors.size() == 1, messages(result));
+	CHECK(result.errors[0].message == "The setter may reach this await before it stores \"relic\", which must be assigned, so the member is still unassigned at ready. Store it before the await.");
+	CHECK(result.errors[0].line == 6);
+	CHECK(fixed(waits, "Store it before the await") == setter("\trelic = new_relic\n\tif not is_node_ready():\n\t\tawait ready\n\n\tprint(relic)"));
+	CHECK(fixed(waits, "Mark it @late") == "extends Node\n@late @export var relic: Node : set = set_relic\n\nasync func set_relic(new_relic: Node) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\n\trelic = new_relic\n\tprint(relic)\n\nfunc store(value: Node) -> void:\n\trelic = value\n");
+	CHECK(contains(fixed(waits, "Write Node?"), "@export var relic: Node? : set = set_relic"));
+	// On a path that does not store it; a store of another value is not moved.
+	CHECK(contains(messages(compile(setter("\tif randi() > 0:\n\t\trelic = new_relic\n\tawait ready\n\trelic = new_relic"))), "The setter may reach this await"));
+	CHECK(fixed(setter("\tawait ready\n\trelic = store_value(new_relic)\n\nfunc store_value(value: Node) -> Node:\n\treturn value"), "Store it before the await") == "no such fix");
+	// Stored first; through a method of self, perhaps.
+	CHECK(compile(setter("\trelic = new_relic\n\tif not is_node_ready():\n\t\tawait ready")).ok());
+	CHECK(compile(setter("\tstore(new_relic)\n\tawait ready")).ok());
+	CHECK(compile("extends Node\n@late @export var relic: Node : set = set_relic\n\nasync func set_relic(new_relic: Node) -> void:\n\tawait ready\n\trelic = new_relic\n").ok());
+}
+
 TEST_CASE("super() in _init assigns what the base's _init assigns, from there on (spec §6.2)") {
 	FakeProject project;
 	project.add_script("res://base.pet", "class_name Base\nextends Node\n\npub var target: Node\n\nfunc _init():\n\ttarget = Node.new()\n", "Base");

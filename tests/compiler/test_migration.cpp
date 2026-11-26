@@ -227,6 +227,25 @@ TEST_CASE("a setter with an await is made async, and a member made T? makes its 
 	CHECK(migration.errors.empty());
 }
 
+// As deck_builder_tutorial's relic_ui.gd, whose scene stores the relic
+// (scenes/relic_handler/relic_ui.gd:4, 10-15). In GDScript the member is
+// null until the setter stores it after ready; moved, it would have a value
+// before (spec §6.5).
+TEST_CASE("an export whose setter awaits before it stores it becomes T?, as GDScript has it null until then, not stored first") {
+	FakeProject project;
+	project.add_script("res://relic_ui.gd", "extends Node\n@export var relic: Resource : set = set_relic\n\n\nfunc set_relic(new_relic: Resource) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\n\trelic = new_relic\n\tprint(relic.duplicate())\n");
+	compiler::Scene ui;
+	ui.path = "res://relic_ui.tscn";
+	ui.nodes = { { ".", "Node", "res://relic_ui.gd" } };
+	ui.nodes[0].properties = { { "relic", compiler::SceneValue{ "Object", "Resource" } } };
+	project.scenes = { ui };
+	project.main = ui.path;
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://relic_ui.gd" }, 10);
+	CHECK(migration.texts.at("res://relic_ui.pet") == "extends Node\n@late @export var relic: Resource : set = set_relic\n\n\nasync func set_relic(new_relic: Resource) -> void:\n\tif not is_node_ready():\n\t\tawait ready\n\n\trelic = new_relic\n\tprint(relic.duplicate())\n");
+	CHECK(migration.fixes.count(compiler::FixKind::StoreFirst) == 0);
+	CHECK(migration.errors.empty());
+}
+
 // A node below a scene's root has no creator (spec §6.2).
 TEST_CASE("a member that only an ancestor assigns in its _ready becomes @late") {
 	FakeProject project;

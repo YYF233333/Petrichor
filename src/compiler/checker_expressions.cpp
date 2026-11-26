@@ -1892,7 +1892,8 @@ void Checker::report_unfit_scene(const Scene *p_known, const Type &p_from, const
 			optional.edits.back().file = file;
 			optional.title += (optional.title.empty() ? "Write " : ", ") + optional.edits.back().change.new_text;
 		}
-		late.edits.push_back({ file, { source.begin(member->range), source.begin(member->range), std::string(), "@late " } });
+		late.edits.push_back(late_edit(source, *member));
+		late.edits.back().file = file;
 	}
 	if (!optional.edits.empty()) {
 		fix(std::move(optional));

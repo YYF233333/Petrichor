@@ -469,6 +469,12 @@ Fix::Edit Checker::optional_edit(const SourceFile &p_source, const TypeRef &p_wr
 	return { std::string(), { p_source.begin(p_written.range), p_source.end(p_written.range), text, (p_written.is_function ? "(" + text + ")" : text) + "?" } };
 }
 
+// The edit that marks the member declared in `p_source` @late (spec §6.3).
+Fix::Edit Checker::late_edit(const SourceFile &p_source, const VarDecl &p_member) {
+	const uint32_t at = p_source.begin(p_member.range);
+	return { std::string(), { at, at, std::string(), "@late " } };
+}
+
 // The edit that writes `p_line` on a line of its own after the one where
 // `p_range` ends, indented as token `p_indented`; nullopt where other text
 // comes before that token on its line.
@@ -1626,24 +1632,23 @@ Checker::Assigned Checker::joined(const Assigned &p_a, const Assigned &p_b) {
 	return both;
 }
 
-Checker::Assigned Checker::init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported, Assigned &r_returned) {
+Checker::Assigned Checker::walk_block(const Block &p_block, Assigned p_assigned, const PathVisit &p_visit, Assigned &r_returned) {
 	for (const auto &stmt : p_block) {
-		p_assigned = init_stmt(*stmt, std::move(p_assigned), r_reported, r_returned);
+		p_assigned = walk_stmt(*stmt, std::move(p_assigned), p_visit, r_returned);
 	}
 	return p_assigned;
 }
 
-// The scene and the creator assign only after _init, so _init reading one
-// it has not assigned itself is an error. A read through a call is left to
-// the program error: methods may be overridden in other files. What each
-// `return` has assigned joins `r_returned`.
-Checker::Assigned Checker::init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported, Assigned &r_returned) {
+// The members that the paths through a statement of _init or a setter
+// assign, as `p_visit` sees each expression with what is assigned before
+// it. What each `return` has assigned joins `r_returned`.
+Checker::Assigned Checker::walk_stmt(const Stmt &p_stmt, Assigned p_assigned, const PathVisit &p_visit, Assigned &r_returned) {
 	if (!p_assigned) {
 		return std::nullopt;
 	}
 	const auto reads = [&](const std::unique_ptr<Expr> &p_expr) {
 		if (p_expr) {
-			init_reads(*p_expr, *p_assigned, r_reported);
+			p_visit(*p_expr, *p_assigned);
 		}
 	};
 	switch (p_stmt.kind) {
@@ -1661,19 +1666,19 @@ Checker::Assigned Checker::init_stmt(const Stmt &p_stmt, Assigned p_assigned, st
 		}
 		case StmtKind::If:
 			reads(p_stmt.condition);
-			return joined(init_block(p_stmt.body, p_assigned, r_reported, r_returned), init_block(p_stmt.else_body, p_assigned, r_reported, r_returned));
+			return joined(walk_block(p_stmt.body, p_assigned, p_visit, r_returned), walk_block(p_stmt.else_body, p_assigned, p_visit, r_returned));
 		case StmtKind::While:
 		case StmtKind::For:
 			reads(p_stmt.condition);
 			reads(p_stmt.value);
-			init_block(p_stmt.body, p_assigned, r_reported, r_returned);
+			walk_block(p_stmt.body, p_assigned, p_visit, r_returned);
 			return p_assigned;
 		case StmtKind::Match: {
 			reads(p_stmt.value);
 			Assigned after = p_stmt.exhaustive ? Assigned() : p_assigned;
 			for (const MatchBranch &branch : p_stmt.branches) {
 				reads(branch.guard);
-				after = joined(after, init_block(branch.body, p_assigned, r_reported, r_returned));
+				after = joined(after, walk_block(branch.body, p_assigned, p_visit, r_returned));
 			}
 			return after;
 		}
@@ -1697,6 +1702,9 @@ Checker::Assigned Checker::init_stmt(const Stmt &p_stmt, Assigned p_assigned, st
 	}
 }
 
+// The scene and the creator assign only after _init, so _init reading one
+// it has not assigned itself is an error. A read through a call is left to
+// the program error: methods may be overridden in other files.
 void Checker::init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported) {
 	if (p_expr.kind == ExprKind::Lambda) {
 		return; // It runs later.
@@ -1710,6 +1718,81 @@ void Checker::init_reads(const Expr &p_expr, const std::set<int> &p_assigned, st
 			init_reads(p_child, p_assigned, r_reported);
 		}
 	});
+}
+
+// A setter of a member that must be assigned which may reach an await
+// before it stores the member leaves it unassigned at ready (spec §6.5). A
+// method of self called before may store it, which is left to the check at
+// ready, as _init leaves reads through calls. Reports the first await so
+// reached, in the order the expressions run.
+void Checker::check_setter_awaits(const FuncDecl &p_setter, int p_member) {
+	const VarDecl &member = *cls.all_members[p_member];
+	const Expr *reached = nullptr;
+	const std::function<void(const Expr &, std::set<int> &)> visit = [&](const Expr &p_expr, std::set<int> &r_assigned) {
+		if (p_expr.kind == ExprKind::Lambda) {
+			return; // It runs later.
+		}
+		for_each_child(p_expr, [&](const auto &p_child) {
+			if constexpr (std::is_same_v<std::decay_t<decltype(p_child)>, Expr>) {
+				visit(p_child, r_assigned);
+			}
+		});
+		const bool on_self = !p_expr.base || p_expr.base->kind == ExprKind::Self;
+		if (p_expr.kind == ExprKind::Call && on_self && (p_expr.target == Target::ScriptFunction || p_expr.target == Target::ScriptMethod || p_expr.target == Target::SuperMethod)) {
+			r_assigned.insert(p_member);
+		} else if (p_expr.kind == ExprKind::Await && !r_assigned.count(p_member) && !reached) {
+			reached = &p_expr;
+		}
+	};
+	Assigned returned;
+	walk_block(p_setter.body, std::set<int>(), visit, returned);
+	if (!reached) {
+		return;
+	}
+	error(reached->range, "The setter may reach this await before it stores \"" + member.name + "\", which must be assigned, so the member is still unassigned at ready. Store it before the await.");
+	// Its one plain store of the value, after the statement that waits, which
+	// it moves before; when nothing else assigns the member or the value.
+	const Stmt *waits = nullptr;
+	const Stmt *store = nullptr;
+	for (const std::unique_ptr<Stmt> &stmt : p_setter.body) {
+		const bool stores_value = stmt->kind == StmtKind::Assign && stmt->assign_op == TokenKind::Equal && stmt->target->target == Target::Member && stmt->target->index == p_member && stmt->value->kind == ExprKind::Name && stmt->value->target == Target::Local && stmt->value->index == 0;
+		if (waits && !store && stores_value) {
+			store = stmt.get();
+		}
+		if (!waits && stmt->range.last >= reached->range.first) {
+			waits = stmt.get();
+		}
+	}
+	int stores = 0;
+	const auto count = [&](const auto &p_self, const auto &p_node) -> void {
+		if constexpr (std::is_same_v<std::decay_t<decltype(p_node)>, Stmt>) {
+			const Target target = p_node.kind == StmtKind::Assign ? p_node.target->target : Target::None;
+			stores += (target == Target::Member && p_node.target->index == p_member) || (target == Target::Local && p_node.target->index == 0);
+		}
+		for_each_child(p_node, [&](const auto &p_child) { p_self(p_self, p_child); });
+	};
+	for (const std::unique_ptr<Stmt> &stmt : p_setter.body) {
+		count(count, *stmt);
+	}
+	const std::string &text = cls.source->text;
+	const auto line = [&](const Stmt &p_stmt) {
+		const size_t begin = text.rfind('\n', cls.source->begin(p_stmt.range)) + 1;
+		const size_t end = std::min(text.find('\n', cls.source->end(p_stmt.range)), text.size() - 1) + 1;
+		return std::make_pair(begin, end);
+	};
+	if (store && stores == 1) {
+		const auto [from, to] = line(*store);
+		const std::string moved = text.substr(from, to - from);
+		const bool alone = moved.find_first_not_of(" \t") == cls.source->begin(store->range) - from && moved.find_first_not_of(" \t\r\n", cls.source->end(store->range) - from) == std::string::npos;
+		if (alone) {
+			const uint32_t before = uint32_t(line(*waits).first);
+			fix(Fix{ "Store it before the await", FixKind::StoreFirst, { { std::string(), { before, before, std::string(), moved } }, { std::string(), { uint32_t(from), uint32_t(to), moved, std::string() } } } });
+		}
+	}
+	fix(Fix{ "Mark it @late", FixKind::Late, { late_edit(*cls.source, member) } });
+	if (member.declared_type) {
+		fix_optional(*member.declared_type);
+	}
 }
 
 /* Checking the class */

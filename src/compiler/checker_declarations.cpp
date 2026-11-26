@@ -1414,10 +1414,14 @@ void Checker::check_body(FuncDecl &r_function) {
 			fix(Fix{ "Write return None", FixKind::ReturnNone, { *edit } });
 		}
 	}
+	const auto stored = r_function.accessor_of.empty() ? member_index.end() : member_index.find(r_function.accessor_of);
+	if (stored != member_index.end() && cls.all_members[stored->second]->setter == r_function.name && cls.all_members[stored->second]->must_assign) {
+		check_setter_awaits(r_function, stored->second);
+	}
 	if (init) {
 		std::set<int> reported;
 		Assigned returned;
-		const Assigned at_end = init_block(r_function.body, std::set<int>(), reported, returned);
+		const Assigned at_end = walk_block(r_function.body, std::set<int>(), [&](const Expr &p_expr, std::set<int> &r_assigned) { init_reads(p_expr, r_assigned, reported); }, returned);
 		for (const int member : joined(at_end, returned).value_or(std::set<int>())) {
 			r_function.assigned.push_back(cls.all_members[member]->name);
 		}

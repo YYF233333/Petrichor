@@ -787,6 +787,7 @@ class Checker : public ClassRelation, private CheckContext {
 	void fix_unwrap(std::unique_ptr<Expr> &r_value, const std::function<bool()> &p_check);
 	bool fix_by_name(const std::vector<Write> &p_writes, const std::string &p_name, bool p_method);
 	static Fix::Edit optional_edit(const SourceFile &p_source, const TypeRef &p_written);
+	static Fix::Edit late_edit(const SourceFile &p_source, const VarDecl &p_member);
 	std::optional<Fix::Edit> line_after(const TokenRange &p_range, uint32_t p_indented, const std::string &p_line) const;
 	void fix_optional(const TypeRef &p_written, const std::string &p_owner = std::string());
 	void fix_taking_none(const Type &p_passed, const ParamDecl *p_param, const std::string &p_owner);
@@ -850,9 +851,13 @@ class Checker : public ClassRelation, private CheckContext {
 	int capture(const std::string &p_name);
 	static bool init_assigns(const ClassDecl &p_class, const std::string &p_member);
 	static Assigned joined(const Assigned &p_a, const Assigned &p_b);
-	Assigned init_block(const Block &p_block, Assigned p_assigned, std::set<int> &r_reported, Assigned &r_returned);
-	Assigned init_stmt(const Stmt &p_stmt, Assigned p_assigned, std::set<int> &r_reported, Assigned &r_returned);
+	// What a walk of the paths of a function does with each expression, in the
+	// order they run, given the members assigned before it, which it may add to.
+	using PathVisit = std::function<void(const Expr &, std::set<int> &)>;
+	Assigned walk_block(const Block &p_block, Assigned p_assigned, const PathVisit &p_visit, Assigned &r_returned);
+	Assigned walk_stmt(const Stmt &p_stmt, Assigned p_assigned, const PathVisit &p_visit, Assigned &r_returned);
 	void init_reads(const Expr &p_expr, const std::set<int> &p_assigned, std::set<int> &r_reported);
+	void check_setter_awaits(const FuncDecl &p_setter, int p_member);
 	bool extends_back(const std::string &p_file, std::vector<std::string> &r_files, std::unordered_set<std::string> &r_seen);
 	bool declare_class();
 
