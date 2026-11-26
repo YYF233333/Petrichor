@@ -1,7 +1,5 @@
 extends CharacterBody3D
 
-const Enemy = preload("res://objects/enemy.pet")
-
 @export_subgroup("Properties")
 @export var movement_speed = 5
 @export_range(0, 100) var number_of_jumps: int = 2
@@ -203,8 +201,8 @@ func action_shoot():
 
 			# Hitting an enemy
 
-			if collider is Enemy:
-				collider.damage(weapon.damage)
+			if collider.unwrap().has_method("damage"):
+				collider.unwrap().call("damage", weapon.damage)
 
 			# Creating an impact animation
 
@@ -274,8 +272,8 @@ func change_weapon():
 	raycast.target_position = Vector3(0, 0, -1) * weapon.max_distance
 	crosshair.texture = weapon.crosshair
 
-pub func damage(amount: int):
-	health -= amount
+pub func damage(amount: float):
+	health = int(health - amount)
 	health_updated.emit(health) # Update health on HUD
 
 	if health < 0:

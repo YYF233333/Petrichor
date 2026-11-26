@@ -132,7 +132,7 @@ func _ready() -> void:
 	_check(freed, "an impact frees itself when its animation finishes")
 
 	# An error in a coroutine ends only the coroutine, so it reports finishing.
-	_check(await _check_player_code(player, enemies), "the checks of the player's shooting and mouse look finish")
+	_check(await _check_player_code(player, enemies, health), "the checks of the player's shooting and mouse look finish")
 
 	print("fps check: %d failure(s)" % failures)
 	get_tree().quit()
@@ -140,7 +140,7 @@ func _ready() -> void:
 
 # The parts of player.pet that the checks above do not run: shooting, and the
 # mouse look of _input().
-func _check_player_code(player: Node3D, enemies: Array[Node]) -> bool:
+func _check_player_code(player: Node3D, enemies: Array[Node], health: Label) -> bool:
 	var camera: Node3D = player.get_node("Head/Camera")
 	var spawn := player.global_position
 
@@ -182,6 +182,21 @@ func _check_player_code(player: Node3D, enemies: Array[Node]) -> bool:
 			_check(shot_down, "the player's shots destroy an enemy")
 			_check(seen.impact, "the player's shots leave impacts where they hit")
 		player.global_position = spawn
+
+	# Moved up 3 m each frame and aimed down, the player's ray starts above
+	# where the physics still has the body until its next step
+	# (modules/godot_physics_3d/godot_body_3d.cpp:355-363; ed1daf0), and the
+	# player shoots itself, which has damage().
+	var before := health.text
+	var shoot_down := func() -> bool:
+		player.global_position += Vector3(0, 3, 0)
+		camera.rotation.x = deg_to_rad(-89)
+		return health.text != before
+	Input.action_press("shoot")
+	var hurt: bool = await _wait_until(shoot_down, 5.0)
+	Input.action_release("shoot")
+	player.global_position = spawn
+	_check(hurt, "the player's shot down while it rises damages the player (%s)" % health.text)
 
 	# _input() turns the player and tilts the camera by the mouse's motion over
 	# mouse_sensitivity (700).
