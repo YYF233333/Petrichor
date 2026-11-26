@@ -6,6 +6,38 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
+- A member or a static variable read and written by name in one place, about 25 lines less. Now `instance_set` and `instance_get` (`src/adapter/pet_instance.cpp`) take the same steps as `set_static` and `get_static` (`src/runtime/vm.cpp`).
+  - The steps are the None of an `@late` one, the accessor, the entry check with its error, and the assigned mark.
+  - Each caller keeps its own choice of whether accessors run in the editor.
+  - The two sides have differed once: `2001f81` gave the statics what `7f72d05` gave the members.
+- `stores_last` as a mark on the opcodes' rows (`src/bytecode/opcodes.h`), about 50 lines less. Now lowering lists by hand the 48 opcodes that have read their operands when they store (`src/compiler/lower.cpp`).
+  - The verifier asks the same function whether a constructor may write over an argument (`src/bytecode/verify.cpp`). After `8c57463` lowering emitted what the verifier refused.
+  - A wrong mark gives a wrong `x = f(x)` silently. Copy the set, then compare the disassembly of the engine tests' scripts before and after.
+- A member's default decided in the checker alone, about 10 lines less. Now `reflected_initial` gives one for structs only (`src/compiler/checker_declarations.cpp`), and lowering decides again for the other types. Lowering's `tracks_assignment` also repeats `bytecode::Member::tracks_assignment`.
+- One function in lowering that builds a call's signature from a declaration, 5 to 15 lines less. Now `struct_method_call` and `declared_signature` each build it (`src/compiler/lower.cpp`). The calls of script methods copy the same facts from the checker.
+- The type operand taken from the instruction's register, by the emit letters `R` and `S`. Now 33 places in lowering pass `fn.regs[x].type` by hand, for 20 opcodes. It removes few lines, and the output stays the same. `LESS` keeps its operand, as its first register may hold the right operand.
+- One base class that forwards `ProjectApi`, about 17 lines less. Now `Workspace` and `Overlay` (`src/compiler/workspace.h`) and `Migrated` (`src/compiler/migration.h`) each forward every method. A layer that forgets `hold()` still compiles, and each scene then loads its files again.
+- One edit type and one function that applies edits, about 30 lines less. Now `compiler::Edit` (`src/compiler/lexer.h`) serves `format_edits` alone, and the editor plugin converts `CheckedEdit` to it in three places. Four places apply sorted edits to a text.
+- The engine's reserved words from the lexer's keyword table, about 30 lines less. Now `_get_reserved_words` (`src/adapter/pet_language.cpp`) repeats its 32 keywords by hand, beside the 17 words that are not tokens.
+- The verifier (`src/bytecode/verify.cpp`), about 25 lines less:
+  - the schema letters `M` and `F`, which no opcode uses;
+  - a schema letter for a name constant, in place of the case that checks it for five opcodes;
+  - one function for the four loops that check a call's arguments against its parameters.
+- Completion's rules in one place, about 10 lines less. Now the LSP server repeats where the word at the cursor starts, the cursor's mark, and the engine's sort ranks as numbers (`src/adapter/editor/lsp_server.cpp`).
+- Type predicates written outside `src/compiler/types.cpp`, about 10 lines less:
+  - the types a slot holds inline, in the checker's `held_types` and lowering's `holds_interning`;
+  - the text types in three places, and String or StringName in five;
+  - a constant that names an enum with payloads, in two.
+- Small ones, about 45 lines less in all:
+  - the field a constructor's argument goes to, matched in the checker and three times after it;
+  - the test for None or Err, twice in lowering (`language_method`, `try_value`);
+  - the tokens of a node path, walked by the parser's `get_node` and the formatter's `join_path`;
+  - self's current image for a call on self's instance, in `op_call_method` and `call_directly` (`src/runtime/vm.cpp`);
+  - `ClassImage::strings`, which `native_values` already holds;
+  - the function indices that the reader checks and the verifier checks again, and the VM's default case, which no verified module reaches;
+  - lowering's internal error for an unknown binary operator, which no token reaches;
+  - `_preferred_file_name_casing` and `instance_is_placeholder`, which return the engine's defaults (`core/object/script_language_extension.h:381-389, 902-907`, `ed1daf0`).
+
 ## Next release
 
 0.3, due 2026-12-13. Its list and date are set with the owner (architecture §5, step 11). The list is in order:
@@ -69,7 +101,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - `Task[T]` holds T as a key string in the type table and as a type index in instructions;
   - opcodes are numbered by their position in the X macro, so inserting one renumbers the rest;
   - `Function::params` repeats a prefix of `slots`, and `CALL_AWAIT_BUILTIN` is recognized by its method name;
-  - hot reload compares declarations by a list kept by hand beside the serializer's fields. Driven by those fields, a new field would count by default.
+  - hot reload compares declarations by a list kept by hand beside the serializer's fields. Driven by those fields, a new field would count by default. The list already lacks `checks_elements` of a built-in method (`same_initializers` in `src/runtime/class_image.cpp`).
 
 ## Editor
 
@@ -81,6 +113,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - A refactoring in Godot that changes a script the LSP client has unsaved changes to is refused (architecture §2.3). The server cannot save the client's text. Should it instead write the file and leave the conflict to the client?
 - Godot 4.8 writes the nodes of a scene embedded in a scene file as sections of that file. The scene text locator would take them for the main scene's (`scene/resources/resource_format_text.cpp:1725-1870`, `c51ff06e8`).
 - Member names in the `advance_expression` of AnimationTree transitions. Find references and rename do not see them, so a rename breaks the expression silently. They are expressions evaluated at run time, not a literal-name position of spec §10.4. Corpus v2 has 447 in 63 files. Candidates: list them as unchecked candidates, or parse the expression and check it as the spec checks literal names.
+- "Fix all" can be listed where it applies one fix. `fixes_all` counts the distinct fixes of a kind to list it (`src/adapter/editor/script_compiler.cpp`), and `fix_all` drops those whose edits clash (`src/compiler/compiler.cpp`). Read from the code, not reproduced. `fix_all` could report how many it applies, and the item be listed from that count.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
 - `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). `pet` imports a fresh clone first.
@@ -251,7 +284,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
   - It serves the warning `modified_copy` (spec §3.6), which is off until then.
   - It also serves native code's register allocation (architecture §5).
-  - One table states each opcode's operands and whether each is read, written or both. It replaces the two schema strings, `stores_last` and the verifier's per-instruction rules. Writing a View writes part of its root.
+  - Which operands an instruction reads and writes follows from its emit schema: it writes dst and reads the others. Five opcodes differ and get a function of their own: `SET_FIELD`, `SET_INDEX`, `ITERATE_INT`, `ITERATE` and `CLEAR`. Writing a View writes part of its root.
   - With this first IR lint, lowering gets a warning channel, and `@warning_ignore` filters after lowering. Each instruction records its statement's token range, where the warning shows.
   - The warning takes a write to a field of a struct loop variable, after which the variable is not live. The write may also go through a value type's subscript, as `h.pos[0] = 1.0`.
   - A read in an inner loop's next iteration keeps the variable live, as `while h.count > 0: h.count -= 1`. So does a lambda's capture.
