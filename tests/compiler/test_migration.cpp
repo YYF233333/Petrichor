@@ -818,6 +818,17 @@ TEST_CASE("an error about an element of an untyped container leaves the slots of
 	CHECK(migration.errors.size() == 4);
 }
 
+// As tanks-of-freedom-ii's skirmish menu reads the tiles of a map's data by
+// the key it builds (scenes/ui/menu/skirmish/skirmish.gd:80-90).
+TEST_CASE("an error about a Variant indexed or searched leaves the slots of the index and of the value looked for") {
+	FakeProject project;
+	project.add_script("res://g.gd", "extends Node\nvar data: Dictionary = {}\n\n\nfunc show(key, at) -> void:\n\tprint(data[\"tiles\"][key])\n\tprint(at in data[\"names\"])\n\tif data[\"on\"][key]:\n\t\tprint(-data[\"n\"][at])\n\n\nfunc _ready() -> void:\n\tshow(\"a\", 1)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://g.gd" }, 10);
+	CHECK(contains(migration.texts.at("res://g.pet"), "func show(key: String, at: int) -> void:"));
+	CHECK(migration.withdrawn == 0);
+	CHECK(migration.errors.size() == 4);
+}
+
 TEST_CASE("an error of an operation with a Variant operand leaves the slots of the other operand") {
 	FakeProject project;
 	project.add_script("res://g.gd", "extends Node\nvar data: Dictionary = {}\n\n\nfunc count():\n\treturn 3\n\n\nfunc _ready() -> void:\n\tvar n = count()\n\tn += data[\"k\"]\n\tif count() == 0 and data[\"b\"]:\n\t\tprint(count() >= data[\"n\"])\n");

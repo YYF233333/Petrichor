@@ -82,7 +82,9 @@ Type Checker::check_unary(Expr &r_expr) {
 		return set(r_expr, fix_truth({ { unparenthesized(r_expr.range), r_expr.left.get() } }, true));
 	}
 	if (operand.kind == TypeKind::Variant) {
-		return fail(r_expr, std::string("Cannot use ") + token_name(r_expr.op) + " on a Variant." + variant_hint());
+		fail(r_expr, std::string("Cannot use ") + token_name(r_expr.op) + " on a Variant." + variant_hint());
+		about(r_expr.range, { typed_by(*r_expr.left) });
+		return r_expr.type;
 	}
 	if (r_expr.op == TokenKind::Minus) {
 		if (operand.is_numeric()) {
@@ -441,7 +443,9 @@ Type Checker::check_in(Expr &r_expr) {
 	}
 	if (container.kind == TypeKind::Variant) {
 		check_value(*r_expr.left);
-		return fail(r_expr, "Cannot look for a value in a Variant." + variant_hint());
+		fail(r_expr, "Cannot look for a value in a Variant." + variant_hint());
+		about(r_expr.range, { typed_by(*r_expr.right) });
+		return r_expr.type;
 	}
 	if (container.kind == TypeKind::Object) {
 		const Type name = check_value(*r_expr.left);
@@ -1073,7 +1077,9 @@ Type Checker::check_subscript(Expr &r_expr) {
 		return set(r_expr, Type::of(TypeKind::Error));
 	}
 	if (base.kind == TypeKind::Variant) {
-		return fail(r_expr, "Cannot index a Variant." + variant_hint());
+		fail(r_expr, "Cannot index a Variant." + variant_hint());
+		about(r_expr.range, { typed_by(*r_expr.base) });
+		return r_expr.type;
 	}
 	if (base.is_arguments()) {
 		// A literal index names a field (spec §9.6), which the check goes on
@@ -2149,6 +2155,9 @@ void Checker::expect_condition(Expr &r_condition) {
 		return;
 	}
 	error(r_condition.range, "A condition must be bool, found " + type.to_string() + "." + truth_hint(type, false));
+	if (type.kind == TypeKind::Variant) {
+		about(r_condition.range, { typed_by(r_condition) });
+	}
 	fix_truth({ { r_condition.range, &r_condition } }, false);
 }
 

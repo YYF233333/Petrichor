@@ -614,6 +614,7 @@ Type Checker::element_type(Stmt &r_stmt, const Type &p_iterated) {
 		return check_iteration(r_stmt, p_iterated);
 	} else if (p_iterated.kind == TypeKind::Variant) {
 		error(r_stmt.value->range, "Cannot iterate over a Variant." + variant_hint());
+		about(r_stmt.value->range, { typed_by(*r_stmt.value) });
 	} else if (p_iterated.kind == TypeKind::String) {
 		return Type::of(TypeKind::String);
 	} else if (!p_iterated.is_error()) {

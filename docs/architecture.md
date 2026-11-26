@@ -850,7 +850,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - 由初始值或迭代值定型的局部或循环变量，按同一规则追溯到该值。
   - 撤回接收者只会把值变成同样不合的 `Variant`，还丢掉流入支持的类型。tanks-of-freedom-ii 把 `pivot_rotation.y` 赋给 `int` 成员时，`camera_pivot` 不受牵连（`scenes/camera.gd:101-102`）。它的 `loader.gd` 由调用定型的局部变量出错时，实参 `campaign_name` 和 `mission_no` 也不受牵连（`scenes/map/loader.gd:33-34`）。
   - 所赋值不合时还涉及目标所引用的槽位。值是 `Variant` 时不涉及目标，留作编译错误由人写转换。实参和 `return` 错误不涉及接收的槽位。
-  - 关于接收者本身的错误只涉及给出接收者类型的槽位，与值不合时相同，如调用 `Variant`、缺该方法的类或 `T?` 的方法，以及在它们上读成员。Ring 的 `balls.gd` 读 `new_ball.collision_shape.shape.radius` 出错时，`new_ball` 由之定型的 `instantiate_new_ball()` 和 `collision_shape` 不受牵连，因为 `shape` 是引擎属性。运算（含比较、`and`、`or` 和复合赋值）仅一个操作数是 `Variant` 而出错时，只涉及给出该操作数类型的槽位。
+  - 关于接收者本身的错误只涉及给出接收者类型的槽位，与值不合时相同，如调用 `Variant`、缺该方法的类或 `T?` 的方法，以及在它们上读成员。取下标、`in` 查找、迭代、一元运算和条件中的值是 `Variant` 而出错时也是如此，下标和所查找的值不受牵连：tanks-of-freedom-ii 的 `map_data["tiles"][key]` 不牵连 `key`（`scenes/ui/menu/skirmish/skirmish.gd:83-89`）。Ring 的 `balls.gd` 读 `new_ball.collision_shape.shape.radius` 出错时，`new_ball` 由之定型的 `instantiate_new_ball()` 和 `collision_shape` 不受牵连，因为 `shape` 是引擎属性。运算（含比较、`and`、`or` 和复合赋值）仅一个操作数是 `Variant` 而出错时，只涉及给出该操作数类型的槽位。
   - 无类型 `Array` 或 `Dictionary` 的元素是 `Variant`（经下标、`for` 或 `get()` 读出），错误不涉及容器和下标槽位。
   - 声明在别的文件中不可用（不是 `pub` 或自身有错）的错误不涉及任何槽位。【已知限制】同一范围的其他错误目前也不涉及，如调用尚未补 `pub` 的方法所得的值不合目标。
 - **`int` 并入 `float` 安全核对**：编译器看不出求值变化，由工具自行核对：
