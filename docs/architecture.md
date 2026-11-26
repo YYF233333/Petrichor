@@ -147,7 +147,7 @@ adapter 实现这些接口时，引擎类取自 ClassDB，场景取自引擎读�
     - 保持 GDScript 中的含义；
     - 检查器报出错误后，按已经应用了修复继续检查。
   - 自动种类包括：
-    - 真值改写、`float` 实参和 `is_instance_valid`；
+    - 真值改写、`float` 实参和 `is_instance_valid`。setter 和 getter 判断 `@onready` 成员时先判 `is_node_ready()`：它们可能在就绪前运行，这时 GDScript 读到 null，本语言则报程序错误（规范 §6.5）。`is_node_ready()` 在 `_ready` 之前变真，GDScript 在 `_ready` 开头初始化这些成员（`scene/main/node.cpp:279, 334-336, 3555-3557`，`modules/gdscript/gdscript.cpp:1950-1952`，`ed1daf0`）；
     - 两层 Option 当作 GDScript 的 null（如与 null 比较和传给 `Variant`）；
     - `.detach()`，以及字面量名字改用方法或信号本身；
     - 从根到 autoload 的字面量路径改用它的名字（§6.6）；

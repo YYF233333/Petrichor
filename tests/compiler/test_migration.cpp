@@ -465,6 +465,17 @@ TEST_CASE("a type written for a T? value becomes T? where a branch of it is null
 	CHECK(migration.errors.empty());
 }
 
+// GDScript reads null before ready, which a creator's assignment comes before
+// (Ring's breakout/scenes/consumables/base/consumable.gd:10-14 and
+// breakout/scenes/managers/breakout_manager.gd:129-130).
+TEST_CASE("a setter's truth or null test of an @onready member first tests whether the node is ready") {
+	FakeProject project;
+	project.add_script("res://counter.gd", "extends Node\n@onready var label: Node = get_child(0)\nvar count: int:\n\tset(value):\n\t\tcount = value\n\t\tif label:\n\t\t\tlabel.set_process(true)\n\t\tif label == null:\n\t\t\tprint(value)\n\n\nfunc _process(delta: float) -> void:\n\tif label:\n\t\tlabel.set_process(false)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://counter.gd" }, 10);
+	CHECK(migration.texts.at("res://counter.pet") == "extends Node\n@onready var label: Node = get_child(0)\nvar count: int:\n\tset(value):\n\t\tcount = value\n\t\tif is_node_ready() and is_instance_valid(label):\n\t\t\tlabel.set_process(true)\n\t\tif not (is_node_ready() and is_instance_valid(label)):\n\t\t\tprint(value)\n\n\nfunc _process(delta: float) -> void:\n\tif is_instance_valid(label):\n\t\tlabel.set_process(false)\n");
+	CHECK(migration.errors.empty());
+}
+
 // GDScript passes the null to the connected functions, whose parameters take
 // it (modules/gdscript/gdscript_function.cpp:103-106; ed1daf0).
 TEST_CASE("the loop of fixes makes a signal's parameter T? where the original emits null, and the parameters of the functions connected to it") {

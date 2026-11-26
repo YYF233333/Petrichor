@@ -10,7 +10,7 @@ var price: int
 pub var rest_times: int:
 	set(value):
 		rest_times = min(max(value, 0), max_possess_amount)
-		if is_node_ready():
+		if is_node_ready() and is_instance_valid(rest_times_label):
 			rest_times_label.text = str(rest_times)
 pub var transformed: bool = false:
 	set(value):

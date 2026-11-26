@@ -149,13 +149,26 @@ std::string Checker::truth_hint(const Type &p_type, bool p_negated) {
 	return test.empty() ? test : " Test it explicitly, for example " + test + ".";
 }
 
+// The test `p_test` of an @onready member that a setter reads, which may
+// run before the node is ready, where GDScript reads null and this language
+// fails (spec §6.5): first whether the node is ready, or with `p_negated` the
+// negation of both. Empty for another value.
+std::string Checker::once_ready(const Expr &p_value, const std::string &p_test, bool p_negated) const {
+	const bool onready = p_value.kind == ExprKind::Name && p_value.target == Target::Member && cls.all_members[size_t(p_value.index)]->is_onready;
+	if (!onready || p_test.empty() || !function || function->accessor_of.empty()) {
+		return std::string();
+	}
+	return p_negated ? "not (is_node_ready() and " + p_test + ")" : "is_node_ready() and " + p_test;
+}
+
 // Gives the error reported last the fix that writes the truth test of each
 // value over its tokens, when each has one. The type of what is tested then:
 // bool, as the check goes on, or Error without the fix.
 Type Checker::fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated) {
 	std::vector<Write> writes;
 	for (const auto &[range, value] : p_values) {
-		writes.push_back({ range, truth_test(value->type, p_negated, operand(*value)) });
+		const std::string ready = once_ready(*value, truth_test(value->type, false, operand(*value)), p_negated);
+		writes.push_back({ range, ready.empty() ? truth_test(value->type, p_negated, operand(*value)) : ready });
 		if (writes.back().second.empty()) {
 			return Type::of(TypeKind::Error);
 		}
@@ -393,7 +406,9 @@ Type Checker::check_none_comparison(Expr &r_expr) {
 		if (type.kind == TypeKind::Object) {
 			// GDScript's x == null is true of a freed object too
 			// (core/variant/variant_op.h:484-488; ed1daf0).
-			fix({ { unparenthesized(r_expr.range), (r_expr.op == TokenKind::BangEqual ? "" : "not ") + ("is_instance_valid(" + cls.source->text_of(value.range) + ")") } }, FixKind::InstanceValid);
+			const std::string valid = "is_instance_valid(" + cls.source->text_of(value.range) + ")";
+			const std::string ready = once_ready(value, valid, r_expr.op != TokenKind::BangEqual);
+			fix({ { unparenthesized(r_expr.range), ready.empty() ? (r_expr.op == TokenKind::BangEqual ? "" : "not ") + valid : ready } }, FixKind::InstanceValid);
 			if (const TypeRef *written = type_written_for(value)) {
 				fix_optional(*written);
 			}

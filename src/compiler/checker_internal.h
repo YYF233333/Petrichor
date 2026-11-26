@@ -990,6 +990,7 @@ class Checker : public ClassRelation, private CheckContext {
 	Type check_unary(Expr &r_expr);
 	std::string truth_test(const Type &p_type, bool p_negated, const std::string &p_value);
 	std::string truth_hint(const Type &p_type, bool p_negated);
+	std::string once_ready(const Expr &p_value, const std::string &p_test, bool p_negated) const;
 	Type fix_truth(const std::vector<std::pair<TokenRange, const Expr *>> &p_values, bool p_negated);
 	Type binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at, Type *r_compared = nullptr);
 	Type primitive_binary_type(TokenKind p_op, const Type &p_left, const Type &p_right, const TokenRange &p_at);
