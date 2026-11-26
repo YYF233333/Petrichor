@@ -1070,14 +1070,10 @@ public:
 
 // A class-level access from one .pet file to the class of another: a call of
 // its static method, a use of its enum or inner class, or of its constant in
-// a constant, by where it is written.
+// a constant, as it is written.
 struct Access {
 	std::string target;
 	std::string written;
-	bool is_static = false;
-	bool in_constant = false;
-	uint32_t begin = 0;
-	uint32_t end = 0;
 };
 
 // The class-level accesses of the file to the .pet files that `p_names`
@@ -1109,10 +1105,123 @@ std::vector<Access> class_accesses(const std::string &p_file, const ClassDecl &p
 		const bool type = decl->find_class(member) || std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == member; });
 		const bool constant = in_constant && std::any_of(decl->constants.begin(), decl->constants.end(), [&](const ConstDecl &p_constant) { return p_constant.name == member; });
 		if (is_static || type || constant) {
-			found.push_back({ target, tokens[i].text + "." + member + (is_static ? "()" : ""), is_static, constant && !type, tokens[i].offset, tokens[i + 2].end() });
+			found.push_back({ target, tokens[i].text + "." + member + (is_static ? "()" : "") });
 		}
 	}
 	return found;
+}
+
+// A type as reflection shows GDScript's, which this language's view of a
+// GDScript class reads (src/adapter/editor/class_db_api.cpp:23-62, spec
+// §11.1): an object as T?, of its global class or an engine class, an enum of
+// a script as int, and the rest as the GDScript written declares them.
+Type reflected(const Type &p_type, const EngineApi &p_engine, const std::set<std::string> &p_globals) {
+	switch (p_type.kind) {
+		case TypeKind::Object:
+			return Type::object(p_engine.class_exists(p_type.name) || p_globals.count(p_type.name) ? p_type.name : "Object", true);
+		case TypeKind::Option:
+			return Type::of(TypeKind::Variant);
+		case TypeKind::Enum:
+			return p_type.script.empty() ? p_type : Type::of(TypeKind::Int);
+		case TypeKind::Function:
+			return Type::builtin("Callable");
+		case TypeKind::Builtin: {
+			if (!is_typed_container(p_type)) {
+				return p_type;
+			}
+			std::string hint;
+			for (size_t i = 0; i < p_type.args.size(); i++) {
+				if (p_type.args[i].kind == TypeKind::Option) {
+					return Type::builtin(p_type.name);
+				}
+				const Type each = is_typed_container(p_type.args[i]) ? Type::builtin(p_type.args[i].name) : reflected(p_type.args[i], p_engine, p_globals);
+				hint += (i > 0 ? ";" : "") + (each.kind == TypeKind::Object ? each.name : each.to_string());
+			}
+			return api_type((p_type.name == "Array" ? "typedarray::" : "typeddictionary::") + hint, true);
+		}
+		default:
+			return p_type;
+	}
+}
+
+// What reflection would show of a class converted back, at its new path
+// (src/adapter/editor/scene_index.cpp:879-939): its members and those it
+// inherits, untyped ones as Variant, its enums as Dictionary constants.
+ForeignClass gdscript_view(const ClassDecl &p_class, const std::string &p_path, const EngineApi &p_engine, const std::set<std::string> &p_globals) {
+	ForeignClass view;
+	view.name = p_class.class_name;
+	view.native = p_class.native_base;
+	view.base = p_class.base_script;
+	view.members_known = true;
+	const auto typed = [&](bool p_written, const Type &p_type) { return p_written ? reflected(p_type, p_engine, p_globals) : Type::of(TypeKind::Variant); };
+	for (const VarDecl *member : p_class.all_members) {
+		view.properties.push_back({ member->name, typed(member->declared_type || member->infers_type, member->type), true, p_path });
+	}
+	for (const FuncDecl *function : p_class.all_functions) {
+		if (function->is_lambda || !function->accessor_of.empty()) {
+			continue;
+		}
+		EngineMethod method;
+		method.name = function->name;
+		method.owner = p_path;
+		method.is_static = function->is_static;
+		for (const ParamDecl &param : function->params) {
+			method.params.push_back({ param.name, typed(param.declared_type || param.infers_type, param.type), param.default_value ? param.default_value->text : std::string() });
+			method.default_count += param.default_value != nullptr;
+		}
+		method.return_type = function->return_type_ref ? reflected(function->return_type, p_engine, p_globals) : Type::of(TypeKind::Variant);
+		view.methods.push_back(std::move(method));
+	}
+	for (const SignalDecl *signal : p_class.all_signals) {
+		EngineMethod method;
+		method.name = signal->name;
+		method.owner = p_path;
+		for (const ParamDecl &param : signal->params) {
+			method.params.push_back({ param.name, typed(param.declared_type.has_value(), param.type), std::string() });
+		}
+		view.signals.push_back(std::move(method));
+	}
+	for (const ConstDecl *constant : p_class.all_constants) {
+		view.constants.push_back({ constant->name, reflected(constant->type, p_engine, p_globals), false, p_path });
+	}
+	for (const EnumDecl *each : p_class.all_enums) {
+		if (!each->name.empty()) {
+			view.constants.push_back({ each->name, Type::builtin("Dictionary"), false, p_path });
+			continue;
+		}
+		for (const EnumValueDecl &value : each->values) {
+			view.constants.push_back({ value.name, Type::of(TypeKind::Int), false, p_path });
+		}
+	}
+	return view;
+}
+
+// The errors a check of the .pet file at `p_file` finds in `p_project`, with
+// their lines and the file.
+std::vector<Diagnostic> errors_of(const EngineApi &p_engine, const ProjectApi &p_project, ScriptClasses &r_classes, const std::string &p_file) {
+	const std::string source = p_project.script_source(p_file).value_or(std::string());
+	std::vector<Diagnostic> found;
+	ClassDecl decl = parse(source, found);
+	if (found.empty()) {
+		CompileOptions options;
+		options.path = p_file;
+		options.project = &p_project;
+		r_classes.begin_compile(p_file, source);
+		check(decl, p_engine, options, found, r_classes);
+		r_classes.end_compile();
+	}
+	std::vector<Diagnostic> errors;
+	for (Diagnostic &each : found) {
+		if (each.severity != Severity::Error) {
+			continue;
+		}
+		const SourcePosition position = decl.source->position(each.begin);
+		each.line = position.line;
+		each.column = position.column;
+		each.file = p_file;
+		errors.push_back(std::move(each));
+	}
+	return errors;
 }
 
 } // namespace
@@ -1208,6 +1317,7 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 		std::string text;
 		Erased erased;
 		std::vector<Diagnostic> refused;
+		ForeignClass view; // As reflection would show its GDScript, its base by its old path.
 	};
 	std::map<std::string, Converted> converted;
 	std::set<std::string> globals;
@@ -1223,6 +1333,7 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 		std::vector<Diagnostic> errors;
 		ClassDecl decl = parse(source, errors);
 		Converter converter(p_file, *decl.source, p_engine, globals);
+		ForeignClass view;
 		if (p_project.script_source(reversed_path(p_file))) {
 			converter.refused.push_back({ 0, 0, reversed_path(p_file) + " is there already." });
 		} else if (errors.empty()) {
@@ -1234,6 +1345,7 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 			if (errors.empty()) {
 				converter.keywords();
 				converter.visit(decl);
+				view = gdscript_view(decl, reversed_path(p_file), p_engine, globals);
 			}
 			classes.end_compile();
 		}
@@ -1252,7 +1364,7 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 			result.defects.push_back({ 0, 0, "Two of its erasures overlap." });
 			result.defects.back().file = p_file;
 		}
-		return converted[p_file] = { text.value_or(std::string()), converter.erased, converter.refused };
+		return converted[p_file] = { text.value_or(std::string()), converter.erased, converter.refused, view };
 	};
 	// The file of a tree that cannot convert, or "".
 	const auto refusing = [&](const std::string &p_root) {
@@ -1358,22 +1470,39 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 		}
 	}
 
-	// What the .pet files that stay lose of the classes that convert, of
-	// which this language reaches only static methods and constants' values
-	// (spec §11.1).
-	for (const std::string &file : files) {
-		const ClassDecl *header = renamed.count(file) ? nullptr : classes.header(file);
-		for (const Access &access : header ? class_accesses(file, *header, names, classes) : std::vector<Access>()) {
-			if (!renamed.count(access.target) || access.is_static) {
-				continue;
+	// The errors that converting causes in the .pet files that stay, which
+	// see the converted classes as GDScript (spec §11.1): those a check of
+	// them in memory finds that it did not before.
+	std::vector<std::string> staying;
+	std::copy_if(files.begin(), files.end(), std::back_inserter(staying), [&](const std::string &p_file) { return !renamed.count(p_file); });
+	if (renamed.empty() || staying.empty()) {
+		return result;
+	}
+	std::map<std::string, std::string> texts;
+	std::map<std::string, ForeignClass> views;
+	for (const auto &[file, now] : renamed) {
+		texts[now] = result.texts[file];
+		ForeignClass view = converted.at(file).view;
+		view.base = renamed.count(view.base) ? renamed.at(view.base) : view.base;
+		views[now] = std::move(view);
+	}
+	const Migrated after(p_project, renamed, texts, views);
+	ScriptClasses after_classes(p_engine, &after);
+	for (const std::string &file : staying) {
+		std::set<std::pair<int, std::string>> had;
+		for (const Diagnostic &error : errors_of(p_engine, p_project, classes, file)) {
+			std::string message = error.message;
+			for (const auto &[old, now] : renamed) {
+				for (size_t at = message.find(old); at != std::string::npos; at = message.find(old, at + now.size())) {
+					message.replace(at, old.size(), now);
+				}
 			}
-			Diagnostic lost{ access.begin, access.end, "It uses " + access.written + " of " + access.target + (access.in_constant ? " in a constant" : "") + ", which converts to GDScript, and this language cannot use a class of GDScript so." };
-			const SourcePosition position = header->source->position(lost.begin);
-			lost.line = position.line;
-			lost.column = position.column;
-			lost.severity = Severity::Warning;
-			lost.file = file;
-			result.lost.push_back(std::move(lost));
+			had.emplace(error.line, message);
+		}
+		for (Diagnostic &error : errors_of(p_engine, after, after_classes, file)) {
+			if (!had.count({ error.line, error.message })) {
+				result.caused.push_back(std::move(error));
+			}
 		}
 	}
 	return result;

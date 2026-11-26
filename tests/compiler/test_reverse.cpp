@@ -86,7 +86,7 @@ TEST_CASE("reverse conversion assigns members passed by name after the call, mat
 	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?) -> void:\n\tmatch other:\n\t\tSome(var o):\n\t\t\tprint(o)\n\t\tNone:\n\t\t\tpass\n") == "6:3: This is not converted back yet: Some(...) that would take null too, before a branch of None.\n");
 }
 
-TEST_CASE("converting a class takes its inheritance tree, which a file that cannot convert keeps, and lists what other files lose") {
+TEST_CASE("converting a class takes its inheritance tree, which a file that cannot convert keeps, and lists the errors it causes in the files that stay, which see GDScript") {
 	FakeProject project;
 	project.add_script("res://base.pet", "class_name Base\nextends Node\nenum Kind { A, B }\n\n\npub func hit() -> void:\n\tpass\n", "Base");
 	project.add_script("res://child.pet", "extends Base\nconst Hud = preload(\"res://hud.pet\")\n");
@@ -94,9 +94,9 @@ TEST_CASE("converting a class takes its inheritance tree, which a file that cann
 	compiler::Reversal reversal = compiler::reverse(fake_engine(), project, { "res://child.pet" });
 	CHECK(reversal.texts == std::map<std::string, std::string>{ { "res://base.pet", "class_name Base\nextends Node\nenum Kind { A, B }\n\n\nfunc hit() -> void:\n\tpass\n" }, { "res://child.pet", "extends Base\nconst Hud = preload(\"res://hud.pet\")\n" } });
 	CHECK(reversal.added == Pairs{ { "res://base.pet", "in the inheritance tree of res://child.pet" } });
-	REQUIRE(reversal.lost.size() == 1);
-	CHECK(reversal.lost[0].file == "res://hud.pet");
-	CHECK(reversal.lost[0].line == 2);
+	REQUIRE(reversal.caused.size() == 1);
+	CHECK(reversal.caused[0].file == "res://hud.pet");
+	CHECK(reversal.caused[0].line == 2);
 
 	project.add_script("res://boss.pet", "extends \"res://child.pet\"\nstruct Loot:\n\tvar gold: int\n");
 	reversal = compiler::reverse(fake_engine(), project, { "res://base.pet", "res://none" });

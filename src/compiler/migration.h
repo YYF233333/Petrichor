@@ -198,9 +198,14 @@ class Migrated : public ProjectApi {
 public:
 	std::map<std::string, std::string> texts; // Of the files migrated, by their new paths.
 	int quoted = 0; // The strings written in triple quotes.
+	// Of the files converted back, as reflection would show their GDScript,
+	// by their new paths.
+	std::map<std::string, ForeignClass> views;
 
 	// `p_files` start as their texts, with the paths renamed.
 	Migrated(const ProjectApi &p_under, const std::set<std::string> &p_files);
+	// The files of `p_renamed` converted back, as `p_texts` and `p_views` say.
+	Migrated(const ProjectApi &p_under, const std::map<std::string, std::string> &p_renamed, const std::map<std::string, std::string> &p_texts, const std::map<std::string, ForeignClass> &p_views);
 
 	const std::map<std::string, std::string> &renames() const { return renamed; }
 	// A path, its file's renamed if it is one of them; an inner class's too.

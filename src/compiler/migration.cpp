@@ -427,6 +427,13 @@ Migrated::Migrated(const ProjectApi &p_under, const std::set<std::string> &p_fil
 	}
 }
 
+Migrated::Migrated(const ProjectApi &p_under, const std::map<std::string, std::string> &p_renamed, const std::map<std::string, std::string> &p_texts, const std::map<std::string, ForeignClass> &p_views) :
+		under(p_under), renamed(p_renamed), texts(p_texts), views(p_views) {
+	for (const auto &[file, now] : renamed) {
+		back[now] = file;
+	}
+}
+
 std::string Migrated::path(const std::string &p_path) const {
 	const auto found = renamed.find(script_file(p_path));
 	return found == renamed.end() ? p_path : found->second + p_path.substr(found->first.size());
@@ -520,6 +527,17 @@ std::optional<std::string> Migrated::script_source(const std::string &p_path) co
 }
 
 std::optional<ForeignClass> Migrated::foreign_class(const std::string &p_path, bool p_members) const {
+	if (const auto view = views.find(p_path); view != views.end()) {
+		ForeignClass shown = view->second;
+		shown.members_known = p_members;
+		if (!p_members) {
+			shown.properties.clear();
+			shown.methods.clear();
+			shown.signals.clear();
+			shown.constants.clear();
+		}
+		return shown;
+	}
 	if (renamed.count(p_path) || back.count(p_path)) {
 		return std::nullopt;
 	}

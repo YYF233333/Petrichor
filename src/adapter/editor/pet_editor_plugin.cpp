@@ -1750,8 +1750,9 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 
 // pet migrate --reverse (spec §13.4, architecture §6.6): the .pet files under
 // `p_paths` that convert back, with their trees, and those that stay, each
-// place that keeps one listed, as are the defects that the re-parse check
-// finds, after which nothing is written.
+// place that keeps one listed, as are the errors converting causes in them
+// and the defects that the re-parse check finds, after which nothing is
+// written.
 std::pair<std::string, int> PetEditorPlugin::migrate_back(const std::vector<std::string> &p_paths, bool p_dry_run, bool p_allow_dirty) {
 	const compiler::Reversal reversal = compiler::reverse(ClassDBApi::get(), SceneIndex::get(), p_paths);
 	std::string output;
@@ -1773,7 +1774,7 @@ std::pair<std::string, int> PetEditorPlugin::migrate_back(const std::vector<std:
 	for (const auto &[file, why] : reversal.left_out) {
 		output += relative(file) + ": left out: " + why + "\n";
 	}
-	for (const std::vector<compiler::Diagnostic> *listed : { &reversal.refused, &reversal.lost, &reversal.defects }) {
+	for (const std::vector<compiler::Diagnostic> *listed : { &reversal.refused, &reversal.caused, &reversal.defects }) {
 		for (const compiler::Diagnostic &each : *listed) {
 			output += diagnostic_line(each) + "\n";
 		}
@@ -1782,7 +1783,7 @@ std::pair<std::string, int> PetEditorPlugin::migrate_back(const std::vector<std:
 		output += "error: Each of these is a defect of the converter, so nothing is written. Please report it with this output.\n";
 	}
 	const auto summary = [&](int p_named) {
-		return "petrichor migrate --reverse: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(reversal.added.size()) + " added, " + std::to_string(reversal.left_out.size()) + " left out, " + std::to_string(p_named) + " path(s) renamed, " + std::to_string(reversal.defects.size()) + " defect(s)";
+		return "petrichor migrate --reverse: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(reversal.added.size()) + " added, " + std::to_string(reversal.left_out.size()) + " left out, " + std::to_string(p_named) + " path(s) renamed, " + std::to_string(reversal.defects.size()) + " defect(s), " + std::to_string(reversal.caused.size()) + " error(s)";
 	};
 	const bool kept = renamed.empty() && !reversal.left_out.empty();
 	return write_migrated(renamed, texts, output, summary, p_dry_run, p_allow_dirty, kept || !reversal.defects.empty());

@@ -54,10 +54,10 @@ struct Reversal {
 	std::vector<std::pair<std::string, std::string>> added; // Each with why.
 	std::vector<std::pair<std::string, std::string>> left_out; // Each with why, by path.
 	std::vector<Diagnostic> refused; // Each place that keeps a file, naming its file.
-	// In the .pet files that stay, each class-level access to a class that
-	// converts which this language cannot make to a class of GDScript (spec
-	// §11.1).
-	std::vector<Diagnostic> lost;
+	// The errors that converting causes in the .pet files that stay, which see
+	// the classes converted as GDScript (spec §11.1); they keep nothing from
+	// converting.
+	std::vector<Diagnostic> caused;
 	std::vector<Diagnostic> defects; // Of the re-parse check, each naming its file.
 	std::vector<std::string> unknown; // Paths given without a .pet file there.
 };
