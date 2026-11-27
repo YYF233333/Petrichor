@@ -58,6 +58,12 @@ void Checker::flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflo
 	}
 }
 
+// A null flows in as null, not as the Variant or T? that the type tried for
+// the slot gives it, or the slot would decide what it receives.
+void Checker::flow(int p_slot, const Type &p_type, const Expr &p_value, Inflows::Part p_part) {
+	flow(p_slot, p_value.kind == ExprKind::NoneLiteral ? Type::of(TypeKind::None) : p_type, p_value.range, p_part);
+}
+
 // The slot of a declaration with a class written for it, `r_type`, whose
 // value a read in the last round found where a subclass is expected, of an
 // export of scenes of unknown roots, or of untyped Arrays (architecture
@@ -226,7 +232,7 @@ bool Checker::fill_container(const Expr &p_base, const Expr &p_call) {
 	const std::string &name = p_call.text;
 	const auto put = [&](size_t p_arg, Inflows::Part p_part) {
 		if (p_arg < p_call.args.size()) {
-			flow(slot, p_call.args[p_arg]->type, p_call.args[p_arg]->range, p_part);
+			flow(slot, p_call.args[p_arg]->type, *p_call.args[p_arg], p_part);
 		}
 	};
 	if (name == "append" || name == "push_back" || name == "push_front" || name == "fill") {

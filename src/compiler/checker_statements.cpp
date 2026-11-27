@@ -735,7 +735,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				untyped_fixed = false;
 				value = check_value(*r_stmt.value, type);
 				untyped_value = nullptr;
-				flow(container.empty() ? slot : -1, value, r_stmt.value->range);
+				flow(container.empty() ? slot : -1, value, *r_stmt.value);
 				if (typed) {
 					expect_assignable(*r_stmt.value, value, type, "assign", r_stmt.declared_type ? &*r_stmt.declared_type : nullptr);
 					// Written Array, as GDScript gives a signal's arguments, the local
@@ -750,7 +750,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 					expect_scene_fits(*r_stmt.value, type);
 					if (type.kind == TypeKind::Int && cls.source->tokens[r_stmt.name_token + 1].kind != TokenKind::Colon) {
 						slot = valued_slot({ Inflows::Kind::Local, r_stmt.name }, r_stmt.name_token);
-						flow(slot, value, r_stmt.value->range);
+						flow(slot, value, *r_stmt.value);
 					}
 				}
 			} else if (!typed) {
@@ -816,13 +816,13 @@ void Checker::check_stmt(Stmt &r_stmt) {
 			// narrow holds what was written to it, which flowed in there.
 			const Expr &written = *r_stmt.value;
 			const bool own_value = function && target.target == Target::Member && cls.all_members[target.index]->name == function->accessor_of && written.kind == ExprKind::Name && written.target == Target::Local && written.index == 0;
-			flow(own_value && is_wide(slot_of(target)) ? -1 : slot_of(target), value, r_stmt.value->range);
+			flow(own_value && is_wide(slot_of(target)) ? -1 : slot_of(target), value, *r_stmt.value);
 			const bool shown = !value.is_optional() && value.kind != TypeKind::None && value.kind != TypeKind::Variant && !value.is_error();
 			if (const std::optional<Inflows::Key> key = !compound && !own_value && !shown && target.kind != ExprKind::Subscript ? read_declaration(target) : std::nullopt) {
 				options.inflows->nullable.insert(*key);
 			}
 			if (const int container = target.kind == ExprKind::Subscript ? container_slot(*target.base) : -1; container >= 0) {
-				flow(container, value, r_stmt.value->range, Inflows::Part::Element);
+				flow(container, value, *r_stmt.value, Inflows::Part::Element);
 				flow(container, target.right->type, target.right->range, Inflows::Part::Key);
 			}
 			// GDScript reads the copy before the right side, but changes a local or a
@@ -925,7 +925,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 				return;
 			}
 			const Type value = check_value(*r_stmt.value, expected);
-			flow(function->slot, value, r_stmt.value->range);
+			flow(function->slot, value, *r_stmt.value);
 			if (expected.kind == TypeKind::Void) {
 				error(r_stmt.value->range, function_label() + " returns void. Declare its return type, for example -> " + (value.is_error() ? std::string("int") : value.to_string()) + ".");
 				return;

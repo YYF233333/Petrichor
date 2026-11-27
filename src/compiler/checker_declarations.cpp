@@ -487,7 +487,7 @@ void Checker::check_member_declaration(size_t p_index) {
 		initializing = -1;
 		initializing_onready = false;
 		untyped_value = nullptr;
-		flow(container.empty() ? member.slot : -1, value, member.initializer->range);
+		flow(container.empty() ? member.slot : -1, value, *member.initializer);
 		if (typed) {
 			expect_assignable(*member.initializer, value, type, "assign", member.declared_type ? &*member.declared_type : nullptr);
 		} else {
@@ -497,7 +497,7 @@ void Checker::check_member_declaration(size_t p_index) {
 			// that another file read without its type from the scenes, which
 			// takes the type it has here.
 			member.slot = type.kind == TypeKind::Int && !member.infers_type ? valued_slot({ Inflows::Kind::Member, member.name }, member.name_token) : found_slot(member.name_token);
-			flow(member.slot, value, member.initializer->range);
+			flow(member.slot, value, *member.initializer);
 			type = member.slot >= 0 && type.is_error() ? tried(member.slot) : type;
 		}
 		// An @onready member gets even a constant when the node is ready.
@@ -756,7 +756,7 @@ void Checker::check_static_declaration(size_t p_index) {
 		const Type value = check_value(*variable.initializer, type);
 		static_initializing = -1;
 		untyped_value = nullptr;
-		flow(container.empty() ? variable.slot : -1, value, variable.initializer->range);
+		flow(container.empty() ? variable.slot : -1, value, *variable.initializer);
 		if (typed) {
 			expect_assignable(*variable.initializer, value, type, "assign", variable.declared_type ? &*variable.declared_type : nullptr);
 		} else {
@@ -764,7 +764,7 @@ void Checker::check_static_declaration(size_t p_index) {
 			expect_scene_fits(*variable.initializer, type);
 			if (type.kind == TypeKind::Int && !variable.infers_type) {
 				variable.slot = valued_slot({ Inflows::Kind::Member, variable.name }, variable.name_token);
-				flow(variable.slot, value, variable.initializer->range);
+				flow(variable.slot, value, *variable.initializer);
 			}
 		}
 	} else if (!typed) {
@@ -1369,7 +1369,7 @@ void Checker::declare_params(FuncDecl &r_function, bool p_defaults) {
 			param.type = r_function.locals[first + i].type = inferred(check_value(*param.default_value), param.name_token, param.name);
 		} else if (checked && (!param.infers_type || r_function.is_lambda)) {
 			const Type value = check_value(*param.default_value, param.type);
-			flow(param.slot, value, param.default_value->range);
+			flow(param.slot, value, *param.default_value);
 			expect_assignable(*param.default_value, value, param.type, "use", param.declared_type ? &*param.declared_type : nullptr);
 		}
 		if (scopes.back().count(param.name)) {

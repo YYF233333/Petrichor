@@ -110,7 +110,7 @@ void Checker::check_constant(ConstDecl &r_decl) {
 		// Another file read it without its type, so a migration took it as a
 		// slot (architecture §6.6), which takes the type it has here.
 		if (const int slot = r_decl.declared_type ? -1 : found_slot(r_decl.name_token); slot >= 0) {
-			flow(slot, r_decl.initializer->type, r_decl.initializer->range);
+			flow(slot, r_decl.initializer->type, *r_decl.initializer);
 			r_decl.type = r_decl.type.is_error() ? tried(slot) : r_decl.type;
 		}
 	}
@@ -1504,7 +1504,7 @@ Type Checker::call_declared(Expr &r_expr, const FuncDecl &p_callee, const Source
 	const std::vector<Type> fixed(params.begin(), params.end() - (rest ? 1 : 0));
 	check_arguments(r_expr, fixed, p_callee.required(), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant), &p_source == cls.source.get() ? &p_callee.params : nullptr);
 	for (size_t i = 0; i < r_expr.args.size() && i < fixed.size(); i++) {
-		flow(p_callee.params[i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
+		flow(p_callee.params[i].slot, r_expr.args[i]->type, *r_expr.args[i]);
 	}
 	r_expr.engine_params = params;
 	r_expr.index = int(fixed.size()) - p_callee.required();

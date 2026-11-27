@@ -1076,6 +1076,13 @@ TEST_CASE("the report marks an inference that its rounds end before it settles")
 	CHECK(compiler::migrate(fake_engine(), project, { "res://chain.gd" }, 10).types_settled);
 }
 
+// As tanks-of-freedom-ii keeps the name of a trigger (scenes/board/logic/scripting/outcomes/trigger.gd:3, 19-20).
+TEST_CASE("a null flows in as null whatever type its slot tries, so the inference settles") {
+	FakeProject project;
+	project.add_script("res://trigger.gd", "extends RefCounted\n\nvar name = null\n\n\nfunc ingest(details: Dictionary) -> void:\n\tif details.has(\"name\"):\n\t\tself.name = details[\"name\"]\n");
+	CHECK(compiler::migrate(fake_engine(), project, { "res://trigger.gd" }, 10).types_settled);
+}
+
 TEST_CASE("the inference and the loop of fixes stop after their rounds") {
 	FakeProject project;
 	project.add_script("res://unit.gd", "extends Node\n\n\nfunc wait() -> void:\n\tawait ready\n\n\nfunc take(amount):\n\tprint(amount)\n\n\nfunc hit(body: Node) -> void:\n\tbody.take(1)\n");

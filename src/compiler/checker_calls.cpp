@@ -1134,7 +1134,7 @@ Type Checker::check_bind(Expr &r_expr, const Type &p_function) {
 	}
 	const FuncDecl *callee = r_expr.base->target == Target::MethodValue || r_expr.base->target == Target::StaticValue ? r_expr.base->callee : nullptr;
 	for (size_t i = 0; callee && i < bound && first + i < callee->params.size(); i++) {
-		flow(callee->params[first + i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
+		flow(callee->params[first + i].slot, r_expr.args[i]->type, *r_expr.args[i]);
 	}
 	// The engine's Callable keeps them as Variants.
 	for (size_t i = 0; i < bound; i++) {
@@ -2032,7 +2032,7 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 		hint(r_expr, [&](int p_current) { return signature(name, type_names(base_type.args), false, p_current, "void"); });
 		check_arguments(r_expr, base_type.args, int(base_type.args.size()), false, Type::of(TypeKind::Variant), base.signal && !base.owner.empty() ? &base.signal->params : nullptr, base.owner);
 		for (size_t i = 0; base.signal && i < r_expr.args.size() && i < base.signal->params.size(); i++) {
-			flow(base.signal->params[i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
+			flow(base.signal->params[i].slot, r_expr.args[i]->type, *r_expr.args[i]);
 		}
 		r_expr.target = Target::EmitSignal;
 		refer(r_expr.name_token, engine_id("Signal", "emit"));

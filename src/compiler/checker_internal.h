@@ -773,6 +773,7 @@ class Checker : public ClassRelation, private CheckContext {
 	static Inflows::Slot parameter_slot(const FuncDecl &p_function, size_t p_index);
 	Type tried(int p_slot) const;
 	void flow(int p_slot, const Type &p_type, const TokenRange &p_at, Inflows::Part p_part = Inflows::Part::Whole);
+	void flow(int p_slot, const Type &p_type, const Expr &p_value, Inflows::Part p_part = Inflows::Part::Whole);
 	void starts_null(int p_slot, const TypeRef *p_written, const Type &p_type, uint32_t p_name_token);
 	void write_optional(const TypeRef &p_written, const std::string &p_owner = std::string());
 	bool tested_for_null(const TypeRef &p_written) const;
