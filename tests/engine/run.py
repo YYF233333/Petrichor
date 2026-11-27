@@ -20,6 +20,8 @@ Environment:
     PETRICHOR_PREBUILT=1          the libraries in tests/engine/project/bin were
                                   built elsewhere: they only have to exist
     PETRICHOR_TEST_TIMEOUT=<s>    the limit of each engine run, 60 s by default
+    PETRICHOR_MIGRATION_BUDGET=0  the fps, ring and deck groups leave out the
+                                  forward migration held to MIGRATION_BUDGET
 """
 
 import configparser
@@ -82,6 +84,7 @@ HOST_PLATFORM, HOST_FEATURES = {
 }[sys.platform]
 HOST_FEATURES = HOST_FEATURES | {{"amd64": "x86_64", "aarch64": "arm64"}.get(platform.machine().lower(), platform.machine().lower())}
 PREBUILT = os.environ.get("PETRICHOR_PREBUILT") == "1"
+HOLD_MIGRATION_BUDGET = os.environ.get("PETRICHOR_MIGRATION_BUDGET") != "0"
 
 failures = []
 
@@ -718,19 +721,20 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
         known_errors = set(errors_in(output))
         known_in_use = resources_in_use(output)
 
-        # Not bin/, where a Windows editor copies the library as it loads it.
-        def files():
-            return {path.relative_to(original).as_posix(): path.read_bytes() for path in original.rglob("*") if path.is_file() and path.relative_to(original).parts[0] not in (".godot", "bin")}
+        if HOLD_MIGRATION_BUDGET:
+            # Not bin/, where a Windows editor copies the library as it loads it.
+            def files():
+                return {path.relative_to(original).as_posix(): path.read_bytes() for path in original.rglob("*") if path.is_file() and path.relative_to(original).parts[0] not in (".godot", "bin")}
 
-        before = files()
-        code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-migrate", "--dry-run", "--allow-dirty")
-        after = files()
-        written = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
-        found = re.search(r"^petrichor migrate: (\d+) script\(s\), \d+ added, (\d+) left out, .* (\d+) error\(s\), dry run", output, flags=re.M)
-        taken, left, errors = map(int, found.groups()) if found else (None, None, None)
-        budget = MIGRATION_BUDGET[name]
-        ok = (taken, left) == budget[:2] and errors <= budget[2] and not written
-        expect(f"{name} forward dry run: {taken} script(s), {left} left out, {errors} error(s) (budget {budget[0]}, {budget[1]}, at most {budget[2]}); nothing written", ok, f"written: {written}\n{output}")
+            before = files()
+            code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-migrate", "--dry-run", "--allow-dirty")
+            after = files()
+            written = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+            found = re.search(r"^petrichor migrate: (\d+) script\(s\), \d+ added, (\d+) left out, .* (\d+) error\(s\), dry run", output, flags=re.M)
+            taken, left, errors = map(int, found.groups()) if found else (None, None, None)
+            budget = MIGRATION_BUDGET[name]
+            ok = (taken, left) == budget[:2] and errors <= budget[2] and not written
+            expect(f"{name} forward dry run: {taken} script(s), {left} left out, {errors} error(s) (budget {budget[0]}, {budget[1]}, at most {budget[2]}); nothing written", ok, f"written: {written}\n{output}")
 
         # The original as imported, so that no asset is imported again, which
         # a fresh copy would do even with .godot/imported (its .import files

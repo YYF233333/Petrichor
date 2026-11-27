@@ -190,6 +190,9 @@ jobs:
     env:
       PETRICHOR_PREBUILT: "1"
       PETRICHOR_TEST_TIMEOUT: "300"
+      # The games' forward migration counts the same on every platform and
+      # engine; held in one job, it stays off the path the run waits for.
+      PETRICHOR_MIGRATION_BUDGET: ${{ matrix.platform == 'linux' && matrix.godot == '4.7.2-stable' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v4
         with:
