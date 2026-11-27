@@ -925,6 +925,24 @@ TEST_CASE("a call by name flows into every function so named, and the report mar
 	CHECK(migration.notes[0].message == "The type of \"amount\", int, rests on calls by name: res://bullet.pet:5, res://bullet.pet:9.");
 }
 
+// As tanks-of-freedom-ii builds triggers from a Dictionary of preloaded
+// scripts (scenes/board/logic/scripting/triggers/templates.gd:16), whose
+// class no check knows; only a pub _init is reached so (spec §4.2).
+TEST_CASE("a new() on a script value calls _init by name, so each _init that takes as many arguments becomes pub") {
+	FakeProject project;
+	project.add_script("res://holder.gd", "extends RefCounted\nvar amount\n\n\nfunc _init():\n\tamount = 5\n");
+	project.add_script("res://sized.gd", "extends RefCounted\n\n\nfunc _init(from: int):\n\tprint(from)\n");
+	project.add_script("res://templates.gd", "extends RefCounted\nvar templates = { \"holder\": preload(\"res://holder.gd\"), \"sized\": preload(\"res://sized.gd\") }\n\n\nfunc get_one(name: String) -> Object:\n\treturn self.templates[name].new()\n\n\nfunc get_sized(script: Script) -> Object:\n\treturn script.new(3)\n");
+	project.add_script("res://pair.gd", "extends RefCounted\n\n\nfunc _init(a: int, b: int):\n\tprint(a, b)\n");
+	project.resources["res://holder.gd"] = { "GDScript" };
+	project.resources["res://sized.gd"] = { "GDScript" };
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://holder.gd", "res://sized.gd", "res://pair.gd", "res://templates.gd" }, 10);
+	CHECK(migration.texts.at("res://holder.pet") == "extends RefCounted\nvar amount: int\n\n\npub func _init():\n\tamount = 5\n");
+	CHECK(migration.texts.at("res://sized.pet") == "extends RefCounted\n\n\npub func _init(from: int):\n\tprint(from)\n");
+	CHECK(migration.texts.at("res://pair.pet") == "extends RefCounted\n\n\nfunc _init(a: int, b: int):\n\tprint(a, b)\n");
+	CHECK(migration.fixes.at(compiler::FixKind::Pub) == 2);
+}
+
 // As Starter-Kit-FPS's player and enemies damage what a raycast hits
 // (objects/player.gd:200-205, objects/enemy.gd:52-68); GDScript looks the
 // method up on the object by name. By name, only pub members are found

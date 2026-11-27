@@ -672,6 +672,14 @@ struct FuncDecl {
 	int slot = -1; // As ParamDecl's, of what it returns.
 
 	bool has_rest() const { return !params.empty() && params.back().is_rest; }
+	// How many arguments a call passes at least.
+	int required() const {
+		int count = 0;
+		while (count < int(params.size()) && !params[count].default_value && !params[count].is_rest) {
+			count++;
+		}
+		return count;
+	}
 };
 
 // `signal name(params)` (spec §4.7).

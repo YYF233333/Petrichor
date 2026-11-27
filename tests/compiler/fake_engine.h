@@ -186,6 +186,8 @@ public:
 			method("duplicate", { { "deep", t(TypeKind::Bool) } }, Type::object("Resource", true), false, 1),
 			method("duplicate_deep", { { "deep_subresources_mode", t(TypeKind::Int) } }, Type::object("Resource", true), false, 1),
 		};
+		methods["GDScript"] = { method("new", {}, t(TypeKind::Variant)) };
+		methods["GDScript"].back().is_vararg = true;
 		methods["AudioStreamPlayer"] = {
 			method("play", { { "from_position", t(TypeKind::Float) } }, t(TypeKind::Void), false, 1),
 		};

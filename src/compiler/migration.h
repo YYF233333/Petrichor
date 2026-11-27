@@ -261,7 +261,8 @@ struct Migration {
 };
 // Checks the project with `p_files` migrated, in memory. It infers the types
 // of their slots without one, in at most `p_rounds` rounds of checks, and
-// writes them. Then it applies in each round the fixes of the automatic
+// writes them, and makes pub each _init that a new() on a value may call.
+// Then it applies in each round the fixes of the automatic
 // kinds and of those that the GDScript settles (architecture §6.6), as
 // fixing all of a kind does, but not one that edits a file outside them;
 // Cast in a round without others; until a round applies none, or after

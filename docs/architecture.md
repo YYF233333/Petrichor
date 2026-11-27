@@ -896,6 +896,10 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **静态类型缺失成员**：
   - 静态类型为 `Object` 时改为按名访问（GDScript 本来就按名查找）：弃返回值调用改为 `call("名字", ...)`，属性写改为 `set("名字", v)`，项目中同名函数补 `pub`。读属性或用返回值得到 `Variant`，留作编译错误由人定型。值为 `Object?` 时先补 `.unwrap()`，与其他未判空的使用相同。报告列出每处，注明可改用接口或具体类：前者转不回 GDScript，后者要靠场景事实判断。
   - 静态类型是缺该成员的具体类时，先由场景定出更准类型（导出场景写 `PackedScene[T]`，一致父节点写 `@parent(T)`）。定不出的留作编译错误，提供按名访问和转具体类两项备选，不自动转 `Object` 按名访问。
+- **值上的 `new()`**：GDScript 在值上调用 `new(...)` 时，按名调用其类最近的 `_init`（`modules/gdscript/gdscript.cpp:122-128, 192-197, 1078`，`ed1daf0`）。检查器看不出是哪个类，本语言的这种构造却只接受 `pub` 的 `_init`（规范 §4.2，`src/adapter/pet_script.cpp:262-265`）。所以推断之后，集合中接受同样多实参的 `_init` 都补上 `pub`，与按名调用同名函数相同。
+  - 补多了不改变 GDScript 中的含义，补少了要到运行时才出错。tanks-of-freedom-ii 以 0 到 4 个实参这样构造触发器、结果、事件和 AI 动作（`scenes/board/logic/scripting/triggers/templates.gd:16`，`scenes/board/logic/events.gd:20`）。
+  - 它的 46 个 `_init` 由此全部带 `pub`。新补的 34 个中，5 个属于只由场景创建的能力类，其余都这样构造。
+  - 实参不计为这些 `_init` 参数的流入。计入时，由已知类构造定型的参数会合并成 `Variant`：tanks-of-freedom-ii 撤回的类型从 500 个增到 521 个（`scripts/services/online/connector.gd:11`）。
 
 #### 原子写入、报告格式与反向转换
 

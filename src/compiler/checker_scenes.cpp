@@ -885,7 +885,7 @@ void Checker::for_each_attached(const std::function<void(const std::string &, co
 void Checker::check_attached() {
 	const TokenRange header{ cls.extends_token, cls.extends_token };
 	const FuncDecl *init = init_of(cls);
-	const bool takes = init && required_params(*init) > 0;
+	const bool takes = init && init->required() > 0;
 	for_each_attached([&](const std::string &p_shown, const std::string &p_node) {
 		const std::string has = scenes[0].path + ": " + p_shown + " has " + display_name(cls, options.path);
 		if (cls.is_abstract) {

@@ -887,14 +887,6 @@ void Checker::check_defaults(const FuncDecl &p_function, bool p_interface) {
 	}
 }
 
-int Checker::required_params(const FuncDecl &p_function) {
-	int count = 0;
-	while (count < int(p_function.params.size()) && !p_function.params[count].default_value && !p_function.params[count].is_rest) {
-		count++;
-	}
-	return count;
-}
-
 // What a rest parameter of type Array or Array[T] takes as each argument
 // (spec §4.6).
 Type Checker::rest_element(const Type &p_rest) {
@@ -911,7 +903,7 @@ Signature Checker::signature_of(const FuncDecl &p_function) {
 		out.rest = rest_element(out.params.back());
 		out.params.pop_back();
 	}
-	out.optional = out.params.size() - size_t(required_params(p_function));
+	out.optional = out.params.size() - size_t(p_function.required());
 	out.result = p_function.return_type;
 	out.is_async = p_function.is_async;
 	return out;

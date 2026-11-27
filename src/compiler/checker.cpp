@@ -45,7 +45,7 @@ void Checker::read_untyped(const ClassDecl &p_owner, const std::string &p_name, 
 
 Inflows::Slot Checker::parameter_slot(const FuncDecl &p_function, size_t p_index) {
 	const int most = p_function.has_rest() ? INT32_MAX : int(p_function.params.size());
-	return { Inflows::Kind::Parameter, p_function.params[p_index].name, p_function.name, int(p_index), required_params(p_function), most };
+	return { Inflows::Kind::Parameter, p_function.params[p_index].name, p_function.name, int(p_index), p_function.required(), most };
 }
 
 Type Checker::tried(int p_slot) const {

@@ -2067,6 +2067,10 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 		}
 		if (const auto method = engine.find_method(base_type.engine_class(), name)) {
 			const Type result = check_engine_call(r_expr, *method);
+			// That of a script value calls _init by name (architecture §6.6).
+			if (name == "new" && engine.inherits(base_type.engine_class(), "Script")) {
+				call_by_name(r_expr);
+			}
 			if (name == "instantiate" && base_type.name == "PackedScene" && !base_type.args.empty() && !result.is_error()) {
 				// The scene's root, checked as it is made, with the members it
 				// must be assigned (spec §7.4).

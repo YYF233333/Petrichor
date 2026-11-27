@@ -1502,12 +1502,12 @@ Type Checker::call_declared(Expr &r_expr, const FuncDecl &p_callee, const Source
 	const std::vector<Type> params = param_types(p_callee.params);
 	const bool rest = p_callee.has_rest();
 	const std::vector<Type> fixed(params.begin(), params.end() - (rest ? 1 : 0));
-	check_arguments(r_expr, fixed, required_params(p_callee), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant), &p_source == cls.source.get() ? &p_callee.params : nullptr);
+	check_arguments(r_expr, fixed, p_callee.required(), rest, rest ? rest_element(params.back()) : Type::of(TypeKind::Variant), &p_source == cls.source.get() ? &p_callee.params : nullptr);
 	for (size_t i = 0; i < r_expr.args.size() && i < fixed.size(); i++) {
 		flow(p_callee.params[i].slot, r_expr.args[i]->type, r_expr.args[i]->range);
 	}
 	r_expr.engine_params = params;
-	r_expr.index = int(fixed.size()) - required_params(p_callee);
+	r_expr.index = int(fixed.size()) - p_callee.required();
 	r_expr.is_vararg = rest;
 	r_expr.is_async = p_callee.is_async;
 	return set(r_expr, p_callee.is_async ? Type::task(p_result) : p_result);

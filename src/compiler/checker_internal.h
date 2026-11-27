@@ -1176,7 +1176,6 @@ class Checker : public ClassRelation, private CheckContext {
 	void check_late(const VarDecl &p_variable);
 	void check_accessors(VarDecl &r_member);
 	void check_defaults(const FuncDecl &p_function, bool p_interface = false);
-	static int required_params(const FuncDecl &p_function);
 	static Type rest_element(const Type &p_rest);
 	static Signature signature_of(const FuncDecl &p_function);
 	void untyped(ParamDecl &r_param, const std::string &p_why = std::string());

@@ -1194,8 +1194,9 @@ bool aliased(Type &r_type, const std::string &p_file, Aliases &r_aliases, std::s
 // what flows into each slot without a type, trying for each what it
 // received, merged, until the types tried stay; then for those still
 // without one, Variant. The types are written into the texts, and those
-// whose written form the check then refuses are withdrawn.
-static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, Migration &r_result) {
+// whose written form the check then refuses are withdrawn. The calls by
+// name that the last check found.
+static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, Migration &r_result) {
 	Inflows inflows;
 	for (const auto &[file, text] : r_project.texts) {
 		inflows.files.insert(file);
@@ -1659,6 +1660,48 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		}
 	}
 	r_result.typed = int(written.size());
+	return std::move(check.records.calls);
+}
+
+// GDScript's new() on a value calls _init by name (spec §4.2): each _init of
+// the files migrated that takes as many arguments as one of `p_calls` becomes
+// pub, as a call by name reaches each function so named (architecture §6.6).
+static void publish_inits(Migrated &r_project, const std::vector<Inflows::Call> &p_calls, Migration &r_result) {
+	std::set<size_t> counts;
+	for (const Inflows::Call &call : p_calls) {
+		if (call.name == "new") {
+			counts.insert(call.args.size());
+		}
+	}
+	if (counts.empty()) {
+		return;
+	}
+	int made = 0;
+	for (auto &[file, text] : r_project.texts) {
+		std::vector<Diagnostic> ignored;
+		const ClassDecl decl = parse(text, ignored);
+		std::vector<uint32_t> at;
+		const auto inits = [&](const ClassDecl &p_class, const auto &p_self) -> void {
+			for (const FuncDecl &function : p_class.functions) {
+				const auto takes = [&](size_t p_count) { return int(p_count) >= function.required() && (function.has_rest() || p_count <= function.params.size()); };
+				if (function.name == "_init" && !function.is_pub && std::any_of(counts.begin(), counts.end(), takes)) {
+					at.push_back(decl.source->tokens[function.name_token - 1].offset);
+				}
+			}
+			for (const std::unique_ptr<ClassDecl> &inner : p_class.classes) {
+				p_self(*inner, p_self);
+			}
+		};
+		inits(decl, inits);
+		std::sort(at.rbegin(), at.rend());
+		for (const uint32_t each : at) {
+			text.insert(each, "pub ");
+		}
+		made += int(at.size());
+	}
+	if (made > 0) {
+		r_result.fixes[FixKind::Pub] += made;
+	}
 }
 
 // A member written T? only because nothing shows it assigned before ready
@@ -1797,7 +1840,7 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 	Migrated project(p_project, p_files);
 	Migration result;
 	result.quoted = project.quoted;
-	infer(p_engine, project, p_rounds, result);
+	publish_inits(project, infer(p_engine, project, p_rounds, result), result);
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
 	// The errors of the scripts and of the checks of the scenes, which find
