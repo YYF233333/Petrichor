@@ -28,6 +28,7 @@ struct Access {
 		StaticCall,
 		Type,
 		Constant,
+		EnumMember,
 		Autoload,
 	};
 	std::string user;
@@ -43,6 +44,8 @@ struct Access {
 				return "uses " + name + " of " + p_target + " as a type";
 			case Constant:
 				return "uses " + name + " of " + p_target + " in a constant expression";
+			case EnumMember:
+				return "reads " + name + " of " + p_target;
 			default:
 				return "uses the autoload " + name + " of " + p_target + " as a type";
 		}
@@ -128,7 +131,7 @@ struct Scripts {
 			size_t at = i + 2;
 			at += at < tokens.size() && tokens[at].kind == TokenKind::Colon;
 			if (at + 4 < tokens.size() && tokens[at].kind == TokenKind::Equal && (is_word(tokens[at + 1], "preload") || is_word(tokens[at + 1], "load")) && tokens[at + 2].kind == TokenKind::ParenOpen && tokens[at + 3].kind == TokenKind::String && tokens[at + 4].kind == TokenKind::ParenClose) {
-				names[tokens[i + 1].text] = { resolved_path(tokens[at + 3].text, p_file), false };
+				names[tokens[i + 1].text] = { file_at(tokens[at + 3].text, p_file, *r_classes.get_project()), false };
 			}
 		}
 		// The innermost bracket around each token.
@@ -163,16 +166,17 @@ struct Scripts {
 				continue;
 			}
 			const std::string &name = tokens[i + 2].text;
-			const bool is_static = std::any_of(decl->functions.begin(), decl->functions.end(), [&](const FuncDecl &p_function) { return p_function.name == name && p_function.is_static; });
-			const bool declared = std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == name; }) ||
-					std::any_of(decl->constants.begin(), decl->constants.end(), [&](const ConstDecl &p_constant) { return p_constant.name == name; }) || decl->find_class(name);
+			const bool is_enum = std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == name; });
+			const bool declared = is_enum || std::any_of(decl->constants.begin(), decl->constants.end(), [&](const ConstDecl &p_constant) { return p_constant.name == name; }) || decl->find_class(name);
 			const std::string written = tokens[i].text + "." + name;
-			if (is_static && !autoload) {
+			if (!autoload && r_classes.has_static(target, name)) {
 				accessed[target].push_back({ p_file, Access::StaticCall, name });
 			} else if (declared && in_type(tokens, i, typed, parenthesized)) {
 				accessed[target].push_back({ p_file, Access::Type, written });
 			} else if (declared && in_constant(tokens, i)) {
 				accessed[target].push_back({ p_file, Access::Constant, written });
+			} else if (is_enum && !autoload && i + 4 < tokens.size() && tokens[i + 3].kind == TokenKind::Period && tokens[i + 4].kind == TokenKind::Identifier) {
+				accessed[target].push_back({ p_file, Access::EnumMember, written + "." + tokens[i + 4].text });
 			}
 		}
 	}
@@ -1041,8 +1045,7 @@ class Aliases {
 				file.taken.insert(each.name);
 				const bool preloads = &p_class == &decl && each.initializer && each.initializer->kind == ExprKind::Call && !each.initializer->base && each.initializer->text == "preload" && each.initializer->args.size() == 1 && each.initializer->args[0]->kind == ExprKind::StringLiteral;
 				if (preloads) {
-					const std::string path = resolved_path(each.initializer->args[0]->text, p_file);
-					file.names.emplace(path.rfind("uid://", 0) == 0 ? project.uid_path(path) : path, each.name);
+					file.names.emplace(file_at(each.initializer->args[0]->text, p_file, project), each.name);
 				}
 			}
 			for (const FuncDecl &each : p_class.functions) {

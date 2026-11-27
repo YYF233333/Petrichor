@@ -790,10 +790,11 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 
 迁移集合由请求路径加上必须同批迁移的连带文件构成，即整棵 `extends` 继承树以及对其做类级访问的 GDScript 文件（规范 §11.2、§11.3）。基类须先迁移，GDScript 子类又须一起迁移；连带文件不经询问加入，报告列出它们和原因。集合之外的 `.gd` 只读（决定哪些成员要 `pub` 并提供类型证据），只改写指向已改名文件的路径。
 
-- **类级访问判定**：按 token 找出指向另一 GDScript 文件的名字（全局类、autoload，或以字面量 `preload()`、`load()` 初始化的常量和变量），其后的 `.名字` 属以下情形即算类级访问：
-  - 静态方法（经 autoload 的除外，那是实例调用）；
+- **类级访问判定**：按 token 找出指向另一 GDScript 文件的名字（全局类、autoload，或以字面量 `preload()`、`load()` 初始化的常量和变量，`uid://` 路径按其所指文件）。其后的 `.名字` 属以下情形即算类级访问：
+  - 静态方法，含经子类名调用的基类静态方法（经 autoload 的除外，那是实例调用）；
   - 写在类型处的 enum、常量或内部类（`->`、`as`、`is`、声明冒号之后及类型化容器方括号中）；
-  - 写在同一行所声明常量初始值中的 enum、常量或内部类。
+  - 写在同一行所声明常量初始值中的 enum、常量或内部类；
+  - 其后再接 `.名字` 的 enum，即读取它的值或调用它的方法，如 `Room.Type.B` 和 `Room.Type.keys()`（经 autoload 的除外）。
   - autoload 名本身写在类型处也算，因为 GDScript 只为 GDScript 写的 autoload 定型（`modules/gdscript/gdscript_analyzer.cpp:806-829`，`ed1daf0`）。经 autoload 调用方法不算：GDScript 把本语言 autoload 视作 Node，找不到的方法只给警告（`modules/gdscript/gdscript_analyzer.cpp:3750-3752, 4579-4587`）。
 - **排除边界**：含 `@tool` 的文件及其继承树不在其中（规范 §13.4）；凡被留在 GDScript 的文件做类级访问的目标文件连同其继承树也不在其中。位于项目设置 `editor/script/templates_search_path` 下的脚本模板不是游戏代码（GDScript 也不解析，`modules/gdscript/gdscript.cpp:767-772`，`ed1daf0`），排除并在报告中列出。
   - `res://addons/` 下的插件是第三方代码，保持 GDScript（规范 §1）。所给路径都不在某个插件的目录之中时，该插件的文件连同其继承树都留下，报告按插件目录各列一行。Ring 的 `addons/dialogue_manager` 由此不再迁移，留下的错误从 1049 个降到 95 个。

@@ -13,17 +13,22 @@ namespace {
 using Pairs = std::vector<std::pair<std::string, std::string>>;
 
 // A base with a static function, an enum and a constant; its subclasses, by
-// class name and by path; GDScript files that use it at class level, and one
-// that only reads its constant; a @tool script and its subclass.
+// class name and by path; GDScript files that use it at class level, also
+// through a subclass or a uid, and one that only reads its constant; a @tool
+// script and its subclass.
 FakeProject gdscript_project() {
 	FakeProject project;
 	project.add_script("res://base.gd", "class_name Base\nextends Node\nenum Kind { A, B }\nconst N := 1\n\n\nstatic func make() -> Node:\n\treturn null\n", "Base");
+	project.uids["uid://base"] = "res://base.gd";
 	project.add_script("res://child.gd", "extends Base\n");
 	project.add_script("res://other.gd", "extends \"child.gd\"\n");
 	project.add_script("res://maker.gd", "extends Node\n\n\nfunc f() -> void:\n\tBase.make()\n");
+	project.add_script("res://heir_maker.gd", "extends Node\nconst Child = preload(\"child.gd\")\n\n\nfunc f() -> void:\n\tChild.make()\n");
+	project.add_script("res://uid_maker.gd", "extends Node\nconst B = preload(\"uid://base\")\n\n\nfunc f() -> void:\n\tB.make()\n");
 	project.add_script("res://typer.gd", "extends Node\n\n\nfunc f(kind: Base.Kind) -> void:\n\tpass\n");
 	project.add_script("res://counter.gd", "extends Node\nconst M = Base.N + 1\n");
-	project.add_script("res://reader.gd", "extends Node\n\n\nfunc f() -> int:\n\treturn Base.N + Base.Kind.A\n");
+	project.add_script("res://picker.gd", "extends Node\n\n\nfunc f() -> int:\n\treturn Base.Kind.A\n");
+	project.add_script("res://reader.gd", "extends Node\n\n\nfunc f() -> int:\n\treturn Base.N\n");
 	project.add_script("res://tool.gd", "@tool\nextends Node\n");
 	project.add_script("res://tool_child.gd", "extends \"res://tool.gd\"\n");
 	return project;
@@ -34,13 +39,16 @@ FakeProject gdscript_project() {
 TEST_CASE("a migration takes the inheritance tree and the files that GDScript could no longer keep") {
 	const FakeProject project = gdscript_project();
 	const compiler::MigrationSet taken = compiler::migration_set(fake_engine(), project, { "res://child.gd" });
-	CHECK(taken.files == std::set<std::string>{ "res://base.gd", "res://child.gd", "res://counter.gd", "res://maker.gd", "res://other.gd", "res://typer.gd" });
+	CHECK(taken.files == std::set<std::string>{ "res://base.gd", "res://child.gd", "res://counter.gd", "res://heir_maker.gd", "res://maker.gd", "res://other.gd", "res://picker.gd", "res://typer.gd", "res://uid_maker.gd" });
 	CHECK(taken.added == Pairs{
 								 { "res://base.gd", "in the inheritance tree of res://child.gd" },
 								 { "res://counter.gd", "uses Base.N of res://base.gd in a constant expression" },
+								 { "res://heir_maker.gd", "calls the static method make() of res://child.gd" },
 								 { "res://maker.gd", "calls the static method make() of res://base.gd" },
 								 { "res://other.gd", "in the inheritance tree of res://child.gd" },
+								 { "res://picker.gd", "reads Base.Kind.A of res://base.gd" },
 								 { "res://typer.gd", "uses Base.Kind of res://base.gd as a type" },
+								 { "res://uid_maker.gd", "calls the static method make() of res://base.gd" },
 						 });
 	CHECK(taken.left_out.empty());
 	CHECK(taken.unknown.empty());

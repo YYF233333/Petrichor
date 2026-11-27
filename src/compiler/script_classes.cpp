@@ -550,6 +550,11 @@ uint64_t ScriptClasses::source_hash(const std::string &p_file) {
 	return hashes[p_file].second;
 }
 
+std::string file_at(const std::string &p_path, const std::string &p_from, const ProjectApi &p_project) {
+	const std::string path = resolved_path(p_path, p_from);
+	return path.rfind("uid://", 0) == 0 ? p_project.uid_path(path) : path;
+}
+
 namespace {
 
 bool ends_with(const std::string &p_text, const std::string &p_end) {
@@ -558,13 +563,6 @@ bool ends_with(const std::string &p_text, const std::string &p_end) {
 
 bool is_script_file(const std::string &p_file) {
 	return ends_with(p_file, ".pet") || ends_with(p_file, ".gd") || ends_with(p_file, ".cs");
-}
-
-// The file of a path that a script at `p_from` writes: from its directory
-// when relative, the file of a uid.
-std::string file_at(const std::string &p_path, const std::string &p_from, const ProjectApi &p_project) {
-	const std::string path = resolved_path(p_path, p_from);
-	return path.rfind("uid://", 0) == 0 ? p_project.uid_path(path) : path;
 }
 
 // preload() of one literal String, as the checker takes it; "" for another.
@@ -770,6 +768,20 @@ bool ScriptClasses::is_or_extends(std::string p_script, const std::string &p_bas
 		p_script = base->second;
 	}
 	return p_script == p_base;
+}
+
+bool ScriptClasses::has_static(std::string p_path, const std::string &p_name) {
+	for (std::set<std::string> seen; !p_path.empty() && seen.insert(p_path).second;) {
+		const ClassDecl *decl = header(p_path);
+		if (!decl) {
+			return false;
+		}
+		if (std::any_of(decl->functions.begin(), decl->functions.end(), [&](const FuncDecl &p_function) { return p_function.name == p_name && p_function.is_static; })) {
+			return true;
+		}
+		p_path = base_path(*decl, p_path);
+	}
+	return false;
 }
 
 std::vector<Scene> ScriptClasses::scenes_with_script(const std::string &p_script) {

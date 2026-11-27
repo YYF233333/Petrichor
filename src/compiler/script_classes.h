@@ -26,6 +26,10 @@ uint64_t declaration_hash(const std::optional<std::string> &p_source);
 class ScriptClasses;
 struct Inflows;
 
+// The file of a path that a script at `p_from` writes: from its directory
+// when relative, the file of a uid.
+std::string file_at(const std::string &p_path, const std::string &p_from, const ProjectApi &p_project);
+
 // A file that loading a script of this language loads with it (spec §7.6),
 // and where the script names it: a preload, unless a constant that names a
 // script only in types holds it (§2.1), and a class of another file whose
@@ -160,6 +164,9 @@ public:
 	std::string native_base(const ClassDecl &p_decl, const std::string &p_path);
 	// Whether the script is `p_base` or extends it, as the headers say.
 	bool is_or_extends(std::string p_script, const std::string &p_base);
+	// Whether the class at `p_path` or one it extends declares a static
+	// function `p_name`, as the headers say.
+	bool has_static(std::string p_path, const std::string &p_name);
 	// The project as checks should ask it.
 	const ProjectApi *get_project() const { return project; }
 	// The parsed class, or null when it cannot be read. Other scripts see what

@@ -1342,7 +1342,7 @@ std::vector<Access> class_accesses(const std::string &p_file, const ClassDecl &p
 	for (const ConstDecl &constant : p_header.constants) {
 		const Expr *value = constant.initializer.get();
 		if (value && value->kind == ExprKind::Call && (value->text == "preload" || value->text == "load") && value->args.size() == 1 && value->args[0]->kind == ExprKind::StringLiteral) {
-			names[constant.name] = resolved_path(value->args[0]->text, p_file);
+			names[constant.name] = file_at(value->args[0]->text, p_file, *r_classes.get_project());
 		}
 	}
 	std::vector<Access> found;
@@ -1351,14 +1351,14 @@ std::vector<Access> class_accesses(const std::string &p_file, const ClassDecl &p
 		const TokenKind kind = tokens[i].kind;
 		in_constant = kind == TokenKind::Const || (in_constant && kind != TokenKind::Newline && kind != TokenKind::Semicolon);
 		const auto named = kind == TokenKind::Identifier && (i == 0 || tokens[i - 1].kind != TokenKind::Period) && tokens[i + 1].kind == TokenKind::Period ? names.find(tokens[i].text) : names.end();
-		const bool autoload = named != names.end() && named->second.front() == '*';
+		const bool autoload = named != names.end() && named->second.rfind('*', 0) == 0;
 		const std::string target = named == names.end() ? std::string() : named->second.substr(autoload ? 1 : 0);
 		const ClassDecl *decl = target.empty() || target == p_file || !is_script_path(target) ? nullptr : r_classes.header(target);
 		if (!decl) {
 			continue;
 		}
 		const std::string &member = tokens[i + 2].text;
-		const bool is_static = !autoload && std::any_of(decl->functions.begin(), decl->functions.end(), [&](const FuncDecl &p_function) { return p_function.name == member && p_function.is_static; });
+		const bool is_static = !autoload && r_classes.has_static(target, member);
 		const bool type = decl->find_class(member) || std::any_of(decl->enums.begin(), decl->enums.end(), [&](const EnumDecl &p_enum) { return p_enum.name == member; });
 		const bool constant = in_constant && std::any_of(decl->constants.begin(), decl->constants.end(), [&](const ConstDecl &p_constant) { return p_constant.name == member; });
 		if (is_static || type || constant) {
