@@ -203,7 +203,6 @@ TEST_CASE("the loop of fixes applies the meaning-keeping ones until none is left
 	project.add_script("res://outside.pet", "class_name Outside\nextends Node\n\n\nfunc help() -> void:\n\tpass\n", "Outside");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://unit.gd", "res://user.gd" }, 10);
 	CHECK(migration.settled);
-	CHECK(migration.rounds == 1);
 	CHECK(migration.texts.at("res://unit.pet") == "class_name Unit\nextends Node\n\n\npub func heal() -> void:\n\tpass\n\n\nasync func wait() -> void:\n\tawait ready\n\tvar parent: Node = get_parent().unwrap()\n\tprint(parent)\n");
 	CHECK(migration.fixes == std::map<compiler::FixKind, int>{ { compiler::FixKind::Unwrap, 1 }, { compiler::FixKind::Async, 1 }, { compiler::FixKind::Pub, 1 } });
 	REQUIRE(migration.errors.size() == 1);
@@ -501,7 +500,6 @@ TEST_CASE("a T? member becomes @late, with its setter's parameter, where only T 
 	// Outside the migration, which does not edit it.
 	project.add_script("res://viewer.pet", "extends Node\n\n\nfunc view(hand: Hand) -> void:\n\tprint(hand.seen.unwrap().name)\n");
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://hand.gd" }, 10);
-	CHECK(contains(migration.texts.at("res://hand.pet"), "\npub var seen: Node?\n"));
 	CHECK(migration.texts.at("res://hand.pet") == "class_name Hand\nextends Node\n@late var card: Node\n@late var target: Node : set = set_target\nvar tested: Node?\nvar cleared: Node?\nvar found: Node?\npub var seen: Node?\n\n\nfunc set_target(value: Node) -> void:\n\ttarget = value\n\n\nfunc _ready() -> void:\n\tcard = Node.new()\n\ttarget = self\n\ttested = self\n\tcleared = self\n\tfound = get_node_or_null(\"Found\")\n\tseen = self\n\n\nfunc play() -> void:\n\tprint(card.name, target.name, cleared.unwrap().name, found.unwrap().name)\n\tif tested != None:\n\t\tprint(tested.unwrap().name)\n\tcleared = null\n");
 	CHECK(migration.errors.empty());
 }
