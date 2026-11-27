@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob a031319214d7f76b0275059e99bf1e224127dbdd. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 13a6f12cc739f74d15d6780910569943919b04bf. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -26,6 +26,8 @@ The benefits grow with project size and lifetime, whether code is written by peo
     - members without `pub` are invisible to reflection by name;
     - object types are non-null, so a null passed in by the engine or another language is also a program error;
     - calls in the target of an assignment run after the right side;
+    - the receiver of a call is evaluated before its arguments;
+    - a `preload` constant that appears only in type positions does not load the script it names;
     - reading and writing a property of an engine class calls its getter and setter directly, not the `_get` and `_set` of the object's script;
     - when two two-level Options are compared with each other, an outer `None` does not equal an inner empty value.
 - **The reversibility rule**: what GDScript code means can always be expressed in this language using only two kinds of forms:
@@ -516,6 +518,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
   - There is no spread form at the call site; an existing array uses `callv`.
   - A method value or a lambda with a rest parameter is a `Callable` with an unknown signature.
 - An ordinary call passes arguments by position. Named arguments are used only in two places. They construct structs and enums with payloads, and they give `instantiate(...)` and `new(...)` the members that must be assigned.
+- A call evaluates its receiver first, then its arguments from left to right. GDScript evaluates the arguments first, then the receiver.
 - A local variable may have its type inferred from its initializer. When there is an expected function type, a lambda parameter takes its type from it. Otherwise it must be annotated. The return type of a lambda is inferred from its body.
 - Within a function, local variables, `for` variables and `match` `var x` bindings cannot shadow a local variable or parameter of an enclosing block, though sibling blocks may reuse the same name. A lambda body counts as an inner block of its enclosing function, whereas a lambda parameter may share the name of an outer local variable.
 
