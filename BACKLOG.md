@@ -292,7 +292,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - Its build takes 12.8 s, from 15.7 s. The generated project builds in 8.1 to 8.6 s, from 8.4 to 9.2 s.
     - Opening a script of the generated project in the script editor takes 0.87 to 0.91 s, from 1.12 to 1.15 s. Its scenes still load 600 scripts, which compile no more.
     - GDScript compiles a script at its first load (`modules/gdscript/gdscript_resource_format.cpp:39-55`, `ed1daf0`). It needs no deferring, as it loads only the scenes it instances.
-  - Next: reading the structure from the scene text, so that a text file loads no script. Its estimate is 3.3 s. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores.
+  - Left, should opening need to get faster: reading the structure from the scene text, so that a text file loads no script. It was estimated at 3.3 s of the 6.5, about 1 s more than deferring the compile. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores. The owner chose the deferred compile over it for that.
   - Then CI holds these times to a budget (architecture §5, step 11).
   - Not measured again, on the generated project, from before a pass held what it reads:
     - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
