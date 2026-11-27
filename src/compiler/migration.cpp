@@ -1588,7 +1588,8 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 		bool withdrew = false;
 		for (const Inflows::Key &slot : refused) {
 			if (written.erase(slot) > 0) {
-				refusals[slot] = tried.at(slot).to_string() + " does not check";
+				// None when it tried what GDScript has, as no type fit its values.
+				refusals[slot] = tried.at(slot) == without(slots[size_t(inflows.found.at(slot))]) ? std::string() : tried.at(slot).to_string() + " does not check";
 				withdrew = true;
 			}
 		}
@@ -1618,7 +1619,13 @@ static void infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, 
 			continue; // Its text stays.
 		}
 		if (refusal != refusals.end()) {
-			note(slot.key, "\"" + slot.name + "\" is left without a type: " + refusal->second + "." + (from.empty() ? " Nothing flows into it." : " It receives " + from + "."));
+			std::string why = ", as no type fits all the values it receives: " + from + ".";
+			if (!refusal->second.empty()) {
+				why = ": " + refusal->second + "." + (from.empty() ? " Nothing flows into it." : " It receives " + from + ".");
+			} else if (from.empty()) {
+				why = ", as nothing flows into it.";
+			}
+			note(slot.key, "\"" + slot.name + "\" is left without a type" + why);
 			r_result.withdrawn++;
 			continue;
 		}

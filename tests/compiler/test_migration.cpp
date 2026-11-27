@@ -638,7 +638,7 @@ TEST_CASE("a type that the check refuses is withdrawn, and the slot stays an err
 	CHECK(migration.withdrawn == 1);
 	REQUIRE(migration.notes.size() == 1);
 	CHECK(migration.notes[0].line == 4);
-	CHECK(migration.notes[0].message == "\"x\" is left without a type: Variant does not check. It receives int (res://c.pet:9), String (res://c.pet:9).");
+	CHECK(migration.notes[0].message == "\"x\" is left without a type, as no type fits all the values it receives: int (res://c.pet:9), String (res://c.pet:9).");
 	REQUIRE(migration.errors.size() == 1);
 	CHECK(contains(migration.errors[0].message, "\"x\" needs a type"));
 }
@@ -719,7 +719,7 @@ TEST_CASE("a local declared with a value that is assigned another type is writte
 	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://p.gd" }, 10);
 	CHECK(migration.texts.at("res://p.pet") == "extends Node\n\n\nfunc parse(text: String, data: Dictionary) -> void:\n\tvar value: Variant = text\n\tvalue = text.to_int()\n\tprint(value)\n\tvar kept = text\n\tkept = kept.to_int()\n\tvar content = text\n\tcontent = data[\"k\"]\n");
 	REQUIRE(migration.notes.size() == 1);
-	CHECK(migration.notes[0].message == "\"kept\" is left without a type: Variant does not check. It receives String (res://p.pet:8).");
+	CHECK(migration.notes[0].message == "\"kept\" is left without a type, as no type fits all the values it receives: String (res://p.pet:8).");
 	REQUIRE(migration.errors.size() == 2);
 	CHECK(contains(migration.errors[0].message, "Cannot assign a value of type int as String"));
 	CHECK(contains(migration.errors[1].message, "Cannot assign a value of type Variant as String"));

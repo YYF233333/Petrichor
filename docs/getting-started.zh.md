@@ -95,7 +95,7 @@ objects/enemy.gd → objects/enemy.pet
 objects/player.gd → objects/player.pet
 8 × Write the type
 2 slot(s) received both int and float, which a use tells apart.
-objects/enemy.pet:30:13: hint: "amount" is left without a type: Variant does not check. It receives int (res://objects/enemy.pet:68), float (res://objects/player.pet:205).
+objects/enemy.pet:30:13: hint: "amount" is left without a type, as no type fits all the values it receives: int (res://objects/enemy.pet:68), float (res://objects/player.pet:205).
 5 × Make it pub
 5 × Write .unwrap()
 objects/enemy.pet:30:17: error: Parameter "amount" needs a type.
