@@ -104,7 +104,7 @@ petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 
 
 - `→` lines show where each file goes. A file pulled in by the paths you passed carries `added:` and the reason; a file that stays in GDScript has a `left out:` line instead.
 - `N ×` lines count the types the tool wrote and each kind of fix it applied.
-- `hint:` lines are worth reading. They mark types the tool withdrew or inferred from partial evidence, with the values that reached them, and code kept as GDScript runs it, such as calls by name.
+- `hint:` lines are worth reading. They mark types the tool withdrew or inferred from partial evidence, with the values that reached them, and code kept as GDScript runs it, such as calls by name. They also list each downcast left as `x as T`: for an object of another class it gives `None`, where GDScript stops with an error.
 - `error:` lines are the compile errors left in the migrated files, in the same format as `pet check`. The last line totals the report.
 
 Here `damage(amount)` receives an `int` from the enemy and a `float` from the player, and subtracting it from an `int` health tells the two apart. The report counts such places on a line of their own. The tool does not write `float` for them, so the type of `amount` is left to you.

@@ -1878,6 +1878,10 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 		}
 		return errors;
 	};
+	// Where the casts written as x as T are in the texts, by file. Each gives
+	// None for a value of another class, where GDScript fails, so the report
+	// lists it for a person to review (architecture §6.6).
+	std::map<std::string, std::vector<Inflows::Range>> casts;
 	while (true) {
 		std::vector<Diagnostic> errors = check();
 		std::vector<std::pair<const Fix *, std::string>> fixes;
@@ -1913,13 +1917,43 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 				result.notes.push_back(std::move(note));
 			}
 		}
+		std::set<std::pair<std::string, uint32_t>> written_as;
+		for (const auto &[fix, file] : fixes) {
+			if (fix->kind == FixKind::Cast && fix->edits[0].change.new_text.find(".unwrap()") == std::string::npos && std::count(applied.begin(), applied.end(), fix)) {
+				written_as.emplace(file, fix->edits[0].change.begin);
+			}
+		}
 		for (const auto &[file, in_file] : edits) {
 			std::string &text = project.texts[file];
+			std::vector<Inflows::Range> &left = casts[file];
 			for (auto edit = in_file.rbegin(); edit != in_file.rend(); ++edit) {
 				text.replace(edit->begin, edit->end - edit->begin, edit->new_text);
+				// One that an edit writes over, as unwrap() does, gives no None.
+				const auto over = [&](const Inflows::Range &p_cast) { return edit->begin < edit->end && edit->begin <= p_cast.first && p_cast.second <= edit->end; };
+				left.erase(std::remove_if(left.begin(), left.end(), over), left.end());
+				const uint32_t grown = uint32_t(edit->new_text.size()) - (edit->end - edit->begin);
+				for (Inflows::Range &cast : left) {
+					cast.first += edit->end <= cast.first ? grown : 0;
+					cast.second += edit->begin < cast.second ? grown : 0;
+				}
+				if (written_as.count({ file, edit->begin })) {
+					left.emplace_back(edit->begin, edit->begin + uint32_t(edit->new_text.size()));
+				}
 			}
 		}
 		result.rounds++;
+	}
+	for (const auto &[file, left] : casts) {
+		const std::string &text = project.texts.at(file);
+		for (const Inflows::Range &cast : left) {
+			const SourcePosition position = position_in(text, line_starts_of(text), cast.first);
+			Diagnostic note{ cast.first, cast.second, text.substr(cast.first, cast.second - cast.first) + " gives None for a value of another class, where GDScript stops with an error in a debug build." };
+			note.severity = Severity::Hint;
+			note.file = file;
+			note.line = position.line;
+			note.column = position.column;
+			result.notes.push_back(std::move(note));
+		}
 	}
 	write_late(p_engine, project, check, result);
 	result.texts = project.texts;

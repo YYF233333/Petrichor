@@ -248,7 +248,8 @@ public:
 // The hints at the slots say why they have no type, with what they
 // received, or what calls by name gave their types and what Variant values
 // they leave out; others name each member that an Object is now reached by
-// name for.
+// name for, and each cast left as x as T, which gives None for another class
+// where GDScript fails.
 struct Migration {
 	std::map<std::string, std::string> texts;
 	int quoted = 0;

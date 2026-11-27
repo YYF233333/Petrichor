@@ -368,6 +368,17 @@ TEST_CASE("where no declaration narrows, a value of a class goes as a subclass t
 	CHECK(migration.errors[0].file == "res://handler.pet");
 }
 
+// As godot_open_star_fighter tests what a raycast hits (src/projectiles/missile.gd:44).
+TEST_CASE("the report lists each cast left as x as T, which gives None for another class where GDScript fails") {
+	FakeProject project;
+	project.add_script("res://seeker.gd", "extends Node\n\n\nfunc seek() -> void:\n\tvar target: Node2D = get_node_or_null(\"Target\")\n\tif target:\n\t\tprint(target)\n\tvar other: Node2D = get_node_or_null(\"Other\")\n\tprint(other)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://seeker.gd" }, 10);
+	CHECK(migration.texts.at("res://seeker.pet") == "extends Node\n\n\nfunc seek() -> void:\n\tvar target: Node2D? = get_node_or_null(\"Target\") as Node2D\n\tif target != None:\n\t\tprint(target)\n\tvar other: Node2D = (get_node_or_null(\"Other\") as Node2D).unwrap()\n\tprint(other)\n");
+	REQUIRE(migration.notes.size() == 1);
+	CHECK(migration.notes[0].line == 5);
+	CHECK(migration.notes[0].message == "get_node_or_null(\"Target\") as Node2D gives None for a value of another class, where GDScript stops with an error in a debug build.");
+}
+
 // As tanks-of-freedom-ii reads its settings through a Node
 // (scripts/services/relay.gd:16, 46), whose method GDScript finds by name.
 TEST_CASE("a class written that lacks a member read through it becomes the widest class below it with the member") {

@@ -881,6 +881,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - GDScript 给带类型变量赋值时放过 `null`，类不符时调试版报错，发布版不检查（`modules/gdscript/gdscript_vm.cpp:1533-1625`，`ed1daf0`）。值非空时与 GDScript 在同一处出错。
   - 值可空而位置是 `T?` 时，`x as T` 在类不符时得 `None`，GDScript 却在这里出错。`x` 是读取时不调用任何东西的名字时（局部变量、参数或无 getter 的成员），改写 `(x as T).unwrap() if x != None else None`。`None` 照旧得 `None`，类不符在同一处出错。Ring 的 `breakout/scenes/utility/utility.gd:57-58` 由此把 `res` 传给 DialogueManager 写着 `DialogueResource` 的参数。
   - 【已知限制】其余可空的值仍写 `x as T`，因为改写须对它求值两次。如随后判空的 `var collider: Node3D = _raycast.get_collider()` 写成 `var collider: Node3D? = _raycast.get_collider() as Node3D`（godot_open_star_fighter 的 `src/projectiles/missile.gd:44`）。
+    - 只有在 GDScript 中出错的路径结果不同。先存入局部变量或用带 lambda 的 `map()` 会改动每处这样的位置，所以保持如此。
+    - 报告逐处列出留下的 `x as T` 供人过目，随后补上 `.unwrap()` 的不列。Ring 有 2 处，deck_builder_tutorial 有 1 处（`breakout/scenes/balls/ball.gd:52`，`scenes/enemy/enemy_action_picker.gd:11`）。corpus 的往返在 `1c88ead` 的 1,232 个 `.pet` 文件中留下 73 处。
   - deck_builder_tutorial 中 `stats = value.create_instance()` 由 `Resource` 到 `EnemyStats`（`scenes/enemy/enemy.gd:30`），`target = get_tree().get_first_node_in_group("player")` 由 `Node?` 到 `Node2D`（`scenes/enemy/enemy_action_picker.gd:11`）。
   - 信号参数比所连函数的参数宽时不改，留作编译错误（`scenes/relic_handler/relic_handler.gd:14, 78`）：放宽参数要另起名字，包一层 lambda 则 `disconnect` 找不到原函数。
   - 检查器给这类错误提供写 `as` 的备选修复。候选校验不把它算作修复循环会修的错误，所以推断出的类型照旧撤回，而不是在读出处转换。
@@ -909,7 +911,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 写入全成或全撤，受影响文件有未保存改动（同重构，§6.5）或脚本编辑器打开着待改名 `.gd` 时整批拒绝并写明文件。
   - 写入后内存项目设置换上新路径，因为检查读的是它（`core/config/project_settings.cpp:359-369`）。文件系统先更新旧文件移除 uid，新文件再从改名后的 `.uid` 取得同一 uid（`editor/file_system/editor_file_system.cpp:2415-2423, 2450, 2496-2501`），其余按重构步骤读回（§2.3、§2.4）。
   - 无界面命令同样逐个更新新旧文件。每次更新都存下 uid 缓存和全局类缓存，而游戏运行原样读取它们，不再扫描（`editor/file_system/editor_file_system.cpp:2503, 2552-2554, 2160-2195`，`core/io/resource_uid.cpp:343-380`，`main/main.cpp:2287`）。缺了这一步，刚转回的项目直接运行时找不到改名的全局类。
-- **报告内容与格式**：命令输出即迁移报告，汇总文件去向、各类改写数、依据不全类型与遗留错误，并标出需过目的行为保持处（如截断和按名访问）：
+- **报告内容与格式**：命令输出即迁移报告，汇总文件去向、各类改写数、依据不全类型与遗留错误。它还标出需过目之处：行为保持处（如截断和按名访问），以及类不符时得 `None` 的 `x as T`：
   - 每个迁移文件一行（如 `boss.gd → boss.pet`，连带文件注原因），跳过文件也各占一行；
   - 写下类型一行（如 `9 × Write the type`，同时收到 `int`/`float` 且有使用分辨二者的槽位另计一行），每种修复一行（如 `3 × Make it pub`）；
   - 撤回槽位、依据不全类型与遗留错误采用与 `pet check` 相同的诊断写法；

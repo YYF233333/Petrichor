@@ -104,7 +104,7 @@ petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 
 
 - 带 `→` 的行是文件的去向。因所给路径连带加入的文件，后面注明 `added:` 和原因；留在 GDScript 的文件则改为一行 `left out:`。
 - `N ×` 开头的行统计写下的类型数和每种修复的应用次数。
-- `hint:` 行值得逐条过目，包括撤回的或依据不全的类型（附流入的值），以及照 GDScript 原样保留的写法（如按名调用）。
+- `hint:` 行值得逐条过目，包括撤回的或依据不全的类型（附流入的值），以及照 GDScript 原样保留的写法（如按名调用）。留作 `x as T` 的向下转换也逐处列出：遇到别的类的对象时它得 `None`，GDScript 则报错。
 - `error:` 行是迁移后留下的编译错误，写法与 `pet check` 相同。末行汇总全部计数。
 
 例中 `damage(amount)` 从敌人处收到 `int`，从玩家处收到 `float`，而从 `int` 类型的生命值中减去它时两者结果不同。报告单列一行统计这类位置，工具不为它们写 `float`，`amount` 的类型就留给你决定。
