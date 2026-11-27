@@ -2,7 +2,7 @@
 
 **v0.2 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 13a6f12cc739f74d15d6780910569943919b04bf. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 768b02fd8e38a97709af9a98e3c6ad7635ca1c1a. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
@@ -684,7 +684,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 
 - A setter runs immediately; before ready, accessing an `@onready` member or child node is a program error stating its name. A node-syncing setter is written in one of two ways:
   - it stores the value first, syncs when `is_node_ready()` is true, and syncs once in `_ready`;
-  - it is declared `async` and writes `if not is_node_ready(): await ready` before it accesses the nodes, so the statements after that run only once the node is ready. A member that must be assigned must be stored before the `await`. When a path reaches the `await` without assigning the member directly and without calling a method on `self`, it is a compile error, because the member is then certainly unassigned at ready.
+  - it is declared `async` and writes `if not is_node_ready(): await ready` before it accesses the nodes, so the statements after that run only once the node is ready. When the property itself is a member that must be assigned, it must be stored before the `await`. When a path reaches the `await` without assigning the member directly and without calling a method on `self`, it is a compile error, because the member is then certainly unassigned at ready.
 - For a property without a backing field whose getter reads a child node directly, reading it before ready is a program error stating the unready node. A property that is never written does not run its setter at ready, and an exported property whose default value bypasses a node-syncing setter gives a hint.
 
 ### 6.6 Destruction
@@ -1081,7 +1081,7 @@ Numbers, strings, core value types, containers, `Callable`, `Signal` and `Varian
 - Migration makes only the changes allowed by the reversibility rule (such as adding `pub`, adding types, changing truthiness tests and adding `.detach()`), introducing no feature that GDScript lacks.
 - What needs judgment is left as a compile error, and a quick fix gives the options. What is not a compile error is listed in the migration report, such as by-name access with a non-literal name. When a class is migrated, the GDScript scripts in its inheritance tree are migrated with it. So are the GDScript files that make a class-level access to it that GDScript does not support (see "Cross-language calls and messages"). The migration report lists each of them with the reason.
 - **[Known limitation]** A file with `@tool` is not migrated, because the rules for running it in the editor are not settled. Scripts in the same inheritance tree are not migrated either, because cross-language inheritance is not supported. All of them are listed in the migration report.
-- The reverse conversion turns files of this language back into GDScript. It removes or replaces the reversible forms, and writes out the types that GDScript can express. A file that uses a feature GDScript lacks is not converted; only the places are listed.
+- The reverse conversion turns files of this language back into GDScript. It removes or replaces the reversible forms, and writes out the types that GDScript can express. A file that uses a feature GDScript lacks, or that has compile errors, is not converted; only the places are listed. When a class is converted back, the scripts in its inheritance tree are converted with it; when one of them is not converted, the whole tree stays.
 
 ## 14. First-version scope and open questions
 
