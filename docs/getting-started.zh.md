@@ -109,7 +109,7 @@ objects/player.gd → objects/player.pet
 ...
 8 × Write the type
 2 slot(s) received both int and float, which a use tells apart.
-objects/enemy.pet:30:13: hint: "amount" is left without a type, as no type fits all the values it receives: int (res://objects/enemy.pet:68), float (res://objects/player.pet:205).
+objects/enemy.pet:30:17: hint: "amount" is left without a type, as no type fits all the values it receives: int (res://objects/enemy.pet:68), float (res://objects/player.pet:205).
 ...
 5 × Make it pub
 5 × Write .unwrap()
@@ -155,7 +155,7 @@ addons/petrichor/pet migrate objects/enemy.gd ui   # 只迁移这些文件和目
 - C# 代码里的路径；
 - 运行时拼出来的路径，如 `"res://levels/" + name + ".gd"`。
 
-留下编译错误不算失败：只要写入了文件，退出码就是 `0`。被拒绝或写入失败时什么都不写，退出码是 `1`。预演的退出码是 `0`。所给路径下找不到可迁移的文件时，预演和迁移都以 `1` 退出。
+留下编译错误不算失败，报告里写明原因留下的文件也不算：退出码是 `0`。被拒绝或写入失败时什么都不写，退出码是 `1`。所给路径下找不到可迁移的文件时，退出码也是 `1`。预演的退出码与真正迁移时相同，所以预演以 `0` 退出，就说明迁移不会被拒绝。
 
 ### 第四步：处理编译错误
 
@@ -205,11 +205,11 @@ addons/petrichor/pet migrate objects/enemy.gd ui   # 只迁移这些文件和目
 - 有编译错误的文件；
 - 用了 GDScript 没有的特性的文件，如 `struct`、带载荷的 enum、接口和 `Result`。
 
-报告给这样的文件一行 `left out:`，并用 `hint:` 列出每一处，例如 `hint: GDScript has no struct.`。一个文件都转不回时，命令以 `1` 退出。
+报告给这样的文件一行 `left out:`，并用 `hint:` 列出每一处，例如 `hint: GDScript has no struct.`。留下文件不算失败：即使一个文件都转不回，命令也以 `0` 退出。
 
 只转回一部分时，工具同样会加入必须一起转回的文件：所给文件的继承树，以及这些文件通过类名直接使用的 `.pet` 类的继承树。留下的 `.pet` 文件从此面对的是 GDScript 类，工具会重新检查它们，列出因此新出现的错误。例如转回的类的对象成员，此后读出来是 `T?`。这些错误不妨碍写入，留给你处理。调用转回代码的 GDScript 文件不在检查之列，有问题时由 Godot 在加载时报告。
 
-写入之前，工具把每个转回的文件重新解析一遍，与原来的 `.pet` 比对。两者不一致说明转换器有缺陷。这时它什么都不写，并请你把输出提交到 [Issues](https://github.com/YYF233333/Petrichor/issues)。
+写入之前，工具把每个转回的文件重新解析一遍，与原来的 `.pet` 比对。两者不一致说明转换器有缺陷。这时它什么都不写，以 `1` 退出，并请你把输出提交到 [Issues](https://github.com/YYF233333/Petrichor/issues)。预演做同样的比对，退出码也相同。
 
 ## 从源码构建
 

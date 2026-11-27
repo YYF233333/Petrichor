@@ -109,7 +109,7 @@ objects/player.gd → objects/player.pet
 ...
 8 × Write the type
 2 slot(s) received both int and float, which a use tells apart.
-objects/enemy.pet:30:13: hint: "amount" is left without a type, as no type fits all the values it receives: int (res://objects/enemy.pet:68), float (res://objects/player.pet:205).
+objects/enemy.pet:30:17: hint: "amount" is left without a type, as no type fits all the values it receives: int (res://objects/enemy.pet:68), float (res://objects/player.pet:205).
 ...
 5 × Make it pub
 5 × Write .unwrap()
@@ -155,7 +155,7 @@ The tool updates the script paths written in scripts, text scenes (`.tscn`), tex
 - paths in C# code;
 - paths built at run time, such as `"res://levels/" + name + ".gd"`.
 
-Compile errors left in the code are not a failure: the exit code is `0` whenever files were written. When the tool refuses to run or a write fails, it writes nothing and exits with `1`. A dry run exits with `0`. Both exit with `1` when a path you pass contains nothing to migrate.
+Compile errors left in the code are not a failure, and neither is a file the report leaves out: the exit code is `0`. When the tool refuses to run or a write fails, it writes nothing and exits with `1`. It also exits with `1` when a path you pass contains nothing to migrate. A dry run exits with the code the real run would give, so a dry run that exits with `0` means the migration will not be refused.
 
 ### Step 4: Fix the compile errors
 
@@ -205,11 +205,11 @@ Two kinds of files cannot be converted, and they stay `.pet` files together with
 - a file with compile errors;
 - a file that uses a feature GDScript lacks, such as `struct`, payload enums, interfaces or `Result`.
 
-The report gives such a file a `left out:` line and lists each place with a `hint:`, such as `hint: GDScript has no struct.` When no file can be converted, the command exits with `1`.
+The report gives such a file a `left out:` line and lists each place with a `hint:`, such as `hint: GDScript has no struct.` Leaving a file out is not a failure: the command exits with `0` even when no file can be converted.
 
 When you convert back part of a project, the tool again adds the files that have to go along. These are the inheritance trees of the files you pass, and the trees of the `.pet` classes that those files use directly through their class names. The `.pet` files that stay now face GDScript classes, so the tool checks them again and lists the errors this causes. For example, an object member of a converted class now reads as `T?`. These errors do not stop the write; they are left for you to fix. GDScript files that call the converted code are not checked, and Godot reports any problems when it loads them.
 
-Before writing, the tool parses each converted file again and compares it with the original `.pet` file. A difference means a defect in the converter. In that case it writes nothing and asks you to report the output in [Issues](https://github.com/YYF233333/Petrichor/issues).
+Before writing, the tool parses each converted file again and compares it with the original `.pet` file. A difference means a defect in the converter. In that case it writes nothing, exits with `1`, and asks you to report the output in [Issues](https://github.com/YYF233333/Petrichor/issues). A dry run makes the same comparison and exits the same way.
 
 ## Building from Source
 
