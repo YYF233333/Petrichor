@@ -474,10 +474,17 @@ bool is_script(const std::string &p_file) {
 	return extension == "pet" || extension == "gd" || extension == "cs";
 }
 
-// Nullopt when it cannot be read, as when it is not there.
+// Nullopt when it cannot be read whole, as when it is not there. A buffer
+// read gives only the bytes read, where get_file_as_bytes() keeps the file's
+// length whatever was read (core/io/file_access.cpp:548-568, 901-913; ed1daf0).
 std::optional<std::string> file_bytes(const String &p_path) {
-	const PackedByteArray bytes = FileAccess::get_file_as_bytes(p_path);
-	if (FileAccess::get_open_error() != OK) {
+	const Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::READ);
+	if (file.is_null()) {
+		return std::nullopt;
+	}
+	const int64_t length = int64_t(file->get_length());
+	const PackedByteArray bytes = file->get_buffer(length);
+	if (bytes.size() < length) {
 		return std::nullopt;
 	}
 	return bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
