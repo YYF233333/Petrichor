@@ -1753,7 +1753,7 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 		output += relative(file) + ": left out: " + why + "\n";
 	}
 	const SceneIndex taken(set.files);
-	const int rounds = 10;
+	const int rounds = 20;
 	const compiler::Migration migration = compiler::migrate(ClassDBApi::get(), taken, set.files, rounds);
 	if (migration.quoted > 0) {
 		output += std::to_string(migration.quoted) + " × Write the string in triple quotes\n";
