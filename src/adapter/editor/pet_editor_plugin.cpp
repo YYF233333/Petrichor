@@ -474,8 +474,12 @@ bool is_script(const std::string &p_file) {
 	return extension == "pet" || extension == "gd" || extension == "cs";
 }
 
-std::string file_bytes(const String &p_path) {
+// Nullopt when it cannot be read, as when it is not there.
+std::optional<std::string> file_bytes(const String &p_path) {
 	const PackedByteArray bytes = FileAccess::get_file_as_bytes(p_path);
+	if (FileAccess::get_open_error() != OK) {
+		return std::nullopt;
+	}
 	return bytes.is_empty() ? std::string() : std::string(reinterpret_cast<const char *>(bytes.ptr()), size_t(bytes.size()));
 }
 
@@ -500,28 +504,37 @@ bool write_file(const String &p_path, const std::string &p_bytes) {
 	return written;
 }
 
-// Gives each file its bytes, or removes it for none: all of them or none, as
-// once one cannot be written, each gets back what it had (architecture §2.3).
-// The one that failed, or "".
-std::string write_all(const std::map<std::string, std::optional<std::string>> &p_files) {
+// Gives each file its bytes, or removes it for none: all of them or none
+// (architecture §2.3). Nothing is written when a file there cannot be read,
+// and once one cannot be written, each gets back what it had. The one that
+// failed, then each that is not as it was after all; none when all were
+// written.
+std::vector<std::string> write_all(const std::map<std::string, std::optional<std::string>> &p_files) {
+	const auto give = [](const String &p_path, const std::optional<std::string> &p_bytes) {
+		return p_bytes ? write_file(p_path, *p_bytes) : DirAccess::remove_absolute(p_path) == OK;
+	};
 	std::map<std::string, std::optional<std::string>> had;
 	for (const auto &[file, bytes] : p_files) {
-		const String path = to_godot(file);
-		had[file] = FileAccess::file_exists(path) ? std::optional<std::string>(file_bytes(path)) : std::nullopt;
-		if (bytes ? write_file(path, *bytes) : DirAccess::remove_absolute(path) == OK) {
+		had[file] = file_bytes(to_godot(file));
+		if (!had[file] && FileAccess::file_exists(to_godot(file))) {
+			return { file };
+		}
+	}
+	for (const auto &[file, bytes] : p_files) {
+		if (give(to_godot(file), bytes)) {
 			continue;
 		}
+		std::vector<std::string> failed = { file };
 		for (const auto &[each, before] : had) {
 			const String undone = to_godot(each);
-			if (before && (!FileAccess::file_exists(undone) || file_bytes(undone) != *before)) {
-				write_file(undone, *before);
-			} else if (!before && FileAccess::file_exists(undone)) {
-				DirAccess::remove_absolute(undone);
+			const bool kept = before ? file_bytes(undone) == before : !FileAccess::file_exists(undone);
+			if (!kept && !give(undone, before)) {
+				failed.push_back(each);
 			}
 		}
-		return file;
+		return failed;
 	}
-	return std::string();
+	return {};
 }
 
 // A byte order mark is no text, as the build reads a script
@@ -976,7 +989,7 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 	}
 	std::map<std::string, std::pair<std::string, std::string>> texts; // Before and after, by file.
 	for (const auto &[file, edits] : p_changes) {
-		const std::optional<std::string> text = is_script(file) ? workspace().script_source(file) : std::optional<std::string>(file_bytes(to_godot(file)));
+		const std::optional<std::string> text = is_script(file) ? workspace().script_source(file) : file_bytes(to_godot(file));
 		if (!text || !std::all_of(edits.begin(), edits.end(), [&](const compiler::CheckedEdit &p_edit) { return intact(*text, p_edit); })) {
 			toast(vformat("%s changed while it was being edited, so nothing was changed.", to_godot(file)), EditorToaster::SEVERITY_WARNING);
 			return false;
@@ -995,10 +1008,14 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 	if (!one_tab) {
 		std::map<std::string, std::optional<std::string>> bytes;
 		for (const auto &[file, text] : texts) {
-			bytes[file] = is_script(file) ? byte_order_mark(file_bytes(to_godot(file))) + text.second : text.second;
+			bytes[file] = is_script(file) ? byte_order_mark(file_bytes(to_godot(file)).value_or(std::string())) + text.second : text.second;
 		}
-		if (const std::string failed = write_all(bytes); !failed.empty()) {
-			toast(vformat("Cannot write %s, so nothing was changed.", to_godot(failed)), EditorToaster::SEVERITY_WARNING);
+		if (const std::vector<std::string> failed = write_all(bytes); !failed.empty()) {
+			PackedStringArray changed;
+			for (size_t i = 1; i < failed.size(); i++) {
+				changed.push_back(to_godot(failed[i]));
+			}
+			toast(changed.is_empty() ? vformat("Cannot write %s, so nothing was changed.", to_godot(failed[0])) : vformat("Cannot write %s, and these did not get back what they had: %s.", to_godot(failed[0]), String(", ").join(changed)), EditorToaster::SEVERITY_WARNING);
 			return false;
 		}
 	}
@@ -1809,11 +1826,13 @@ std::pair<std::string, int> PetEditorPlugin::migrate_back(const std::vector<std:
 // from `p_texts` by their new paths, and rewrites the paths naming them, all
 // or none, as a refactoring writes (§2.3): not over what Godot or an LSP
 // client holds unsaved, nor a file renamed that Godot's script editor has
-// open, nor, unless `p_allow_dirty`, a file git could not give back
-// (architecture §6.6). With `p_dry_run` or `p_failed` it writes nothing.
-// Godot reads the project again, and project.godot's settings in memory take
-// the paths it was written with (core/config/project_settings.cpp:359-369;
-// ed1daf0). It exits with 1 when nothing was written for that or a failure.
+// open, nor when a file it reads cannot be read, nor, unless
+// `p_allow_dirty`, a file git could not give back (architecture §6.6). With
+// `p_dry_run` or `p_failed` it writes nothing. Godot reads the project
+// again, and project.godot's settings in memory take the paths it was
+// written with (core/config/project_settings.cpp:359-369; ed1daf0). It exits
+// with 1 when nothing was written for that or a failure, and when a failure
+// left a file that did not get back what it had, which it names.
 std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::string, std::string> &p_renamed, const std::map<std::string, std::string> &p_texts, std::string p_output, const std::function<std::string(int)> &p_summary, bool p_dry_run, bool p_allow_dirty, bool p_failed) {
 	const std::map<std::string, std::string> &renamed = p_renamed;
 	std::string output = std::move(p_output);
@@ -1821,14 +1840,23 @@ std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::
 	// each text file naming one.
 	std::map<std::string, std::optional<std::string>> bytes;
 	int named = 0;
+	int refused = 0;
+	const auto read = [&](const String &p_path) {
+		const std::optional<std::string> had = file_bytes(p_path);
+		if (!had) {
+			output += relative(to_utf8(p_path)) + ": error: It cannot be read.\n";
+			refused++;
+		}
+		return had.value_or(std::string());
+	};
 	for (const auto &[file, migrated] : renamed) {
-		const std::string had = file_bytes(to_godot(file));
+		const std::string had = read(to_godot(file));
 		compiler::renamed_in_script(had, file, renamed, named);
 		bytes[file] = std::nullopt;
 		bytes[migrated] = byte_order_mark(had) + p_texts.at(migrated);
 		if (FileAccess::file_exists(to_godot(file + ".uid"))) {
 			bytes[file + ".uid"] = std::nullopt;
-			bytes[migrated + ".uid"] = file_bytes(to_godot(file + ".uid"));
+			bytes[migrated + ".uid"] = read(to_godot(file + ".uid"));
 		}
 	}
 	PackedStringArray naming = project_files(PackedStringArray({ "pet", "gd", "tscn", "tres" }));
@@ -1838,7 +1866,7 @@ std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::
 		if (renamed.count(file)) {
 			continue;
 		}
-		const std::string had = file_bytes(path);
+		const std::string had = read(path);
 		int count = 0;
 		const std::string text = is_script(file) ? compiler::renamed_in_script(had, file, renamed, count) : compiler::renamed_in_resource(had, renamed, count);
 		if (count > 0) {
@@ -1863,7 +1891,6 @@ std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::
 	// reloads.
 	Held held = Held::of(written);
 	held.drop(Held::Unseen);
-	int refused = 0;
 	for (const std::string &file : written) {
 		const bool open = renamed.count(file) && open_code_edit(file);
 		if (held.files.count(file) || open) {
@@ -1880,9 +1907,14 @@ std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::
 	if (p_dry_run) {
 		return { output + ", dry run", 0 };
 	}
-	const std::string failed = refused > 0 || p_failed ? std::string() : write_all(bytes);
-	if (!failed.empty()) {
-		output = relative(failed) + ": error: It cannot be written.\n" + output;
+	const std::vector<std::string> failed = refused > 0 || p_failed ? std::vector<std::string>() : write_all(bytes);
+	std::string why;
+	for (size_t i = 0; i < failed.size(); i++) {
+		why += relative(failed[i]) + (i == 0 ? ": error: It cannot be written.\n" : ": error: It did not get back what it had.\n");
+	}
+	output = why + output;
+	if (failed.size() > 1) {
+		return { output + "; " + std::to_string(failed.size() - 1) + " file(s) did not get back what they had", 1 };
 	}
 	if (refused > 0 || p_failed || !failed.empty()) {
 		return { output + "; nothing was written", 1 };
@@ -1956,7 +1988,7 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 	for (const String &path : paths) {
 		const std::string file = to_utf8(path);
 		// As bytes, which keeps the file's line breaks.
-		std::string source = file_bytes(path);
+		std::string source = file_bytes(path).value_or(std::string());
 		const std::string bom = byte_order_mark(source);
 		source.erase(0, bom.size());
 		std::string error;
