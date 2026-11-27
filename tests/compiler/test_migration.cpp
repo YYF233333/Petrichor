@@ -980,6 +980,16 @@ TEST_CASE("a call by name flows into every function so named, and the report mar
 	CHECK(migration.notes[0].message == "The type of \"amount\", int, rests on calls by name: res://bullet.pet:5, res://bullet.pet:9.");
 }
 
+TEST_CASE("a hint names the lines of the file as written, after the fixes above it") {
+	FakeProject project;
+	project.add_script("res://main.gd", "extends Node\nenum Kind { A, B }\n\n\nfunc pick(kind: Kind) -> void:\n\tmatch kind:\n\t\tKind.A:\n\t\t\tprint(1)\n\n\nfunc hit(amount):\n\tprint(amount)\n\n\nfunc poke(body: Node) -> void:\n\tbody.hit(7)\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://main.gd" }, 10);
+	CHECK(contains(migration.texts.at("res://main.pet"), "\t\t\tprint(1)\n\t\t_: pass\n"));
+	REQUIRE(migration.notes.size() == 1);
+	CHECK(migration.notes[0].line == 12);
+	CHECK(migration.notes[0].message == "The type of \"amount\", int, rests on calls by name: res://main.pet:17.");
+}
+
 // As tanks-of-freedom-ii builds triggers from a Dictionary of preloaded
 // scripts (scenes/board/logic/scripting/triggers/templates.gd:16), whose
 // class no check knows; only a pub _init is reached so (spec §4.2).

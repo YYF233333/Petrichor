@@ -1206,15 +1206,86 @@ bool aliased(Type &r_type, const std::string &p_file, Aliases &r_aliases, std::s
 	return std::all_of(r_type.args.begin(), r_type.args.end(), [&](Type &r_arg) { return aliased(r_arg, p_file, r_aliases, r_scripts); });
 }
 
+// What the report says of places in the texts, each found in a text as it
+// was then and moved by every edit made after: the notes, the places their
+// messages cite, and the casts left as x as T, which give None for a value
+// of another class where GDScript fails (architecture §6.6). Their lines and
+// columns are those of the texts written.
+class Report {
+	static constexpr char CITED = '\x1f'; // Around a place's index in a message.
+	std::vector<Diagnostic> cited;
+
+public:
+	std::vector<Diagnostic> notes;
+	std::vector<Diagnostic> casts;
+
+	// What a message says for a place, which becomes its file and line.
+	std::string cite(const std::string &p_file, uint32_t p_at) {
+		cited.emplace_back(Diagnostic{ p_at, p_at }).file = p_file;
+		return CITED + std::to_string(cited.size() - 1) + CITED;
+	}
+
+	// The places in `p_file` once the bytes from `p_begin` to `p_end` are
+	// replaced by `p_size` bytes: one after the edit moves, one around it
+	// grows. A cast that the edit writes over, as unwrap() does, gives no None.
+	void edited(const std::string &p_file, uint32_t p_begin, uint32_t p_end, size_t p_size) {
+		casts.erase(std::remove_if(casts.begin(), casts.end(), [&](const Diagnostic &p_cast) { return p_cast.file == p_file && p_begin < p_end && p_begin <= p_cast.begin && p_cast.end <= p_end; }), casts.end());
+		const uint32_t grown = uint32_t(p_size) - (p_end - p_begin);
+		for (std::vector<Diagnostic> *places : { &notes, &cited, &casts }) {
+			for (Diagnostic &place : *places) {
+				if (place.file == p_file) {
+					place.end += p_begin < place.end || p_end <= place.begin ? grown : 0;
+					place.begin += p_end <= place.begin ? grown : 0;
+				}
+			}
+		}
+	}
+
+	// The notes, then the casts, by the texts of `p_project` now.
+	std::vector<Diagnostic> written(const ProjectApi &p_project) const {
+		std::map<std::string, std::pair<std::string, std::vector<uint32_t>>> texts;
+		const auto text = [&](const std::string &p_file) -> const auto & {
+			auto found = texts.find(p_file);
+			if (found == texts.end()) {
+				std::string read = p_project.script_source(p_file).value_or(std::string());
+				std::vector<uint32_t> starts = line_starts_of(read);
+				found = texts.emplace(p_file, std::make_pair(std::move(read), std::move(starts))).first;
+			}
+			return found->second;
+		};
+		const auto position = [&](const Diagnostic &p_place) { return position_in(text(p_place.file).first, text(p_place.file).second, p_place.begin); };
+		std::vector<Diagnostic> result = notes;
+		std::vector<Diagnostic> left = casts;
+		std::stable_sort(left.begin(), left.end(), [](const Diagnostic &p_a, const Diagnostic &p_b) { return p_a.file < p_b.file; });
+		for (Diagnostic &cast : left) {
+			cast.message = text(cast.file).first.substr(cast.begin, cast.end - cast.begin) + " gives None for a value of another class, where GDScript stops with an error in a debug build.";
+			cast.severity = Severity::Hint;
+			result.push_back(std::move(cast));
+		}
+		for (Diagnostic &note : result) {
+			note.line = position(note).line;
+			note.column = position(note).column;
+			for (size_t mark = note.message.find(CITED); mark != std::string::npos; mark = note.message.find(CITED, mark)) {
+				const size_t end = note.message.find(CITED, mark + 1);
+				const Diagnostic &place = cited[std::stoul(note.message.substr(mark + 1, end - mark - 1))];
+				const std::string shown = place.file + ":" + std::to_string(position(place).line);
+				note.message.replace(mark, end + 1 - mark, shown);
+				mark += shown.size();
+			}
+		}
+		return result;
+	}
+};
+
 } // namespace
 
 // Stage 2 of a migration (architecture §6.6): rounds of checks that record
 // what flows into each slot without a type, trying for each what it
 // received, merged, until the types tried stay; then for those still
 // without one, Variant. The types are written into the texts, and those
-// whose written form the check then refuses are withdrawn. The calls by
-// name that the last check found.
-static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, Migration &r_result) {
+// whose written form the check then refuses are withdrawn, with a hint each
+// at the slots. The calls by name that the last check found.
+static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_project, int p_rounds, Migration &r_result, Report &r_report) {
 	Inflows inflows;
 	for (const auto &[file, text] : r_project.texts) {
 		inflows.files.insert(file);
@@ -1390,22 +1461,7 @@ static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_p
 		}
 	}
 
-	// A place in a file as the report names it, with its line.
 	const std::map<std::string, std::string> original = r_project.texts;
-	std::map<std::string, std::pair<std::string, std::vector<uint32_t>>> lines;
-	const auto where = [&](const Inflows::Key &p_at) {
-		if (!is_script_path(p_at.first)) {
-			return p_at.first; // A scene's connection.
-		}
-		auto found = lines.find(p_at.first);
-		if (found == lines.end()) {
-			const auto text = original.find(p_at.first);
-			std::string read = text != original.end() ? text->second : r_project.script_source(p_at.first).value_or(std::string());
-			std::vector<uint32_t> starts = line_starts_of(read);
-			found = lines.emplace(p_at.first, std::make_pair(std::move(read), std::move(starts))).first;
-		}
-		return p_at.first + ":" + std::to_string(position_in(found->second.first, found->second.second, p_at.second).line);
-	};
 	std::map<Inflows::Key, Place> place;
 	for (const auto &[file, text] : original) {
 		const std::map<Inflows::Key, Place> in_file = places(file, text, inflows);
@@ -1430,21 +1486,23 @@ static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_p
 		Inflows::Key slot;
 	};
 	std::map<std::string, std::vector<Written>> insertions;
-	// A hint at the slot, in the text written.
-	const auto note = [&](const Inflows::Key &p_slot, const std::string &p_message) {
-		uint32_t at = p_slot.second;
-		for (const Written &each : insertions[p_slot.first]) {
-			at += each.at < p_slot.second ? uint32_t(each.text.size()) - (each.end - each.at) : 0;
+	// Where a place of the original text is in the text written.
+	const auto moved = [&](const Inflows::Key &p_at) {
+		uint32_t at = p_at.second;
+		for (const Written &each : insertions[p_at.first]) {
+			at += each.at < p_at.second ? uint32_t(each.text.size()) - (each.end - each.at) : 0;
 		}
-		const std::string &text = r_project.texts.at(p_slot.first);
-		const SourcePosition position = position_in(text, line_starts_of(text), at);
-		Diagnostic hint{ at, at, p_message };
+		return at;
+	};
+	// A hint at the slot.
+	const auto note = [&](const Inflows::Key &p_slot, const std::string &p_message) {
+		Diagnostic hint{ moved(p_slot), moved(p_slot), p_message };
 		hint.severity = Severity::Hint;
 		hint.file = p_slot.first;
-		hint.line = position.line;
-		hint.column = position.column;
-		r_result.notes.push_back(std::move(hint));
+		r_report.notes.push_back(std::move(hint));
 	};
+	// A place that a value flowed from, a scene's connection by its file.
+	const auto where = [&](const Inflows::Key &p_at) { return is_script_path(p_at.first) ? r_report.cite(p_at.first, moved(p_at)) : p_at.first; };
 	std::map<Inflows::Key, std::string> written;
 	// The scripts whose constants a type written names.
 	std::map<Inflows::Key, std::set<std::string>> aliased_in;
@@ -1701,7 +1759,7 @@ static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_p
 // GDScript's new() on a value calls _init by name (spec §4.2): each _init of
 // the files migrated that takes as many arguments as one of `p_calls` becomes
 // pub, as a call by name reaches each function so named (architecture §6.6).
-static void publish_inits(Migrated &r_project, const std::vector<Inflows::Call> &p_calls, Migration &r_result) {
+static void publish_inits(Migrated &r_project, const std::vector<Inflows::Call> &p_calls, Migration &r_result, Report &r_report) {
 	std::set<size_t> counts;
 	for (const Inflows::Call &call : p_calls) {
 		if (call.name == "new") {
@@ -1729,8 +1787,10 @@ static void publish_inits(Migrated &r_project, const std::vector<Inflows::Call> 
 		};
 		inits(decl, inits);
 		std::sort(at.rbegin(), at.rend());
+		const std::string pub = "pub ";
 		for (const uint32_t each : at) {
-			text.insert(each, "pub ");
+			text.insert(each, pub);
+			r_report.edited(file, each, each, pub.size());
 		}
 		made += int(at.size());
 	}
@@ -1744,7 +1804,7 @@ static void publish_inits(Migrated &r_project, const std::vector<Inflows::Call> 
 // loop of fixes unwrapped, fails where an @late member fails (spec §6.3):
 // it becomes one, with its setter's parameter, unless the check then
 // reports an error at one of its places (architecture §6.6).
-static void write_late(const EngineApi &p_engine, Migrated &r_project, const std::function<std::vector<Diagnostic>()> &p_check, Migration &r_result) {
+static void write_late(const EngineApi &p_engine, Migrated &r_project, const std::function<std::vector<Diagnostic>()> &p_check, Migration &r_result, Report &r_report) {
 	Inflows recorded;
 	for (const auto &[file, text] : r_project.texts) {
 		recorded.files.insert(file);
@@ -1828,9 +1888,11 @@ static void write_late(const EngineApi &p_engine, Migrated &r_project, const std
 		if (edits.empty()) {
 			return;
 		}
+		Report report = r_report;
 		for (const auto &[file, in_file] : edits) {
 			for (auto each = in_file.rbegin(); each != in_file.rend(); ++each) {
 				r_project.texts.at(file).replace(each->first.second, each->second.first - each->first.second, each->second.second);
+				report.edited(file, each->first.second, each->second.first, each->second.second.size());
 			}
 		}
 		// Where a byte of the text written was before.
@@ -1866,6 +1928,7 @@ static void write_late(const EngineApi &p_engine, Migrated &r_project, const std
 				r_result.fixes.erase(FixKind::Unwrap);
 			}
 			r_result.errors = std::move(errors);
+			r_report = std::move(report);
 			return;
 		}
 	}
@@ -1875,7 +1938,8 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 	Migrated project(p_project, p_files);
 	Migration result;
 	result.quoted = project.quoted;
-	publish_inits(project, infer(p_engine, project, p_rounds, result), result);
+	Report report;
+	publish_inits(project, infer(p_engine, project, p_rounds, result, report), result, report);
 	Workspace workspace(p_project);
 	Analysis analysis(p_engine, workspace);
 	// The errors of the scripts and of the checks of the scenes, which find
@@ -1896,10 +1960,6 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 		}
 		return errors;
 	};
-	// Where the casts written as x as T are in the texts, by file. Each gives
-	// None for a value of another class, where GDScript fails, so the report
-	// lists it for a person to review (architecture §6.6).
-	std::map<std::string, std::vector<Inflows::Range>> casts;
 	while (true) {
 		std::vector<Diagnostic> errors = check();
 		std::vector<std::pair<const Fix *, std::string>> fixes;
@@ -1932,7 +1992,7 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 				note.severity = Severity::Hint;
 				note.fixes.clear();
 				note.message = note.message.substr(0, note.message.size() - 1) + "; it is reached by name, as GDScript does. An interface would check it, but does not convert back to GDScript; a concrete class needs what the scenes hold.";
-				result.notes.push_back(std::move(note));
+				report.notes.push_back(std::move(note));
 			}
 		}
 		std::set<std::pair<std::string, uint32_t>> written_as;
@@ -1942,38 +2002,18 @@ Migration migrate(const EngineApi &p_engine, const ProjectApi &p_project, const 
 			}
 		}
 		for (const auto &[file, in_file] : edits) {
-			std::string &text = project.texts[file];
-			std::vector<Inflows::Range> &left = casts[file];
 			for (auto edit = in_file.rbegin(); edit != in_file.rend(); ++edit) {
-				text.replace(edit->begin, edit->end - edit->begin, edit->new_text);
-				// One that an edit writes over, as unwrap() does, gives no None.
-				const auto over = [&](const Inflows::Range &p_cast) { return edit->begin < edit->end && edit->begin <= p_cast.first && p_cast.second <= edit->end; };
-				left.erase(std::remove_if(left.begin(), left.end(), over), left.end());
-				const uint32_t grown = uint32_t(edit->new_text.size()) - (edit->end - edit->begin);
-				for (Inflows::Range &cast : left) {
-					cast.first += edit->end <= cast.first ? grown : 0;
-					cast.second += edit->begin < cast.second ? grown : 0;
-				}
+				project.texts[file].replace(edit->begin, edit->end - edit->begin, edit->new_text);
+				report.edited(file, edit->begin, edit->end, edit->new_text.size());
 				if (written_as.count({ file, edit->begin })) {
-					left.emplace_back(edit->begin, edit->begin + uint32_t(edit->new_text.size()));
+					report.casts.emplace_back(Diagnostic{ edit->begin, edit->begin + uint32_t(edit->new_text.size()) }).file = file;
 				}
 			}
 		}
 		result.rounds++;
 	}
-	for (const auto &[file, left] : casts) {
-		const std::string &text = project.texts.at(file);
-		for (const Inflows::Range &cast : left) {
-			const SourcePosition position = position_in(text, line_starts_of(text), cast.first);
-			Diagnostic note{ cast.first, cast.second, text.substr(cast.first, cast.second - cast.first) + " gives None for a value of another class, where GDScript stops with an error in a debug build." };
-			note.severity = Severity::Hint;
-			note.file = file;
-			note.line = position.line;
-			note.column = position.column;
-			result.notes.push_back(std::move(note));
-		}
-	}
-	write_late(p_engine, project, check, result);
+	write_late(p_engine, project, check, result, report);
+	result.notes = report.written(project);
 	result.texts = project.texts;
 	return result;
 }
