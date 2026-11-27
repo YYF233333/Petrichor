@@ -1,5 +1,6 @@
 #include "compiler/reverse.h"
 
+#include "compiler/analysis.h"
 #include "compiler/ast.h"
 #include "compiler/checker.h"
 #include "compiler/migration.h"
@@ -1558,6 +1559,19 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 	for (const auto &[name, path] : p_project.global_class_paths()) {
 		globals.insert(name);
 	}
+	// The first error that the checks of the scenes report in each file
+	// (architecture §6.4).
+	std::map<std::string, Diagnostic> in_scenes;
+	{
+		Workspace workspace(p_project);
+		Analysis analysis(p_engine, workspace);
+		const Analysis::Pass pass(analysis, &p_project);
+		for (const std::string &scene : p_project.scene_paths()) {
+			for (const Diagnostic &error : analysis.check_scene(scene)->errors) {
+				in_scenes.emplace(error.file, error);
+			}
+		}
+	}
 	const auto convert = [&](const std::string &p_file) -> const Converted & {
 		const auto found = converted.find(p_file);
 		if (found != converted.end()) {
@@ -1576,6 +1590,9 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 			options.project = &p_project;
 			classes.begin_compile(p_file, source);
 			check(decl, p_engine, options, errors, classes);
+			if (errors.empty() && in_scenes.count(p_file)) {
+				errors.push_back(in_scenes.at(p_file));
+			}
 			if (errors.empty()) {
 				converter.keywords();
 				converter.visit(decl);

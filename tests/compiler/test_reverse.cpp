@@ -165,6 +165,23 @@ TEST_CASE("converting a class takes its inheritance tree, which a file that cann
 	CHECK(reversal.unknown == std::vector<std::string>{ "res://none" });
 }
 
+// As the FPS kit's scenes/main.tscn connects a signal to scripts/hud.pet.
+TEST_CASE("an error that a check of a scene reports keeps the file") {
+	FakeProject project;
+	project.add_script("res://player.pet", "extends Node\npub signal hit(target: Node)\n");
+	project.add_script("res://hud.pet", "extends Node\n\n\npub func _on_hit(target: Node, times: int) -> void:\n\tprint(target, times)\n");
+	compiler::Scene scene;
+	scene.path = "res://main.tscn";
+	scene.nodes = { { ".", "Node", "res://hud.pet" }, { "Player", "Node", "res://player.pet" } };
+	scene.connections = { { "hit", "Player", ".", "_on_hit" } };
+	project.scenes.push_back(scene);
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, { "res://hud.pet" });
+	CHECK(reversal.texts.empty());
+	REQUIRE(reversal.refused.size() == 1);
+	CHECK(reversal.refused[0].line == 4);
+	CHECK(contains(reversal.refused[0].message, "res://main.tscn"));
+}
+
 // GDScript cannot use an enum of a class of this language (spec §11.3).
 TEST_CASE("a file converted takes the trees whose enums and static methods it uses, or stays with them") {
 	FakeProject project;
