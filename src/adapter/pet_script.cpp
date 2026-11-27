@@ -341,8 +341,11 @@ void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const C
 
 void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
 	std::lock_guard<std::recursive_mutex> compile_lock(compiling);
-	if (compile_state == CompileState::Pending) {
-		compile_state = CompileState::Compiled;
+	// A pending script is published once it has its image, as compile_pending()
+	// publishes it: another thread meanwhile waits.
+	const bool pending = compile_state == CompileState::Pending;
+	if (pending) {
+		compile_state = CompileState::Compiling;
 	}
 	{
 		std::lock_guard<std::mutex> lock(mutex);
@@ -382,6 +385,9 @@ void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, cons
 	}
 	if (p_image) {
 		update_placeholders();
+	}
+	if (pending) {
+		compile_state = CompileState::Compiled;
 	}
 }
 
