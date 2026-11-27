@@ -49,12 +49,13 @@ Keep three workflow details in mind:
 
 ## Command-Line Tool (pet)
 
-Run `pet` from the project root to check, build, format, or bridge LSP for the entire project:
+Run `pet` from the project root to check, build, format or migrate the entire project, or to bridge LSP:
 
 ```sh
 addons/petrichor/pet check            # check files on disk without writing bytecode
 addons/petrichor/pet build            # check files and write bytecode
 addons/petrichor/pet format --check   # list unformatted scripts; omit --check to format in place
+addons/petrichor/pet migrate          # convert GDScript scripts to Petrichor; see "Migrating from GDScript" below
 addons/petrichor/pet lsp              # bridge stdio for LSP clients such as Neovim and Helix
 ```
 
@@ -71,78 +72,144 @@ Diagnostics are printed one per line (`player.pet:12:5: error: ...`). Exit codes
 
 ## Migrating from GDScript
 
-`pet migrate` converts GDScript files to Petrichor, and `pet migrate --reverse` converts `.pet` files back to GDScript. Pass files or folders, relative to the project root, to convert only those; with no path, the whole project converts.
-
-### Before you start
-
-Commit the project to git. The tool writes only files that git can give back: it refuses to run when a file it would write has uncommitted or staged changes, or is untracked or ignored, and when the project is not in a git repository. Those files are the scripts it renames with their `.uid` files, and the scenes, resources, scripts and `project.godot` whose paths it rewrites. The report lists each refused file with the reason, on a dry run too, and `--allow-dirty` skips the check.
-
-Also save your changes in Godot and any other editor, and close the scripts being migrated in Godot's script editor. Otherwise the tool writes nothing and lists the files in the way.
-
-### Running the migration
+`pet migrate` converts a project's GDScript scripts to Petrichor. It renames each `.gd` file to `.pet`, writes the types it can infer from your code and scenes, and updates the paths that point to those scripts. Where it cannot be sure, it does not guess: it leaves a compile error for you to resolve with the editor's quick fixes. If you later decide to leave, `pet migrate --reverse` converts the code back to GDScript.
 
 ```sh
-addons/petrichor/pet migrate --dry-run   # print the report and write nothing
-addons/petrichor/pet migrate             # migrate and print the report
+addons/petrichor/pet migrate [--reverse] [--dry-run] [--allow-dirty] [<path>...]
 ```
 
-The tool renames each `.gd` file to `.pet`, along with its `.uid` file, and updates every path that names them. It writes all files or none. Godot can stay open, and it reloads the project afterward.
+A migration takes four steps:
 
-This shortened report comes from a dry run on Kenney's FPS starter kit:
+1. Commit the project to git, then save and close the scripts you are migrating.
+2. Do a dry run and read the report.
+3. Run the migration.
+4. Work through the compile errors it leaves.
+
+### Step 1: Prepare
+
+A migration renames scripts and rewrites paths in scenes, resources and `project.godot`. Commit the project to git first, so that you can restore everything if you do not like the result.
+
+The tool refuses to run if any file it would change has uncommitted changes or is not tracked by git, and it lists those files. To skip this check, pass `--allow-dirty`; you also need it when the project is not in a git repository.
+
+Next, save any unsaved changes in Godot and other editors, and close the scripts you are migrating in Godot's script editor. Otherwise the tool again writes nothing and lists the files that are in the way. Godot itself can stay open; it reloads the project after the migration.
+
+### Step 2: Dry run
+
+With `--dry-run`, the tool prints its report and writes no files:
+
+```sh
+addons/petrichor/pet migrate --dry-run
+```
+
+Here is the report for Kenney's FPS starter kit, cut where `...` appears:
 
 ```text
 objects/enemy.gd → objects/enemy.pet
 objects/player.gd → objects/player.pet
+...
 8 × Write the type
 2 slot(s) received both int and float, which a use tells apart.
 objects/enemy.pet:30:13: hint: "amount" is left without a type, as no type fits all the values it receives: int (res://objects/enemy.pet:68), float (res://objects/player.pet:205).
+...
 5 × Make it pub
 5 × Write .unwrap()
+...
 objects/enemy.pet:30:17: error: Parameter "amount" needs a type.
+...
 petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 fix(es), 9 path(s) renamed, 7 error(s), dry run
 ```
 
-- `→` lines show where each file goes. A file pulled in by the paths you passed carries `added:` and the reason; a file that stays in GDScript has a `left out:` line instead.
-- `N ×` lines count the types the tool wrote and each kind of fix it applied.
-- `hint:` lines are worth reading. They mark types the tool withdrew or inferred from partial evidence, with the values that reached them, and code kept as GDScript runs it, such as calls by name. They also list each downcast left as `x as T`: for an object of another class it gives `None`, where GDScript stops with an error.
-- `error:` lines are the compile errors left in the migrated files, in the same format as `pet check`. The last line totals the report.
+The report has five kinds of lines, followed by a last line of totals:
 
-Here `damage(amount)` receives an `int` from the enemy and a `float` from the player, and subtracting it from an `int` health tells the two apart. The report counts such places on a line of their own. The tool does not write `float` for them, so the type of `amount` is left to you.
+| Line | Meaning |
+|---|---|
+| `a.gd → a.pet` | The file will be migrated. A line ending in `added:` is a file you did not name that has to migrate too, with the reason |
+| `a.gd: left out: …` | The file stays in GDScript, for the reason given |
+| `N × …` | One kind of change the tool made and how many times, such as writing a type or adding `pub` |
+| `hint:` | A place for you to review |
+| `error:` | A compile error left after the migration, in the format of `pet check` |
 
-Errors left in the code do not fail the command: `migrate` exits with `1` only when it refuses or fails and writes nothing. A dry run exits with `1` only when a path you pass has no file to convert.
+Read every `hint:` line. There are four kinds:
+
+- a variable or parameter that got no type, with the type and location of each value it receives;
+- a type inferred from incomplete evidence, for example only from calls by name;
+- a member still accessed dynamically by name. GDScript works this way, so the tool keeps the code as it is, and the compiler cannot check it;
+- a conversion written as `x as T`. It gives `None` when `x` is not a `T`, where a debug build of GDScript stops with an error.
+
+Take `amount` in the report above. `damage(amount)` receives an `int` from the enemy and a `float` from the player. Subtracting it from an integer health gives different results for the two types, so the tool cannot choose for you. It writes no type, and leaves a `hint:` with the reason and an `error:` for you to settle. The line `2 slot(s) received both int and float` counts places like this one.
+
+### Step 3: Migrate
+
+If the report holds no surprises, run the command again without `--dry-run`. The tool writes all the files or none of them.
+
+```sh
+addons/petrichor/pet migrate                       # migrate the whole project
+addons/petrichor/pet migrate objects/enemy.gd ui   # migrate only these files and folders
+```
+
+Paths are relative to the project root. When you migrate part of a project, some other files have to migrate with it; see "Migrating part of a project" below.
+
+The tool updates the script paths written in scripts, text scenes (`.tscn`), text resources (`.tres`) and `project.godot`. It does not change three kinds of paths:
+
+- paths in binary scenes and resources (`.scn`, `.res`). These still find the scripts by uid, and the report lists each with a `warning:`;
+- paths in C# code;
+- paths built at run time, such as `"res://levels/" + name + ".gd"`.
+
+Compile errors left in the code are not a failure: the exit code is `0` whenever files were written. When the tool refuses to run or a write fails, it writes nothing and exits with `1`. A dry run exits with `0`. Both exit with `1` when a path you pass contains nothing to migrate.
+
+### Step 4: Fix the compile errors
+
+Wherever a change needs your judgment, the tool leaves a compile error. Open the project in Godot, or run `pet check`, to work through them.
+
+In Godot's script editor, click the light bulb beside an error line, press Alt+Enter, or choose **Quick Fix...** from the context menu to list the fixes for that place. When a script has two or more errors with the same automatic fix, **Fix all '…' in file** applies them at once. VS Code offers the same fixes as code actions.
+
+The tool writes three things around null that are worth reviewing afterward:
+
+- **`.unwrap()`**: the original code used this value without checking it for null. If the value is null, the program fails at the `.unwrap()`, which may be earlier than where GDScript fails. Where null is a real possibility, replace it with a check.
+- **`T?`**: the value can be null, for example an export that no scene sets, a member with no initial value, or a variable that is assigned `null`.
+- **`@late T`**: when a member is assigned only after creation and every read would need `.unwrap()`, the tool uses `@late` instead, and the reads need no `.unwrap()`. Reading the member before it is assigned still fails at the read.
+
+The tool does not reformat files; run `pet format` when you are done.
 
 ### What stays in GDScript
 
-Some files stay in GDScript even when the whole project migrates. Each has a `left out:` line:
+Even when you migrate the whole project, these files stay in GDScript, each with a `left out:` line in the report:
 
-- scripts with `@tool` and their inheritance trees, until `@tool` arrives in 0.4;
-- plugins under `addons/`, one line per plugin; a plugin migrates only when a path you pass lies inside it;
-- script templates, from which the editor creates new scripts, in the folder that the `editor/script/templates_search_path` project setting names (`res://script_templates` by default);
-- files that any of these uses at class level, for example by calling a static method or using an enum as a type, which GDScript cannot do with a Petrichor class.
+- a script with `@tool`, together with its whole inheritance tree. Support for `@tool` arrives in 0.4;
+- plugins under `addons/`, one line per plugin. To migrate a plugin, pass a path inside its folder;
+- script templates, the files the editor creates new scripts from. They live in the folder named by the `editor/script/templates_search_path` project setting, `res://script_templates` by default;
+- a script that has a `.pet` file of the same name in its folder;
+- a script that any of the files above uses directly through its class name.
 
-Migrating part of a project also takes the files that have to move with it. These are the whole inheritance tree, since neither language can extend the other's classes, and the GDScript files that use it at class level. Migrating only `boss.gd` reports its base class as `enemy.gd → enemy.pet, added: in the inheritance tree of res://boss.gd`. The tool reads the remaining GDScript files but changes only their paths to renamed files.
+The last rule comes from GDScript's side. GDScript can create instances of a Petrichor class and call their methods. It cannot call the class's static methods or read its enum values through the class name. Nor can it use the class's enums, constants or inner classes as types. So when a GDScript file that uses a class in these ways stays, the class has to stay too.
 
-### Finishing by hand
+### Migrating part of a project
 
-Wherever a change needs your judgment, the tool leaves a compile error. Open the project in Godot, or run `pet check`, to work through them. In Godot's script editor, click the light bulb beside an error line, press Alt+Enter, or choose **Quick Fix...** from the context menu to list its fixes. When a script has two or more errors with the same automatic fix, **Fix all '…' in file** applies them at once. VS Code offers the same fixes as code actions.
+Pass files or folders to `pet migrate` to migrate only those. The tool adds the files that have to migrate with them and marks each with `added:` in the report:
 
-Review what the tool wrote around null:
+- scripts in the same inheritance tree, because neither language can extend the other's classes;
+- GDScript files that use these classes directly through their class names, for the reason given in the previous section.
 
-- `.unwrap()` marks a value the original used without checking for null. It fails where GDScript would fail, so replace it with a check wherever null is expected.
-- `T?` marks a value that can be null, such as an export that no scene sets, a member with no initial value, or a variable that receives `null`.
-- `@late T` replaces `T?` on a member assigned after creation when every read already had `.unwrap()`, and those calls go away. Reading the member before it is assigned still fails at the same place.
-
-The tool does not format the files; run `pet format` when you are done.
+For example, migrating only `boss.gd` also migrates its base class, reported as `enemy.gd → enemy.pet, added: in the inheritance tree of res://boss.gd`. The tool reads the remaining GDScript files without changing them, except to update their paths to the renamed scripts.
 
 ### Converting back
 
-Converting back is for the Petrichor code written after migrating, for example when a team leaves after a trial. To undo a migration you just ran, restore the files with git instead. `--reverse` checks git in the same way, so commit the migration and your later work first.
+`pet migrate --reverse` converts `.pet` files back to `.gd`. It works like a migration: commit to git first, do a dry run if you like, and pass paths to convert only part of the project.
 
-The tool removes what GDScript has no syntax for, such as `pub`, `async`, `@late`, `.unwrap()` and the `?` of object types, and writes each type as far as GDScript can express it. A file stays a `.pet` file, together with its inheritance tree, when it has compile errors or uses a feature GDScript lacks, such as `struct`, payload enums, interfaces or `Result`. The report gives the file a `left out:` line and lists each place that keeps it, such as `hint: GDScript has no struct.`
+Converting back is meant for Petrichor code written after a migration, for example when a team leaves after a trial. If you only want to undo a migration you just ran, restoring with git is simpler.
 
-Converting back part of a project also converts the inheritance trees of the files you pass and the `.pet` trees they use at class level. The tool then checks the `.pet` files that stay against the converted classes as GDScript sees them, and lists the errors this causes. For example, a converted class's object members now read as `T?`. These errors do not stop the write. GDScript files that call the converted code are left to Godot, which reports any errors when it loads them.
+The tool removes what GDScript has no syntax for, such as `pub`, `async`, `@late`, `.unwrap()` and the `?` after object types. It writes each type only as far as GDScript can express it.
 
-Before writing, the tool parses each converted file back and compares it with the `.pet` file. If they differ, it writes nothing and asks you to report the output in [Issues](https://github.com/YYF233333/Petrichor/issues).
+Two kinds of files cannot be converted, and they stay `.pet` files together with their whole inheritance trees:
+
+- a file with compile errors;
+- a file that uses a feature GDScript lacks, such as `struct`, payload enums, interfaces or `Result`.
+
+The report gives such a file a `left out:` line and lists each place with a `hint:`, such as `hint: GDScript has no struct.` When no file can be converted, the command exits with `1`.
+
+When you convert back part of a project, the tool again adds the files that have to go along. These are the inheritance trees of the files you pass, and the trees of the `.pet` classes that those files use directly through their class names. The `.pet` files that stay now face GDScript classes, so the tool checks them again and lists the errors this causes. For example, an object member of a converted class now reads as `T?`. These errors do not stop the write; they are left for you to fix. GDScript files that call the converted code are not checked, and Godot reports any problems when it loads them.
+
+Before writing, the tool parses each converted file again and compares it with the original `.pet` file. A difference means a defect in the converter. In that case it writes nothing and asks you to report the output in [Issues](https://github.com/YYF233333/Petrichor/issues).
 
 ## Building from Source
 

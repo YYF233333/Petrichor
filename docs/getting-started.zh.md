@@ -51,12 +51,13 @@ xattr -dr com.apple.quarantine addons/petrichor
 
 ## 命令行工具 pet
 
-在项目根目录运行 `pet`，可以对整个项目做检查、构建、格式化或启动 LSP 桥接：
+在项目根目录运行 `pet`，可以对整个项目做检查、构建、格式化和迁移，也可以启动 LSP 桥接：
 
 ```sh
 addons/petrichor/pet check            # 检查磁盘上的文件，不写出字节码
 addons/petrichor/pet build            # 检查并写出字节码
 addons/petrichor/pet format --check   # 列出未格式化的脚本；不带 --check 则直接就地格式化
+addons/petrichor/pet migrate          # 把 GDScript 脚本转成 Petrichor，见下文“从 GDScript 迁移”
 addons/petrichor/pet lsp              # 经 stdio 桥接 Neovim、Helix 等 LSP 客户端
 ```
 
@@ -71,78 +72,144 @@ addons/petrichor/pet format --check --godot <godot>
 
 ## 从 GDScript 迁移
 
-`pet migrate` 把 GDScript 文件转为 Petrichor，`pet migrate --reverse` 把 `.pet` 文件转回 GDScript。命令后可跟从项目根算起的文件或目录，只转换这些；不给路径则转换整个项目。
-
-### 迁移之前
-
-先把项目提交到 git。工具只写 git 能还原的文件，所以要写的文件有未提交或已暂存的改动、未被跟踪或被忽略时，它都拒绝运行；项目不在 git 仓库中时也一样。要写的文件包括改名的脚本及其 `.uid`，以及需要改写路径的场景、资源、脚本和 `project.godot`。报告会逐个列出被拒的文件和原因，预演也是如此，加上 `--allow-dirty` 可跳过这项检查。
-
-此外，先在 Godot 和其他编辑器中保存改动，并在 Godot 脚本编辑器中关闭要迁移的脚本。否则工具什么都不写，并列出卡住的文件。
-
-### 预演与迁移
+`pet migrate` 把项目里的 GDScript 脚本转成 Petrichor。它把 `.gd` 改名为 `.pet`，写下能从代码和场景推断出的类型，并改好指向这些脚本的路径。拿不准的地方它不猜，而是留作编译错误，由你用编辑器的快速修复逐个处理。试用后想退出，`pet migrate --reverse` 可以把代码转回 GDScript。
 
 ```sh
-addons/petrichor/pet migrate --dry-run   # 只输出报告，不写文件
-addons/petrichor/pet migrate             # 执行迁移并输出报告
+addons/petrichor/pet migrate [--reverse] [--dry-run] [--allow-dirty] [<路径>...]
 ```
 
-工具把每个 `.gd` 连同其 `.uid` 改名为 `.pet`，并改写所有指向它们的路径。所有文件要么一起写入，要么都不写。迁移时 Godot 可以开着，写入后它会重新读取项目。
+迁移分四步：
 
-下面节选自 Kenney FPS 起步工程的预演报告：
+1. 把项目提交到 git，保存并关闭要迁移的脚本。
+2. 预演一遍，读报告。
+3. 正式迁移。
+4. 处理留下的编译错误。
+
+### 第一步：准备
+
+迁移会给脚本改名，还会改写场景、资源和 `project.godot` 里的路径。所以先把项目提交到 git，结果不满意时可以整体还原。
+
+迁移要改动的文件里，只要有一个带着未提交的修改，或者没有被 git 跟踪，工具就拒绝运行并列出这些文件。确实不想提交，或者项目不在 git 仓库里，可以加 `--allow-dirty` 跳过这项检查。
+
+然后把 Godot 和其他编辑器里没保存的修改存盘，并在 Godot 的脚本编辑器里关掉要迁移的脚本。否则工具同样什么都不写，只列出是哪些文件挡住了它。Godot 本身不用关，迁移后它会重新读取项目。
+
+### 第二步：预演
+
+加上 `--dry-run`，工具只输出报告，不写任何文件：
+
+```sh
+addons/petrichor/pet migrate --dry-run
+```
+
+下面是 Kenney FPS 起步工程的预演报告，`...` 处有删节：
 
 ```text
 objects/enemy.gd → objects/enemy.pet
 objects/player.gd → objects/player.pet
+...
 8 × Write the type
 2 slot(s) received both int and float, which a use tells apart.
 objects/enemy.pet:30:13: hint: "amount" is left without a type, as no type fits all the values it receives: int (res://objects/enemy.pet:68), float (res://objects/player.pet:205).
+...
 5 × Make it pub
 5 × Write .unwrap()
+...
 objects/enemy.pet:30:17: error: Parameter "amount" needs a type.
+...
 petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 fix(es), 9 path(s) renamed, 7 error(s), dry run
 ```
 
-- 带 `→` 的行是文件的去向。因所给路径连带加入的文件，后面注明 `added:` 和原因；留在 GDScript 的文件则改为一行 `left out:`。
-- `N ×` 开头的行统计写下的类型数和每种修复的应用次数。
-- `hint:` 行值得逐条过目，包括撤回的或依据不全的类型（附流入的值），以及照 GDScript 原样保留的写法（如按名调用）。留作 `x as T` 的向下转换也逐处列出：遇到别的类的对象时它得 `None`，GDScript 则报错。
-- `error:` 行是迁移后留下的编译错误，写法与 `pet check` 相同。末行汇总全部计数。
+报告里有五种行，最后一行是各项的总数：
 
-例中 `damage(amount)` 从敌人处收到 `int`，从玩家处收到 `float`，而从 `int` 类型的生命值中减去它时两者结果不同。报告单列一行统计这类位置，工具不为它们写 `float`，`amount` 的类型就留给你决定。
+| 行 | 含义 |
+|---|---|
+| `a.gd → a.pet` | 这个文件将被迁移。行尾带 `added:` 的是你没有点名、但必须一起迁移的文件，后面写着原因 |
+| `a.gd: left out: …` | 这个文件留在 GDScript，冒号后是原因 |
+| `N × …` | 工具自动做的一种修改和它的次数，如写下类型、补上 `pub` |
+| `hint:` | 请你过目的地方 |
+| `error:` | 迁移后留下的编译错误，格式与 `pet check` 相同 |
 
-留下的编译错误不算命令失败：只有因拒绝或失败而什么都没写时，`migrate` 才以 `1` 退出。预演只在所给路径下没有要转换的文件时以 `1` 退出。
+`hint:` 值得逐条看，它有四种：
+
+- 没能写出类型的变量或参数，后面列出它收到的每个值的类型和位置；
+- 依据不完整的类型，例如只凭按名字的调用推断出来的；
+- 仍按名字动态访问的成员。GDScript 原本如此，工具照原样保留，编译器检查不到它们；
+- 写成 `x as T` 的转换。`x` 不是 `T` 时结果是 `None`，而 GDScript 的 debug 构建会在这里报错。
+
+以报告中的 `amount` 为例。`damage(amount)` 从敌人那里收到 `int`，从玩家那里收到 `float`。从整数生命值里减去它时，两种类型的结果不同，工具无法替你选。于是它不写类型，留下一条说明原因的 `hint:` 和一条 `error:`，等你来定。`2 slot(s) received both int and float` 一行数的就是这种位置。
+
+### 第三步：迁移
+
+报告没有意外，就去掉 `--dry-run` 再运行一次。所有文件要么全部写入，要么一个都不写。
+
+```sh
+addons/petrichor/pet migrate                       # 迁移整个项目
+addons/petrichor/pet migrate objects/enemy.gd ui   # 只迁移这些文件和目录
+```
+
+路径从项目根目录算起。只迁移一部分时，有些文件必须跟着一起迁移，见下文“只迁移一部分”。
+
+脚本、文本场景（`.tscn`）、文本资源（`.tres`）和 `project.godot` 中写明的脚本路径，工具会一并改好。有三种路径它不改：
+
+- 二进制场景和资源（`.scn`、`.res`）里的路径。它们靠 uid 仍能找到脚本，报告用一条 `warning:` 列出；
+- C# 代码里的路径；
+- 运行时拼出来的路径，如 `"res://levels/" + name + ".gd"`。
+
+留下编译错误不算失败：只要写入了文件，退出码就是 `0`。被拒绝或写入失败时什么都不写，退出码是 `1`。预演的退出码是 `0`。所给路径下找不到可迁移的文件时，预演和迁移都以 `1` 退出。
+
+### 第四步：处理编译错误
+
+凡是需要你判断的地方，工具都留作编译错误。在 Godot 中打开项目，或运行 `pet check`，就能逐个处理。
+
+在 Godot 的脚本编辑器里，点错误行旁的灯泡、按 Alt+Enter，或在右键菜单里选 **Quick Fix...**，都能列出这一处可用的修复。一个脚本里有两处以上错误能用同一种自动修复时，**Fix all '…' in file** 会一次全部应用。VS Code 里，同样的修复出现在代码操作中。
+
+工具围绕 null 写下了三种写法，迁移后值得看一遍：
+
+- **`.unwrap()`**：原代码没有判空就用了这个值。值真是 null 时，程序在 `.unwrap()` 这里报错，位置可能比 GDScript 早。确实可能为 null 的地方，请改成判空。
+- **`T?`**：这个值可能为 null，例如没有场景给它赋值的导出、没有初始值的成员，或被赋过 `null` 的变量。
+- **`@late T`**：成员在创建之后才赋值，而每处读取都要补 `.unwrap()` 时，工具改用 `@late`，读取处就不必再写 `.unwrap()`。赋值之前读它，仍在读取处报错。
+
+工具不调整格式，收尾后可以运行 `pet format`。
 
 ### 留在 GDScript 的文件
 
-即使迁移整个项目，以下文件也会留在 GDScript，报告中各有一行 `left out:`：
+即使迁移整个项目，下面几种文件也留在 GDScript，报告里各有一行 `left out:`：
 
-- 含 `@tool` 的脚本及其继承树，等 0.4 支持 `@tool` 后再迁移；
-- `addons/` 下的插件，每个插件列一行。只有所给路径落在插件内时，该插件才迁移；
-- 脚本模板，即项目设置 `editor/script/templates_search_path` 所指目录（默认 `res://script_templates`）下供编辑器新建脚本用的文件；
-- 被以上文件做类级访问的文件，如被调用静态方法、被当作类型使用其 enum。GDScript 无法这样访问 Petrichor 类。
+- 带 `@tool` 的脚本和它的整棵继承树。`@tool` 要到 0.4 才支持；
+- `addons/` 下的插件，每个插件一行。想迁移某个插件，把它目录里的路径传给命令；
+- 脚本模板，也就是编辑器新建脚本时用的文件。它们在项目设置 `editor/script/templates_search_path` 所指的目录里，默认是 `res://script_templates`；
+- 同一目录下已有同名 `.pet` 的脚本；
+- 被以上文件通过类名直接使用的脚本。
 
-只迁移部分文件时，工具会连带加入必须一起迁移的文件：整棵继承树（两种语言的类不能互相继承），以及对它做类级访问的 GDScript 文件。例如只迁移 `boss.gd` 时，其基类报告为 `enemy.gd → enemy.pet, added: in the inheritance tree of res://boss.gd`。其余 GDScript 文件只读取，除了改写指向已改名文件的路径外不做改动。
+最后一条的原因在 GDScript 一侧。GDScript 可以创建 Petrichor 类的实例并调用实例的方法，但不能通过类名调用它的静态方法或读它的 enum 值。它也不能把 Petrichor 类的 enum、常量或内部类用作类型。所以这样使用某个类的 GDScript 文件留下时，这个类也得留下。
 
-### 人工收尾
+### 只迁移一部分
 
-凡是需要判断的地方，工具都留作编译错误，在 Godot 中打开项目或运行 `pet check` 即可逐个处理。在 Godot 脚本编辑器中，点击错误行旁的灯泡、按 Alt+Enter，或从右键菜单选 **Quick Fix...**，就能列出可用的修复。同一脚本中有两处以上错误可用同一种自动修复时，**Fix all '…' in file** 会一次全部应用。VS Code 以代码操作提供同样的修复。
+把文件或目录传给 `pet migrate`，就只迁移它们。必须一起迁移的文件，工具会自动加入，并在报告里用 `added:` 标出：
 
-工具围绕 null 写下的几种写法值得过目：
+- 同一棵继承树上的脚本，因为两种语言的类不能互相继承；
+- 通过类名直接使用这些类的 GDScript 文件，原因见上一节。
 
-- `.unwrap()` 标出原文未判空就使用的值。它与 GDScript 在同一处出错；确实可能为 null 的地方，请改成判空。
-- `T?` 标出可能为 null 的值，如没有场景赋值的导出、没有初始值的成员，或被赋予 `null` 的变量。
-- 成员在创建后才赋值、且每处读取都已补上 `.unwrap()` 时，工具把 `T?` 改写为 `@late T` 并去掉这些 `.unwrap()`。赋值前读取它照样在同一处出错。
-
-工具不做格式化，收尾后可运行 `pet format`。
+例如只迁移 `boss.gd` 时，它的基类也会迁移，报告里是 `enemy.gd → enemy.pet, added: in the inheritance tree of res://boss.gd`。其余的 GDScript 文件，工具只读不改，唯一的例外是把其中指向已改名脚本的路径改过来。
 
 ### 转回 GDScript
 
-转回针对的是迁移之后用 Petrichor 写的代码，例如团队试用后决定退出。刚迁移完就想撤销的，直接用 git 还原。`--reverse` 同样检查 git，所以先提交迁移结果和之后的改动。
+`pet migrate --reverse` 把 `.pet` 转回 `.gd`。它的用法与迁移相同：同样先提交到 git，同样可以预演，也可以只给一部分路径。
 
-转回时，工具去掉 GDScript 没有的写法，如 `pub`、`async`、`@late`、`.unwrap()` 和对象类型的 `?`，类型则按 GDScript 能表达的程度写出。文件有编译错误，或用到 GDScript 没有的特性（如 `struct`、带载荷的 enum、接口或 `Result`）时，连同整棵继承树保持为 `.pet`。报告给它一行 `left out:`，并列出每一处，如 `hint: GDScript has no struct.`。
+转回是为迁移之后新写的 Petrichor 代码准备的，比如团队试用一段时间后决定退出。如果只是想撤销刚做的迁移，用 git 还原更直接。
 
-只转回部分文件时，工具会连带转换所给文件的继承树，以及它们做类级访问的 `.pet` 继承树。随后它把转回的类当作 GDScript 类，检查留下的 `.pet` 文件，并列出由此新出现的错误。例如转回类的对象成员此后读作 `T?`。这些错误不妨碍写入。调用转回代码的 GDScript 文件不在检查之列，由 Godot 加载时报告。
+转回时，工具去掉 GDScript 没有的写法，如 `pub`、`async`、`@late`、`.unwrap()` 和对象类型后的 `?`。类型只写到 GDScript 能表达的程度。
 
-写入之前，工具会把每个转回的文件重新解析，与原 `.pet` 比对。两者不一致时什么都不写，并请你把输出提交到 [Issues](https://github.com/YYF233333/Petrichor/issues)。
+有两种文件转不回去，它们连同整棵继承树保持为 `.pet`：
+
+- 有编译错误的文件；
+- 用了 GDScript 没有的特性的文件，如 `struct`、带载荷的 enum、接口和 `Result`。
+
+报告给这样的文件一行 `left out:`，并用 `hint:` 列出每一处，例如 `hint: GDScript has no struct.`。一个文件都转不回时，命令以 `1` 退出。
+
+只转回一部分时，工具同样会加入必须一起转回的文件：所给文件的继承树，以及这些文件通过类名直接使用的 `.pet` 类的继承树。留下的 `.pet` 文件从此面对的是 GDScript 类，工具会重新检查它们，列出因此新出现的错误。例如转回的类的对象成员，此后读出来是 `T?`。这些错误不妨碍写入，留给你处理。调用转回代码的 GDScript 文件不在检查之列，有问题时由 Godot 在加载时报告。
+
+写入之前，工具把每个转回的文件重新解析一遍，与原来的 `.pet` 比对。两者不一致说明转换器有缺陷。这时它什么都不写，并请你把输出提交到 [Issues](https://github.com/YYF233333/Petrichor/issues)。
 
 ## 从源码构建
 
