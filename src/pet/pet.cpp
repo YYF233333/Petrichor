@@ -69,7 +69,7 @@ const char *const USAGE =
 		"The command runs in the Godot editor open on the project, else in a\n"
 		"headless one. --godot names its executable where no editor has\n"
 		"recorded one. Exit codes: 0 no errors, 1 errors, 2 not run; migrate\n"
-		"gives 1 only when it wrote nothing.\n";
+		"gives 1 only when it refuses or fails, and a dry run as the run would.\n";
 
 // Platform layer: text and files, processes, sockets.
 

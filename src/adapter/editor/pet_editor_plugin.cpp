@@ -1818,8 +1818,7 @@ std::pair<std::string, int> PetEditorPlugin::migrate_back(const std::vector<std:
 	const auto summary = [&](int p_named) {
 		return "petrichor migrate --reverse: " + std::to_string(renamed.size()) + " script(s), " + std::to_string(reversal.added.size()) + " added, " + std::to_string(reversal.left_out.size()) + " left out, " + std::to_string(p_named) + " path(s) renamed, " + std::to_string(reversal.defects.size()) + " defect(s), " + std::to_string(reversal.caused.size()) + " error(s)";
 	};
-	const bool kept = renamed.empty() && !reversal.left_out.empty();
-	return write_migrated(renamed, texts, output, summary, p_dry_run, p_allow_dirty, kept || !reversal.defects.empty());
+	return write_migrated(renamed, texts, output, summary, p_dry_run, p_allow_dirty, !reversal.defects.empty());
 }
 
 // Renames the files of `p_renamed` with their .uid files, writes their texts
@@ -1828,11 +1827,12 @@ std::pair<std::string, int> PetEditorPlugin::migrate_back(const std::vector<std:
 // client holds unsaved, nor a file renamed that Godot's script editor has
 // open, nor when a file it reads cannot be read, nor, unless
 // `p_allow_dirty`, a file git could not give back (architecture §6.6). With
-// `p_dry_run` or `p_failed` it writes nothing. Godot reads the project
-// again, and project.godot's settings in memory take the paths it was
-// written with (core/config/project_settings.cpp:359-369; ed1daf0). It exits
-// with 1 when nothing was written for that or a failure, and when a failure
-// left a file that did not get back what it had, which it names.
+// `p_dry_run` or `p_failed`, a defect of the converter, it writes nothing.
+// Godot reads the project again, and project.godot's settings in memory take
+// the paths it was written with (core/config/project_settings.cpp:359-369;
+// ed1daf0). It exits with 1 when nothing was written for that or a failure,
+// and when a failure left a file that did not get back what it had, which it
+// names; a dry run as the run would, but for a failed write.
 std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::string, std::string> &p_renamed, const std::map<std::string, std::string> &p_texts, std::string p_output, const std::function<std::string(int)> &p_summary, bool p_dry_run, bool p_allow_dirty, bool p_failed) {
 	const std::map<std::string, std::string> &renamed = p_renamed;
 	std::string output = std::move(p_output);
@@ -1905,7 +1905,7 @@ std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::
 	}
 	output += p_summary(named);
 	if (p_dry_run) {
-		return { output + ", dry run", 0 };
+		return { output + ", dry run", refused > 0 || p_failed ? 1 : 0 };
 	}
 	const std::vector<std::string> failed = refused > 0 || p_failed ? std::vector<std::string>() : write_all(bytes);
 	std::string why;

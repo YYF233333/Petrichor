@@ -1204,8 +1204,8 @@ def run_pet_group(godot):
 
 def check_migrate(godot):
     """pet migrate (architecture §6.6) on a copy of tests/engine/migrate: a dry
-    run of one file names what it takes and what git could not give back, and
-    writes nothing; through a service,
+    run of one file names what it takes and what git could not give back,
+    writes nothing and exits as the run would; through a service,
     it writes nothing while an LSP client has unsaved changes to a file it
     rewrites, and once it has none, after Godot's scan of the files, it
     renames the files with their .uid
@@ -1245,7 +1245,7 @@ def check_migrate(godot):
         refused = "level.tscn: error: It has changes that are not committed, so git could not give it back once it is written. Pass --allow-dirty to write all the same."
         code, out, err = pet("migrate", "--dry-run", "boss.gd", "--godot", godot)
         named = ["boss.gd → boss.pet", "enemy.gd → enemy.pet, added: in the inheritance tree of res://boss.gd"]
-        expect("pet migrate: a dry run names the files it takes and those git could not give back, and writes nothing", code == 0 and out.splitlines()[:2] == named and refused in out.splitlines() and out.rstrip().endswith(", dry run") and files() == dirty, out + err)
+        expect("pet migrate: a dry run names the files it takes and those git could not give back, writes nothing and exits as the run would", code == 1 and out.splitlines()[:2] == named and refused in out.splitlines() and out.rstrip().endswith(", dry run") and files() == dirty, out + err)
         code, out, err = pet("migrate", "--godot", godot)
         expect("pet migrate: nothing is written over a file that git could not give back", code == 1 and refused in out.splitlines() and out.rstrip().endswith("; nothing was written"), out + err)
         (project / "level.tscn").write_bytes(before["level.tscn"])
