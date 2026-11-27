@@ -66,6 +66,9 @@ GAME_OUTPUT = [
 ]
 
 GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "pet", "fps", "ring", "deck", "reverse", "dotnet"]
+# The forward migration of each game's copy: the scripts it takes, the files
+# it leaves out, and at most the errors it leaves (architecture §3).
+MIGRATION_BUDGET = {"fps": (8, 0, 8), "ring": (55, 94, 87), "deck": (117, 6, 87)}
 LSP = HERE / "lsp"
 DOTNET = HERE / "dotnet"
 DOTNET_ASSEMBLY = Path(".godot", "mono", "temp", "bin", "Debug", "DotnetCheck.dll")
@@ -678,7 +681,10 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
     freeing, so the migrated run may only repeat those, and keep no resource
     at exit, other than sounds, that the original does not. With
     `check_format`, the format check first fails on the scripts as the
-    migration left them. Converted back to GDScript, the game runs so again."""
+    migration left them. Converted back to GDScript, the game runs so again.
+    The migrated scripts were finished by hand, so the tool's own output is
+    held to MIGRATION_BUDGET: a dry run on the original, which writes
+    nothing."""
     # A headless frame sleeps, as nothing is drawn (core/os/os.cpp:721-723),
     # unless the frame rate is fixed (main/main.cpp:5170-5172); fixed, each
     # frame advances the game by 1/60 s, however fast it runs.
@@ -711,6 +717,20 @@ def run_migration_group(godot, name, prepare, migrated_scripts, check_format, *s
             return
         known_errors = set(errors_in(output))
         known_in_use = resources_in_use(output)
+
+        # Not bin/, where a Windows editor copies the library as it loads it.
+        def files():
+            return {path.relative_to(original).as_posix(): path.read_bytes() for path in original.rglob("*") if path.is_file() and path.relative_to(original).parts[0] not in (".godot", "bin")}
+
+        before = files()
+        code, output = run(godot, "-e", "--path", str(original), "--", "--petrichor-migrate", "--dry-run", "--allow-dirty")
+        after = files()
+        written = sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+        found = re.search(r"^petrichor migrate: (\d+) script\(s\), \d+ added, (\d+) left out, .* (\d+) error\(s\), dry run", output, flags=re.M)
+        taken, left, errors = map(int, found.groups()) if found else (None, None, None)
+        budget = MIGRATION_BUDGET[name]
+        ok = (taken, left) == budget[:2] and errors <= budget[2] and not written
+        expect(f"{name} forward dry run: {taken} script(s), {left} left out, {errors} error(s) (budget {budget[0]}, {budget[1]}, at most {budget[2]}); nothing written", ok, f"written: {written}\n{output}")
 
         # The original as imported, so that no asset is imported again, which
         # a fresh copy would do even with .godot/imported (its .import files

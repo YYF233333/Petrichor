@@ -482,6 +482,7 @@ thirdparty/deck_builder_tutorial/  git 子模块：corpus v1 所用提交的 dec
 - **真实代码**：让[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)所用的 FPS 项目和 Ring，以及 deck_builder_tutorial 真正跑起来。
   - 三者的脚本都是迁移工具的输出再经人工收尾，只用反向转换能转回的写法（规范 §13.4）。
   - 迁移测试复制原项目并换入迁移后的脚本，未迁移部分保持 GDScript。迁移后的运行只能报告原项目也报告的错误，退出时也只能占用原项目占用的资源。
+  - 换入的脚本经人工收尾，所以测试还在原项目上预演一次整项目的正向迁移，它不得写入文件。转换的脚本数和留下的文件数须等于 `run.py` 中的预算，遗留错误不得多于预算。
   - deck_builder_tutorial 的检查脚本从主菜单开局，经地图打完一场战斗，再领取奖励。随机数固定，每次跑同一局。
   - Ring 的 `main.gd` 属于视觉小说，要用测试不复制的 C# 运行时，所以保持 GDScript。Ring 测试不需要 .NET：`tests/engine/ring/ring_check.tscn` 代替 `Root.cs`，发出 Ring 的 `main.md` 构造的消息。C# 的 `Call()` 与 GDScript 动态调用一样，都经引擎按名字派发。
 
