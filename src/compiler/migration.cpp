@@ -1429,8 +1429,10 @@ static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_p
 	// others, each part in at most `p_rounds` rounds. The members and
 	// constants that a round found read elsewhere without their types are
 	// slots from the next one.
+	r_result.types_settled = true;
 	for (const bool unknown : { false, true }) {
-		for (int round = 0; round < p_rounds; round++) {
+		int round = 0;
+		for (; round < p_rounds; round++) {
 			const bool grew = widen();
 			std::map<Inflows::Key, Type> next = candidates(unknown);
 			if (next == inflows.tried && inflows.unknown.empty() && !grew) {
@@ -1439,6 +1441,7 @@ static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_p
 			inflows.tried = std::move(next);
 			results = checked_with(p_engine, r_project, inflows);
 		}
+		r_result.types_settled = r_result.types_settled && round < p_rounds;
 	}
 	const std::vector<std::vector<Received>> flowed = received(inflows);
 	const std::vector<Inflows::Slot> slots = inflows.slots;

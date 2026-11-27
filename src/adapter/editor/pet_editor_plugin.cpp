@@ -1746,7 +1746,8 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 		output += relative(file) + ": left out: " + why + "\n";
 	}
 	const SceneIndex taken(set.files);
-	const compiler::Migration migration = compiler::migrate(ClassDBApi::get(), taken, set.files, 10);
+	const int rounds = 10;
+	const compiler::Migration migration = compiler::migrate(ClassDBApi::get(), taken, set.files, rounds);
 	if (migration.quoted > 0) {
 		output += std::to_string(migration.quoted) + " × Write the string in triple quotes\n";
 	}
@@ -1755,6 +1756,9 @@ std::pair<std::string, int> PetEditorPlugin::migrate(const std::vector<std::stri
 	}
 	if (migration.numbers > 0) {
 		output += std::to_string(migration.numbers) + " slot(s) received both int and float, which a use tells apart.\n";
+	}
+	if (!migration.types_settled) {
+		output += "warning: The types inferred still change after " + std::to_string(rounds) + " rounds, so some may be written Variant.\n";
 	}
 	for (const compiler::Diagnostic &note : migration.notes) {
 		output += diagnostic_line(note) + "\n";

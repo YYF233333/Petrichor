@@ -243,9 +243,9 @@ public:
 // (architecture §6.6): the texts; how many strings were written in triple
 // quotes; how many slots were typed, how many left without a type, how many
 // have types that rest on incomplete evidence, and how many received int and
-// float, which a use tells apart; how many fixes of each kind were applied,
-// in how many rounds; and the errors left in the project, each naming its
-// file.
+// float, which a use tells apart; whether each stage of the inference
+// settled within its rounds; how many fixes of each kind were applied, in
+// how many rounds; and the errors left in the project, each naming its file.
 // The hints at the slots say why they have no type, with what they
 // received, or what calls by name gave their types and what Variant values
 // they leave out; others name each member that an Object is now reached by
@@ -258,6 +258,7 @@ struct Migration {
 	int withdrawn = 0;
 	int partial = 0;
 	int numbers = 0;
+	bool types_settled = false;
 	std::vector<Diagnostic> notes;
 	std::map<FixKind, int> fixes;
 	int rounds = 0;

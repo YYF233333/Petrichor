@@ -1069,6 +1069,13 @@ TEST_CASE("a local written Array for what awaiting a signal with several paramet
 	CHECK(migration.errors.empty());
 }
 
+TEST_CASE("the report marks an inference that its rounds end before it settles") {
+	FakeProject project;
+	project.add_script("res://chain.gd", "extends Node\n\n\nfunc a(x):\n\treturn b(x)\n\n\nfunc b(x):\n\treturn c(x)\n\n\nfunc c(x):\n\treturn x\n\n\nfunc _ready() -> void:\n\tprint(a(7))\n");
+	CHECK(!compiler::migrate(fake_engine(), project, { "res://chain.gd" }, 2).types_settled);
+	CHECK(compiler::migrate(fake_engine(), project, { "res://chain.gd" }, 10).types_settled);
+}
+
 TEST_CASE("the inference and the loop of fixes stop after their rounds") {
 	FakeProject project;
 	project.add_script("res://unit.gd", "extends Node\n\n\nfunc wait() -> void:\n\tawait ready\n\n\nfunc take(amount):\n\tprint(amount)\n\n\nfunc hit(body: Node) -> void:\n\tbody.take(1)\n");
