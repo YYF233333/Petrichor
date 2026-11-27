@@ -476,6 +476,7 @@ Petrichor 沿用 GDScript 的做法，允许把 autoload 名直接写在类型�
 
 - **跨语言继承与连带迁移**：跨语言继承的引擎限制见[暗坑清单](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md) C-17。在[第二次纸面迁移](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/paper-migration-2.md)中，Ring 的 `Brick` 和 `Enemy` 因此连带迁移了 5 个子类；全部 230 处修改中有 197 处属于机械改写。
 - **GDScript 访问静态方法与 enum**：GDScript 无法调用 Petrichor 的静态方法，也不能以其 enum 作类型。[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中，游戏仓库 514 个具名类里有 97 个受第一方访问影响（静态方法 77 个、作类型 29 个，其中 82 个在 `godot-tiny-mmo`）。v2 中游戏的 4,834 个具名类里有 448 个受影响，分布在 121 个游戏仓库中的 67 个（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。其中静态方法涉及 302 个（51 库），作类型涉及 186 个（55 库），另有 35 个未命名 preload 脚本受影响。根本解法在引擎上游，静态方法一项已有提案（godot-proposals#14614）；在此之前以及旧引擎版本上，迁移工具会把这些使用方列入连带迁移。
+- **按名构造不作类型证据**：GDScript 在值上调用 `new(...)` 时按名找 `_init`，迁移工具给可能被这样构造的 `_init` 都补上 `pub`（实现架构 §6.6）。这些调用的实参却不计为参数的流入。计入时，原本由已知类构造定型的参数会与它们合并成 `Variant`：tanks-of-freedom-ii 撤回的类型由此从 500 个增到 521 个（`scripts/services/online/connector.gd:11`）。
 - **多线程使用频率**：[语料计数](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)中 `Thread.new` 仅 5 处、`WorkerThreadPool` 2 处；v2 中两者合计 100 处，分布在 34 库（[v2 复跑](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/v2-rerun.md)）。
 - **续行缩进与测试框架**：真实代码里括号续行大多只缩进一层，而官方风格指南要求两层。由于 Petrichor 的类不能继承 `gdUnit4` 和 `GUT` 的 GDScript 基类，测试先留在 GDScript 中，通过 `pub` 成员驱动（v2 的 200 个仓库里有 23 个写了测试，全部使用这两者）。GDScript 本身没有内置测试运行器，Petrichor 的测试运行器同样留到第一版之后。
 
