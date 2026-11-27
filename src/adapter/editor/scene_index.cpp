@@ -1192,10 +1192,8 @@ bool file_unchanged(const std::string &p_path) {
 
 namespace {
 
-// What a resource holds as the editor writes it: its stored properties, a
-// sub-resource's own among them and another file's resource by its path
-// (core/variant/variant_parser.cpp:2175-2233; ed1daf0).
-String stored(const Ref<Resource> &p_resource) {
+// A resource's stored properties by name.
+Dictionary stored(const Ref<Resource> &p_resource) {
 	Dictionary values;
 	for (const Variant &each : p_resource->get_property_list()) {
 		const Dictionary property = each;
@@ -1203,7 +1201,34 @@ String stored(const Ref<Resource> &p_resource) {
 			values[property["name"]] = p_resource->get(property["name"]);
 		}
 	}
-	return UtilityFunctions::var_to_str(values);
+	return values;
+}
+
+// Whether the editor's next save writes the file `p_file`, as it does when a
+// resource of the file that `p_value` reaches, at its path or at one
+// `p_file::id`, is edited (editor/editor_node.cpp:2372-2390; ed1daf0).
+bool saves(const Variant &p_value, const String &p_file, std::set<const Object *> &r_seen) {
+	switch (p_value.get_type()) {
+		case Variant::ARRAY:
+			for (const Variant &each : Array(p_value)) {
+				if (saves(each, p_file, r_seen)) {
+					return true;
+				}
+			}
+			return false;
+		case Variant::DICTIONARY:
+			return saves(Dictionary(p_value).keys(), p_file, r_seen) || saves(Dictionary(p_value).values(), p_file, r_seen);
+		case Variant::OBJECT: {
+			const Ref<Resource> resource = p_value;
+			const String path = resource.is_valid() ? resource->get_path() : String();
+			if ((path != p_file && !path.begins_with(p_file + String("::"))) || !r_seen.insert(resource.ptr()).second) {
+				return false;
+			}
+			return EditorInterface::get_singleton()->is_object_edited(resource.ptr()) || saves(stored(resource), p_file, r_seen);
+		}
+		default:
+			return false;
+	}
 }
 
 } // namespace
@@ -1211,18 +1236,21 @@ String stored(const Ref<Resource> &p_resource) {
 // Godot holds other than what the file has. Its flag of an edit says only
 // that its next save writes the file: set() raises it, so reading the file
 // again does, and so does unfolding a section in the inspector
-// (core/object/object.cpp:233-237, 1800-1803, core/io/resource.cpp:234-275,
-// editor/editor_node.cpp:2372-2390; ed1daf0). A file that cannot be read
+// (core/object/object.cpp:233-237, 1800-1803, core/io/resource.cpp:234-275;
+// ed1daf0). The two compare as the editor writes them: the stored properties,
+// a sub-resource's own among them and another file's resource by its path
+// (core/variant/variant_parser.cpp:2175-2233). A file that cannot be read
 // differs.
 bool edited_resource(const std::string &p_path) {
 	const String path = to_godot(p_path);
 	const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(path);
-	if (loaded.is_null() || loaded->is_class("Script") || loaded->is_class("PackedScene") || !EditorInterface::get_singleton()->is_object_edited(loaded.ptr())) {
+	std::set<const Object *> seen;
+	if (loaded.is_null() || loaded->is_class("Script") || loaded->is_class("PackedScene") || !saves(loaded, path, seen)) {
 		return false;
 	}
 	const std::optional<FileStat> stat = file_stat(p_path);
 	const Ref<Resource> file = stat && stat->size > 0 ? ResourceLoader::get_singleton()->load(path, loaded->get_class(), ResourceLoader::CACHE_MODE_IGNORE) : Ref<Resource>();
-	return file.is_null() || stored(file) != stored(loaded);
+	return file.is_null() || UtilityFunctions::var_to_str(stored(file)) != UtilityFunctions::var_to_str(stored(loaded));
 }
 
 Held Held::of(const std::set<std::string> &p_files, const std::set<std::string> &p_own, bool p_clients) {

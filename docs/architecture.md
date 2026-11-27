@@ -754,9 +754,9 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 服务不持有未保存文本：跨文件重构直接把改动脚本写盘（先保存受影响的未保存改动，撤销同样写盘），只改一个已打开脚本时仍走其标签页编辑。VS Code 默认在多文件重构后保存文件（§2.4），Godot 移动文件时也直接改写依赖文件（`editor/docks/filesystem_dock.cpp:1676-1705`）。
 
 - **冲突判定与上报**：服务读回磁盘改动（§2.4）或察觉文件删除时，若 Godot 对该文件有未保存改动即记为冲突。
-  - Godot 未保存改动分三类：未保存脚本标签页、`get_unsaved_scenes()` 中的已打开场景，以及内容与文件不同的已加载外部资源（脚本和场景除外，随场景一并保存，`editor/script/script_editor_plugin.cpp:2408-2418`，`editor/editor_interface.cpp:719-722, 738-748`，`editor/editor_node.cpp:2374-2408`）。【已知限制】只看文件主资源，只改子资源时看不到，编辑器却按文件保存（`editor/editor_node.cpp:2379-2388`）。
-    - 资源的编辑标记 `is_object_edited()` 只说明 Godot 下次保存会写这个文件。`set()`、读回文件和在检查器展开分组都会立起它，只有保存才放下（`core/object/object.cpp:233-237, 1800-1803`，`core/io/resource.cpp:234-275`，`editor/editor_node.cpp:2372-2390`，`ed1daf0`）。
-    - 所以标记为真时，服务按文件另读一份，比较两者经 `var_to_str()` 写出的存储属性（`core/variant/variant_parser.cpp:2175-2233`）。文件读不出时算作不同。
+  - Godot 未保存改动分三类：未保存脚本标签页、`get_unsaved_scenes()` 中的已打开场景，以及内容与文件不同的已加载外部资源（脚本和场景除外，随场景一并保存，`editor/script/script_editor_plugin.cpp:2408-2418`，`editor/editor_interface.cpp:719-722, 738-748`，`editor/editor_node.cpp:2374-2408`）。
+    - 编辑标记 `is_object_edited()` 只说明 Godot 下次保存会写这个文件。文件的主资源或路径为“文件::id”的子资源有一个立起标记，保存就写这个文件（`editor/editor_node.cpp:2372-2390`，`ed1daf0`）。`set()`、读回文件和在检查器展开分组都会立起标记，只有保存才放下（`core/object/object.cpp:233-237, 1800-1803`，`core/io/resource.cpp:234-275`）。
+    - 所以服务从主资源沿存储属性找到这些子资源，有标记立起时按文件另读一份。比较两者经 `var_to_str()` 写出的存储属性（`core/variant/variant_parser.cpp:2175-2233`），文件读不出时算作不同。
   - 冲突一直持续到 Godot 保存、关闭或重载该文件，或磁盘内容回到编辑器上次所见。察觉时立即提示且每个冲突只提示一次：Godot 弹出提示框（`editor/gui/editor_toaster.cpp:563`），每个会话（含代理所在的磁盘视图）收到 Warning 级 `window/showMessage`，均写明文件。
   - 两视图客户端都可发 `petrichor/unsavedFiles` 查询 Godot 未保存文件列表（URI 及是否冲突）；因没有列出已加载资源的绑定，外部资源只在冲突时列出。
 - **用户取舍与引擎边界**：服务不自动合并也不替人决策，取舍留给 Godot 的原生对话框。

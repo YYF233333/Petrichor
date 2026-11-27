@@ -2038,8 +2038,9 @@ def check_conflicts(client, project, editor, port):
     changed and then deleted, and arena.tscn, given one, conflict. Each is
     told once to every session and listed on request, and a rename that must
     save arena.tscn is refused. A conflict ends once its file is back as Godot
-    saw it. ramp.tres, edited through the undo history, is told that the file
-    replaced the edit, and Godot holds what the file does once it reads it."""
+    saw it. ramp.tres, its gradient edited through the undo history, is told
+    that the file replaced the edit, and Godot holds what the file does once it
+    reads it."""
     disk = LspClient(port)
     disk.initialize(view="disk")
     arena, note = project / "arena.tscn", project / "note.pet"
@@ -2123,7 +2124,7 @@ def check_conflicts(client, project, editor, port):
     resource = unsaved()
     replaced = told(client)
     expect(
-        "lsp: a resource edited in Godot that changed on disk is told that the file replaced the edit, and is then no conflict",
+        "lsp: a resource whose sub-resource Godot edited, changed on disk, is told that the file replaced the edit, and is then no conflict",
         resource == {"note.pet": True, "arena.tscn": True} and replaced and "res://ramp.tres" in replaced and "replaced" in replaced,
         f"{resource}\n{replaced}",
     )

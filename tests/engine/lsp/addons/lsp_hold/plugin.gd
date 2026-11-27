@@ -19,7 +19,8 @@ extends EditorPlugin
 # time, prints whether the resource keeps its gradient. Once res://scene is
 # there, prints whether the scene shown has a node Extra; once res://dirty is
 # there, makes an unsaved change in the tab of the script it names, through the
-# undo history in the resource it names, or else in the scene shown. Once
+# undo history in the gradient of the resource it names, or else in the scene
+# shown. Once
 # res://call is there, calls the method
 # of the Petrichor plugin it names with the arguments after, and prints the
 # result and the toasts shown.
@@ -101,9 +102,10 @@ func _hold() -> void:
 			DirAccess.remove_absolute("res://dirty")
 			if path.ends_with(".tres"):
 				edited = load(path)
-				get_undo_redo().create_action("Widen it")
-				get_undo_redo().add_do_property(edited, "width", 128)
-				get_undo_redo().add_undo_property(edited, "width", edited.get("width"))
+				var gradient: Gradient = edited.get("gradient")
+				get_undo_redo().create_action("Move a stop")
+				get_undo_redo().add_do_property(gradient, "offsets", PackedFloat32Array([0.0, 0.5]))
+				get_undo_redo().add_undo_property(gradient, "offsets", gradient.offsets)
 				get_undo_redo().commit_action()
 			elif path:
 				EditorInterface.edit_script(load(path))
