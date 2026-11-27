@@ -159,7 +159,7 @@ Compile errors left in the code are not a failure, and neither is a file the rep
 
 ### Step 4: Fix the compile errors
 
-Wherever a change needs your judgment, the tool leaves a compile error. Open the project in Godot, or run `pet check`, to work through them.
+Wherever a change needs your judgment, the tool leaves a compile error. Open the project in Godot, or run `pet check`, to work through them. Settling one error can bring up the next: once you write `amount: float`, the compiler also checks `health -= amount`, and asks for an explicit conversion there.
 
 In Godot's script editor, click the light bulb beside an error line, press Alt+Enter, or choose **Quick Fix...** from the context menu to list the fixes for that place. When a script has two or more errors with the same automatic fix, **Fix all '…' in file** applies them at once. VS Code offers the same fixes as code actions.
 

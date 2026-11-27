@@ -159,7 +159,7 @@ addons/petrichor/pet migrate objects/enemy.gd ui   # 只迁移这些文件和目
 
 ### 第四步：处理编译错误
 
-凡是需要你判断的地方，工具都留作编译错误。在 Godot 中打开项目，或运行 `pet check`，就能逐个处理。
+凡是需要你判断的地方，工具都留作编译错误。在 Godot 中打开项目，或运行 `pet check`，就能逐个处理。处理掉一个错误，可能会冒出下一个：写上 `amount: float` 之后，编译器也会检查 `health -= amount`，并要求在那里显式转换。
 
 在 Godot 的脚本编辑器里，点错误行旁的灯泡、按 Alt+Enter，或在右键菜单里选 **Quick Fix...**，都能列出这一处可用的修复。一个脚本里有两处以上错误能用同一种自动修复时，**Fix all '…' in file** 会一次全部应用。VS Code 里，同样的修复出现在代码操作中。
 
