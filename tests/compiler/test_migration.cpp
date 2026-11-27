@@ -66,6 +66,15 @@ TEST_CASE("a migration leaves out the trees with @tool, and what a file left out
 						   });
 }
 
+TEST_CASE("a migration leaves out a file whose .pet is there already, as converting back does") {
+	FakeProject project;
+	project.add_script("res://main.gd", "extends Node\n");
+	project.add_script("res://main.pet", "extends Node\n");
+	const compiler::MigrationSet set = compiler::migration_set(fake_engine(), project, { "res://main.gd" });
+	CHECK(set.files.empty());
+	CHECK(set.left_out == Pairs{ { "res://main.gd", "res://main.pet is there already" } });
+}
+
 // Third-party plugins stay GDScript (spec §1), as Ring's dialogue manager;
 // so does what inherits from one (§11.2) or what one calls at class level.
 TEST_CASE("a migration leaves out each plugin under addons/ that no path asks for, with the files that must stay with it") {

@@ -247,8 +247,8 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 		result.left_out.emplace_back(file, "a script template, from which the editor makes new scripts");
 	}
 	// A plugin stays in GDScript unless a path asks for a file of it (spec
-	// §1), and so do the trees with @tool, and what a file staying there
-	// accesses at class level.
+	// §1), and so do the trees with @tool or a file whose .pet is there
+	// already, and what a file staying there accesses at class level.
 	const auto plugin = [](const std::string &p_file) {
 		const std::string addons = "res://addons/";
 		return p_file.rfind(addons, 0) == 0 ? p_file.substr(0, p_file.find('/', addons.size())) : std::string();
@@ -271,6 +271,11 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 	}
 	for (const std::string &tool : scripts.tools) {
 		leave(tool, "it has @tool", ", which has @tool");
+	}
+	for (const std::string &file : scripts.files) {
+		if (p_project.script_source(migrated_path(file))) {
+			leave(file, migrated_path(file) + " is there already", ", left out");
+		}
 	}
 	for (bool more = true; more;) {
 		more = false;
