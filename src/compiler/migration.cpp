@@ -246,16 +246,16 @@ MigrationSet migration_set(const EngineApi &p_engine, const ProjectApi &p_projec
 	for (const std::string &file : asked_templates) {
 		result.left_out.emplace_back(file, "a script template, from which the editor makes new scripts");
 	}
-	// A plugin stays in GDScript unless a path asks for a file of it (spec
-	// §1), and so do the trees with @tool or a file whose .pet is there
-	// already, and what a file staying there accesses at class level.
-	const auto plugin = [](const std::string &p_file) {
+	// A plugin stays in GDScript unless a path lies inside it (spec §1), and
+	// so do the trees with @tool or a file whose .pet is there already, and
+	// what a file staying there accesses at class level.
+	const auto plugin = [](const std::string &p_path) {
 		const std::string addons = "res://addons/";
-		return p_file.rfind(addons, 0) == 0 ? p_file.substr(0, p_file.find('/', addons.size())) : std::string();
+		return p_path.rfind(addons, 0) == 0 ? p_path.substr(0, p_path.find('/', addons.size())) : std::string();
 	};
 	std::set<std::string> asked_plugins;
-	for (const auto &[file, why] : taken) {
-		asked_plugins.insert(p_paths.empty() ? std::string() : plugin(file));
+	for (const std::string &path : p_paths) {
+		asked_plugins.insert(plugin(path));
 	}
 	std::map<std::string, std::string> left;
 	const auto leave = [&](const std::string &p_file, const std::string &p_why, const std::string &p_tree) {

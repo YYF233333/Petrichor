@@ -166,7 +166,7 @@ void each_record(Inflows::Records &r_records, const F &p_f) {
 // come with them (spec §11.2), and the GDScript files that make a class-level
 // access to them that GDScript cannot make to a class of this language (spec
 // §11.3). The trees with a file of a plugin under res://addons/ that no
-// path asks for are left out (spec §1), those with a file with @tool (spec
+// path lies inside are left out (spec §1), those with a file with @tool (spec
 // §13.4) or whose .pet is there already, and then a file that one left out
 // accesses so, with its tree. So are the script templates, the files under
 // `p_templates`.

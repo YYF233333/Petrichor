@@ -796,7 +796,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 写在同一行所声明常量初始值中的 enum、常量或内部类。
   - autoload 名本身写在类型处也算，因为 GDScript 只为 GDScript 写的 autoload 定型（`modules/gdscript/gdscript_analyzer.cpp:806-829`，`ed1daf0`）。经 autoload 调用方法不算：GDScript 把本语言 autoload 视作 Node，找不到的方法只给警告（`modules/gdscript/gdscript_analyzer.cpp:3750-3752, 4579-4587`）。
 - **排除边界**：含 `@tool` 的文件及其继承树不在其中（规范 §13.4）；凡被留在 GDScript 的文件做类级访问的目标文件连同其继承树也不在其中。位于项目设置 `editor/script/templates_search_path` 下的脚本模板不是游戏代码（GDScript 也不解析，`modules/gdscript/gdscript.cpp:767-772`，`ed1daf0`），排除并在报告中列出。
-  - `res://addons/` 下的插件是第三方代码，保持 GDScript（规范 §1）。没有路径指到某个插件中的文件时，该插件的文件连同其继承树都留下，报告按插件目录各列一行。Ring 的 `addons/dialogue_manager` 由此不再迁移，留下的错误从 1049 个降到 95 个。
+  - `res://addons/` 下的插件是第三方代码，保持 GDScript（规范 §1）。所给路径都不在某个插件的目录之中时，该插件的文件连同其继承树都留下，报告按插件目录各列一行。Ring 的 `addons/dialogue_manager` 由此不再迁移，留下的错误从 1049 个降到 95 个。
 
 #### 流入类型推断与合并规则
 

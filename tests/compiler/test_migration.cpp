@@ -77,7 +77,7 @@ TEST_CASE("a migration leaves out a file whose .pet is there already, as convert
 
 // Third-party plugins stay GDScript (spec §1), as Ring's dialogue manager;
 // so does what inherits from one (§11.2) or what one calls at class level.
-TEST_CASE("a migration leaves out each plugin under addons/ that no path asks for, with the files that must stay with it") {
+TEST_CASE("a migration leaves out each plugin under addons/ that no path lies inside, with the files that must stay with it") {
 	FakeProject project;
 	project.add_script("res://addons/dialogue/manager.gd", "class_name DialogueManager\nextends Node\n", "DialogueManager");
 	project.add_script("res://addons/dialogue/balloon.gd", "extends Node\n");
@@ -94,9 +94,11 @@ TEST_CASE("a migration leaves out each plugin under addons/ that no path asks fo
 									{ "res://game.gd", "res://addons/dialogue/starter.gd, left out, calls the static method start() of it" },
 									{ "res://ring_manager.gd", "in the inheritance tree of res://addons/dialogue/manager.gd, of a plugin left out" },
 							});
+	CHECK(compiler::migration_set(fake_engine(), project, { "res://" }).left_out == whole.left_out);
 	const compiler::MigrationSet asked = compiler::migration_set(fake_engine(), project, { "res://addons/dialogue/manager.gd" });
 	CHECK(asked.files == std::set<std::string>{ "res://addons/dialogue/manager.gd", "res://ring_manager.gd" });
 	CHECK(asked.left_out.empty());
+	CHECK(compiler::migration_set(fake_engine(), project, { "res://addons/dialogue" }).files == std::set<std::string>{ "res://addons/dialogue/balloon.gd", "res://addons/dialogue/manager.gd", "res://addons/dialogue/starter.gd", "res://ring_manager.gd" });
 }
 
 TEST_CASE("a migration of the whole project, and of a directory, takes every GDScript file there") {
