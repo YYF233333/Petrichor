@@ -842,6 +842,28 @@ class Converter {
 		return name;
 	}
 
+	// Refuses each match without a branch that takes any value which a
+	// function returning a value ends with on some path: this language
+	// counts it as returning because it is exhaustive (spec §5.6), GDScript
+	// does not, while both count an if whose branches both return
+	// (modules/gdscript/gdscript_parser.cpp:2400-2401, 2467-2476, 2543;
+	// ed1daf0).
+	void exhausted(const Block &p_block) {
+		const Stmt *last = p_block.empty() ? nullptr : p_block.back().get();
+		if (last && last->kind == StmtKind::If) {
+			exhausted(last->body);
+			exhausted(last->else_body);
+		} else if (last && last->kind == StmtKind::Match) {
+			const auto any = [](const MatchBranch &p_branch) { return !p_branch.guard && std::any_of(p_branch.patterns.begin(), p_branch.patterns.end(), [](const Pattern &p_pattern) { return p_pattern.kind == PatternKind::Wildcard || p_pattern.kind == PatternKind::Bind; }); };
+			if (std::none_of(last->branches.begin(), last->branches.end(), any)) {
+				refuse(last->range.first, std::string(NOT_YET) + "a match that returns on every path without _, which GDScript does not count as returning.");
+			}
+			for (const MatchBranch &branch : last->branches) {
+				exhausted(branch.body);
+			}
+		}
+	}
+
 	static bool is_some(const Pattern &p_pattern) {
 		return p_pattern.kind == PatternKind::Constructor && p_pattern.value && p_pattern.value->kind == ExprKind::Name && p_pattern.value->text == "Some" && p_pattern.items.size() == 1 && p_pattern.items[0].field.empty() && !p_pattern.rest;
 	}
@@ -939,14 +961,8 @@ public:
 			for (const std::unique_ptr<Stmt> &stmt : p_node.body) {
 				visit(*stmt);
 			}
-			// A match that ends a function returning a value, without a branch
-			// that takes any value, returns on every path because it is
-			// exhaustive (spec §5.6), which GDScript does not count
-			// (modules/gdscript/gdscript_parser.cpp:2467-2475, 2543; ed1daf0).
-			const Stmt *last = p_node.body.empty() ? nullptr : p_node.body.back().get();
-			const auto any = [](const MatchBranch &p_branch) { return !p_branch.guard && std::any_of(p_branch.patterns.begin(), p_branch.patterns.end(), [](const Pattern &p_pattern) { return p_pattern.kind == PatternKind::Wildcard || p_pattern.kind == PatternKind::Bind; }); };
-			if (last && last->kind == StmtKind::Match && p_node.return_type_ref && p_node.return_type.kind != TypeKind::Void && p_node.return_type.kind != TypeKind::Option && std::none_of(last->branches.begin(), last->branches.end(), any)) {
-				refuse(last->range.first, std::string(NOT_YET) + "a match that returns on every path without _, which GDScript does not count as returning.");
+			if (p_node.return_type_ref && p_node.return_type.kind != TypeKind::Void && p_node.return_type.kind != TypeKind::Option) {
+				exhausted(p_node.body);
 			}
 			function = outer;
 			return;

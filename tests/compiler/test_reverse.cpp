@@ -94,6 +94,7 @@ TEST_CASE("reverse conversion assigns members passed by name after the call, mat
 // value, this language also when it is exhaustive (spec §5.6).
 TEST_CASE("a function that returns through an exhaustive match without _ stays") {
 	CHECK(reversed("extends Node\nenum Mode { CALM, ANGRY }\n\n\nfunc name_of(mode: Mode) -> String:\n\tmatch mode:\n\t\tMode.CALM:\n\t\t\treturn \"calm\"\n\t\tMode.ANGRY:\n\t\t\treturn \"angry\"\n") == "6:2: This is not converted back yet: a match that returns on every path without _, which GDScript does not count as returning.\n");
+	CHECK(reversed("extends Node\nenum Mode { A, B }\n\n\nfunc cost(flag: bool, mode: Mode) -> int:\n\tif flag:\n\t\tmatch mode:\n\t\t\tMode.A:\n\t\t\t\treturn 1\n\t\t\tMode.B:\n\t\t\t\treturn 2\n\telse:\n\t\treturn 3\n") == "7:3: This is not converted back yet: a match that returns on every path without _, which GDScript does not count as returning.\n");
 }
 
 // GDScript finds an outer class's static members only through its name, and
