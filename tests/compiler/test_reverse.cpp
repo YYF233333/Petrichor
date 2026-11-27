@@ -135,6 +135,9 @@ TEST_CASE("reverse conversion matches None of an object as a bind that is no val
 TEST_CASE("reverse conversion writes a downcast back as the value where it goes to a place of its type") {
 	CHECK(reversed("extends Node\nvar label: Label = (get_child(0) as Label).unwrap()\n\n\nfunc take(n: Node2D) -> void:\n\tpass\n\n\nfunc f(n: Node) -> Node2D:\n\tvar shown: Label = (n as Label).unwrap()\n\tlabel = (n as Label).unwrap()\n\ttake((n as Node2D).unwrap())\n\tvar other: Control = (n as Label).unwrap()\n\tvar inferred := (n as Node2D).unwrap()\n\tprint((n as Node2D).unwrap(), shown, other, inferred)\n\treturn (n as Node2D).unwrap()\n\n\nfunc g(o: Node?) -> void:\n\tvar near: Node2D? = (o as Node2D).unwrap() if o != None else None\n\tprint(near)\n") ==
 			"extends Node\nvar label: Label = get_child(0)\n\n\nfunc take(n: Node2D) -> void:\n\tpass\n\n\nfunc f(n: Node) -> Node2D:\n\tvar shown: Label = n\n\tlabel = n\n\ttake(n)\n\tvar other: Control = (n as Label)\n\tvar inferred := (n as Node2D)\n\tprint((n as Node2D), shown, other, inferred)\n\treturn n\n\n\nfunc g(o: Node) -> void:\n\tvar near: Node2D = o\n\tprint(near)\n");
+	// As godot-tiny-mmo's arrow sets its arc's source (source/common/gameplay/items/weapons/bow/arrow.gd:199).
+	CHECK(reversed("extends Node\n\n\nfunc f(n: Node, arc: Arc) -> void:\n\tarc.source = (n as Label).unwrap()\n\tarc.kept = (n as Label).unwrap()\n\n\nclass Arc:\n\tvar source: Label\n\tvar kept = Label.new()\n") ==
+			"extends Node\n\n\nfunc f(n: Node, arc: Arc) -> void:\n\tarc.source = n\n\tarc.kept = (n as Label)\n\n\nclass Arc:\n\tvar source: Label\n\tvar kept = Label.new()\n");
 }
 
 // Spec §3.4: the argument of a method is evaluated whether the receiver holds

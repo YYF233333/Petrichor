@@ -363,8 +363,12 @@ class Converter {
 		return plain(x) && test.kind == ExprKind::Binary && test.op == TokenKind::BangEqual && same(*test.left) && test.right->kind == ExprKind::NoneLiteral ? p_value.left.get() : nullptr;
 	}
 
-	// Whether GDScript types what a name assigns.
+	// Whether GDScript types what an assignment to a name or a property takes
+	// (architecture §6.6).
 	bool typed(const Expr &p_target) const {
+		if (p_target.kind == ExprKind::Member) {
+			return !p_target.variable || p_target.variable->declared_type || p_target.variable->infers_type;
+		}
 		if (p_target.kind != ExprKind::Name || p_target.range.first != p_target.range.last) {
 			return false;
 		}

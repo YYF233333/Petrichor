@@ -935,7 +935,8 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
     - `expect(消息)` 是 `var` 声明或给名字赋值的整个值时，删去它，并在该语句后另起一行补 `assert(名字 != null, 消息)`；
     - 其余写法使整个文件不转换，报告列出位置。
   - 迁移为隐式向下转换写下的 `(x as T).unwrap()` 和 `(x as T).unwrap() if x != None else None`，值进入 GDScript 中也写着类型 `T` 的位置时写回 `x`。
-    - 这样的位置是写了类型的变量和成员、函数的参数和返回值。GDScript 在调试构建中在该处检查，放过 null，类不符时出错，与这两种写法相同（`modules/gdscript/gdscript_vm.cpp:586-603, 1533-1625, 2924-3025`，`core/variant/variant_caster.h:135-145, 159-174`）。
+    - 这样的位置是写了类型的变量和成员、函数的参数和返回值，以及对象上写了类型的属性。GDScript 在调试构建中在该处检查，放过 null，类不符时出错，与这两种写法相同（`modules/gdscript/gdscript_vm.cpp:586-603, 1533-1625, 2924-3025`，`core/variant/variant_caster.h:135-145, 159-174`）。
+    - 给对象的属性赋值都经 `set_named()`，由 GDScript 的成员或引擎的 setter 检查类。成员类不符时不写入，setter 收到 null，调试构建随即出错（`modules/gdscript/gdscript_compiler.cpp:1158-1159`，`modules/gdscript/gdscript.cpp:1536-1549`，`core/object/class_db.cpp:1597-1607`，`modules/gdscript/gdscript_vm.cpp:1219-1240`）。godot-tiny-mmo 的 `arc.source = source` 由此原样转回（`source/common/gameplay/items/weapons/bow/arrow.gd:199`）。
     - 其余位置照常去掉 `.unwrap()`，写成 `(x as T)` 和 `(x as T) if x != null else null`，类不符时得 null。
   - `State(x)` 写成 `x as State`。GDScript 把 `int` 转为 enum 时不查范围（`modules/gdscript/gdscript_analyzer.cpp:3826-3828`），与去掉 `.unwrap()` 一样，出错时改为 GDScript 原来的行为。常量中的不转换，GDScript 中它不是常量表达式。
   - 元素只在本语言中存在的 `Array(x)` 写成 `Array(x, TYPE_NIL, &"", null)`，`Dictionary(x)` 同理，得到同样的无类型副本（`core/variant/array.cpp:874-879`，`core/variant/dictionary.cpp:753-758`）。
