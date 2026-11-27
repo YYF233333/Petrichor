@@ -57,7 +57,6 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - `Some(_)` before a branch of `None`;
   - a typed literal of a class without a global name where GDScript knows no type for it, and `State(x)` in a constant;
   - an outer class's static member by its name alone, and a match that returns on every path without `_`.
-- One or two open-source games migrated by the tool (Tests).
 - Large projects (Performance).
 
 ## Language
@@ -219,7 +218,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 
 - Migrate one or two popular open-source games with the migration tool as real-code tests. They can stand in for outside projects in the conditions of 0.9 (architecture §5, step 12). Keep `thirdparty/ring` as a real-code test.
   - Take games without `@tool` first. Until 0.4 a file with `@tool` and its inheritance tree stay GDScript (spec §13.4).
-  - deck_builder_tutorial runs as the `deck` group, and the FPS kit and Ring as `fps` and `ring`, each the tool's output finished by hand. Next is tanks-of-freedom-ii, with its `Dictionary` data layer rewritten to structs.
+  - deck_builder_tutorial runs as the `deck` group, and the FPS kit and Ring as `fps` and `ring`, each the tool's output finished by hand. They are the games of 0.3. Next is tanks-of-freedom-ii, from 0.4 on and gating no release. Finishing it rewrites its `Dictionary` data layer to structs, a change of paradigm that the tool does not make: about 1,000 to 1,400 places are left at `4c34d25`. Until then the tool-migration survey measures what the tool leaves in it.
   - Such trees hold 44% of godot-open-rpg's scripts, and 6% of the scripts of corpus v1's games ([corpus-counts](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)).
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
   - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
