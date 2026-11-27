@@ -16,6 +16,8 @@ ARGUMENTS.setdefault("target", "editor")
 # 11.0 (platform/macos/detect.py:109-111, ed1daf0).
 if sys.platform == "darwin":
     ARGUMENTS.setdefault("macos_deployment_target", "11.0")
+# What SCons records of a build goes to build/ too.
+SConsignFile("build/.sconsign")
 
 
 def configure_godot_cpp():
@@ -96,6 +98,9 @@ def write_godot_cpp_stamp(target, source, env):
 
 
 godot_cpp_env = configure_godot_cpp()
+# With debug symbols, MSVC otherwise writes its vc140.pdb next to this file.
+if godot_cpp_env.get("is_msvc", False) and godot_cpp_env["debug_symbols"]:
+    godot_cpp_env.Append(CCFLAGS=["/Fdbuild/"])
 godot_cpp_env.Decider("content-timestamp")
 SetOption("implicit_cache", 1)
 
