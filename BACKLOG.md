@@ -288,7 +288,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
   - Next, on the owner's choice: compile scripts lazily on load and keep the result, as GDScript's cache does. It serves every load, of binary scenes and after a rename too. Its estimate for tanks-of-freedom-ii is 2.2 s of the 6.5, to be measured.
     - Left: reading the structure from the scene text, so that a text file loads no script. Its estimate is 3.3 s. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores.
   - Then CI holds these times to a budget (architecture §5, step 11).
-  - Not measured since `87eab4b`, on the generated project:
+  - Not measured again, on the generated project, from before a pass held what it reads:
     - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
     - applying it takes about 100 s. Two thirds of it reload the open scene, which reads every rewritten scene again;
     - `EditorFileSystem::update_file` takes 15 ms for each script there. It saves the whole list of global classes, and `update_files` is not bound (`editor/file_system/editor_file_system.cpp:2160-2197, 3730`, `ed1daf0`).
