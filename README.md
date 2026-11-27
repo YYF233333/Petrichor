@@ -10,11 +10,11 @@ Latest release: **0.2.1** · 0.x preview (semantics may still change before 1.0;
 
 As a Godot project grows, refactoring leans more and more on runtime errors to catch breakage. Because GDScript is gradually typed, node paths, signal connections, and exported properties stay dynamic in scenes even when every script carries type annotations. Object references are also nullable by default, and after a runtime error the caller often still gets a fallback value and keeps running. C# brings static typing, though its engine bridge has many pitfalls ([survey](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/pitfalls.md)).
 
-Petrichor exists as a separate language rather than a set of patches to GDScript for concrete engineering reasons. GDScript must keep gradual typing and compatibility with existing dynamic scripts. Non-null defaults, strict boolean conditions, exhaustive `match`, and typed failure handling cannot become breaking defaults there.
+Petrichor extends static checking into scenes: node paths, signal connections, and exported properties are checked at compile time. Whether an object can be null and whether a function can fail are also written in types, which the compiler checks at each use.
 
-Extending static checks into scenes—covering node paths, signal connections, and exported values—while shipping only bytecode in exported builds also needs different architecture. It calls for a project-wide incremental scene analyzer and a natively typed register VM rather than incremental patches on GDScript's runtime. Delivering Petrichor as a standard GDExtension avoids a custom engine build, runs on the official editor and export templates, and lets the language iterate on semantics before 1.0.
+These rules cannot be added to GDScript as patches, so Petrichor is a separate language. GDScript has to stay compatible with existing dynamic scripts. Non-null by default, `bool`-only conditions, exhaustive `match`, and mandatory failure handling would break existing projects if they became its defaults. Checking a whole project's scenes and exporting only bytecode also need a different analyzer and VM.
 
-Projects can mix `.pet` scripts directly with existing GDScript plugins and C# code. With the two-way migration tool planned for 0.3, scripts that stay within the GDScript-compatible subset can return to GDScript at any time.
+Petrichor ships as a standard GDExtension, so it needs no custom engine build: it runs in the official editor and exports with the official templates. This also lets the language iterate on its semantics before 1.0. Existing GDScript plugins and C# code keep working alongside it in the same project. With the two-way migration tool planned for 0.3, scripts that use no Petrichor-only features can return to GDScript at any time.
 
 ## At a Glance
 
@@ -114,9 +114,9 @@ Petrichor is in its 0.x preview series to gather feedback on the language semant
 Roadmap overview:
 
 - **0.2.x (current: 0.2.1)**: Core static language, scene checking, built-in editor and LSP/VS Code tooling, `pet` CLI, and prebuilt desktop libraries.
-- **0.3**: Two-way GDScript migration tool and toolchain performance budgets on 1,000-script projects.
-- **0.4**: `@tool`, editor lints, Android/iOS/Web export libraries in CI, compatibility probes for Godot 4.4–4.6 and double-precision builds, and persistent headless service probes.
-- **0.9 (language freeze)**: Remaining pre-1.0 designs (post-ready non-null members, tuples and multi-argument signal `await`, user-defined generics), plus the no-silent-breakage upgrade guarantee.
+- **0.3**: The two-way GDScript migration tool, and toolchain speed on projects with a thousand scripts.
+- **0.4**: `@tool`, editor lints, and Android/iOS/Web export libraries. It also checks whether Godot 4.4–4.6 and double-precision builds can be supported, and tries keeping `pet`'s background process alive between commands.
+- **0.9 (language freeze)**: The remaining pre-1.0 designs, such as post-ready non-null members, multi-argument signal `await`, and user-defined generics. The upgrade guarantee above takes effect with this release.
 
 See the detailed roadmap in [Architecture](docs/architecture.md#5-推进顺序) (Chinese) and open items in [BACKLOG.md](BACKLOG.md).
 
