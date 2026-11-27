@@ -175,6 +175,18 @@ TEST_CASE("the project once migrated names the new paths") {
 	CHECK(std::set<std::string>(scripts.begin(), scripts.end()) == std::set<std::string>{ "res://gun.pet", "res://hud.gd", "res://player.pet" });
 }
 
+// As the check after it reads the script written, by the class that this
+// language's loader gives (src/adapter/pet_resource_format.cpp:48-54).
+TEST_CASE("a script migrated is a value of the class that the loader of this language gives") {
+	FakeProject project;
+	project.add_script("res://helper.gd", "extends RefCounted\n");
+	project.add_script("res://main.gd", "extends Node\n\n\nfunc take(value):\n\tprint(value)\n\n\nfunc _ready() -> void:\n\ttake(preload(\"res://helper.gd\"))\n");
+	project.resources["res://helper.gd"] = { "GDScript" };
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://helper.gd", "res://main.gd" }, 10);
+	CHECK(migration.texts.at("res://main.pet") == "extends Node\n\n\nfunc take(value: PetScript):\n\tprint(value)\n\n\nfunc _ready() -> void:\n\ttake(preload(\"res://helper.pet\"))\n");
+	CHECK(migration.errors.empty());
+}
+
 TEST_CASE("a string in single or double quotes that spans lines is written in triple quotes, which GDScript reads the same") {
 	FakeProject project;
 	project.add_script("res://say.gd", "extends Node\n\n\nfunc _ready() -> void:\n\tprint(\"a\nb\", 'c\\'\nd', r\"e\\\"\nf\", &\"g\nh\", \"i\\\nj\")  # \"k\n");

@@ -483,12 +483,17 @@ std::optional<Scene> Migrated::scene(const std::string &p_path) const {
 	return scene;
 }
 
+// A file renamed loads as the script that the loader of its new language
+// makes (src/adapter/pet_resource_format.cpp:48-54;
+// modules/gdscript/gdscript_resource_format.cpp:66-72, ed1daf0).
 std::optional<ResourceInfo> Migrated::resource(const std::string &p_path) const {
 	if (renamed.count(p_path)) {
 		return std::nullopt;
 	}
-	const auto found = back.find(p_path);
-	return under.resource(found == back.end() ? p_path : found->second);
+	if (back.count(p_path)) {
+		return ResourceInfo{ is_gdscript(p_path) ? "GDScript" : "PetScript" };
+	}
+	return under.resource(p_path);
 }
 
 std::vector<std::string> Migrated::dependencies(const std::string &p_path) const {

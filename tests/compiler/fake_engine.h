@@ -29,6 +29,7 @@ class FakeEngine : public compiler::EngineApi {
 		{ "Resource", "RefCounted" },
 		{ "Script", "Resource" },
 		{ "GDScript", "Script" },
+		{ "PetScript", "Script" },
 		{ "InputEvent", "Resource" },
 		{ "CanvasLayer", "Node" },
 		{ "CanvasItem", "Node" },
