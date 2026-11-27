@@ -1219,7 +1219,8 @@ static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_p
 	};
 	// A declaration with a class written for it takes the widest class
 	// between it and a subclass that what flows in merges into, which each
-	// read that failed takes; otherwise it keeps the type written. One
+	// read that failed takes and which has each member that the reads found
+	// it lacks; otherwise it keeps the type written. One
 	// written PackedScene takes the scene of its roots' class, an export of
 	// Node without one (spec §7.4), and an Array of them, its elements'. An
 	// untyped Array, or an Array of them, takes the type of the elements, and
@@ -1238,6 +1239,22 @@ static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_p
 	const auto read_as = [&](const Inflows::Key &p_key, const Type &p_type) {
 		const auto needed = inflows.needed.find(p_key);
 		return needed == inflows.needed.end() || std::all_of(needed->second.begin(), needed->second.end(), [&](const Type &p_needed) { return takes(p_type, p_needed); });
+	};
+	// Whether the class at `p_class` of a lineage, or one above it, declares
+	// each member that reads through the declaration found lacking.
+	const auto has_lacked = [&](const Inflows::Key &p_key, std::vector<Type>::const_iterator p_class, std::vector<Type>::const_iterator p_end) {
+		const auto declares = [&](const Type &p_each, const std::string &p_name) {
+			const ClassDecl *decl = p_each.script.empty() ? nullptr : classes.header(p_each.script);
+			if (!decl) {
+				return p_engine.find_method(p_each.name, p_name) || p_engine.find_property(p_each.name, p_name) || p_engine.find_signal(p_each.name, p_name) || p_engine.find_constant(p_each.name, p_name);
+			}
+			const auto named = [&](const auto &p_list) { return std::any_of(p_list.begin(), p_list.end(), [&](const auto &p_decl) { return p_decl.name == p_name; }); };
+			return named(decl->members) || named(decl->static_vars) || named(decl->constants) || named(decl->functions) || named(decl->signals) || named(decl->enums) || decl->find_class(p_name);
+		};
+		const auto lacked = inflows.lacked.find(p_key);
+		return lacked == inflows.lacked.end() || std::all_of(lacked->second.begin(), lacked->second.end(), [&](const std::string &p_name) {
+			return std::any_of(p_class, p_end, [&](const Type &p_each) { return declares(p_each, p_name); });
+		});
 	};
 	const auto narrowed = [&](const Inflows::Key &p_key, const Inflows::Wide &p_wide, const std::optional<Type> &p_merged) {
 		const Type &p_written = p_wide.type;
@@ -1265,7 +1282,7 @@ static std::vector<Inflows::Call> infer(const EngineApi &p_engine, Migrated &r_p
 		const std::vector<Type> up = lineage(narrower, classes, p_engine);
 		const auto written = std::find_if(up.begin() + 1, up.end(), [&](const Type &p_base) { return key(p_base) == key(p_written); });
 		for (auto below = std::make_reverse_iterator(written); written != up.end() && below != up.rend(); ++below) {
-			if (read_as(p_key, *below)) {
+			if (read_as(p_key, *below) && has_lacked(p_key, std::prev(below.base()), up.end())) {
 				Type widest = *below;
 				widest.nullable = p_written.nullable;
 				return widest;

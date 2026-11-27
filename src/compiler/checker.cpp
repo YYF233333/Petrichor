@@ -134,6 +134,16 @@ void Checker::read_wide(const Expr &p_value, const Type &p_needed) {
 	}
 }
 
+// That a member read of `p_value` is one that its class lacks, which
+// GDScript looks up by name: the declaration that it reads is a slot from the
+// next round (architecture §6.6).
+void Checker::read_lacking(const Expr &p_value, const std::string &p_member) {
+	if (const std::optional<Inflows::Key> key = read_declaration(p_value)) {
+		options.inflows->widened.insert(*key);
+		options.inflows->lacked[*key].insert(p_member);
+	}
+}
+
 void Checker::need(const Inflows::Key &p_declaration, const Type &p_needed) {
 	std::vector<Type> &needed = options.inflows->needed[p_declaration];
 	if (std::find(needed.begin(), needed.end(), p_needed.unwrapped()) == needed.end()) {

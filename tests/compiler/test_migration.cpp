@@ -368,6 +368,19 @@ TEST_CASE("where no declaration narrows, a value of a class goes as a subclass t
 	CHECK(migration.errors[0].file == "res://handler.pet");
 }
 
+// As tanks-of-freedom-ii reads its settings through a Node
+// (scripts/services/relay.gd:16, 46), whose method GDScript finds by name.
+TEST_CASE("a class written that lacks a member read through it becomes the widest class below it with the member") {
+	FakeProject project;
+	project.add_script("res://service.gd", "class_name Service\nextends Node\n\n\nfunc get_option(key: String) -> String:\n\treturn key\n", "Service");
+	project.add_script("res://options.gd", "class_name Options\nextends Service\n", "Options");
+	project.add_script("res://relay.gd", "extends Node\nvar settings: Node = Options.new()\nvar other: Node = Node2D.new()\n\n\nfunc read() -> void:\n\tprint(settings.get_option(\"port\"))\n\tprint(other.get_option(\"port\"))\n");
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://service.gd", "res://options.gd", "res://relay.gd" }, 10);
+	CHECK(migration.texts.at("res://relay.pet") == "extends Node\nvar settings: Service = Options.new()\nvar other: Node = Node2D.new()\n\n\nfunc read() -> void:\n\tprint(settings.get_option(\"port\"))\n\tprint(other.get_option(\"port\"))\n");
+	REQUIRE(migration.errors.size() == 1);
+	CHECK(migration.errors[0].message == "Node has no method \"get_option()\".");
+}
+
 TEST_CASE("an as that GDScript converts nothing with is the value itself, and a loop over an Array cast to a subclass checks each element") {
 	FakeProject project;
 	project.add_script("res://pools.gd", "extends Node\nvar pool: Array[Resource] = []\nvar names: Array[String] = []\nvar nodes: Array[Node] = []\n\n\nfunc f() -> void:\n\tfor texture in (pool as Array[Texture2D]):\n\t\tprint(texture)\n\tfor name in (names as Array[String]):\n\t\tprint(name)\n\tvar children = nodes as Array[Node2D]\n\tprint(children.size())\n\tvar kept: Array[Texture2D] = pool as Array[Texture2D]\n\tprint(direction() as Vector2)\n\n\nfunc direction():\n\treturn Vector2(1, 0)\n");

@@ -116,12 +116,13 @@ struct Inflows {
 	// None, a Variant or one of unknown type.
 	std::set<Key> nullable;
 	// Declarations with a class written for them whose value a check read
-	// where a subclass is expected, by where their names are (a function's
-	// for what it returns), exports of scenes of unknown roots, Arrays of
-	// untyped Arrays, and untyped Arrays that iterate one. The next round
-	// takes each as a slot, which a narrower type than the one written may
-	// type: with that type and where it is, for a member where its setter's
-	// parameter is written too, and whether it is an export.
+	// where a subclass is expected or read a member of that the class lacks,
+	// by where their names are (a function's for what it returns), exports of
+	// scenes of unknown roots, Arrays of untyped Arrays, and untyped Arrays
+	// that iterate one. The next round takes each as a slot, which a narrower
+	// type than the one written may type: with that type and where it is, for
+	// a member where its setter's parameter is written too, and whether it is
+	// an export.
 	std::set<Key> widened;
 	struct Wide {
 		Type type;
@@ -133,6 +134,8 @@ struct Inflows {
 	// By such a declaration, the types that reads of its value, or of the
 	// elements of its untyped Arrays, needed in any round.
 	std::map<Key, std::vector<Type>> needed;
+	// And the members of its value read that its class lacked.
+	std::map<Key, std::set<std::string>> lacked;
 	// Locals declared with a value and no type that a check found assigned a
 	// value of another type, not a Variant, which no fix converts. The next
 	// round takes each as a slot (retyped), which tries the Variant that

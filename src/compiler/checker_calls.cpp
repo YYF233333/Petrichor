@@ -2081,6 +2081,7 @@ Type Checker::type_method_call(Expr &r_expr, const Type &p_expected) {
 			return result;
 		}
 		fail_receiver(r_expr, missing(base_type.name + " has no method \"" + name + "()\".", base_type.script));
+		read_lacking(base, name);
 		call_by_name(r_expr);
 		// GDScript calls it by name; so may call() where nothing uses its
 		// result, which the check then goes on with (architecture §6.6).

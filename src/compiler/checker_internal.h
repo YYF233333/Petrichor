@@ -765,6 +765,7 @@ class Checker : public ClassRelation, private CheckContext {
 	bool is_wide(int p_slot) const;
 	std::optional<Inflows::Key> read_declaration(const Expr &p_value);
 	void read_wide(const Expr &p_value, const Type &p_needed);
+	void read_lacking(const Expr &p_value, const std::string &p_member);
 	void need(const Inflows::Key &p_declaration, const Type &p_needed);
 	void needs_element(const Expr &p_inner, const Type &p_needed);
 	void keep(const Expr &p_value);

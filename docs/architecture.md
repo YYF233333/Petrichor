@@ -824,11 +824,13 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
   - 合并不出或无流入时试 `Variant`，容器试无类型 `Array` 或 `Dictionary`（还原 GDScript 原意）；空容器元素与键都合并出非 `Variant` 类型才写 `Array[T]` 或 `Dictionary[K, V]`。
   - 类型写在槽位名后、返回类型写在参数表后（`var a := []` 写成 `var a: Array[int] = []`），本文件 enum 和内部类不带类名。
   - 无 `class_name` 的类经文件里的 `preload` 常量指名，它只当类型用，不随文件加载（规范 §2.1）。文件已有或从基类继承该脚本的这种常量就沿用其名字；否则在类头之后按名排序补上 `const 名字 = preload("res://….pet")`，报告列出补上的常量。基类补上的常量子类照样继承，所以只由继承链最上方补上它的文件写出。名字取文件名的 PascalCase（`main_menu.pet` 得 `MainMenu`）。若本文件、其基类或子类的声明、全局类、引擎类或 autoload 已用此名，就依次在前面加上由近及远各级目录名的 PascalCase，直到不重名为止（`outcomes/camera.pet` 得 `OutcomesCamera`）。与所加前缀的名字同名的目录跳过（`ui/online/online.pet` 得 `UiOnline`）。仍写不出名字的类型不写，留作编译错误并在报告写明。
-- **写宽了的类型**：GDScript 把父类的值赋给子类的位置时到运行时才检查，本语言在此报编译错误（规范 §3.14）。写了对象类型的参数、返回值或变量，读出的值在某处因此报错时也作槽位求解。流入合并出所写类型的子类时，在所写类型到该子类之间取能消除这些读取错误的最宽类改写；没有这样的类则原文不动，由下文的 `as` 处理。
+- **写宽了的类型**：GDScript 把父类的值赋给子类的位置时到运行时才检查，本语言在此报编译错误（规范 §3.14）。写了对象类型的参数、返回值或变量，读出的值在某处因此报错时也作槽位求解。经它读取所写类型没有的成员也算这样的错误，GDScript 在那里按名查找。流入合并出所写类型的子类时，在所写类型到该子类之间取能消除这些读取错误的最宽类改写，它还须有经声明读取的每个成员。没有这样的类则原文不动，由下文的 `as` 和“静态类型缺失成员”处理。
   - deck_builder_tutorial 中 7 个导出写作 `Texture`，资源存的 PNG 载入为 `CompressedTexture2D`，读出的值赋给 `Texture2D` 属性（`custom_resources/stats.gd:7`、`scenes/enemy/enemy.gd:72`），最宽可用类为 `Texture2D`，检查器仍接受 `AtlasTexture`。`-> Resource` 而只返回 `CharacterStats` 的 `create_instance()` 同理（`custom_resources/character_stats.gd:42-50`）。
   - 改窄的导出在检查器里从此只接受子类。集合外 GDScript 的赋值看不到，与其余推断相同。
   - 检查器按读出处的引用找到所读声明并记下读出处要的类，下一轮起它才作槽位，未试过时与未写类型的槽位一样取 Error。所写类型的 `?` 不变，声明原本会改为 `T?` 时改窄后照样带上。
   - 读出处要的类比流入合并出的类还窄时没有可取的类，原文不动。deck_builder_tutorial 的 `Stats.create_instance()` 由此保持 `-> Resource`：它返回 `Stats`，而 `enemy.gd:30` 要的是 `EnemyStats`（`custom_resources/stats.gd:48`）。
+  - 候选类有没有所读成员，看它及其上方的本语言类所声明的名字和引擎类的反射。tanks-of-freedom-ii 的 `@onready var settings: Node = $"/root/Settings"` 随后调用 `settings.get_option(...)`，由此写成 autoload 脚本的类 `ServicesSettings`（`scripts/services/relay.gd:16, 46`）。
+  - tanks-of-freedom-ii 由此改窄 6 个声明，所写类型缺成员的错误从 48 个降到 26 个。另有 8 个声明只收 `get_node()` 按导出的 `NodePath` 取到的 `Node`，保持原文（`scenes/board/logic/markers/path_markers.gd:4, 18`）。
   - 成员与其具名 setter 的参数一并求解：写入属性即流入参数，所以 setter 里把参数赋给成员不算流入。成员改窄时，参数的类型写成同一个。
   - 写作 `PackedScene` 的导出报错后（规范 §7.4），下一轮起同样作槽位。所存场景和代码所赋场景的根合并出最近公共类 `T`，写成 `PackedScene[T]`。没有流入或有根不明的场景流入时写 `PackedScene[Node]`，根不明的赋值随即报错。
   - 写作 `Array[PackedScene]` 的导出不报错，但同样作槽位，所存数组的各个场景和代码放入的场景是元素的流入。元素合并出 `PackedScene[T]` 才改写，否则保持原文。
@@ -895,7 +897,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **多参信号的结果按字段读**：`await` 多参信号的结果上，字面量下标由自动修复改为字段，如 `args[1]` 改为 `args.response_code`（规范 §9.6）。原文写作 `var args: Array = await ...` 时，自动修复去掉 `: Array`，此后按字段读取，把结果继续当作 `Array` 传递或返回处包上 `Array(args)`。godot-tiny-mmo 的 `source/client/gateway/gateway.gd:342` 由此只按字段读取，godots 的 `src/http_client.gd:29` 返回 `Array(response)`。下标不是字面量的和其他把它当作 `Array` 的用法（如 `args.size()`）留作编译错误。反向转换去掉 `Array(...)`，并按字段所指参数的位置写回下标。
 - **静态类型缺失成员**：
   - 静态类型为 `Object` 时改为按名访问（GDScript 本来就按名查找）：弃返回值调用改为 `call("名字", ...)`，属性写改为 `set("名字", v)`，项目中同名函数补 `pub`。读属性或用返回值得到 `Variant`，留作编译错误由人定型。值为 `Object?` 时先补 `.unwrap()`，与其他未判空的使用相同。报告列出每处，注明可改用接口或具体类：前者转不回 GDScript，后者要靠场景事实判断。
-  - 静态类型是缺该成员的具体类时，先由场景定出更准类型（导出场景写 `PackedScene[T]`，一致父节点写 `@parent(T)`）。定不出的留作编译错误，提供按名访问和转具体类两项备选，不自动转 `Object` 按名访问。
+  - 静态类型是缺该成员的具体类时，先由流入改窄所写的类型（上文“写宽了的类型”），或由场景定出更准类型（导出场景写 `PackedScene[T]`，一致父节点写 `@parent(T)`）。定不出的留作编译错误，提供按名访问和转具体类两项备选，不自动转 `Object` 按名访问。
 - **值上的 `new()`**：GDScript 在值上调用 `new(...)` 时，按名调用其类最近的 `_init`（`modules/gdscript/gdscript.cpp:122-128, 192-197, 1078`，`ed1daf0`）。检查器看不出是哪个类，本语言的这种构造却只接受 `pub` 的 `_init`（规范 §4.2，`src/adapter/pet_script.cpp:262-265`）。所以推断之后，集合中接受同样多实参的 `_init` 都补上 `pub`，与按名调用同名函数相同。
   - 补多了不改变 GDScript 中的含义，补少了要到运行时才出错。tanks-of-freedom-ii 以 0 到 4 个实参这样构造触发器、结果、事件和 AI 动作（`scenes/board/logic/scripting/triggers/templates.gd:16`，`scenes/board/logic/events.gd:20`）。
   - 它的 46 个 `_init` 由此全部带 `pub`。新补的 34 个中，5 个属于只由场景创建的能力类，其余都这样构造。

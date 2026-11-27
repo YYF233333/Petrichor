@@ -1710,6 +1710,7 @@ Type Checker::check_member_access(Expr &r_expr) {
 			}
 			fail(r_expr, missing(base_type.name + " has no property \"" + r_expr.text + "\".", base_type.script));
 			about(r_expr.range, { typed_by(base) });
+			read_lacking(base, r_expr.text);
 			return r_expr.type;
 		}
 		r_expr.target = Target::ObjectProperty;
