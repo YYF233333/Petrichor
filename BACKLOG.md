@@ -277,7 +277,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - Under the debugger, breakpoints, stepping and the editor's break button need a call at each line (`core/debugger/engine_debugger.h:128-134`, `ed1daf0`). The debugger is on or off for the whole process. When it is off, the runtime would drop LINE as it loads the code.
     - The compiler could record each instruction's statement in the table. Such a table would also fix a wrong line. From the second pass on, an error in a `while` condition is reported at the body's last statement. GDScript does the same (`modules/gdscript/gdscript_compiler.cpp:1903`, `ed1daf0`).
 - Large projects, before teams bring real ones in 0.3. On the official 4.7.2 editor, headless, at `1ff8c92`:
-  - a generated project of 1000 scripts, 300 scenes and 60 `.gd` files opens in 2.6 s and builds in 7 to 9 s. Instances nest about 30 deep there, likely deeper than in real projects.
+  - a generated project of 1000 scripts, 300 scenes and 60 `.gd` files (`benchmarks/large.py`) opens in 2.6 s and builds in 7 to 9 s. Instances nest about 30 deep there, likely deeper than in real projects.
     - A pass holds each scene and resource it reads until it ends, so a file that several scenes share loads once (architecture §2.1). Before that, opening took 80 to 150 s and the build about 80 s.
     - Renaming a local takes 0.2 to 0.27 s. The script editor's check of a script on a node takes 3 to 4 ms unchanged and 0.22 to 0.32 s after a keystroke.
     - Each pass lists every scene and parses the header of each script on a node.
@@ -293,7 +293,6 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - Opening a script of the generated project in the script editor takes 0.87 to 0.91 s, from 1.12 to 1.15 s. Its scenes still load 600 scripts, which compile no more.
     - GDScript compiles a script at its first load (`modules/gdscript/gdscript_resource_format.cpp:39-55`, `ed1daf0`). It needs no deferring, as it loads only the scenes it instances.
   - Left, should opening need to get faster: reading the structure from the scene text, so that a text file loads no script. It was estimated at 3.3 s of the 6.5, about 1 s more than deferring the compile. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores. The owner chose the deferred compile over it for that.
-  - Then CI holds a build of the generated project to a budget of counts: compiles outside the analysis, scene loads and checks, which are the same on every machine. It prints the times and does not gate on them, as they vary (architecture §5, step 11).
   - Not measured again, on the generated project, from before a pass held what it reads:
     - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
     - applying it takes about 100 s. Two thirds of it reload the open scene, which reads every rewritten scene again;

@@ -217,6 +217,11 @@ jobs:
       - name: Engine tests
         run: python tests/engine/run.py godot/${{ matrix.binary }} ${{ matrix.groups }}
 
+      # Its counts are the same on every platform; 4.8 may load otherwise.
+      - name: Large project budget
+        if: matrix.platform == 'linux' && matrix.godot == '4.7.2-stable'
+        run: python benchmarks/large.py godot/${{ matrix.binary }}
+
       # Of a crash the engine's handler does not catch, as SIGBUS
       # (platform/macos/crash_handler_macos.mm:276-279; ed1daf0), only the
       # system's report tells where.

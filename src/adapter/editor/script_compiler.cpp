@@ -19,8 +19,10 @@
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
 #include <godot_cpp/godot.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <optional>
 #include <set>
 #include <vector>
@@ -35,6 +37,9 @@ compiler::Analysis &analysis() {
 	return analysis;
 }
 
+// In the process, which the build prints for its budget (benchmarks/large.py).
+static std::atomic<int> compiled_outside;
+
 std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, compiler::CheckMode p_mode, std::vector<compiler::Diagnostic> *r_warnings, String *r_load_error) {
 	std::shared_ptr<const compiler::CompileResult> result;
 	// Declarations, compiled when a loaded script is first asked about, take
@@ -44,6 +49,7 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 		analysis_pass.emplace(analysis());
 		result = analysis().compile(to_utf8(p_path), to_utf8(p_source));
 	} else {
+		compiled_outside++;
 		compiler::CompileOptions options;
 		options.path = to_utf8(p_path);
 		options.mode = p_mode;
@@ -180,6 +186,7 @@ ProjectReport build_project(bool p_write, bool p_command) {
 	}
 	report.scripts = int(paths.size());
 	report.resources = int(checked.size()) - report.scenes;
+	UtilityFunctions::print_verbose(vformat("petrichor build: %d compile(s) outside the analysis, %d check(s)", compiled_outside.load(), analysis().checks_run()));
 	return report;
 }
 
