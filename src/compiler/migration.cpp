@@ -161,7 +161,7 @@ struct Scripts {
 			if (autoload && !member && in_type(tokens, i, typed, parenthesized)) {
 				accessed[target].push_back({ p_file, Access::Autoload, tokens[i].text });
 			}
-			const ClassDecl *decl = member ? r_classes.header(target) : nullptr;
+			const ClassDecl *decl = member ? r_classes.declaring(target, tokens[i + 2].text) : nullptr;
 			if (!decl) {
 				continue;
 			}

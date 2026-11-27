@@ -1374,7 +1374,7 @@ std::vector<Access> class_accesses(const std::string &p_file, const ClassDecl &p
 		const auto named = kind == TokenKind::Identifier && (i == 0 || tokens[i - 1].kind != TokenKind::Period) && tokens[i + 1].kind == TokenKind::Period ? names.find(tokens[i].text) : names.end();
 		const bool autoload = named != names.end() && named->second.rfind('*', 0) == 0;
 		const std::string target = named == names.end() ? std::string() : named->second.substr(autoload ? 1 : 0);
-		const ClassDecl *decl = target.empty() || target == p_file || !is_script_path(target) ? nullptr : r_classes.header(target);
+		const ClassDecl *decl = target.empty() || target == p_file || !is_script_path(target) ? nullptr : r_classes.declaring(target, tokens[i + 2].text);
 		if (!decl) {
 			continue;
 		}

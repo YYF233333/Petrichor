@@ -147,6 +147,9 @@ class ScriptClasses {
 	template <typename T>
 	T answer(const std::string &p_key, std::function<T(ScriptClasses &)> p_question);
 	std::vector<Scene> scenes_where(const std::function<bool(const Scene &)> &p_uses);
+	// The header of the class at `p_path`, or of the nearest class it extends,
+	// that `p_has` holds for, as the headers say; null for none.
+	const ClassDecl *nearest(std::string p_path, const std::function<bool(const ClassDecl &)> &p_has);
 
 public:
 	ScriptClasses(const EngineApi &p_engine, const ProjectApi *p_project, bool p_declarations_only = false, bool p_record = false) :
@@ -166,7 +169,11 @@ public:
 	bool is_or_extends(std::string p_script, const std::string &p_base);
 	// Whether the class at `p_path` or one it extends declares a static
 	// function `p_name`, as the headers say.
-	bool has_static(std::string p_path, const std::string &p_name);
+	bool has_static(const std::string &p_path, const std::string &p_name);
+	// The header of the class at `p_path`, or of the nearest class it extends
+	// that declares an enum, a constant or an inner class `p_name`, as the
+	// headers say; null when the class has no header.
+	const ClassDecl *declaring(const std::string &p_path, const std::string &p_name);
 	// The project as checks should ask it.
 	const ProjectApi *get_project() const { return project; }
 	// The parsed class, or null when it cannot be read. Other scripts see what

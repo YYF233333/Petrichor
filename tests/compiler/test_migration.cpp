@@ -24,6 +24,7 @@ FakeProject gdscript_project() {
 	project.add_script("res://other.gd", "extends \"child.gd\"\n");
 	project.add_script("res://maker.gd", "extends Node\n\n\nfunc f() -> void:\n\tBase.make()\n");
 	project.add_script("res://heir_maker.gd", "extends Node\nconst Child = preload(\"child.gd\")\n\n\nfunc f() -> void:\n\tChild.make()\n");
+	project.add_script("res://heir_typer.gd", "extends Node\nconst Child = preload(\"child.gd\")\nvar kind: Child.Kind = Child.Kind.A\n");
 	project.add_script("res://uid_maker.gd", "extends Node\nconst B = preload(\"uid://base\")\n\n\nfunc f() -> void:\n\tB.make()\n");
 	project.add_script("res://typer.gd", "extends Node\n\n\nfunc f(kind: Base.Kind) -> void:\n\tpass\n");
 	project.add_script("res://counter.gd", "extends Node\nconst M = Base.N + 1\n");
@@ -39,11 +40,12 @@ FakeProject gdscript_project() {
 TEST_CASE("a migration takes the inheritance tree and the files that GDScript could no longer keep") {
 	const FakeProject project = gdscript_project();
 	const compiler::MigrationSet taken = compiler::migration_set(fake_engine(), project, { "res://child.gd" });
-	CHECK(taken.files == std::set<std::string>{ "res://base.gd", "res://child.gd", "res://counter.gd", "res://heir_maker.gd", "res://maker.gd", "res://other.gd", "res://picker.gd", "res://typer.gd", "res://uid_maker.gd" });
+	CHECK(taken.files == std::set<std::string>{ "res://base.gd", "res://child.gd", "res://counter.gd", "res://heir_maker.gd", "res://heir_typer.gd", "res://maker.gd", "res://other.gd", "res://picker.gd", "res://typer.gd", "res://uid_maker.gd" });
 	CHECK(taken.added == Pairs{
 								 { "res://base.gd", "in the inheritance tree of res://child.gd" },
 								 { "res://counter.gd", "uses Base.N of res://base.gd in a constant expression" },
 								 { "res://heir_maker.gd", "calls the static method make() of res://child.gd" },
+								 { "res://heir_typer.gd", "uses Child.Kind of res://child.gd as a type" },
 								 { "res://maker.gd", "calls the static method make() of res://base.gd" },
 								 { "res://other.gd", "in the inheritance tree of res://child.gd" },
 								 { "res://picker.gd", "reads Base.Kind.A of res://base.gd" },

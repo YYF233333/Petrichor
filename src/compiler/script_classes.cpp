@@ -770,18 +770,25 @@ bool ScriptClasses::is_or_extends(std::string p_script, const std::string &p_bas
 	return p_script == p_base;
 }
 
-bool ScriptClasses::has_static(std::string p_path, const std::string &p_name) {
+const ClassDecl *ScriptClasses::nearest(std::string p_path, const std::function<bool(const ClassDecl &)> &p_has) {
 	for (std::set<std::string> seen; !p_path.empty() && seen.insert(p_path).second;) {
 		const ClassDecl *decl = header(p_path);
-		if (!decl) {
-			return false;
-		}
-		if (std::any_of(decl->functions.begin(), decl->functions.end(), [&](const FuncDecl &p_function) { return p_function.name == p_name && p_function.is_static; })) {
-			return true;
+		if (!decl || p_has(*decl)) {
+			return decl;
 		}
 		p_path = base_path(*decl, p_path);
 	}
-	return false;
+	return nullptr;
+}
+
+bool ScriptClasses::has_static(const std::string &p_path, const std::string &p_name) {
+	return nearest(p_path, [&](const ClassDecl &p_decl) { return std::any_of(p_decl.functions.begin(), p_decl.functions.end(), [&](const FuncDecl &p_function) { return p_function.name == p_name && p_function.is_static; }); }) != nullptr;
+}
+
+const ClassDecl *ScriptClasses::declaring(const std::string &p_path, const std::string &p_name) {
+	const auto named = [&](const auto &p_list) { return std::any_of(p_list.begin(), p_list.end(), [&](const auto &p_decl) { return p_decl.name == p_name; }); };
+	const ClassDecl *found = nearest(p_path, [&](const ClassDecl &p_decl) { return named(p_decl.enums) || named(p_decl.constants) || p_decl.find_class(p_name); });
+	return found ? found : header(p_path);
 }
 
 std::vector<Scene> ScriptClasses::scenes_with_script(const std::string &p_script) {
