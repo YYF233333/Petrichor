@@ -35,6 +35,7 @@ def configure_godot_cpp():
         opts = Variables(customs, ARGUMENTS)
         cpp_tool = Tool("godotcpp", toolpath=[godot_cpp.Dir("tools").abspath])
         cpp_tool.options(opts, env)
+        opts.Add(BoolVariable("sanitize", "Build compiler_tests with AddressSanitizer and UndefinedBehaviorSanitizer", False))
         opts.Update(env)
         Help(opts.GenerateHelpText(env))
         unknown = opts.UnknownVariables()
@@ -254,6 +255,14 @@ VariantDir("build/tests", "tests", duplicate=0)
 # template_debug and compiler_tests share their objects, while
 # template_release keeps its own non-DEBUG_ENABLED suffix.
 shared_suffix = env["suffix"].replace(".editor.", ".debug.").replace(".template_debug.", ".debug.")
+# CI's sanitizer job, with use_llvm=yes debug_symbols=yes on Linux.
+if env["sanitize"]:
+    if not only_compiler_tests:
+        print("sanitize=yes builds compiler_tests alone.")
+        Exit(1)
+    shared_suffix += ".sanitize"
+    sanitizers = ["-fsanitize=address,undefined", "-fno-sanitize-recover=undefined"]
+    env.Append(CCFLAGS=sanitizers + ["-fno-omit-frame-pointer"], LINKFLAGS=sanitizers)
 shared_env = env.Clone()
 shared_env["CPPDEFINES"] = [d for d in shared_env["CPPDEFINES"] if d != "TOOLS_ENABLED"]
 shared_env["OBJSUFFIX"] = shared_env["OBJSUFFIX"].replace(env["suffix"], shared_suffix)

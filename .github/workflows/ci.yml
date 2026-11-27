@@ -94,6 +94,30 @@ jobs:
             tests/engine/project/bin/pet.*
           if-no-files-found: error
 
+  # On ubuntu-24.04 for clang 18: before 16, clang rejects the lambdas that
+  # capture structured bindings, which the code uses.
+  sanitizers:
+    name: linux sanitized compiler tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: python -m pip install scons==4.9.1
+
+      # Without leak detection until the payload enum's cycle in BACKLOG.md is
+      # fixed.
+      - name: Compiler tests
+        run: |
+          scons compiler_tests use_llvm=yes debug_symbols=yes sanitize=yes
+          ASAN_OPTIONS=detect_leaks=0 ASAN_SYMBOLIZER_PATH=$(clang -print-prog-name=llvm-symbolizer) tests/compiler/bin/compiler_tests
+
   # On the engine the libraries are built for, and on the latest pre-release
   # of the next one.
   test:

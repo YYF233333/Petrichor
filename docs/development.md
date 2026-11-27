@@ -11,6 +11,7 @@ Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/
 - `scons`（`target=editor`）：构建所有测试和基准共用的编辑器扩展库，同时构建命令行工具 `pet`（单独构建用 `scons pet`）。
 - `scons target=template_debug` 和 `scons target=template_release`：构建不含编译器的导出库。只有 `export` 测试组使用它们并在过期时提示；迭代期间不必构建，跑全套测试前再编。
 - `scons compiler_tests`，随后运行 `tests/compiler/bin/compiler_tests`：不启动引擎运行编译器测试。
+- `scons compiler_tests use_llvm=yes debug_symbols=yes sanitize=yes`：在 Linux 上用 clang 16 及以上版本构建带 AddressSanitizer 和 UndefinedBehaviorSanitizer 的编译器测试，再照上面运行。CI 的 `linux sanitized compiler tests` 作业以此检查内存错误和未定义行为；带载荷 enum 的循环引用修好之前，它用 `ASAN_OPTIONS=detect_leaks=0` 关掉泄漏检查（见 `BACKLOG.md`）。
 - `python tests/engine/run.py <Godot 4.7 编辑器> [group...]`：运行引擎测试，分组名见 `run.py`。
 - `python benchmarks/run.py <Godot 4.7 编辑器>`：在官方优化构建（如 `4.7.2-stable`）上运行性能基准，不要使用 `dev_build`（实现架构 §4）。
 
