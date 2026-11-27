@@ -1785,7 +1785,12 @@ std::pair<std::string, int> PetEditorPlugin::migrate_back(const std::vector<std:
 	for (const auto &[file, why] : reversal.left_out) {
 		output += relative(file) + ": left out: " + why + "\n";
 	}
-	for (const std::vector<compiler::Diagnostic> *listed : { &reversal.refused, &reversal.caused, &reversal.defects }) {
+	// Why files are left out, which the summary counts as files, not errors.
+	for (compiler::Diagnostic refusal : reversal.refused) {
+		refusal.severity = compiler::Severity::Hint;
+		output += diagnostic_line(refusal) + "\n";
+	}
+	for (const std::vector<compiler::Diagnostic> *listed : { &reversal.caused, &reversal.defects }) {
 		for (const compiler::Diagnostic &each : *listed) {
 			output += diagnostic_line(each) + "\n";
 		}
@@ -1866,7 +1871,7 @@ std::pair<std::string, int> PetEditorPlugin::write_migrated(const std::map<std::
 			refused++;
 		}
 	}
-	if (!p_dry_run && !p_allow_dirty && !p_failed) {
+	if (!p_allow_dirty && !p_failed) {
 		const std::string unkept_files = unkept(bytes);
 		output += unkept_files;
 		refused += !unkept_files.empty();

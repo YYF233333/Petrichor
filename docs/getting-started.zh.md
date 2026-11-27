@@ -75,14 +75,14 @@ addons/petrichor/pet format --check --godot <godot>
 
 ### 迁移之前
 
-先把项目提交到 git。工具只写 git 能还原的文件，所以要写的文件有未提交或已暂存的改动、未被跟踪或被忽略时，它都拒绝运行；项目不在 git 仓库中时也一样。要写的文件包括改名的脚本及其 `.uid`，以及需要改写路径的场景、资源、脚本和 `project.godot`。报告会逐个列出被拒的文件和原因，加上 `--allow-dirty` 可跳过这项检查。
+先把项目提交到 git。工具只写 git 能还原的文件，所以要写的文件有未提交或已暂存的改动、未被跟踪或被忽略时，它都拒绝运行；项目不在 git 仓库中时也一样。要写的文件包括改名的脚本及其 `.uid`，以及需要改写路径的场景、资源、脚本和 `project.godot`。报告会逐个列出被拒的文件和原因，预演也是如此，加上 `--allow-dirty` 可跳过这项检查。
 
 此外，先在 Godot 和其他编辑器中保存改动，并在 Godot 脚本编辑器中关闭要迁移的脚本。否则工具什么都不写，并列出卡住的文件。
 
 ### 预演与迁移
 
 ```sh
-addons/petrichor/pet migrate --dry-run   # 只输出报告，不写文件，也不检查 git
+addons/petrichor/pet migrate --dry-run   # 只输出报告，不写文件
 addons/petrichor/pet migrate             # 执行迁移并输出报告
 ```
 
@@ -109,7 +109,7 @@ petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 
 
 例中 `damage(amount)` 从敌人处收到 `int`，从玩家处收到 `float`，而从 `int` 类型的生命值中减去它时两者结果不同。报告单列一行统计这类位置，工具不为它们写 `float`，`amount` 的类型就留给你决定。
 
-留下的编译错误不算命令失败：只有因拒绝或失败而什么都没写时，`migrate` 才以 `1` 退出。
+留下的编译错误不算命令失败：只有因拒绝或失败而什么都没写时，`migrate` 才以 `1` 退出。预演只在所给路径下没有要转换的文件时以 `1` 退出。
 
 ### 留在 GDScript 的文件
 
@@ -138,7 +138,7 @@ petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 
 
 转回针对的是迁移之后用 Petrichor 写的代码，例如团队试用后决定退出。刚迁移完就想撤销的，直接用 git 还原。`--reverse` 同样检查 git，所以先提交迁移结果和之后的改动。
 
-转回时，工具去掉 GDScript 没有的写法，如 `pub`、`async`、`@late`、`.unwrap()` 和对象类型的 `?`，类型则按 GDScript 能表达的程度写出。文件有编译错误，或用到 GDScript 没有的特性（如 `struct`、带载荷的 enum、接口或 `Result`）时，连同整棵继承树保持为 `.pet`。报告会列出每一处，如 `error: GDScript has no struct.`。
+转回时，工具去掉 GDScript 没有的写法，如 `pub`、`async`、`@late`、`.unwrap()` 和对象类型的 `?`，类型则按 GDScript 能表达的程度写出。文件有编译错误，或用到 GDScript 没有的特性（如 `struct`、带载荷的 enum、接口或 `Result`）时，连同整棵继承树保持为 `.pet`。报告给它一行 `left out:`，并列出每一处，如 `hint: GDScript has no struct.`。
 
 只转回部分文件时，工具会连带转换所给文件的继承树，以及它们做类级访问的 `.pet` 继承树。随后它把转回的类当作 GDScript 类，检查留下的 `.pet` 文件，并列出由此新出现的错误。例如转回类的对象成员此后读作 `T?`。这些错误不妨碍写入。调用转回代码的 GDScript 文件不在检查之列，由 Godot 加载时报告。
 

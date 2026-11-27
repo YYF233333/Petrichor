@@ -75,14 +75,14 @@ Diagnostics are printed one per line (`player.pet:12:5: error: ...`). Exit codes
 
 ### Before you start
 
-Commit the project to git. The tool writes only files that git can give back: it refuses to run when a file it would write has uncommitted or staged changes, or is untracked or ignored, and when the project is not in a git repository. Those files are the scripts it renames with their `.uid` files, and the scenes, resources, scripts and `project.godot` whose paths it rewrites. The report lists each refused file with the reason, and `--allow-dirty` skips the check.
+Commit the project to git. The tool writes only files that git can give back: it refuses to run when a file it would write has uncommitted or staged changes, or is untracked or ignored, and when the project is not in a git repository. Those files are the scripts it renames with their `.uid` files, and the scenes, resources, scripts and `project.godot` whose paths it rewrites. The report lists each refused file with the reason, on a dry run too, and `--allow-dirty` skips the check.
 
 Also save your changes in Godot and any other editor, and close the scripts being migrated in Godot's script editor. Otherwise the tool writes nothing and lists the files in the way.
 
 ### Running the migration
 
 ```sh
-addons/petrichor/pet migrate --dry-run   # print the report; write nothing and skip the git check
+addons/petrichor/pet migrate --dry-run   # print the report and write nothing
 addons/petrichor/pet migrate             # migrate and print the report
 ```
 
@@ -109,7 +109,7 @@ petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 
 
 Here `damage(amount)` receives an `int` from the enemy and a `float` from the player, and subtracting it from an `int` health tells the two apart. The report counts such places on a line of their own. The tool does not write `float` for them, so the type of `amount` is left to you.
 
-Errors left in the code do not fail the command: `migrate` exits with `1` only when it refuses or fails and writes nothing.
+Errors left in the code do not fail the command: `migrate` exits with `1` only when it refuses or fails and writes nothing. A dry run exits with `1` only when a path you pass has no file to convert.
 
 ### What stays in GDScript
 
@@ -138,7 +138,7 @@ The tool does not format the files; run `pet format` when you are done.
 
 Converting back is for the Petrichor code written after migrating, for example when a team leaves after a trial. To undo a migration you just ran, restore the files with git instead. `--reverse` checks git in the same way, so commit the migration and your later work first.
 
-The tool removes what GDScript has no syntax for, such as `pub`, `async`, `@late`, `.unwrap()` and the `?` of object types, and writes each type as far as GDScript can express it. A file stays a `.pet` file, together with its inheritance tree, when it has compile errors or uses a feature GDScript lacks, such as `struct`, payload enums, interfaces or `Result`. The report lists each place that keeps it, such as `error: GDScript has no struct.`
+The tool removes what GDScript has no syntax for, such as `pub`, `async`, `@late`, `.unwrap()` and the `?` of object types, and writes each type as far as GDScript can express it. A file stays a `.pet` file, together with its inheritance tree, when it has compile errors or uses a feature GDScript lacks, such as `struct`, payload enums, interfaces or `Result`. The report gives the file a `left out:` line and lists each place that keeps it, such as `hint: GDScript has no struct.`
 
 Converting back part of a project also converts the inheritance trees of the files you pass and the `.pet` trees they use at class level. The tool then checks the `.pet` files that stay against the converted classes as GDScript sees them, and lists the errors this causes. For example, a converted class's object members now read as `T?`. These errors do not stop the write. GDScript files that call the converted code are left to Godot, which reports any errors when it loads them.
 
