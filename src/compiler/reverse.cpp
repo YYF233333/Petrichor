@@ -615,8 +615,12 @@ class Converter {
 				}
 				break;
 			case ExprKind::ArrayLiteral:
-				for (size_t i = 0; nested(p_expr.type) && i < p_expr.args.size(); i++) {
-					typed_literal(*p_expr.args[i]);
+			case ExprKind::DictionaryLiteral:
+				// The elements, or the keys and the values in turn.
+				for (size_t i = 0; is_typed_container(p_expr.type) && i < p_expr.args.size(); i++) {
+					if (is_typed_container(p_expr.type.args[i % p_expr.type.args.size()])) {
+						typed_literal(*p_expr.args[i]);
+					}
 				}
 				break;
 			case ExprKind::Lambda:
