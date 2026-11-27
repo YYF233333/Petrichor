@@ -275,20 +275,23 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - Every engine error captures the backtraces of all languages (`core/error/error_macros.cpp:126`, `ed1daf0`). So a frame would save its position before each instruction that can call the engine. Lua saves it only before such instructions. CPython 3.11 and later save it at every instruction.
     - Under the debugger, breakpoints, stepping and the editor's break button need a call at each line (`core/debugger/engine_debugger.h:128-134`, `ed1daf0`). The debugger is on or off for the whole process. When it is off, the runtime would drop LINE as it loads the code.
     - The compiler could record each instruction's statement in the table. Such a table would also fix a wrong line. From the second pass on, an error in a `while` condition is reported at the body's last statement. GDScript does the same (`modules/gdscript/gdscript_compiler.cpp:1903`, `ed1daf0`).
-- Large projects, before teams bring real ones in 0.3. A generated project of 1000 scripts, 300 scenes and 60 `.gd` files, on the official 4.7.2 editor, headless:
-  - opening it takes 80 to 150 s, and the headless build about 80 s in all. Most of it reads each scene once.
-    - A pass now holds each scene and resource it reads until it ends, so a file that several scenes share loads once (architecture §2.1). These times of the generated project predate that.
-    - Instances nest about 30 deep there, likely deeper than in real projects.
-    - Ways left, to choose with the owner:
-      - compile scripts lazily on load, as GDScript's cache does. A load in the editor compiles the script's declarations each time, outside the analysis, and its base's again (`compile_script` in `src/adapter/editor/script_compiler.cpp`). The 292 scripts of tanks-of-freedom-ii took 108 ms each on average, with the errors of a raw migration in them (`87eab4b`);
-      - read the structure from the scene text. A text file then loads no script. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores;
-  - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
-  - applying it takes about 100 s. Two thirds of it reload the open scene, which reads every rewritten scene again;
-  - `EditorFileSystem::update_file` takes 15 ms for each script there. It saves the whole list of global classes, and `update_files` is not bound (`editor/file_system/editor_file_system.cpp:2160-2197, 3730`, `ed1daf0`);
-  - renaming a local takes 0.4 to 0.6 s. The script editor's check of a script on a node takes 10 ms unchanged and 0.45 to 0.65 s after a keystroke.
+- Large projects, before teams bring real ones in 0.3. On the official 4.7.2 editor, headless, at `1ff8c92`:
+  - a generated project of 1000 scripts, 300 scenes and 60 `.gd` files opens in 2.6 s and builds in 7 to 9 s. Instances nest about 30 deep there, likely deeper than in real projects.
+    - A pass holds each scene and resource it reads until it ends, so a file that several scenes share loads once (architecture §2.1). Before that, opening took 80 to 150 s and the build about 80 s.
+    - Renaming a local takes 0.2 to 0.27 s. The script editor's check of a script on a node takes 3 to 4 ms unchanged and 0.22 to 0.32 s after a keystroke.
     - Each pass lists every scene and parses the header of each script on a node.
     - After a keystroke a check makes two such passes: compiling the script, and collecting the scenes' errors in it (`Analysis::placed_errors`).
-  - Once fixed, CI holds these times to a budget (architecture §5, step 11).
+  - tanks-of-freedom-ii as the tool migrates it, 292 scripts with 2,488 errors, opens in 9.1 s. The GDScript original takes 4.4 s. Its build takes 14.8 s, and a check after a keystroke 0.51 to 0.64 s. Opening its main scene takes 6.5 s of that:
+    - about 3.0 s compile 184 scripts as they load. A load in the editor compiles the script's declarations each time, outside the analysis, and its base's again (`compile_script` in `src/adapter/editor/script_compiler.cpp`). About 1.2 s of it print 442 declaration errors, each load anew;
+    - about 1.1 s are the engine reading scenes and their resources;
+    - about 2.4 s are instancing and this language's reading of the scenes. After the main scene, a pass reads every scene of the project.
+  - Next, on the owner's choice: compile scripts lazily on load and keep the result, as GDScript's cache does. It serves every load, of binary scenes and after a rename too. Its estimate for tanks-of-freedom-ii is 2.2 s of the 6.5, to be measured.
+    - Left: reading the structure from the scene text, so that a text file loads no script. Its estimate is 3.3 s. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores.
+  - Then CI holds these times to a budget (architecture §5, step 11).
+  - Not measured since `87eab4b`, on the generated project:
+    - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
+    - applying it takes about 100 s. Two thirds of it reload the open scene, which reads every rewritten scene again;
+    - `EditorFileSystem::update_file` takes 15 ms for each script there. It saves the whole list of global classes, and `update_files` is not bound (`editor/file_system/editor_file_system.cpp:2160-2197, 3730`, `ed1daf0`).
 - Benchmarks of real workloads; optimizations of the IR and code generation after those. In the init function, instructions that can run other code are barriers to them.
 - Liveness of the IR's registers (`src/compiler/ir.h`), one analysis on the IR before any optimization.
   - It serves the warning `modified_copy` (spec §3.6), which is off until then.
