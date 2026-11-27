@@ -836,29 +836,31 @@ void Checker::check_connections() {
 				continue;
 			}
 			// The signal's arguments that the connection keeps, then the values it
-			// binds, whose types are not known here, as the engine connects them
-			// (scene/resources/packed_scene.cpp:675-679; ed1daf0).
+			// binds, as the engine connects them (scene/resources/packed_scene.cpp:668-679;
+			// ed1daf0).
 			const std::vector<Type> &arguments = signal.signature.params;
 			const size_t kept = size_t(std::max(0, int(arguments.size()) - connection.unbinds));
 			Signature passed;
 			passed.params.assign(arguments.begin(), arguments.begin() + kept);
-			passed.params.resize(kept + size_t(connection.binds), Type::of(TypeKind::Error));
+			for (const SceneValue &bound : connection.binds) {
+				passed.params.push_back(stored_type(bound));
+			}
 			const Misfit misfit = compiler::misfit(method.signature, passed, [&](const Type &p_from, const Type &p_to) { return !p_to.is_storable() || assignable(p_from, p_to); });
 			if (misfit.counts) {
 				error_in_scene(at, scene, connection.target, where + ", which passes " + std::to_string(passed.params.size()) + " argument(s); " + connection.method + "() takes " + argument_count(method.signature) + ".");
 				continue;
 			}
-			// What the signal passes flows into a parameter without a type, as from
-			// the connection's place in the scene.
-			for (size_t i = 0; function && options.inflows && i < kept && i < function->params.size(); i++) {
+			// What the connection passes flows into a parameter without a type, as
+			// from its place in the scene.
+			for (size_t i = 0; function && options.inflows && i < passed.params.size() && i < function->params.size(); i++) {
 				if (function->params[i].slot >= 0) {
-					options.inflows->records.flows.push_back({ function->params[i].slot, arguments[i], { scene.path, uint32_t(&connection - scene.connections.data()) } });
+					options.inflows->records.flows.push_back({ function->params[i].slot, passed.params[i], { scene.path, uint32_t(&connection - scene.connections.data()) } });
 				}
 			}
 			for (const size_t i : misfit.arguments) {
 				const ParamDecl *named = function && method.id.scope == options.path ? &function->params[std::min(i, function->params.size() - 1)] : nullptr;
-				error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : at, scene, connection.target, where + ", which passes " + arguments[i].to_string() + " here.");
-				fix_taking_none(arguments[i], function && i < function->params.size() ? &function->params[i] : nullptr, method.id.scope);
+				error_in_scene(named ? TokenRange{ named->name_token, named->name_token } : at, scene, connection.target, where + ", which passes " + passed.params[i].to_string() + " here.");
+				fix_taking_none(passed.params[i], function && i < function->params.size() ? &function->params[i] : nullptr, method.id.scope);
 			}
 		}
 	}

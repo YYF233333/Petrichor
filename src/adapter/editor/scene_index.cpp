@@ -485,7 +485,10 @@ compiler::Scene read_scene(const String &p_path, const Ref<PackedScene> &p_scene
 		connection.source = node_path(state->get_connection_source(i));
 		connection.target = node_path(state->get_connection_target(i));
 		connection.method = to_utf8(state->get_connection_method(i));
-		connection.binds = int(state->get_connection_binds(i).size());
+		const Array binds = state->get_connection_binds(i);
+		for (int64_t bind = 0; bind < binds.size(); bind++) {
+			connection.binds.push_back(scene_value(binds[bind]));
+		}
 		connection.unbinds = int(state->get_connection_unbinds(i));
 		connection.file = scene.path;
 		scene.connections.push_back(connection);

@@ -116,7 +116,7 @@ TEST_CASE("a method a scene connects is referred to from the scene, and one name
 	compiler::Scene scene;
 	scene.path = "res://enemy.tscn";
 	scene.nodes = { { ".", "Node3D", "res://test.pet" }, { "Timer", "Timer", "" } };
-	scene.connections = { { "timeout", "Timer", ".", "_on_timeout", 0, 0 } };
+	scene.connections = { { "timeout", "Timer", ".", "_on_timeout" } };
 	project.scenes = { scene };
 	const std::string source = "extends Node3D\n\npub func _on_timeout():\n\tcall_deferred(\"reset\")\n\tcall_deferred(&'''reset''')\n\npub func reset():\n\tpass\n";
 	const auto result = compile_in(source, project);

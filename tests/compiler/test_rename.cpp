@@ -428,13 +428,13 @@ visible = false
 	compiler::Scene base;
 	base.path = "res://inherit_base.tscn";
 	base.nodes = { { ".", "Node", "res://inherit_base.pet", false, "", false, { { "target", value("NodePath") } } }, { "Target", "Node3D" } };
-	base.connections = { { "tree_entered", "Target", ".", "_entered", 0, 0, base.path } };
+	base.connections = { { "tree_entered", "Target", ".", "_entered", {}, 0, base.path } };
 	compiler::Scene leaf = base;
 	leaf.path = "res://inherit_leaf.tscn";
 	leaf.base = base.path;
 	leaf.nodes[0].script = "res://inherit_leaf.pet";
 	leaf.nodes[0].properties.clear();
-	leaf.connections.push_back({ "tick", ".", ".", "_leaf_tick", 0, 0, leaf.path });
+	leaf.connections.push_back({ "tick", ".", ".", "_leaf_tick", {}, 0, leaf.path });
 	project.scenes = { base, leaf };
 	return project;
 }
@@ -502,7 +502,7 @@ script = ExtResource("1_boss")
 	compiler::Scene arena;
 	arena.path = "res://arena.tscn";
 	arena.nodes = { { ".", "Node" }, { "Boss", "Node", "res://boss.pet" }, { "Clock", "Timer" } };
-	arena.connections = { { "timeout", "Clock", "Boss", "on_hit", 0, 0, arena.path } };
+	arena.connections = { { "timeout", "Clock", "Boss", "on_hit", {}, 0, arena.path } };
 	project.scenes = { arena };
 	const compiler::Rename rename = renamed(project, "res://base.pet", "on_hit", "on_damage");
 	REQUIRE_MESSAGE(rename.refusals.empty(), refusals(rename));

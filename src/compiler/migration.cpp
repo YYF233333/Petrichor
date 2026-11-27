@@ -475,6 +475,11 @@ std::optional<Scene> Migrated::scene(const std::string &p_path) const {
 			value(stored, value);
 		}
 	}
+	for (SceneConnection &connection : scene->connections) {
+		for (SceneValue &bound : connection.binds) {
+			value(bound, value);
+		}
+	}
 	return scene;
 }
 

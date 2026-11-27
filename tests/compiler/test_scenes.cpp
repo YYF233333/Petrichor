@@ -11,8 +11,8 @@ using namespace petrichor::tests;
 namespace {
 
 // A Timer under the root, which has the script; `p_method` is connected to
-// the timer's timeout, with `p_binds` bound arguments.
-FakeProject timer_scene(const std::string &p_method, int p_binds = 0) {
+// the timer's timeout, with `p_binds` bound.
+FakeProject timer_scene(const std::string &p_method, const std::vector<compiler::SceneValue> &p_binds = {}) {
 	FakeProject project;
 	compiler::Scene scene;
 	scene.path = "res://enemy.tscn";
@@ -78,12 +78,15 @@ TEST_CASE("a method the engine is to call by a literal name must be pub (spec §
 TEST_CASE("scene connections are checked against the class (spec §7.7)") {
 	const char *source = "extends Node3D\n\npub func _on_timer_timeout():\n\tpass\n";
 	CHECK(contains(messages(check_scenes_in(source, timer_scene("_on_missing"))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to _on_missing(), which this class does not declare."));
-	CHECK(contains(messages(check_scenes_in(source, timer_scene("_on_timer_timeout", 1))), "which passes 1 argument(s); _on_timer_timeout() takes 0."));
-	CHECK(check_scenes_in("extends Node3D\n\npub func _on_timer_timeout(extra: int):\n\tpass\n", timer_scene("_on_timer_timeout", 1)).errors.empty());
+	const compiler::SceneValue three{ "int", "", "", 3 };
+	CHECK(contains(messages(check_scenes_in(source, timer_scene("_on_timer_timeout", { three }))), "which passes 1 argument(s); _on_timer_timeout() takes 0."));
+	const char *takes_int = "extends Node3D\n\npub func _on_timer_timeout(extra: int):\n\tpass\n";
+	CHECK(check_scenes_in(takes_int, timer_scene("_on_timer_timeout", { three })).errors.empty());
+	CHECK(contains(messages(check_scenes_in(takes_int, timer_scene("_on_timer_timeout", { { "String", "", "", 0, false, "bound" } }))), "is connected to _on_timer_timeout(), which passes String here."));
 	// A method of the engine class, which the engine finds by name too; not a
 	// virtual one that the class does not implement.
 	CHECK(check_scenes_in(source, timer_scene("queue_free")).errors.empty());
-	CHECK(contains(messages(check_scenes_in(source, timer_scene("queue_free", 1))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to queue_free(), which passes 1 argument(s); queue_free() takes 0."));
+	CHECK(contains(messages(check_scenes_in(source, timer_scene("queue_free", { three }))), "res://enemy.tscn: the signal \"timeout\" of Timer is connected to queue_free(), which passes 1 argument(s); queue_free() takes 0."));
 	CHECK(contains(messages(check_scenes_in(source, timer_scene("_ready"))), "is connected to _ready(), which this class does not declare."));
 	// To an instance of a scene whose root has the class.
 	FakeProject instanced = timer_scene("_on_missing");
@@ -111,7 +114,7 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	compiler::Scene scene;
 	scene.path = "res://main.tscn";
 	scene.nodes = { { ".", "Node", "res://test.pet" } };
-	scene.connections = { { "child_entered_tree", ".", ".", "_on_child", 0, 0 } };
+	scene.connections = { { "child_entered_tree", ".", ".", "_on_child" } };
 	project.scenes = { scene };
 	CHECK(check_scenes_in("extends Node\n\npub func _on_child(node: Node):\n\tpass\n", project).errors.empty());
 	// A handler may accept None where the engine might pass it (spec §10.2).
@@ -122,7 +125,7 @@ TEST_CASE("signal arguments must fit the connected method's parameters") {
 	CHECK(contains(messages(check_scenes_in("extends Node\n", project)), "res://main.tscn: the signal \"child_entered_tree\" of . is connected to set_process(), which passes Node here."));
 	// Between nodes inside an instanced scene, as editable children allow.
 	project.scenes[0].nodes = { { ".", "Node", "" }, { "Enemy", "Node3D", "", true, "", false, {}, "res://unit.tscn" } };
-	project.scenes[0].connections = { { "child_entered_tree", "Enemy/Hurt", "Enemy/Body", "_on_child", 0, 0 } };
+	project.scenes[0].connections = { { "child_entered_tree", "Enemy/Hurt", "Enemy/Body", "_on_child" } };
 	project.scenes.push_back({ "res://unit.tscn", { { ".", "Node3D", "" }, { "Hurt", "Node3D", "" }, { "Body", "Node3D", "res://test.pet" } } });
 	CHECK(contains(messages(check_scenes_in("extends Node3D\n\npub func _on_child(node: int):\n\tpass\n", project)), "res://main.tscn: the signal \"child_entered_tree\" of Enemy/Hurt is connected to _on_child(), which passes Node here."));
 }
@@ -133,7 +136,7 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 		FakeProject project = hud_scene();
 		project.add_script("res://player.pet", "extends Node3D\n" + p_visibility + "signal health_updated(health: int)\n");
 		project.scenes[0].nodes[1].instance_script = "res://player.pet";
-		project.scenes[0].connections = { { p_signal, "Player", "HUD", "_on_health_updated", 0, 0 } };
+		project.scenes[0].connections = { { p_signal, "Player", "HUD", "_on_health_updated" } };
 		return check_scenes_in("extends CanvasLayer\n\npub func _on_health_updated(" + p_handler + "):\n\tpass\n", project);
 	};
 	const auto connected = [&](const std::string &p_signal, const std::string &p_handler, const std::string &p_visibility = "pub ") {
@@ -158,7 +161,7 @@ TEST_CASE("a signal declared by a script of this language is checked like the en
 	// To a node without a script, whose engine class takes the call.
 	const auto to_label = [](const std::string &p_method) {
 		FakeProject project = hud_scene();
-		project.scenes[0].connections = { { "pulse", "HUD", "HUD/Health", p_method, 0, 0 } };
+		project.scenes[0].connections = { { "pulse", "HUD", "HUD/Health", p_method } };
 		return messages(check_scenes_in("extends CanvasLayer\n\npub signal pulse(value: String)\n", project));
 	};
 	CHECK(to_label("find_children").empty());

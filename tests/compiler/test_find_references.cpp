@@ -39,7 +39,7 @@ FakeProject project() {
 		{ "Enemy", "Node", "res://base.pet", false, "", false, { { "speed", fast } } },
 		{ "AnimationPlayer", "AnimationPlayer" },
 	};
-	level.connections = { { "hurt", "Enemy", ".", "on_hurt", 0, 0 } };
+	level.connections = { { "hurt", "Enemy", ".", "on_hurt" } };
 	level.named_members = { { "AnimationPlayer", "run", "../Enemy", "speed", false } };
 	project.scenes = { level };
 	return project;

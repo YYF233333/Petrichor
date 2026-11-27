@@ -76,7 +76,7 @@ struct SceneConnection {
 	std::string source; // Node paths from the scene's root.
 	std::string target;
 	std::string method;
-	int binds = 0; // Arguments bound to the call, after the signal's.
+	std::vector<SceneValue> binds; // Bound to the call, after the signal's arguments.
 	int unbinds = 0; // Signal arguments dropped from the end.
 	std::string file; // The scene that stores it: this one, or a scene it inherits.
 
