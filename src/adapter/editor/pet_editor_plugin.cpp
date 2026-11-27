@@ -1992,11 +1992,12 @@ std::optional<std::pair<std::string, int>> PetEditorPlugin::run_command(const st
 	for (const String &path : paths) {
 		const std::string file = to_utf8(path);
 		// As bytes, which keeps the file's line breaks.
-		std::string source = file_bytes(path).value_or(std::string());
+		const std::optional<std::string> bytes = file_bytes(path);
+		std::string source = bytes.value_or(std::string());
 		const std::string bom = byte_order_mark(source);
 		source.erase(0, bom.size());
-		std::string error;
-		const std::optional<std::string> result = compiler::format(source, &error);
+		std::string error = "It cannot be read.";
+		const std::optional<std::string> result = bytes ? compiler::format(source, &error) : std::nullopt;
 		if (result && *result == source) {
 			continue;
 		}
