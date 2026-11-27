@@ -178,7 +178,7 @@ Even when you migrate the whole project, these files stay in GDScript, each with
 - a script with `@tool`, together with its whole inheritance tree. Support for `@tool` arrives in 0.4;
 - plugins under `addons/`, one line per plugin. To migrate a plugin, pass a path inside its folder;
 - script templates, the files the editor creates new scripts from. They live in the folder named by the `editor/script/templates_search_path` project setting, `res://script_templates` by default;
-- a script that has a `.pet` file of the same name in its folder;
+- a script that has a `.pet` file of the same name in its folder, together with its whole inheritance tree;
 - a script that any of the files above uses directly through its class name.
 
 The last rule comes from GDScript's side. GDScript can create instances of a Petrichor class and call their methods. It cannot call the class's static methods or read its enum values through the class name. Nor can it use the class's enums, constants or inner classes as types. So when a GDScript file that uses a class in these ways stays, the class has to stay too.

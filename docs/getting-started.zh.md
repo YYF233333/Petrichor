@@ -178,7 +178,7 @@ addons/petrichor/pet migrate objects/enemy.gd ui   # 只迁移这些文件和目
 - 带 `@tool` 的脚本和它的整棵继承树。`@tool` 要到 0.4 才支持；
 - `addons/` 下的插件，每个插件一行。想迁移某个插件，把它目录里的路径传给命令；
 - 脚本模板，也就是编辑器新建脚本时用的文件。它们在项目设置 `editor/script/templates_search_path` 所指的目录里，默认是 `res://script_templates`；
-- 同一目录下已有同名 `.pet` 的脚本；
+- 同一目录下已有同名 `.pet` 的脚本和它的整棵继承树；
 - 被以上文件通过类名直接使用的脚本。
 
 最后一条的原因在 GDScript 一侧。GDScript 可以创建 Petrichor 类的实例并调用实例的方法，但不能通过类名调用它的静态方法或读它的 enum 值。它也不能把 Petrichor 类的 enum、常量或内部类用作类型。所以这样使用某个类的 GDScript 文件留下时，这个类也得留下。
