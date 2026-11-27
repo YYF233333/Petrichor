@@ -63,6 +63,8 @@ TEST_CASE("reverse conversion writes the methods of T? on a name as conditional 
 			"extends Node\nvar saved: Node\n\n\nfunc f(hp, target: Node, pick: Callable) -> void:\n\tvar a: int = (hp if hp != null else 0) + 1\n\tvar b: Node = target if target != null else self\n\tvar c = pick.call(target) if target != null else null\n\tvar d = target if target != null and (func(n: Node) -> bool: return n.name == \"a\").call(target) else null\n\tprint(hp if hp != null else (func() -> int: return 2).call(), a, b, c, d)\n\tvar node := target\n\tassert(node != null, \"no node\")\n\tsaved = target\n\tassert(saved != null, \"none saved\")\n\tprint(node)\n");
 	CHECK(reversed("extends Node\n\n\nfunc f(n: Node?, hp: int?) -> void:\n\tprint(n.expect(\"none\"), get_parent().unwrap_or(n.unwrap()))\n\tvar total := hp.unwrap() + 1\n") ==
 			"5:10: This is not converted back yet: expect() but as the whole value of a variable declared or a name assigned.\n5:39: This is not converted back yet: unwrap_or() of T? on more than a name.\n6:6: This is not converted back yet: `:=` of a value that GDScript reads untyped, here int.\n");
+	// Spec §2.2: a name may begin with `__`.
+	CHECK(reversed("extends Node\n\n\nfunc total(__x: int?, __0: int?) -> int:\n\treturn __x.unwrap_or(1) + __0.unwrap_or(2)\n") == "extends Node\n\n\nfunc total(__x, __0) -> int:\n\treturn (__x if __x != null else 1) + (__0 if __0 != null else 2)\n");
 }
 
 // Spec §9.6: GDScript gives an Array.

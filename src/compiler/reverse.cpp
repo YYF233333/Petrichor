@@ -9,6 +9,7 @@
 #include "compiler/warnings.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cstdio>
 #include <iterator>
 #include <optional>
@@ -168,6 +169,11 @@ class Converter {
 			p_at++;
 		}
 		return p_at;
+	}
+
+	// The name of a rewrite's operand.
+	std::string operand(size_t p_index) const {
+		return erased.marker + std::to_string(p_index);
 	}
 
 	// The token and the spaces after it.
@@ -471,7 +477,7 @@ class Converter {
 		const uint32_t close = closing(tokens, open);
 		erase(tokens[p_call.range.first].offset, tokens[open].end(), std::string(p_operand ? "(" : "") + p_before + (own ? "(" : ""));
 		erase(tokens[close].offset, tokens[close].end(), std::string(own ? ")" : "") + p_after + (p_operand ? ")" : ""));
-		erased.rewrites[p_call.name_token] = { p_before + "(__0)" + p_after, { arg.range } };
+		erased.rewrites[p_call.name_token] = { p_before + "(" + operand(0) + ")" + p_after, { arg.range } };
 	}
 
 	// The methods of T? but unwrap() and expect() on a name, as GDScript's
@@ -551,7 +557,7 @@ class Converter {
 		std::string gdscript;
 		std::vector<TokenRange> operands;
 		for (size_t i = 0; i < p_value.args.size(); i++) {
-			gdscript += std::string(i == 0 ? "" : (dictionary && i % 2 ? ": " : ", ")) + "__" + std::to_string(i);
+			gdscript += std::string(i == 0 ? "" : (dictionary && i % 2 ? ": " : ", ")) + operand(i);
 			operands.push_back(p_value.args[i]->range);
 		}
 		erase(tokens[p_value.range.last].end(), tokens[p_value.range.last].end(), " as " + type);
@@ -571,7 +577,7 @@ class Converter {
 			const Expr &value = *downcast_of(p_expr)->base->left;
 			erase(tokens[p_expr.range.first].offset, tokens[value.range.first].offset);
 			erase(tokens[value.range.last].end(), tokens[p_expr.range.last].end());
-			erased.rewrites[p_expr.kind == ExprKind::Conditional ? p_expr.op_token : p_expr.name_token] = { "__0", { value.range } };
+			erased.rewrites[p_expr.kind == ExprKind::Conditional ? p_expr.op_token : p_expr.name_token] = { operand(0), { value.range } };
 			expression(value, false);
 			return;
 		}
@@ -605,7 +611,7 @@ class Converter {
 				if (p_expr.target == Target::StructField && p_expr.base->type.is_arguments()) {
 					const std::string index = "[" + std::to_string(p_expr.index) + "]";
 					erase(tokens[p_expr.name_token - 1].offset, tokens[p_expr.name_token].end(), index);
-					erased.rewrites[p_expr.name_token] = { "__0" + index, { p_expr.base->range } };
+					erased.rewrites[p_expr.name_token] = { operand(0) + index, { p_expr.base->range } };
 				}
 				break;
 			case ExprKind::ArrayLiteral:
@@ -720,7 +726,7 @@ class Converter {
 				const std::string untyped = std::string(", TYPE_NIL, &\"\", null") + (p_call.text == "Dictionary" ? ", TYPE_NIL, &\"\", null" : "");
 				const uint32_t close = closing(tokens, p_call.name_token + 1);
 				erase(tokens[close].offset, tokens[close].offset, untyped);
-				erased.rewrites[p_call.name_token] = { p_call.text + "(__0" + untyped + ")", { p_call.args[0]->range } };
+				erased.rewrites[p_call.name_token] = { p_call.text + "(" + operand(0) + untyped + ")", { p_call.args[0]->range } };
 				break;
 			}
 			default:
@@ -767,7 +773,7 @@ class Converter {
 		if (expects && !name.empty()) {
 			split.insert(value);
 			const std::string message = source.text_of(value->args[0]->range);
-			append(p_stmt, "assert(" + name + " != null, " + message + ")", { "assert(" + name + " != null, __0)", { value->args[0]->range } });
+			append(p_stmt, "assert(" + name + " != null, " + message + ")", { "assert(" + name + " != null, " + operand(0) + ")", { value->args[0]->range } });
 			return;
 		}
 		// GDScript types instantiate() Node, which lacks the members.
@@ -781,7 +787,7 @@ class Converter {
 		erased.moved.insert(value->name_token);
 		for (size_t i = 0; i < value->member_names.size(); i++) {
 			const std::string assigned = name + "." + value->member_names[i] + " = ";
-			append(p_stmt, assigned + source.text_of(value->member_values[i]->range), { assigned + "__0", { value->member_values[i]->range } });
+			append(p_stmt, assigned + source.text_of(value->member_values[i]->range), { assigned + operand(0), { value->member_values[i]->range } });
 		}
 	}
 
@@ -818,7 +824,7 @@ class Converter {
 		if (own) {
 			erase(tokens[guard.range.last].end(), tokens[guard.range.last].end(), ")");
 		}
-		erased.rewrites[p_branch.range.first] = { p_test + " and (__0)", { guard.range } };
+		erased.rewrites[p_branch.range.first] = { p_test + " and (" + operand(0) + ")", { guard.range } };
 	}
 
 	// A name the file does not use, which GDScript lets a pattern bind
@@ -846,7 +852,14 @@ public:
 	std::vector<StaticRead> static_reads;
 
 	Converter(const std::string &p_path, const SourceFile &p_source, const EngineApi &p_engine, const std::set<std::string> &p_globals) :
-			path(p_path), source(p_source), tokens(p_source.tokens), text(p_source.text), engine(p_engine), globals(p_globals) {}
+			path(p_path), source(p_source), tokens(p_source.tokens), text(p_source.text), engine(p_engine), globals(p_globals) {
+		// The rewrites write the file's names in, which may begin with `__`
+		// (spec §2.2).
+		erased.marker = "__";
+		while (std::any_of(tokens.begin(), tokens.end(), [&](const Token &p_token) { return p_token.text.rfind(erased.marker, 0) == 0; })) {
+			erased.marker += "_";
+		}
+	}
 
 	// `pub` and `async` where they begin a declaration's syntax (spec §2.2).
 	void keywords() {
@@ -1106,7 +1119,7 @@ class Printer {
 		return p_text.substr(0, p_text.rfind('.')) + found->second.substr(found->second.rfind('.'));
 	}
 
-	// While a rewrite's GDScript prints, what its `__0`... stand for, and that
+	// While a rewrite's GDScript prints, what its operands stand for, and that
 	// its nodes are no .pet file's, which `erased` names by their tokens.
 	std::vector<const Expr *> operands;
 	bool raw = false;
@@ -1176,11 +1189,17 @@ public:
 				children(p_node);
 			}
 		} else if constexpr (std::is_same_v<T, Expr>) {
-			if (raw && p_node.kind == ExprKind::Name && p_node.text.rfind("__", 0) == 0) {
+			if (raw && p_node.kind == ExprKind::Name && p_node.text.rfind(erased.marker, 0) == 0) {
+				const char *end = p_node.text.data() + p_node.text.size();
+				size_t index = operands.size();
+				if (std::from_chars(p_node.text.data() + erased.marker.size(), end, index).ptr != end || index >= operands.size()) {
+					line("no operand " + p_node.text, 0);
+					return;
+				}
 				const std::vector<const Expr *> outer = operands;
 				operands.clear();
 				raw = false;
-				visit(*outer[std::stoul(p_node.text.substr(2))]);
+				visit(*outer[index]);
 				operands = outer;
 				raw = true;
 				return;

@@ -17,8 +17,9 @@ namespace petrichor::compiler {
 // res://a.pet converted back: res://a.gd.
 std::string reversed_path(const std::string &p_file);
 
-// GDScript written for an expression or a statement of a .pet file, `__0`,
-// `__1`... standing for the .pet file's expressions at `operands`.
+// GDScript written for an expression or a statement of a .pet file, names of
+// `Erased::marker` and an index standing for the .pet file's expressions at
+// `operands`.
 struct Rewrite {
 	std::string gdscript;
 	std::vector<TokenRange> operands;
@@ -40,6 +41,7 @@ struct Erased {
 	std::map<uint32_t, std::string> binds;
 	std::map<uint32_t, std::vector<Rewrite>> after;
 	std::set<uint32_t> moved;
+	std::string marker; // What the rewrites' operands are named with, which no token of the file begins with.
 };
 
 // Reverse conversion (spec §13.4, architecture §6.6) of the .pet files under
