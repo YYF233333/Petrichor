@@ -11,7 +11,7 @@ Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/
 - `scons`（`target=editor`）：构建所有测试和基准共用的编辑器扩展库，同时构建命令行工具 `pet`（单独构建用 `scons pet`）。
 - `scons target=template_debug` 和 `scons target=template_release`：构建不含编译器的导出库。只有 `export` 测试组使用它们并在过期时提示；迭代期间不必构建，跑全套测试前再编。
 - `scons compiler_tests`，随后运行 `tests/compiler/bin/compiler_tests`：不启动引擎运行编译器测试。
-- `scons compiler_tests use_llvm=yes debug_symbols=yes sanitize=yes`：在 Linux 上用 clang 16 及以上版本构建带 AddressSanitizer 和 UndefinedBehaviorSanitizer 的编译器测试，再照上面运行。CI 的 `linux sanitized compiler tests` 作业以此检查内存错误和未定义行为；带载荷 enum 的循环引用修好之前，它用 `ASAN_OPTIONS=detect_leaks=0` 关掉泄漏检查（见 `BACKLOG.md`）。
+- `scons compiler_tests use_llvm=yes debug_symbols=yes sanitize=yes`：在 Linux 上用 clang 16 及以上版本构建带 AddressSanitizer 和 UndefinedBehaviorSanitizer 的编译器测试，再以 `ASAN_OPTIONS=detect_leaks=0 tests/compiler/bin/compiler_tests` 运行。CI 的 `linux sanitized compiler tests` 作业以此检查内存错误和未定义行为；带载荷 enum 的循环引用修好之前，泄漏检查要这样关掉（见 `BACKLOG.md`）。
 - `python tests/engine/run.py <Godot 4.7 编辑器> [group...]`：运行引擎测试，分组名见 `run.py`。
 - `python benchmarks/run.py <Godot 4.7 编辑器>`：在官方优化构建（如 `4.7.2-stable`）上运行性能基准，不要使用 `dev_build`（实现架构 §4）。
 - `python benchmarks/large.py <Godot 4.7 编辑器>`：生成千脚本项目并无界面构建，计数超出脚本里的预算时失败（实现架构 §4）。计数低于预算时，把预算调低到输出的数。
@@ -74,7 +74,7 @@ Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/
 ### 过滤与增量运行
 
 - doctest 的 `-tc` 参数按逗号切分用例名，带逗号的名称用 `*part*` 通配匹配。
-- 迭代期间只跑改动涉及的测试组，因为 FPS 和 Ring 两个迁移组占了整套测试的大部分时间。
+- 迭代期间只跑改动涉及的测试组，因为 fps、ring 和 deck 三个迁移组占了整套测试的大部分时间。
 
 ### 基准测量与性能分析
 
@@ -167,5 +167,10 @@ Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/
 
 - 规范与速查表：一句只讲一件事，条件放在结果前面，句内并列或连串的“或”改写成列表。
 - `README`、`docs/getting-started.md`（含中文版）、`docs/design-notes.md`、`docs/architecture.md` 和 `docs/development.md`：优先使用节奏自然的短散文段落，避免大段条目；列表留给并列项、步骤或对照，长实现段落用子标题分组。
+- `README` 和上手指南写给第一次接触本语言的 Godot 开发者，另有四条：
+  - 按读者的操作顺序写。每一步先说做什么、会看到什么，再说原因；例外和边界放到后面的小节。
+  - 命令先给完整写法。截短的程序输出用 `...` 标出删节处。
+  - 不用实现里的词，如“槽位”“流入”“撤回”。规范术语第一次出现时用一句白话或一个例子说明，程序输出里的词照录后再解释。
+  - 中英文两版先对齐事实，再各自成文，不逐句对译，也不搬规范的句式。
 - 通用要求：用具体主语与主动动词，避免宣传或居高临下的空话，`path:line` 出处与链接放在句末括号里。
 - 规范内引用其他规则时写概念名（如“比较规则”），不写章节号。
