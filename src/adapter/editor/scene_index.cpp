@@ -25,6 +25,7 @@
 #include <godot_cpp/classes/script.hpp>
 #include <godot_cpp/classes/script_editor.hpp>
 #include <godot_cpp/classes/script_editor_base.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
 
 #include <algorithm>
 #include <optional>
@@ -1189,9 +1190,39 @@ bool file_unchanged(const std::string &p_path) {
 	return found != seen.end() && found->second == to_utf8(FileAccess::get_md5(to_godot(p_path)));
 }
 
+namespace {
+
+// What a resource holds as the editor writes it: its stored properties, a
+// sub-resource's own among them and another file's resource by its path
+// (core/variant/variant_parser.cpp:2175-2233; ed1daf0).
+String stored(const Ref<Resource> &p_resource) {
+	Dictionary values;
+	for (const Variant &each : p_resource->get_property_list()) {
+		const Dictionary property = each;
+		if (int64_t(property["usage"]) & PROPERTY_USAGE_STORAGE) {
+			values[property["name"]] = p_resource->get(property["name"]);
+		}
+	}
+	return UtilityFunctions::var_to_str(values);
+}
+
+} // namespace
+
+// Godot holds other than what the file has. Its flag of an edit says only
+// that its next save writes the file: set() raises it, so reading the file
+// again does, and so does unfolding a section in the inspector
+// (core/object/object.cpp:233-237, 1800-1803, core/io/resource.cpp:234-275,
+// editor/editor_node.cpp:2372-2390; ed1daf0). A file that cannot be read
+// differs.
 bool edited_resource(const std::string &p_path) {
-	const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(to_godot(p_path));
-	return loaded.is_valid() && !loaded->is_class("Script") && !loaded->is_class("PackedScene") && EditorInterface::get_singleton()->is_object_edited(loaded.ptr());
+	const String path = to_godot(p_path);
+	const Ref<Resource> loaded = ResourceLoader::get_singleton()->get_cached_ref(path);
+	if (loaded.is_null() || loaded->is_class("Script") || loaded->is_class("PackedScene") || !EditorInterface::get_singleton()->is_object_edited(loaded.ptr())) {
+		return false;
+	}
+	const std::optional<FileStat> stat = file_stat(p_path);
+	const Ref<Resource> file = stat && stat->size > 0 ? ResourceLoader::get_singleton()->load(path, loaded->get_class(), ResourceLoader::CACHE_MODE_IGNORE) : Ref<Resource>();
+	return file.is_null() || stored(file) != stored(loaded);
 }
 
 Held Held::of(const std::set<std::string> &p_files, const std::set<std::string> &p_own, bool p_clients) {

@@ -1857,6 +1857,10 @@ def check_rename_written(client, project, uri, editor):
     for document in [weapon, gunner]:
         client.notify("textDocument/didClose", {"textDocument": {"uri": document}})
     time.sleep(1)
+    # Read again as written, blaster.tres holds what its file does, though
+    # reading it raised the editor's flag of an edit.
+    reverse = (client.request("petrichor/run", {"command": "migrate", "args": ["--reverse", "--dry-run", "--allow-dirty"]}) or {}).get("result", {}).get("output", "")
+    expect("lsp: a resource Godot read again as written has no unsaved changes for a migration", "weapon.pet → weapon.gd" in reverse.splitlines() and "blaster.tres: error:" not in reverse, reverse)
     (project / "check").touch()
     saved = editor.wait_for(b"lsp check: saved")
     held = re.findall(r"lsp check: (\S+) (\S+)", editor.output.decode("utf-8", "replace"))
@@ -2031,10 +2035,11 @@ def check_conflicts(client, project, editor, port):
     once it changes on disk, and stays open while it is empty, as a writer that
     truncates it leaves it, also as another file written meanwhile has Godot
     scan the files. Then note.pet, given an unsaved change in a tab,
-    changed and then deleted, arena.tscn, given one, and ramp.tres, edited
-    through the undo history, conflict. Each is told once to every session and
-    listed on request, and a rename that must save arena.tscn is refused. A
-    conflict ends once its file is back as Godot saw it; ramp.tres stays edited."""
+    changed and then deleted, and arena.tscn, given one, conflict. Each is
+    told once to every session and listed on request, and a rename that must
+    save arena.tscn is refused. A conflict ends once its file is back as Godot
+    saw it. ramp.tres, edited through the undo history, is told that the file
+    replaced the edit, and Godot holds what the file does once it reads it."""
     disk = LspClient(port)
     disk.initialize(view="disk")
     arena, note = project / "arena.tscn", project / "note.pet"
@@ -2118,8 +2123,8 @@ def check_conflicts(client, project, editor, port):
     resource = unsaved()
     replaced = told(client)
     expect(
-        "lsp: a resource edited in Godot that changed on disk is a conflict, told that the file replaced the edit",
-        resource == {"note.pet": True, "arena.tscn": True, "ramp.tres": True} and replaced and "res://ramp.tres" in replaced and "replaced" in replaced,
+        "lsp: a resource edited in Godot that changed on disk is told that the file replaced the edit, and is then no conflict",
+        resource == {"note.pet": True, "arena.tscn": True} and replaced and "res://ramp.tres" in replaced and "replaced" in replaced,
         f"{resource}\n{replaced}",
     )
 
@@ -2128,8 +2133,8 @@ def check_conflicts(client, project, editor, port):
     ended = unsaved()
     disk.socket.close()
     expect(
-        "lsp: a conflict ends once its file is again as Godot saw it, but an edited resource's lasts until Godot saves it",
-        ended == {"note.pet": False, "arena.tscn": False, "ramp.tres": True},
+        "lsp: a conflict ends once its file is again as Godot saw it",
+        ended == {"note.pet": False, "arena.tscn": False},
         str(ended),
     )
 

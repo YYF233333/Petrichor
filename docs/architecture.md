@@ -754,13 +754,15 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 服务不持有未保存文本：跨文件重构直接把改动脚本写盘（先保存受影响的未保存改动，撤销同样写盘），只改一个已打开脚本时仍走其标签页编辑。VS Code 默认在多文件重构后保存文件（§2.4），Godot 移动文件时也直接改写依赖文件（`editor/docks/filesystem_dock.cpp:1676-1705`）。
 
 - **冲突判定与上报**：服务读回磁盘改动（§2.4）或察觉文件删除时，若 Godot 对该文件有未保存改动即记为冲突。
-  - Godot 未保存改动分三类：未保存脚本标签页、`get_unsaved_scenes()` 中的已打开场景，以及已加载且 `is_object_edited()` 为真的外部资源（脚本和场景除外，随场景一并保存，`editor/script/script_editor_plugin.cpp:2408-2418`，`editor/editor_interface.cpp:719-722, 738-748`，`editor/editor_node.cpp:2374-2408`）。【已知限制】只看文件主资源，只改子资源时看不到，编辑器却按文件保存（`editor/editor_node.cpp:2379-2388`）。
+  - Godot 未保存改动分三类：未保存脚本标签页、`get_unsaved_scenes()` 中的已打开场景，以及内容与文件不同的已加载外部资源（脚本和场景除外，随场景一并保存，`editor/script/script_editor_plugin.cpp:2408-2418`，`editor/editor_interface.cpp:719-722, 738-748`，`editor/editor_node.cpp:2374-2408`）。【已知限制】只看文件主资源，只改子资源时看不到，编辑器却按文件保存（`editor/editor_node.cpp:2379-2388`）。
+    - 资源的编辑标记 `is_object_edited()` 只说明 Godot 下次保存会写这个文件。`set()`、读回文件和在检查器展开分组都会立起它，只有保存才放下（`core/object/object.cpp:233-237, 1800-1803`，`core/io/resource.cpp:234-275`，`editor/editor_node.cpp:2372-2390`，`ed1daf0`）。
+    - 所以标记为真时，服务按文件另读一份，比较两者经 `var_to_str()` 写出的存储属性（`core/variant/variant_parser.cpp:2175-2233`）。文件读不出时算作不同。
   - 冲突一直持续到 Godot 保存、关闭或重载该文件，或磁盘内容回到编辑器上次所见。察觉时立即提示且每个冲突只提示一次：Godot 弹出提示框（`editor/gui/editor_toaster.cpp:563`），每个会话（含代理所在的磁盘视图）收到 Warning 级 `window/showMessage`，均写明文件。
   - 两视图客户端都可发 `petrichor/unsavedFiles` 查询 Godot 未保存文件列表（URI 及是否冲突）；因没有列出已加载资源的绑定，外部资源只在冲突时列出。
 - **用户取舍与引擎边界**：服务不自动合并也不替人决策，取舍留给 Godot 的原生对话框。
   - 重获焦点时 Godot 按修改时间检出冲突并弹出三按钮对话框：从磁盘重载、忽略外部改动（保存 Godot 版本）或取消（两边留着，`editor/script/script_editor_plugin.cpp:803-850, 4118-4142`，`editor/editor_node.cpp:1550-1591, 9354-9382`）。读回不动未保存标签页、场景及其修改时间，对话框照常弹出。
   - 【已知限制】保存场景若顺带保存了编辑过的脚本，编辑器会重记每个脚本标签页的修改时间（`editor/editor_node.cpp:2411-2413`，`editor/script/script_editor_plugin.cpp:2504-2510`）。此后冲突标签页不再弹窗，下次保存会写掉磁盘改动；服务仍列出该冲突，重构也继续拒绝。
-  - 对编辑过的外部资源，引擎重获焦点时不询问而是直接重读丢掉改动（`editor/file_system/editor_file_system.cpp:1018-1025`，`editor/editor_node.cpp:1291-1323`）。服务只是更早读回并提示磁盘替换了未保存改动，资源仍标为编辑过直到 Godot 保存它。
+  - 对编辑过的外部资源，引擎重获焦点时不询问而是直接重读丢掉改动（`editor/file_system/editor_file_system.cpp:1018-1025`，`editor/editor_node.cpp:1291-1323`）。服务只是更早读回并提示磁盘替换了未保存改动。读回后资源与文件相同，不再算作未保存改动。【已知限制】提示比较的是改动后的文件，所以只有编辑标记、内容未改的资源在磁盘变动时也会收到这条提示。
   - 文件被删时引擎不为场景询问（`editor/editor_node.cpp:1565-1567`），服务提示在 Godot 按 Ctrl+S 会把它写回。无未保存改动的已打开场景文件变了就直接重载并清空历史（`editor/editor_node.cpp:7143-7151`）。服务发起的保存遇冲突直接拒绝并列文件，重构须先保存项有冲突时什么都不改（§2.3）。
 - **在此之前要守住**：分析可按任一视图读项目（`Analysis::Pass`），检查不读视图外状态。新命令做成服务请求，无界面参数只作无服务退路并共用代码；编辑器不再增加自有未保存文本。
 
