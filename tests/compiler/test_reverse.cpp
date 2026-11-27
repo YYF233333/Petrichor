@@ -173,6 +173,16 @@ TEST_CASE("converting a class takes its inheritance tree, which a file that cann
 	CHECK(reversal.unknown == std::vector<std::string>{ "res://none" });
 }
 
+TEST_CASE("a tree that stays lists the places of each file that cannot convert") {
+	FakeProject project;
+	project.add_script("res://base.pet", "class_name Base\nextends Node\nstruct Hit:\n\tvar damage: int\n", "Base");
+	project.add_script("res://child.pet", "extends Base\nstruct Loot:\n\tvar gold: int\n");
+	const compiler::Reversal reversal = compiler::reverse(fake_engine(), project, {});
+	CHECK(reversal.left_out == Pairs{ { "res://base.pet", "it cannot convert, as listed" }, { "res://child.pet", "it cannot convert, as listed" } });
+	REQUIRE(reversal.refused.size() == 2);
+	CHECK(reversal.refused[1].file == "res://child.pet");
+}
+
 // As the FPS kit's scenes/main.tscn connects a signal to scripts/hud.pet.
 TEST_CASE("an error that a check of a scene reports keeps the file") {
 	FakeProject project;

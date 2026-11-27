@@ -1681,25 +1681,26 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 		}
 		return false;
 	};
-	// The file of a tree that cannot convert, or "".
+	std::set<std::string> cycled; // The files whose static reads are checked.
+	// The first file of a tree that cannot convert, or "", each file's
+	// refusals found.
 	const auto refusing = [&](const std::string &p_root) {
+		std::string first;
 		for (const std::string &file : trees[p_root]) {
-			if (!convert(file).refused.empty()) {
-				return file;
-			}
-		}
-		for (const std::string &file : trees[p_root]) {
+			convert(file);
 			Converted &each = converted.at(file);
-			for (const StaticRead &read : each.static_reads) {
-				if (cycles(read)) {
-					each.refused.push_back(read.at);
+			if (cycled.insert(file).second) {
+				for (const StaticRead &read : each.static_reads) {
+					if (cycles(read)) {
+						each.refused.push_back(read.at);
+					}
 				}
 			}
-			if (!each.refused.empty()) {
-				return file;
+			if (first.empty() && !each.refused.empty()) {
+				first = file;
 			}
 		}
-		return std::string();
+		return first;
 	};
 
 	// The trees asked for, and those that the files converted access at class
@@ -1758,12 +1759,8 @@ Reversal reverse(const EngineApi &p_engine, const ProjectApi &p_project, const s
 	const auto mark = [&](const std::string &p_root, const std::string &p_keeping, const std::string &p_why) {
 		for (const std::string &file : trees[p_root]) {
 			const Converted &each = convert(file);
-			if (file == p_keeping) {
-				result.left_out.emplace_back(file, p_why);
-				result.refused.insert(result.refused.end(), each.refused.begin(), each.refused.end());
-			} else {
-				result.left_out.emplace_back(file, "in the inheritance tree of " + p_keeping + ", which stays");
-			}
+			result.left_out.emplace_back(file, file == p_keeping || !each.refused.empty() ? p_why : "in the inheritance tree of " + p_keeping + ", which stays");
+			result.refused.insert(result.refused.end(), each.refused.begin(), each.refused.end());
 		}
 	};
 	for (const auto &[root, keeping] : held) {
