@@ -645,7 +645,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **存储**：两者在引擎边界编码为按字段名的 Dictionary，带载荷 enum 以 `"$variant"` 记分支名（规范 §10.1）。场景保存时经 `get` 读出、实例化时经 `set` 交由脚本实例入口检查解码，无需改动引擎（`scene/resources/packed_scene.cpp:494, 861-883`，`core/object/object.cpp:239-246`）。
   - 值为 `None` 的 `T?` 字段是否写键由声明定出（`keeps_none_key()`，`src/compiler/ast.h`）。编译器把它记在字节码类型表的字段上（`FieldDesc::keeps_none_key`），运行时编码与检查器默认值由此出自同一判定。类型键不含这一标记，只改默认值的热重载不改变类型。
   - 调试器同样显示编码后的值，所以也看不到省略了键的字段。
-- **编辑**：第一版复用检查器通用字典编辑器，能编辑但不按类型（`editor/inspector/editor_properties.cpp:4280-4287`）。按类型的面板随第 8 步后一段由本扩展注册的 EditorInspectorPlugin 提供，属性提示字符串写明类型（`editor/inspector/editor_inspector.h:356, 360`，`editor/plugins/editor_plugin.cpp:674`）。因为通用字典编辑器总把提示字符串读作键值类型（`editor/inspector/editor_properties_array_dict.cpp:1203-1226`），字符串写作 `0:类型名`，以 `0` 使键保持无类型。
+- **编辑**：第一版复用检查器通用字典编辑器，能编辑但不按类型（`editor/inspector/editor_properties.cpp:4280-4287`）。按类型的面板由本扩展注册的 EditorInspectorPlugin 提供（尚未实现，见 `BACKLOG.md`），属性提示字符串写明类型（`editor/inspector/editor_inspector.h:356, 360`，`editor/plugins/editor_plugin.cpp:674`）。因为通用字典编辑器总把提示字符串读作键值类型（`editor/inspector/editor_properties_array_dict.cpp:1203-1226`），字符串写作 `0:类型名`，以 `0` 使键保持无类型。
 - **默认值**：成员初始值由常量、构造和字段常量默认值组成时，编译器生成算出其编码的代码（反射函数，§2.2），作为检查器的默认值和还原值。由代码算出的初始值没有默认值，与 GDScript 相同（`modules/gdscript/gdscript_analyzer.cpp:5652-5661`）。热重载不另比较初始值：成员从字段常量默认值开始时，初始化函数也含这些默认值。
 - **值转换与静态检查**：场景和 `.tres` 存下的导出值由资源检查（§6.4）按导出类型核对（规范 §4.3），值不符报在节点上，资源上的报在文件上。编译期接受的值与运行时 `set` 写入一致，反映引擎先转换容器再交入口检查的规则：
   - 成员持有容器时，引擎先把存下的 Array 和 Dictionary 转为目标类型（`scene/resources/packed_scene.cpp:450-482`，`core/variant/array.cpp:217-280`）。转换后元素按引擎类型检查（对象元素可为 null，`int` 元素可来自整数值 float），有损或改义转换（如 `1.5` 或 `bool` 转 `int`）仍报编译错误。
@@ -737,7 +737,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 
 命令行客户端 `pet` 不依赖 Godot，源码在 `src/pet/`，由 `scons` 编辑器构建产出并随插件分发。它须与插件同属一次构建，存放在 `addons/petrichor/bin/`，从 `bin/` 向上三层即项目根（与当前目录无关）。因片段管理器 knqyf263/pet 同名，文档一律写项目内路径，由 `addons/petrichor/pet`（sh）与 `pet.cmd`（Windows）按系统选出二进制。有编辑器开着时，命令直接复用其服务，不再另起进程。
 
-- **命令与统一输出**：提供 `check`（磁盘视图检查，不写字节码）、`build`（检查并写字节码）、`format [--check]`（格式化或仅列未格式化文件）、`migrate [--dry-run] [<路径>...]`（迁移 GDScript，§6.6）以及 `lsp`（stdio 转接）。
+- **命令与统一输出**：提供 `check`（磁盘视图检查，不写字节码）、`build`（检查并写字节码）、`format [--check]`（格式化或仅列未格式化文件）、`migrate [--reverse] [--dry-run] [--allow-dirty] [<路径>...]`（迁移 GDScript，§6.6）以及 `lsp`（stdio 转接）。
   - 前三个命令在经服务与无界面模式下共用输出与退出码逻辑：每条错误、警告或提示占一行（如 `player.pet:12:5: error: 消息`，路径从项目根起用 `/` 分隔，列按码点从 1 计）。经服务时每个冲突先占一行 `warning:`（不改退出码），末行打印计数（如 `petrichor check: 3 script(s), 2 scene(s), 0 resource file(s), 1 with errors`）。
   - 退出码：0 表示无错误；1 表示有错误（`format --check` 时也表示有未格式化脚本）；2 表示没能运行（如构建标识不符、找不到 Godot 或连接被拒绝）。
 - **经服务执行与构建标识**：`pet` 读 `lsp.json`（进程不在或连不上则视作无服务），以磁盘视图 `initialize` 后发 `petrichor/run`（参数 `{command, args}`）。服务先比对文件再返回 `{output, exitCode}`。命令与无界面退路一样等编辑器的文件扫描结束才运行，比对引起的扫描也等。扫描期间编辑器推迟登记全局类，其间写下的脚本会按旧的全局类编译（`editor/file_system/editor_file_system.cpp:1074, 2552-2554`，`ed1daf0`）。请求留到之后的帧再处理，不阻塞扫描收尾所在的主线程。经服务格式化按重构方式写盘（先记文件、标签页再跟上，§2.3），但凡 Godot 或人的视图会话对某文件有未保存改动，就不写该文件并列为错误、退出码为 1。
@@ -745,7 +745,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **无服务退路**：无服务时 `pet` 运行 `godot --headless -e --path <项目> -- --petrichor-<命令>`，通过 `--petrichor-output=<文件>` 拿取首行为退出码的完整输出，与经服务逐字节一致。
   - 输出文件先写临时名再改名，即使编辑器退出时崩溃（godot#111048）结果仍完整可用。引擎横幅、进度和错误写进 `.godot/petrichor/pet.log`（每次重写）；无输出文件时 `pet` 打印日志末 20 行、写明日志路径并以 2 退出。
   - 项目缺少 `.godot/` 时先跑 `--headless --import`（忽略其退出码，godot#111048，输出同样进日志）。编辑器路径优先取 `--godot <路径>`，否则读有界面编辑器留下的 `.godot/petrichor/editor_path`（编辑器退出后保留，`lsp.json` 则删除）。无服务且没有可用记录时须传入 `--godot`，例如全新的 CI 工作区。
-  - 子进程在 Windows 上放进随 `pet` 结束的作业，其他系统随终止信号停掉。【已知限制】无界面服务暂不常驻在命令之间，大项目每次命令都要重开项目，耗时 80 到 150 秒。
+  - 子进程在 Windows 上放进随 `pet` 结束的作业，其他系统随终止信号停掉。【已知限制】无界面服务暂不常驻在命令之间，每次命令都要重开项目。
 - **`pet lsp` 转接**：在 stdio 与服务 socket 间双向透明转发字节，不改写消息，客户端照常在 `initialize` 中选视图。无服务时启动 `godot --headless -e --path <项目> -- --petrichor-lsp` 并等 `lsp.json` 出现，进程输出写进 `.godot/petrichor/lsp.log` 避免不读 stderr 的客户端撑满管道卡死，stdin 关闭时按进程号停掉该进程。
 
 #### 跨端冲突检测与取舍

@@ -48,7 +48,9 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - Types inferred over the whole project and written down. Parameters, returns, members, locals, signal parameters and the elements of empty containers are typed, from code and from scenes. Left:
     - the calls from GDScript files outside the set, whose untyped arguments make a type's evidence incomplete;
     - an error of the candidate check at the range of another that is about a declaration elsewhere, as a value from a method not yet `pub` that does not fit (architecture §6.6). It withdraws nothing now. Taken as any other error, it would withdraw tanks-of-freedom-ii's `maps` and `online`, written `:= {}` and assigned what `read_json_from_file()` gives (`scripts/services/map_manager.gd:18, 21, 61-62`). Those are types a person would write, so it stays until a rule tells such errors apart.
+    - `resize()` on an array that the tool types, as `Array[int]`. GDScript fills the new elements with null, the typed array with 0, and the inference counts no inflow of null there. Whether it should is open: a variable's implicit null does not count (architecture §6.6).
   - The rewrites that the survey showed. Left: a property written on an `Object?` keeps its error without `.unwrap()` (architecture §6.6). That fix tries the write unwrapped, which checks only once `set()` is written. None of the three games has one.
+    - A class with a method named as one of `T?`'s, as `unwrap`, `expect`, `map`, `filter` or `or`. Once the tool writes a value of the class as `T?`, a call of that method binds to the method of `T?` without an error. Such a call needs `.unwrap()` before it. Count these method names in the corpus first.
 - Reverse conversion, and the round trips of FPS, Ring and deck_builder_tutorial (architecture §5, step 11). The command, the git check, the trees, the rewrites and the re-parse check are in. Each migration group converts its game back and runs it: all files of the three games convert. Forms that still refuse their file, which they do not meet:
   - methods of `T?` on more than a name or with an argument that may have effects, and `expect()` but as what a variable or a name takes;
   - `:=` of a value that GDScript reads untyped, which it cannot infer;
@@ -132,7 +134,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - On Windows, `--petrichor-build` cannot copy the extension's library while an editor has the same project open. Each editor process loads a copy named `~<library>`, which the open editor holds (`platform/windows/os_windows.cpp:488-504`, `core/extension/gdextension_library_loader.cpp:196`, `ed1daf0`).
   - The build still runs and prints its result. The process then ends with 0xC0000005 instead of its own exit code (two headless editors, 11-19).
   - The same holds for any second editor process on the project, such as a language server started apart from the editor.
-- For 0.4: the headless service that stays between commands and yields to an editor opened later (architecture §6.5). On Windows such an editor lacks this language while the service runs, as above. Both processes also write the same `.godot/`. A large project takes 80–150 s to open headless.
+- For 0.4: the headless service that stays between commands and yields to an editor opened later (architecture §6.5). On Windows such an editor lacks this language while the service runs, as above. Both processes also write the same `.godot/`. Without it each command opens the project again: 2.6 s for the generated project of 1000 scripts, about 7 s for tanks-of-freedom-ii (Performance).
   - First a probe: what the analysis lacks in a process started without `-e`, which loads the library without the copy.
   - Two `pet` commands at once without a service each start a headless editor, and they share `pet.out` and `pet.log` (`run_headless` in `src/pet/pet.cpp`). The service should make the second wait for the first or use it.
 - For 0.4: builds for Godot 4.4 to 4.6 (architecture §6.3). Compiled against their extension APIs, 7 of the 19 units that use godot-cpp fail on 4.4, and 4 on 4.5 and 4.6. Of the library for exported games, only `duplicate_deep` fails, on 4.4.
@@ -171,7 +173,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - A quick fix adding the constructor for the other implicit conversions of GDScript that this language drops, as `Vector2i(v)` for a Vector2 (spec §3.14). An Array into a packed array and a float into an int have one.
 - The quick fix of spec §7.2 for a `$X` that no scene has: store the node in a typed member where it is added, as `var tetromino: Tetromino?`. No fix is offered now. The places that add the node are not known to the check.
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
-- With the lints of 0.3, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6, design-notes).
+- With the lints of 0.4, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6, design-notes).
   - Examples are `next_slot().value = compute()`, whose calls run in another order in GDScript, and `arr[i] = next()` with `next()` assigning `i`.
   - It needs a rule in the spec and a count of its noise in the corpus first.
 - When lints are added, consider a hint on assignments to must-assign members right after `new()`. Named arguments of `new(...)` would let the compiler check them (spec §6.2).
@@ -186,21 +188,15 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - Declarations that are not pub show in the editor's help beyond their own file. The engine's documentation has no visibility (`core/doc_data.h:698-720`, `ed1daf0`). Keeping them to their own file needs support from the engine, to be sought later.
   - Structs, interfaces and inner classes have documentation classes of their own, which the whole project searches (`editor/doc/editor_help_search.cpp:113`).
   - Enums and members are listed on their class's page.
-- The two-way migration tool (spec §1.2, §13.4), planned for 0.3.
-  - Its design is in architecture §6.6. It infers missing types over the whole project, from what flows into each slot.
-    - Measure the inferred share on the corpus as each step lands.
-    - In three games renamed as they are, 990 parameters, 204 return types and 139 members lack a type. Nearly all are in tanks-of-freedom-ii.
-    - The inference types 1647 of tanks-of-freedom-ii's 2266 slots, and its errors fall from 5971 to 2684. Of the slots left without a type, 619 got types that do not check, mostly `Variant`. 47 of them name classes without `class_name`, and most meet errors of the class they name, such as the board's.
-    - Members that the scenes type and other files read stay unknown there, such as `map.camera` (72 reads), `ui.picker` (43) and `ui.radial` (33).
-  - Rewrites that those games need:
-    - a member that the value's static type lacks, as after `get_collider()` or `instantiate()` (99 uses; architecture §6.6).
-  - Reverse conversion writes types GDScript can express. A nested typed container becomes `Array[Array]`, and a narrower result such as `map`'s goes through `assign()`.
+- The two-way migration tool (spec §1.2, §13.4; architecture §6.6). "Next release" lists what 0.3 takes. Beyond it:
+  - Members that the scenes type and other files read stay unknown in tanks-of-freedom-ii, such as `map.camera` (72 reads), `ui.picker` (43) and `ui.radial` (33).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
-  - A two-level Option compared with `null` becomes `get(k, null) == null` or `.unwrap_or(null) == null`, which mean the same in both languages (spec §3.4).
-  - A file that stays in GDScript, as one with `@tool`, keeps the files it accesses at class level in GDScript, with their trees (architecture §6.6). Should the migration instead take them, and report the GDScript file that then breaks?
+  - Two rewrites of reverse conversion do a thing at another time than the source does (`src/compiler/reverse.cpp`):
+    - `filter(p)` on a member of type `T?` reads the member again after `p.call(x)`, so a predicate that assigns the member changes the result. Rewriting it only for locals and parameters closes that;
+    - `expect(message)` becomes an `assert` after the assignment. A message that reads the target or has effects then differs when the value is there, and a release build drops the assert (`modules/gdscript/gdscript_compiler.cpp:2181-2198`, `ed1daf0`). Candidates: the assert before the assignment when the receiver is a name, or refusing only such messages.
   - Reverse conversion could also have Godot's GDScript compiler check what it writes, and restore the files when that fails, as `cargo fix` does. First check whether an extension can check one GDScript file. It only finds output that does not compile, which a person sees on opening the project anyway, so it comes after the re-parse check (architecture §6.6).
 - Before 1.0, localize the items this extension adds to the code editor's context menu, "Find References" and "Format" (`src/adapter/editor/pet_editor_plugin.cpp`).
-- When quick fixes insert `@warning_ignore` (0.3), place it after leading doc comments so `##` stays attached to the declaration.
+- When quick fixes insert `@warning_ignore` (0.4), place it after leading doc comments so `##` stays attached to the declaration.
 - Class reference XML for the public classes `CoroutineTask` and `PetScript`, or making `PetScript` internal if F1 does not need it (`src/adapter/register_types.cpp:55-57`).
 - A bottom panel listing the errors that keep the project from running, wanted in 0.3 or later. A click opens the file at the line.
   - Now the errors reach only the Output panel and a toast (`src/adapter/editor/script_compiler.cpp:62`).
@@ -224,6 +220,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - Such trees hold 44% of godot-open-rpg's scripts, and 6% of the scripts of corpus v1's games ([corpus-counts](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)).
 - The suites on Godot 4.8's release candidate, with its changes checked one by one. They pass on beta3 (`c51ff06e8`), which stands in until then. The 0.1 release notes promise to follow the 4.8 release at once.
   - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
+- The `reverse` group of the language tests asks the converter itself which scripts it converts, then converts those (`tests/engine/run.py`). A script that it newly refuses only leaves the set, and the group passes. The three games guard real code, as each must convert with nothing left out. Give the group its expected refusals, or a floor on the number converted.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
 - Before supporting engines other than 4.7, an engine test that constant folding agrees with the engine. The compiler folds about 15 groups of math functions with its own copies, as `posmod`, `wrapi`, `snapped` and `step_decimals` (`src/compiler/constant.cpp`). The test compares each as a constant and in a function body.
 - On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8, and only the `game` and `language` groups: all of them took ten minutes of CI's fifteen.
@@ -387,7 +384,8 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - After 0.3 and before 0.9: user-defined generics (spec §3.10, §14.3, design-notes §1.1). Their definitions stay in their own modules (architecture §6.1).
 - Tuples as a feature of their own, and whether `await Task.all([...])` then returns the results of its tasks (spec §9.5, §14.2). No real code asks for them yet.
   - Before them, `AWAIT_TASK` and `AWAIT_SIGNAL` must carry the type of their result, as other instructions with a result do. Now the VM searches the frame's slots on each resume.
-- Before the migration tool of 0.3: how many GDScript files migrating one class drags along in the games of corpus v2. GDScript cannot call this language's static methods or use its enums in types (spec §11.3). If the number is large, the tool generates forwarding shells in 0.3.
+- A file that stays in GDScript, as one with `@tool`, keeps the files it accesses at class level in GDScript, with their trees (architecture §6.6). Should the migration instead take them, and report the GDScript file that then breaks?
+- GDScript cannot call this language's static methods or use its enums in types (spec §11.3). The migration takes the files that do so along with the class (spec §13.4).
   - The proper fix is upstream: [godot#118595](https://github.com/godotengine/godot/pull/118595) for static methods has waited for review since July. Enums in types need a change of their own.
   - Engines older than the fix keep the restriction, back to 4.4 (architecture §6.3).
   - GDScript cannot read an enum's values by name either, as `Room.Type.B`. Its analyzer types a constant of another language's script as a type of the value's kind, not as the value (`modules/gdscript/gdscript_analyzer.cpp:4321-4329`, `ed1daf0`). So `Room.Type == {...}` compiles, while `Room.Type.B` and `Room.Type.keys()` do not; spec §11.3 lists the forms that work. An upstream issue is to be filed later.
