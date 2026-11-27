@@ -59,7 +59,7 @@ void PetLanguage::_finish() {
 	// variables with it (modules/gdscript/gdscript.cpp:1343, 1453, 1471,
 	// 2239-2265; ed1daf0).
 	for (const Ref<PetScript> &script : PetScript::loaded()) {
-		if (const std::shared_ptr<const ClassImage> image = script->get_image()) {
+		if (const std::shared_ptr<const ClassImage> image = script->is_pending() ? nullptr : script->get_image()) {
 			image->clear_values();
 		}
 	}

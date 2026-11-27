@@ -37,8 +37,8 @@ compiler::Analysis &analysis() {
 
 std::shared_ptr<const ClassImage> compile_script(const String &p_path, const String &p_source, std::vector<compiler::Diagnostic> *r_errors, bool p_report, compiler::CheckMode p_mode, std::vector<compiler::Diagnostic> *r_warnings, String *r_load_error) {
 	std::shared_ptr<const compiler::CompileResult> result;
-	// Loads, which compile declarations, take no part in the analysis, whose
-	// passes take a lock while they load scenes.
+	// Declarations, compiled when a loaded script is first asked about, take
+	// no part in the analysis, whose passes take a lock while they load scenes.
 	std::optional<compiler::Analysis::Pass> analysis_pass;
 	if (p_mode == compiler::CheckMode::Program) {
 		analysis_pass.emplace(analysis());
@@ -47,7 +47,7 @@ std::shared_ptr<const ClassImage> compile_script(const String &p_path, const Str
 		compiler::CompileOptions options;
 		options.path = to_utf8(p_path);
 		options.mode = p_mode;
-		// While loading, the compiler asks for no scenes, only classes and sources.
+		// Maybe inside a load, the compiler asks for no scenes, only classes and sources.
 		options.project = &SceneIndex::get();
 		result = std::make_shared<const compiler::CompileResult>(compiler::compile(to_utf8(p_source), ClassDBApi::get(), options));
 	}

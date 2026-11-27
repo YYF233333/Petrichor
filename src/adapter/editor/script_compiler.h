@@ -24,7 +24,8 @@ namespace petrichor {
 // what it sees (compiler::Analysis::View).
 compiler::Analysis &analysis();
 
-// Compiles a script in the editor; CheckMode::Declarations while it is being
+// Compiles a script in the editor; CheckMode::Declarations at the first
+// question about a loaded script, which may come while a file is being
 // loaded, when the scenes that use it cannot be loaded
 // (core/io/resource_loader.cpp:1049-1056). Returns null when there are
 // errors; with `p_report`, each error is printed as a script error at its line.

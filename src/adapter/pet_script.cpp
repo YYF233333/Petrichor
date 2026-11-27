@@ -271,6 +271,7 @@ String PetScript::get_script_path() const {
 }
 
 Ref<PetScript> PetScript::get_inner_script(const StringName &p_name) const {
+	compile_pending();
 	std::lock_guard<std::mutex> lock(mutex);
 	const auto found = inner_scripts.find(p_name);
 	return found == inner_scripts.end() ? Ref<PetScript>() : found->value;
@@ -299,13 +300,33 @@ void PetScript::update_inner_scripts(const std::shared_ptr<const ClassImage> &p_
 }
 
 std::shared_ptr<const ClassImage> PetScript::get_image() const {
+	compile_pending();
 	std::lock_guard<std::mutex> lock(mutex);
 	return image;
 }
 
 std::shared_ptr<const ClassImage> PetScript::declared() const {
+	compile_pending();
 	std::lock_guard<std::mutex> lock(mutex);
 	return image ? image : last_good;
+}
+
+// For its declarations only, as the question may come while another file
+// loads (architecture §2.4). A question from another thread meanwhile waits
+// for the image; one from this thread, as the image is set, gets it.
+void PetScript::compile_pending() const {
+#ifdef TOOLS_ENABLED
+	if (compile_state == CompileState::Compiled) {
+		return;
+	}
+	std::lock_guard<std::recursive_mutex> lock(compiling);
+	if (compile_state != CompileState::Pending) {
+		return;
+	}
+	compile_state = CompileState::Compiling;
+	const_cast<PetScript *>(this)->set_image(compile_script(get_script_path(), source, nullptr, true, compiler::CheckMode::Declarations));
+	compile_state = CompileState::Compiled;
+#endif
 }
 
 void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
@@ -313,9 +334,16 @@ void PetScript::set_loaded(const String &p_source, const std::shared_ptr<const C
 	described = p_source;
 	header = Engine::get_singleton()->is_editor_hint() ? parse_header(p_source) : PetHeader();
 	set_image(p_image, p_base);
+	if (!p_image && Engine::get_singleton()->is_editor_hint()) {
+		compile_state = CompileState::Pending;
+	}
 }
 
 void PetScript::set_image(const std::shared_ptr<const ClassImage> &p_image, const Ref<PetScript> &p_base) {
+	std::lock_guard<std::recursive_mutex> compile_lock(compiling);
+	if (compile_state == CompileState::Pending) {
+		compile_state = CompileState::Compiled;
+	}
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		// In the game a new image of the class has the same declarations
@@ -416,8 +444,10 @@ bool PetScript::apply_image(const std::shared_ptr<const ClassImage> &p_image, co
 	std::vector<std::pair<Ref<PetScript>, std::shared_ptr<const ClassImage>>> updates;
 	String error;
 	for (const Ref<PetScript> &script : loaded()) {
-		if (script.ptr() == this || !script->inner_path.is_empty()) {
-			continue; // An inner class takes its image with its file's.
+		// An inner class takes its image with its file's, and a pending script
+		// compiles against this one when asked.
+		if (script.ptr() == this || !script->inner_path.is_empty() || script->is_pending()) {
+			continue;
 		}
 		const auto old = script->get_image();
 		bool dependent = old && depends_on(*old, p_image->path);
@@ -830,7 +860,7 @@ Variant PetScript::_get_property_default_value(const StringName &p_property) con
 // passes, and asks for the exports (editor/script/script_text_editor.cpp:874-878),
 // as packing a scene asks too (scene/resources/packed_scene.cpp:982,
 // scene/property_utils.cpp:156-161; ed1daf0). A text not compiled yet is
-// compiled as loading does, so that the placeholders take the members it
+// compiled for its declarations, so that the placeholders take the members it
 // declares, and those of the scripts extending it, as GDScript's do
 // (modules/gdscript/gdscript.cpp:630-655; ed1daf0). Nothing is saved, so the
 // game does not reload.

@@ -282,12 +282,17 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - Renaming a local takes 0.2 to 0.27 s. The script editor's check of a script on a node takes 3 to 4 ms unchanged and 0.22 to 0.32 s after a keystroke.
     - Each pass lists every scene and parses the header of each script on a node.
     - After a keystroke a check makes two such passes: compiling the script, and collecting the scenes' errors in it (`Analysis::placed_errors`).
-  - tanks-of-freedom-ii as the tool migrates it, 292 scripts with 2,488 errors, opens in 9.1 s. The GDScript original takes 4.4 s. Its build takes 14.8 s, and a check after a keystroke 0.51 to 0.64 s. Opening its main scene takes 6.5 s of that:
-    - about 3.0 s compile 184 scripts as they load. A load in the editor compiles the script's declarations each time, outside the analysis, and its base's again (`compile_script` in `src/adapter/editor/script_compiler.cpp`). About 1.2 s of it print 442 declaration errors, each load anew;
+  - tanks-of-freedom-ii as the tool migrates it, 292 scripts with 2,488 errors, opened in 9.1 s. The GDScript original takes 4.4 s. Its build took 14.8 s, and a check after a keystroke 0.51 to 0.64 s. Opening its main scene took 6.5 s of that:
+    - about 3.0 s compiled 184 scripts as they loaded, each outside the analysis and with its base chain again (`compile_script` in `src/adapter/editor/script_compiler.cpp`). About 1.2 s of it printed 442 declaration errors, each once;
     - about 1.1 s are the engine reading scenes and their resources;
     - about 2.4 s are instancing and this language's reading of the scenes. After the main scene, a pass reads every scene of the project.
-  - Next, on the owner's choice: compile scripts lazily on load and keep the result, as GDScript's cache does. It serves every load, of binary scenes and after a rename too. Its estimate for tanks-of-freedom-ii is 2.2 s of the 6.5, to be measured.
-    - Left: reading the structure from the scene text, so that a text file loads no script. Its estimate is 3.3 s. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores.
+  - Now a script in the editor compiles its declarations at the first question about it, not as it loads (architecture §2.4). Measured back to back with the library of `bad1360`:
+    - tanks-of-freedom-ii opens in 6.8 to 7.1 s, from 8.6 to 9.0 s. Its main scene takes 4.1 to 4.4 s, from 6.0 to 6.3 s, against an estimate of 2.2 s less.
+    - Of the 184 scripts that opening loads, 51 compile: the 13 autoloads and those of the scenes it instances. It prints 86 script errors instead of 442.
+    - Its build takes 12.8 s, from 15.7 s. The generated project builds in 8.1 to 8.6 s, from 8.4 to 9.2 s.
+    - Opening a script of the generated project in the script editor takes 0.87 to 0.91 s, from 1.12 to 1.15 s. Its scenes still load 600 scripts, which compile no more.
+    - GDScript compiles a script at its first load (`modules/gdscript/gdscript_resource_format.cpp:39-55`, `ed1daf0`). It needs no deferring, as it loads only the scenes it instances.
+  - Next: reading the structure from the scene text, so that a text file loads no script. Its estimate is 3.3 s. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores.
   - Then CI holds these times to a budget (architecture §5, step 11).
   - Not measured again, on the generated project, from before a pass held what it reads:
     - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;

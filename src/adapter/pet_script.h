@@ -7,6 +7,7 @@
 #include <godot_cpp/templates/hash_map.hpp>
 #include <godot_cpp/templates/hash_set.hpp>
 
+#include <atomic>
 #include <memory>
 #include <mutex>
 
@@ -52,6 +53,17 @@ class PetScript : public godot::ScriptExtension {
 	mutable godot::HashSet<PetInstance *> instances;
 	mutable godot::HashSet<PetPlaceholder *> placeholders;
 
+	// A script loaded in the editor is pending until the first question about
+	// it compiles it (compile_pending()).
+	enum class CompileState : uint8_t {
+		Compiled,
+		Pending,
+		Compiling,
+	};
+	mutable std::atomic<CompileState> compile_state{ CompileState::Compiled };
+	mutable std::recursive_mutex compiling; // Around the compile and each image set.
+	void compile_pending() const;
+
 	void update_inner_scripts(const std::shared_ptr<const ClassImage> &p_image);
 	void update_placeholders();
 
@@ -71,8 +83,10 @@ public:
 	// defaults and the signals: a scene saved then keeps what the script declared,
 	// as GDScript keeps them (modules/gdscript/gdscript.cpp:546-548, 575-578; ed1daf0).
 	std::shared_ptr<const ClassImage> declared() const;
+	bool is_pending() const { return compile_state == CompileState::Pending; }
 
-	// The source as loaded, with its compiled class.
+	// The source as loaded, with its compiled class; in the editor without one,
+	// as the script compiles when it is first asked about.
 	void set_loaded(const godot::String &p_source, const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});
 	// The class compiled from the current source; null while it has errors.
 	void set_image(const std::shared_ptr<const ClassImage> &p_image, const godot::Ref<PetScript> &p_base = {});

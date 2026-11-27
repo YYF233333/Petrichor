@@ -219,7 +219,9 @@ func _check_placeholder_fallback() -> void:
 	root.free()
 
 	_write(script_path, "extends Node\n@export pub var speed: int = \n")
-	root = (ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene).instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
+	packed = ResourceLoader.load(scene_path, "", ResourceLoader.CACHE_MODE_IGNORE_DEEP) as PackedScene
+	_check_errors([], "a scene read for its structure reports none of its script's errors")
+	root = packed.instantiate(PackedScene.GEN_EDIT_STATE_INSTANCE)
 	_check(root.get("speed") == 7 and _pack_to_text(root).contains("speed = 7"), "a scene whose script has errors keeps its values")
 	_check_errors(["editor_check_fallback.pet:2: Expected an expression, found line break."], "the script loaded with the scene reports its error")
 	root.free()
@@ -249,8 +251,8 @@ func _check_constant_defaults() -> void:
 		DirAccess.remove_absolute(file)
 
 
-# The editor loads a script for its declarations, which loads no resource; a
-# pub constant that preloads one is computed as it is read, as GDScript's is
+# The editor compiles a script for its declarations, which loads no resource;
+# a pub constant that preloads one is computed as it is read, as GDScript's is
 # (architecture §2.2).
 func _check_declared_preloads() -> void:
 	var script_path := "res://editor_check_preloads.pet"
@@ -258,7 +260,8 @@ func _check_declared_preloads() -> void:
 	_write(resource_path, "[gd_resource type=\"Resource\" format=3]\n\n[resource]\n")
 	_write(script_path, "extends Node\npub const ONE = preload(\"%s\")\npub const BOTH = [preload(\"%s\"), 1]\n" % [resource_path, resource_path])
 	var script: Script = ResourceLoader.load(script_path, "", ResourceLoader.CACHE_MODE_IGNORE)
-	_check(not ResourceLoader.has_cached(resource_path), "a script loaded for its declarations loads no resource")
+	script.get_script_property_list()
+	_check(not ResourceLoader.has_cached(resource_path), "a script compiled for its declarations loads no resource")
 	var constants := script.get_script_constant_map()
 	_check(constants.get("ONE") is Resource and constants.get("BOTH") == [constants.get("ONE"), 1], "its constants map holds what its constants preload: %s" % [constants])
 	for file in [script_path, script_path + ".uid", resource_path]:
