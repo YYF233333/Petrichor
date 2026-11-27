@@ -73,6 +73,7 @@ class LspServer {
 		bool annotates = false; // Edits that need confirmation.
 		std::map<std::string, Document> documents;
 		std::optional<std::string> waiting; // A message handled again in a later frame (request()).
+		std::optional<godot::Dictionary> ran; // A command's result, sent once the editor read back what it wrote.
 	};
 
 public:

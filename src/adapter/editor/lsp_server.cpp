@@ -892,6 +892,12 @@ bool LspServer::request(const Variant &p_id, const String &p_method, const Varia
 		if (files->is_scanning()) {
 			return false;
 		}
+		// Ran, it is answered once the editor has read back what it wrote,
+		// which may wait for a scan (PetEditorPlugin::reload_written()).
+		if (session->ran) {
+			reply(out, p_id, *std::exchange(session->ran, std::nullopt));
+			return true;
+		}
 		refresh();
 		if (files->is_scanning()) {
 			return false;
@@ -913,6 +919,10 @@ bool LspServer::request(const Variant &p_id, const String &p_method, const Varia
 			Dictionary result;
 			result["output"] = to_godot(ran->first);
 			result["exitCode"] = ran->second;
+			if (files->is_scanning()) {
+				session->ran = result;
+				return false;
+			}
 			reply(out, p_id, result);
 		} else {
 			reply_error(out, p_id, INVALID_PARAMS, "The command is none of check, build, format and migrate.");

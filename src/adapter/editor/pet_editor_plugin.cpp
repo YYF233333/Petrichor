@@ -1068,9 +1068,9 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 
 // After the editor wrote the files: it has seen them, an LSP client that has
 // one open takes its text, and they are read back (reload_written()). Then,
-// as the editor saves a script, for a tab: the script editor's record of when
-// the file changed follows, so that it does not take the file as changed
-// elsewhere, and a running game reloads the script (editor/editor_node.cpp:1774, 8664-8665,
+// once read back, as the editor saves a script, for a tab: the script
+// editor's record of when the file changed follows, so that it does not take
+// the file as changed elsewhere, and a running game reloads the script (editor/editor_node.cpp:1774, 8664-8665,
 // editor/script/script_editor_plugin.cpp:723-742, 803-850,
 // editor/script/script_editor_base.cpp:91-93, 570-573; ed1daf0).
 void PetEditorPlugin::files_written(const std::set<std::string> &p_files) {
@@ -1079,6 +1079,14 @@ void PetEditorPlugin::files_written(const std::set<std::string> &p_files) {
 		client_reloads(file);
 	}
 	reload_written(p_files);
+	if (scanned_for.empty()) {
+		saved_written(p_files);
+	} else {
+		saved_after.insert(p_files.begin(), p_files.end());
+	}
+}
+
+void PetEditorPlugin::saved_written(const std::set<std::string> &p_files) {
 	Node *editor_node = EditorInterface::get_singleton()->get_base_control()->get_parent();
 	for (const std::string &file : p_files) {
 		const String path = to_godot(file);
@@ -1117,24 +1125,18 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 		return;
 	}
 	disk_changed();
-	EditorInterface *editor = EditorInterface::get_singleton();
-	std::set<std::string> others;
-	std::vector<Ref<Script>> scripts;
-	// A changed script_class takes effect (editor/file_system/editor_file_system.cpp:2400-2492; ed1daf0).
-	const auto written = [&](const String &p_path) { editor->get_resource_filesystem()->update_file(p_path); };
-	const auto taken = [&](const std::string &p_file) {
-		const bool from_file = p_files.count(p_file) && client_scripts().count(p_file);
-		return (from_file ? SceneIndex::get().script_source(p_file) : workspace().script_source(p_file)).value_or(std::string());
-	};
+	EditorFileSystem *file_system = EditorInterface::get_singleton()->get_resource_filesystem();
+	bool gdscript = false;
 	for (const std::string &file : p_files) {
 		const String path = to_godot(file);
 		if (!is_script(file)) {
+			// A changed script_class takes effect (editor/file_system/editor_file_system.cpp:2400-2492; ed1daf0).
 			if (!file_empty(file)) {
-				written(path);
+				file_system->update_file(path);
 			}
-			others.insert(file);
 			continue;
 		}
+		gdscript = gdscript || path.get_extension().to_lower() == "gd";
 		const String text = FileAccess::get_file_as_string(path).replace("\r", "");
 		CodeEdit *code_edit = open_code_edit(file);
 		if (code_edit && code_edit->get_version() == code_edit->get_saved_version() && code_edit->get_text() != text) {
@@ -1145,8 +1147,50 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 			code_edit->set_caret_column(column);
 			code_edit->tag_saved_version();
 		}
-		if (without_cr(taken(file)) == to_utf8(text)) {
-			written(path);
+	}
+	// The editor documents each script it learns of by compiling a GDScript,
+	// after it has registered the classes learned with it; update_file() learns
+	// of one, so a GDScript naming the class of one written after it would fail
+	// (editor/file_system/editor_file_system.cpp:2261-2271, 2311-2317; ed1daf0).
+	// A scan learns of all that it finds changed at once (:904-956, 1062-1074),
+	// so the read-back waits for one. Called meanwhile, update_file() would race
+	// its thread, which writes the records that it changes (:1441-1447, 1600, 2474).
+	if (gdscript) {
+		if (scanned_for.empty()) {
+			file_system->connect("sources_changed", callable_mp(this, &PetEditorPlugin::read_back_scanned).unbind(1), CONNECT_ONE_SHOT);
+		}
+		scanned_for.insert(p_files.begin(), p_files.end());
+		file_system->scan_sources();
+		return;
+	}
+	read_back(p_files);
+}
+
+// What the scene index read of them meanwhile, as the editor's file system
+// changed, has the global classes of before.
+void PetEditorPlugin::read_back_scanned() {
+	SceneIndex::get().files_changed(scanned_for);
+	read_back(std::exchange(scanned_for, {}));
+	saved_written(std::exchange(saved_after, {}));
+}
+
+// Each script written is learned of here, also one that a scan before did not
+// find, written in the second its record last changed in
+// (editor/file_system/editor_file_system.cpp:1439, 1599; ed1daf0).
+void PetEditorPlugin::read_back(const std::set<std::string> &p_files) {
+	EditorInterface *editor = EditorInterface::get_singleton();
+	std::set<std::string> others;
+	std::vector<Ref<Script>> scripts;
+	const auto taken = [&](const std::string &p_file) {
+		const bool from_file = p_files.count(p_file) && client_scripts().count(p_file);
+		return (from_file ? SceneIndex::get().script_source(p_file) : workspace().script_source(p_file)).value_or(std::string());
+	};
+	for (const std::string &file : p_files) {
+		const String path = to_godot(file);
+		if (!is_script(file)) {
+			others.insert(file);
+		} else if (without_cr(taken(file)) == to_utf8(FileAccess::get_file_as_string(path).replace("\r", ""))) {
+			editor->get_resource_filesystem()->update_file(path);
 		}
 	}
 	// Before what else is loaded is read again, also the scripts that the LSP

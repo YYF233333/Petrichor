@@ -157,6 +157,9 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	};
 	Saving scenes_saved(const std::set<std::string> &p_files);
 	void reload_written(const std::set<std::string> &p_files);
+	std::set<std::string> scanned_for; // Written, read back once the editor's scan ends (reload_written()).
+	void read_back_scanned();
+	void read_back(const std::set<std::string> &p_files);
 	void record(const godot::String &p_action, const std::set<std::string> &p_files, const godot::Array &p_do, const godot::Array &p_undo);
 	void show_references(godot::Object *p_code_edit);
 	void ask_name(godot::Object *p_code_edit);
@@ -165,6 +168,8 @@ class PetEditorPlugin : public godot::EditorPlugin {
 	void apply(const std::string &p_path, uint32_t p_offset, const std::string &p_name, const std::vector<compiler::RenameEdit> &p_edits, bool p_record, bool p_undo);
 	godot::String rename_declaration(int p_kind, const godot::String &p_scope, const godot::String &p_name, const godot::String &p_new, const godot::Array &p_candidates, bool p_undo, bool p_apply);
 	void files_written(const std::set<std::string> &p_files);
+	std::set<std::string> saved_after; // Written by the editor, taken as saved once read back (files_written()).
+	void saved_written(const std::set<std::string> &p_files);
 	void run_headless(const godot::String &p_command);
 	std::pair<std::string, int> migrate(const std::vector<std::string> &p_args);
 	std::pair<std::string, int> migrate_back(const std::vector<std::string> &p_paths, bool p_dry_run, bool p_allow_dirty);

@@ -296,6 +296,11 @@ adapter 实现 ScriptLanguageExtension、ScriptExtension 和 ScriptInstanceExten
   - 编辑器默认启用安全保存，写入失败可能到关闭文件时才发生，写后必须读回比对（`drivers/windows/file_access_windows.cpp:197-216, 245-277`）。
   - 脚本重载必须先于通知文件系统（`editor/editor_node.cpp:1291-1323`）：按旧脚本读回场景会丢弃按新名存的值，并在之后保存时写掉。
   - 已加载场景同样需要重读：显示标签页时，编辑器若发现实例化或继承的文件变了，会从已加载场景重建它（`editor/editor_data.cpp:722-771`，`scene/resources/packed_scene.cpp:848`）。重读会就地改动已加载场景状态，无未保存改动的已打开场景须随之重载，有未保存改动的不重载以免丢改动（`core/io/resource.cpp:234`，`scene/resources/packed_scene.cpp:2477, 2610`）。
+  - 写入含 GDScript 文件时，读回等编辑器扫描一遍文件后再做。编辑器每认下一批脚本，先登记这批的全局类，再编译其中的 GDScript 生成文档（`editor/file_system/editor_file_system.cpp:2261-2271, 2311-2317`，`ed1daf0`）。
+  - `update_file()` 一次只认一个文件。逐个认时，用到后写文件中类的 GDScript 会编译失败，并留在 GDScript 缓存里（`modules/gdscript/gdscript_cache.cpp:396-397`）。
+  - 扫描一次认下找到的全部改动（同文件 `:904-956, 1062-1074`）。扫描期间调用 `update_file()` 会与扫描线程争用它改写的记录（`:1441-1447, 1600, 2474`），所以脚本的 `update_file()` 留到扫描结束后，与其余读回一起做。
+  - 无界面编辑器不生成文档（`editor/editor_node.cpp:8359-8362`），引擎测试复现不了这个顺序问题。
+  - 【已知限制】扫描按秒比较修改时间。在目录或文件上次记下的同一秒内写入的脚本，扫描看不到，之后逐个认下时仍可能编译失败（`:1439, 1599`）。
 - **跨文件脚本写盘**：重构（含重命名和改他脚本的快速修复）直接把改动脚本写盘，服务不持有未保存文本（§6.5）。读磁盘的构建、导出和运行中游戏由此看到全部改动（§2.1）。
   - 未打开的脚本按字节写入，保留字节顺序标记和换行。已打开的脚本经同一函数在标签页中作为一步撤销改动，保留原有历史并一并保存未保存改动。写入文本与编辑器保存时一致，去掉回车、保留字节顺序标记。
   - 写完后标签页标为已保存，插件发出 `resource_saved`（`editor/editor_node.cpp:1774, 8664-8665`），让脚本编辑器记下新修改时间（`editor/script/script_editor_plugin.cpp:723-742`，`editor/script/script_editor_base.cpp:91-93, 570-573`）。否则它在重获焦点或保存时误以为文件在别处改过，会按磁盘重载并多出撤销步或弹窗询问（`editor/script/script_editor_plugin.cpp:803-850, 2535-2588`）。
@@ -741,7 +746,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 - **命令与统一输出**：提供 `check`（磁盘视图检查，不写字节码）、`build`（检查并写字节码）、`format [--check]`（格式化或仅列未格式化文件）、`migrate [--reverse] [--dry-run] [--allow-dirty] [<路径>...]`（迁移 GDScript，§6.6）以及 `lsp`（stdio 转接）。
   - 前三个命令在经服务与无界面模式下共用输出与退出码逻辑：每条错误、警告或提示占一行（如 `player.pet:12:5: error: 消息`，路径从项目根起用 `/` 分隔，列按码点从 1 计）。经服务时每个冲突先占一行 `warning:`（不改退出码），末行打印计数（如 `petrichor check: 3 script(s), 2 scene(s), 0 resource file(s), 1 with errors`）。
   - 退出码：0 表示无错误；1 表示有错误（`format --check` 时也表示有未格式化脚本）；2 表示没能运行（如构建标识不符、找不到 Godot 或连接被拒绝）。
-- **经服务执行与构建标识**：`pet` 读 `lsp.json`（进程不在或连不上则视作无服务），以磁盘视图 `initialize` 后发 `petrichor/run`（参数 `{command, args}`）。服务先比对文件再返回 `{output, exitCode}`。命令与无界面退路一样等编辑器的文件扫描结束才运行，比对引起的扫描也等。扫描期间编辑器推迟登记全局类，其间写下的脚本会按旧的全局类编译（`editor/file_system/editor_file_system.cpp:1074, 2552-2554`，`ed1daf0`）。请求留到之后的帧再处理，不阻塞扫描收尾所在的主线程。经服务格式化按重构方式写盘（先记文件、标签页再跟上，§2.3），但凡 Godot 或人的视图会话对某文件有未保存改动，就不写该文件并列为错误、退出码为 1。
+- **经服务执行与构建标识**：`pet` 读 `lsp.json`（进程不在或连不上则视作无服务），以磁盘视图 `initialize` 后发 `petrichor/run`（参数 `{command, args}`）。服务先比对文件再返回 `{output, exitCode}`。命令与无界面退路一样等编辑器的文件扫描结束才运行，比对引起的扫描也等。扫描期间编辑器推迟登记全局类，其间写下的脚本会按旧的全局类编译（`editor/file_system/editor_file_system.cpp:1074, 2552-2554`，`ed1daf0`）。请求留到之后的帧再处理，不阻塞扫描收尾所在的主线程。命令写入的读回要等扫描时（§2.3），答复也留到扫描结束、读回做完再发出。经服务格式化按重构方式写盘（先记文件、标签页再跟上，§2.3），但凡 Godot 或人的视图会话对某文件有未保存改动，就不写该文件并列为错误、退出码为 1。
   - 构建标识为构建时 HEAD 提交，由 SCons 写入 `pet` 和库（按源码哈希会导致每次改动都重编两者），库写入 `lsp.json`。标识不符时 `pet` 说明原因并以 2 退出，不擅自重启人的编辑器。
 - **无服务退路**：无服务时 `pet` 运行 `godot --headless -e --path <项目> -- --petrichor-<命令>`，通过 `--petrichor-output=<文件>` 拿取首行为退出码的完整输出，与经服务逐字节一致。
   - 输出文件先写临时名再改名，即使编辑器退出时崩溃（godot#111048）结果仍完整可用。引擎横幅、进度和错误写进 `.godot/petrichor/pet.log`（每次重写）；无输出文件时 `pet` 打印日志末 20 行、写明日志路径并以 2 退出。
