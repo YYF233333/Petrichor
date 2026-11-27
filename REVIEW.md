@@ -46,7 +46,7 @@ Review what the message names: a commit range, an area, sections of the spec or 
   - code and tests that can go;
   - builds and tests slower than they need to be;
   - documents that describe what the code does not do;
-  - the Chinese and English READMEs saying different things;
+  - the Chinese and English READMEs, or the two getting-started guides, saying different things;
   - language features that no test runs.
 
 A review usually looks at the roadmap too (architecture §5, `BACKLOG.md`). The task is to find what decides whether the project succeeds, and whether the work is going there. Report:
