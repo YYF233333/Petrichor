@@ -382,7 +382,7 @@ TEST_CASE("Dictionary[K, V] is the engine's typed dictionary (spec §3.8)") {
 	CHECK(type_of("d.duplicate()", scores) == "Dictionary[String, int]");
 	CHECK(type_of("d.has(\"a\") and d.erase(\"a\")", scores) == "bool");
 	CHECK(type_of("n[k]", "var n: Dictionary[Node, Vector2] = {}\nvar k := Node.new()") == "Vector2");
-	CHECK(contains(type_of("d[1]", scores), "The keys of Dictionary[String, int] are String, not int."));
+	CHECK(has_error(in_function(std::string(scores) + "\nprint(d[1])"), "The keys of Dictionary[String, int] are String, not int."));
 	CHECK(has_error(in_function(std::string(scores) + "\nd[\"a\"] = 1.5"), "Cannot assign a value of type float as int"));
 	CHECK(has_error(in_function(std::string(scores) + "\nd.merge({1: 2})"), "The keys of Dictionary[String, int] are String, not int."));
 	CHECK(has_error(in_function("var d: Dictionary[String, int] = {\"a\": \"b\"}"), "Cannot put a value of type String in Dictionary[String, int]"));

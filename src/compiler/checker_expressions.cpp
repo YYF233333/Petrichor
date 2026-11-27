@@ -1099,8 +1099,10 @@ Type Checker::check_subscript(Expr &r_expr) {
 		return set(r_expr, base.args[size_t(at.int_value)]);
 	}
 	if (entries) {
+		// A key of another type still reads an element, as an argument of
+		// another type still gives the call's result.
 		if (!assignable(index, entries->first)) {
-			return fail(*r_expr.right, "The keys of " + base.to_string() + " are " + entries->first.to_string() + ", not " + index.to_string() + ".");
+			error(r_expr.right->range, "The keys of " + base.to_string() + " are " + entries->first.to_string() + ", not " + index.to_string() + ".");
 		}
 		r_expr.param_types = { entries->first };
 		untyped_element(r_expr, base);

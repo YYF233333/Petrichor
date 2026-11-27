@@ -1083,6 +1083,13 @@ TEST_CASE("a null flows in as null whatever type its slot tries, so the inferenc
 	CHECK(compiler::migrate(fake_engine(), project, { "res://trigger.gd" }, 10).types_settled);
 }
 
+// As tanks-of-freedom-ii keeps the progress of its campaigns (scripts/services/campaign.gd:10, 47-52, 65-69).
+TEST_CASE("what is assigned at a key of another type flows into a Dictionary's elements whatever type it tries, so the inference settles") {
+	FakeProject project;
+	project.add_script("res://campaign.gd", "extends Node\n\nvar campaign_progress = {}\n\n\nfunc update_campaign_progress(campaign_name):\n\tif not self.campaign_progress.has(campaign_name):\n\t\tself.campaign_progress[campaign_name] = {\n\t\t\t\"progress\" : 0,\n\t\t\t\"complete\" : false,\n\t\t}\n\n\nfunc load_campaign_progress(loaded_progress: Dictionary[String, Variant]):\n\tfor campaign_name in loaded_progress:\n\t\tself.campaign_progress[campaign_name] = loaded_progress[campaign_name]\n");
+	CHECK(compiler::migrate(fake_engine(), project, { "res://campaign.gd" }, 10).types_settled);
+}
+
 TEST_CASE("the inference and the loop of fixes stop after their rounds") {
 	FakeProject project;
 	project.add_script("res://unit.gd", "extends Node\n\n\nfunc wait() -> void:\n\tawait ready\n\n\nfunc take(amount):\n\tprint(amount)\n\n\nfunc hit(body: Node) -> void:\n\tbody.take(1)\n");
