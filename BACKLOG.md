@@ -228,7 +228,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - When moving the engine commit, `git diff -L` over the ranges in `docs/engine-facts.md` isolates the citations that moved.
 - `cancel()` on a task that has ended (spec §9.3). No test runs it.
 - Before supporting engines other than 4.7, an engine test that constant folding agrees with the engine. The compiler folds about 15 groups of math functions with its own copies, as `posmod`, `wrapi`, `snapped` and `step_decimals` (`src/compiler/constant.cpp`). The test compares each as a constant and in a function body.
-- On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8.
+- On macOS, the README's quarantine step has never run. The x86_64 half of the libraries runs only under Rosetta, on Godot 4.8, and only the `game` and `language` groups: all of them took ten minutes of CI's fifteen.
   - CI can mark the unpacked package with `xattr -w com.apple.quarantine`, run the README's step and load the library.
   - That checks the step, but not that Gatekeeper refuses without it, if the runners do not enforce it.
 - Cross-rule checks kept from the former conformance checklist:
