@@ -782,8 +782,9 @@ class Converter {
 			return;
 		}
 		split.insert(value);
-		const uint32_t from = value->args.empty() ? tokens[value->member_name_tokens[0]].offset : tokens[value->args.back()->range.last].end();
-		erase(from, tokens[value->member_values.back()->range.last].end());
+		// The members to the closing bracket, a trailing comma too.
+		const uint32_t open = value->name_token + 1;
+		erase(tokens[value->args.empty() ? open : value->args.back()->range.last].end(), tokens[closing(tokens, open)].offset);
 		erased.moved.insert(value->name_token);
 		for (size_t i = 0; i < value->member_names.size(); i++) {
 			const std::string assigned = name + "." + value->member_names[i] + " = ";

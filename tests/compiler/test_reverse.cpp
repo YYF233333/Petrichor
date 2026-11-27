@@ -86,6 +86,7 @@ TEST_CASE("reverse conversion assigns members passed by name after the call, mat
 	CHECK(reversed("class_name Unit\nextends Node\n@export var hp: int?\nvar target: Node\n\n\nfunc f(other: Node?) -> void:\n\tvar unit := Unit.new(target = self)\n\tmatch other:\n\t\tNone:\n\t\t\tpass\n\t\tSome(var o):\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\tSome(3):\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n") ==
 			"class_name Unit\nextends Node\n@export var hp: Variant\nvar target: Node\n\n\nfunc f(other: Node) -> void:\n\tvar unit := Unit.new()\n\tunit.target = self\n\tmatch other:\n\t\tvar _none when not is_instance_valid(_none):\n\t\t\tpass\n\t\tvar o:\n\t\t\tprint(o, unit)\n\tmatch hp:\n\t\t3:\n\t\t\tpass\n\t\t_:\n\t\t\tpass\n");
 	CHECK(reversed("extends Node\n\n\nfunc f(other: Node?) -> void:\n\tmatch other:\n\t\tSome(_):\n\t\t\tpass\n\t\tNone:\n\t\t\tpass\n") == "6:3: This is not converted back yet: Some(_) or Some(None), which would take null too, before a branch of None.\n");
+	CHECK(reversed("class_name Unit\nextends Node\nvar target: Node\n\n\nfunc f() -> void:\n\tvar unit := Unit.new(\n\t\ttarget = self,\n\t)\n\tprint(unit)\n") == "class_name Unit\nextends Node\nvar target: Node\n\n\nfunc f() -> void:\n\tvar unit := Unit.new()\n\tunit.target = self\n\tprint(unit)\n");
 }
 
 // GDScript counts a match as returning only with a branch that takes any
