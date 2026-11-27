@@ -51,13 +51,6 @@ Refactorings that remove code, taken in this order. Each minor release takes one
     - `resize()` on an array that the tool types, as `Array[int]`. GDScript fills the new elements with null, the typed array with 0, and the inference counts no inflow of null there. Whether it should is open: a variable's implicit null does not count (architecture §6.6).
   - The rewrites that the survey showed. Left: a property written on an `Object?` keeps its error without `.unwrap()` (architecture §6.6). That fix tries the write unwrapped, which checks only once `set()` is written. None of the three games has one.
     - A class with a method named as one of `T?`'s, as `unwrap`, `expect`, `map`, `filter` or `or`. Once the tool writes a value of the class as `T?`, a call of that method binds to the method of `T?` without an error. Such a call needs `.unwrap()` before it. Count these method names in the corpus first.
-- Reverse conversion, and the round trips of FPS, Ring and deck_builder_tutorial (architecture §5, step 11). The command, the git check, the trees, the rewrites and the re-parse check are in. Each migration group converts its game back and runs it: all files of the three games convert. Forms that still refuse their file, which they do not meet:
-  - methods of `T?` on more than a name or with an argument that may have effects, and `expect()` but as what a variable or a name takes;
-  - `:=` of a value that GDScript reads untyped, which it cannot infer;
-  - members passed by name but where a variable is declared, and `instantiate(...)` with them into `:=`;
-  - `Some(_)` before a branch of `None`;
-  - a typed literal of a class without a global name where GDScript knows no type for it, and `State(x)` in a constant;
-  - an outer class's static member by its name alone, and a match that returns on every path without `_`.
 - Large projects (Performance).
 
 ## Language
@@ -191,6 +184,13 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - The two-way migration tool (spec §1.2, §13.4; architecture §6.6). "Next release" lists what 0.3 takes. Beyond it:
   - Members that the scenes type and other files read stay unknown in tanks-of-freedom-ii, such as `map.camera` (72 reads), `ui.picker` (43) and `ui.radial` (33).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
+  - Forms that keep their file from converting back. The three games of 0.3 meet none, and each of their files converts back and runs:
+    - methods of `T?` on more than a name or with an argument that may have effects, and `expect()` but as what a variable or a name takes;
+    - `:=` of a value that GDScript reads untyped, which it cannot infer;
+    - members passed by name but where a variable is declared, and `instantiate(...)` with them into `:=`;
+    - `Some(_)` before a branch of `None`;
+    - a typed literal of a class without a global name where GDScript knows no type for it, and `State(x)` in a constant;
+    - an outer class's static member by its name alone, and a match that returns on every path without `_`.
   - Two rewrites of reverse conversion do a thing at another time than the source does (`src/compiler/reverse.cpp`):
     - `filter(p)` on a member of type `T?` reads the member again after `p.call(x)`, so a predicate that assigns the member changes the result. Rewriting it only for locals and parameters closes that;
     - `expect(message)` becomes an `assert` after the assignment. A message that reads the target or has effects then differs when the value is there, and a release build drops the assert (`modules/gdscript/gdscript_compiler.cpp:2181-2198`, `ed1daf0`). Candidates: the assert before the assignment when the receiver is a name, or refusing only such messages.
