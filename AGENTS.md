@@ -41,7 +41,7 @@ The target engine is Godot 4.7. Check engine behavior against the Godot source c
 ## Commits
 
 - Other sessions share the working tree and index. Commit only your own files by path (`git commit -m … -- <paths>`) and push to `main` after committing. A push that changes code cancels the in-progress CI run.
-- Git hooks in `tools/hooks/` run `.pre-commit-config.yaml` (formatting, doc pairs/style, diagnostics and commit message format). When a hook fixes a file, commit again.
+- Git hooks in `tools/hooks/` run `tools/pre-commit-config.yaml` (formatting, doc pairs/style, diagnostics and commit message format). When a hook fixes a file, commit again.
 - Write commit messages in English; the `commit-msg` hook checks the header and line length. Omit the body when the subject, diff and updated docs already explain the change. Put only what `git blame` cannot find in the body: non-obvious causes, spec or engine citations, measurements and traps in rejected alternatives.
 
 ## Workflow

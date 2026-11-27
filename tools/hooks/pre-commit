@@ -1,4 +1,4 @@
 #!/bin/sh
 # Only the files being committed: without --files, pre-commit stashes every
 # unstaged change in the tree, also those of other sessions.
-git diff --cached --name-only -z --diff-filter=d | xargs -0 -r pre-commit run --files
+git diff --cached --name-only -z --diff-filter=d | xargs -0 -r pre-commit run -c tools/pre-commit-config.yaml --files

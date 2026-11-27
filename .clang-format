@@ -1,5 +1,5 @@
 # Godot's .clang-format at 4.7.2-stable (ed1daf0), with Standard set to c++17. After changing it, run:
-# pre-commit run clang-format --all-files
+# pre-commit run -c tools/pre-commit-config.yaml clang-format --all-files
 
 # Commented out parameters are those with the same value as base LLVM style.
 # We can uncomment them if we want to change their value, or enforce the
