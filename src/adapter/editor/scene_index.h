@@ -48,6 +48,7 @@ class SceneIndex : public compiler::ProjectApi {
 	mutable uint64_t changes = 0; // On disk, as the editor reports them.
 	mutable std::map<std::string, std::shared_ptr<const Entry>> scenes;
 	mutable std::map<std::string, std::shared_ptr<const Loads>> loads; // literal_loads() of each script read.
+	mutable std::set<std::string> written; // Not read again until read back (write_begins()).
 	// The scenes and resource files read while something holds them (hold()),
 	// which hold the files they load in the engine's cache
 	// (doc/classes/ResourceLoader.xml:168-173; ed1daf0).
@@ -96,6 +97,15 @@ public:
 	// tell: changed elsewhere as they were read, or loaded scripts that took
 	// new declarations, which a resource's stored values are read with.
 	void files_changed(const std::set<std::string> &p_files) const;
+	// Files written that the editor has not read back yet: what was read from
+	// them stands, or nothing, until it has (PetEditorPlugin::reload_written()).
+	// Loading them meanwhile, as a node's check does, would compile a GDScript
+	// written before the classes it names are registered, and put a resource
+	// loaded with the script of before into an array typed with its new one
+	// (core/variant/variant_parser.cpp:1369,
+	// core/variant/container_type_validate.h:135-137; ed1daf0).
+	void write_begins(const std::set<std::string> &p_files) const;
+	void read_back(const std::set<std::string> &p_files) const;
 	// The paths of the scenes that the file at `p_file` embeds.
 	std::vector<std::string> embedded_scenes(const std::string &p_file) const;
 

@@ -577,15 +577,35 @@ void SceneIndex::files_changed(const std::set<std::string> &p_files) const {
 	changes++;
 }
 
+void SceneIndex::write_begins(const std::set<std::string> &p_files) const {
+	std::lock_guard<std::mutex> lock(mutex);
+	written.insert(p_files.begin(), p_files.end());
+}
+
+void SceneIndex::read_back(const std::set<std::string> &p_files) const {
+	{
+		std::lock_guard<std::mutex> lock(mutex);
+		for (const std::string &file : p_files) {
+			written.erase(file);
+		}
+	}
+	files_changed(p_files);
+}
+
 std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_path) const {
 	const String path = to_godot(p_path);
 	std::shared_ptr<const Entry> cached;
+	bool waits = false;
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		const auto found = scenes.find(p_path);
 		if (found != scenes.end()) {
 			cached = found->second;
 		}
+		waits = written.count(p_path) || (cached && std::any_of(cached->files.begin(), cached->files.end(), [&](const auto &p_file) { return written.count(p_file.first) > 0; }));
+	}
+	if (waits) {
+		return cached ? cached : std::make_shared<const Entry>();
 	}
 	if (cached && current(*cached)) {
 		return cached;

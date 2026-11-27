@@ -1124,6 +1124,7 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 	if (p_files.empty()) {
 		return;
 	}
+	SceneIndex::get().write_begins(p_files);
 	disk_changed();
 	EditorFileSystem *file_system = EditorInterface::get_singleton()->get_resource_filesystem();
 	bool gdscript = false;
@@ -1166,10 +1167,7 @@ void PetEditorPlugin::reload_written(const std::set<std::string> &p_files) {
 	read_back(p_files);
 }
 
-// What the scene index read of them meanwhile, as the editor's file system
-// changed, has the global classes of before.
 void PetEditorPlugin::read_back_scanned() {
-	SceneIndex::get().files_changed(scanned_for);
 	read_back(std::exchange(scanned_for, {}));
 	saved_written(std::exchange(saved_after, {}));
 }
@@ -1193,6 +1191,9 @@ void PetEditorPlugin::read_back(const std::set<std::string> &p_files) {
 			editor->get_resource_filesystem()->update_file(path);
 		}
 	}
+	// The scenes load again once the scripts' classes are registered. Only a
+	// script reloaded below may load one before the resources are read again.
+	SceneIndex::get().read_back(p_files);
 	// Before what else is loaded is read again, also the scripts that the LSP
 	// client has unsaved texts of, which carry a rename the client has not
 	// saved all of yet.
