@@ -247,8 +247,8 @@ std::optional<Type> builtin_enum(const std::string &p_name) {
 	return engine_enum(p_name, std::move(values));
 }
 
-static bool is_string_like(const Type &p_type) {
-	return p_type.kind == TypeKind::String || (p_type.kind == TypeKind::Builtin && (p_type.name == "StringName" || p_type.name == "NodePath"));
+bool is_text(const Type &p_type) {
+	return is_string_like(p_type) || (p_type.kind == TypeKind::Builtin && p_type.name == "NodePath");
 }
 
 Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation &p_classes) {
@@ -271,7 +271,7 @@ Conversion conversion(const Type &p_from, const Type &p_to, const ClassRelation 
 		return C::Same;
 	}
 	// Converted where needed, as in GDScript (spec §10.7).
-	if (is_string_like(p_from) && is_string_like(p_to) && (p_from.kind == TypeKind::String || p_to.kind == TypeKind::String)) {
+	if (is_text(p_from) && is_text(p_to) && (p_from.kind == TypeKind::String || p_to.kind == TypeKind::String)) {
 		return C::Construct;
 	}
 	// The integer vectors and Rect2i widen to their float counterparts (spec §3.14).
@@ -396,8 +396,20 @@ bool is_typed_container(const Type &p_type) {
 	return p_type.kind == TypeKind::Builtin && (p_type.name == "Array" || p_type.name == "Dictionary") && !p_type.args.empty();
 }
 
-bool is_format_string(const Type &p_type) {
+bool is_string_like(const Type &p_type) {
 	return p_type.kind == TypeKind::String || (p_type.kind == TypeKind::Builtin && p_type.name == "StringName");
+}
+
+std::vector<Type> held_types(const Type &p_type) {
+	if (p_type.kind == TypeKind::Option || p_type.is_result() || p_type.is_settled()) {
+		std::vector<Type> held;
+		for (const Type &arg : p_type.args) {
+			const std::vector<Type> inner = held_types(arg);
+			held.insert(held.end(), inner.begin(), inner.end());
+		}
+		return held;
+	}
+	return p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum ? std::vector<Type>{ p_type } : std::vector<Type>();
 }
 
 bool is_boxed(const Type &p_type) {

@@ -2131,8 +2131,7 @@ Type Checker::check_gdscript_utility(Expr &r_expr) {
 			return fail_call(r_expr, "Function \"len()\" takes 1 argument(s), " + std::to_string(r_expr.args.size()) + " given.");
 		}
 		const Type value = check_value(*r_expr.args[0]);
-		const bool text = value.kind == TypeKind::String || value == Type::builtin("StringName");
-		if (!value.is_error() && !text && !element_of(value) && !entries_of(value)) {
+		if (!value.is_error() && !is_string_like(value) && !element_of(value) && !entries_of(value)) {
 			return fail(r_expr, "len() takes a String, a StringName, an Array, a Dictionary or a packed array, not " + value.to_string() + ".");
 		}
 		return set(r_expr, Type::of(TypeKind::Int));

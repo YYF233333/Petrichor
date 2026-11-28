@@ -275,8 +275,15 @@ std::optional<std::pair<Type, Type>> entries_of(const Type &p_type);
 // An Array[T] or a Dictionary[K, V], which is made empty and typed.
 bool is_typed_container(const Type &p_type);
 
-// A String or StringName, whose `%` formats a value of any type (spec §5.1).
-bool is_format_string(const Type &p_type);
+// A String or StringName, which compare alike and whose `%` formats a value of
+// any type (spec §5.1); with NodePath, the text types (spec §10.7).
+bool is_string_like(const Type &p_type);
+bool is_text(const Type &p_type);
+
+// The structs and enums with payloads whose values a value of the type
+// holds in its slot: T holds a T, as T? and Settled[T] do, and
+// Result[T, E] holds both; a container holds a reference.
+std::vector<Type> held_types(const Type &p_type);
 
 // Whether a container keeps values of the type boxed (architecture §2.2): a
 // struct, an enum with payloads, a T? of a value type, a function value, a

@@ -533,11 +533,6 @@ class Checker : public ClassRelation, private CheckContext {
 		}
 	};
 
-	// A constant initialized with the name of an enum with payloads.
-	static bool names_payload_enum(const ConstDecl &p_decl) {
-		return p_decl.value && p_decl.value->names_enum && p_decl.type.kind == TypeKind::PayloadEnum;
-	}
-
 	// What a value is called in references: State.IDLE, or A of an unnamed enum.
 	static std::string enum_value_id(const EnumDecl &p_decl, const std::string &p_value) {
 		return p_decl.name.empty() ? p_value : p_decl.name + "." + p_value;
@@ -1205,7 +1200,6 @@ class Checker : public ClassRelation, private CheckContext {
 	void check_field_defaults();
 	static std::vector<std::pair<std::string, const VarDecl *>> value_fields(const ClassDecl &p_header, const std::string &p_name);
 	bool holds(const ClassDecl &p_decl, const std::string &p_path, const std::string &p_name, const std::string &p_target, std::vector<std::string> &r_cycle, std::unordered_set<std::string> &r_seen);
-	static std::vector<Type> held_types(const Type &p_type);
 	std::optional<Refusal> hidden_part(const Type &p_type, const std::string &p_but, bool p_fixed = true, const std::string &p_owner = std::string(), uint32_t p_name = 0) const;
 	// A part of a declaration that shows types wherever the declaration is
 	// seen, when it is pub (spec §4.2).

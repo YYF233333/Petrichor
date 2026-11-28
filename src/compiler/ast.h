@@ -588,6 +588,9 @@ struct ConstDecl {
 		Checked,
 	};
 	State state = State::Unchecked;
+
+	// Initialized with the name of an enum with payloads, it has no value (spec §3.7).
+	bool names_payload_enum() const { return value && value->names_enum && type.kind == TypeKind::PayloadEnum; }
 };
 
 // `@export_group`, `@export_subgroup` or `@export_category`, which stand

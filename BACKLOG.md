@@ -6,10 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- Type predicates written outside `src/compiler/types.cpp`, about 10 lines less:
-  - the types a slot holds inline, in the checker's `held_types` and lowering's `holds_interning`;
-  - the text types in three places, and String or StringName in five;
-  - a constant that names an enum with payloads, in two.
 - Small ones, about 45 lines less in all:
   - the field a constructor's argument goes to, matched in the checker and three times after it;
   - the test for None or Err, twice in lowering (`language_method`, `try_value`);

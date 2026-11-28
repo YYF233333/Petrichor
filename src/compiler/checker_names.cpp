@@ -136,7 +136,7 @@ Type Checker::use_constant(Expr &r_expr, const ConstDecl &p_decl, const ClassDec
 	if (p_decl.type.is_error()) {
 		return set(r_expr, p_decl.type);
 	}
-	if (names_payload_enum(p_decl)) {
+	if (p_decl.names_payload_enum()) {
 		return fail(r_expr, p_decl.name + " names an enum with payloads, whose name is no value; its variants are.");
 	}
 	r_expr.constant = p_decl.value;
@@ -498,8 +498,8 @@ std::optional<Type> Checker::aliased_enum_type(const std::string &p_name) {
 	if (!constant || !constant->value || !constant->value->names_enum) {
 		return std::nullopt;
 	}
-	const Type &type = names_payload_enum(*constant) ? constant->type : constant->type.args.size() == 2 ? constant->type.args[1]
-																										: constant->type;
+	const Type &type = constant->names_payload_enum() ? constant->type : constant->type.args.size() == 2 ? constant->type.args[1]
+																										 : constant->type;
 	if (type.kind != TypeKind::Enum && type.kind != TypeKind::PayloadEnum) {
 		return std::nullopt;
 	}

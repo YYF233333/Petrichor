@@ -188,7 +188,7 @@ Type Checker::binary_type(TokenKind p_op, const Type &p_left, const Type &p_righ
 	}
 	// Formats a value of any type, which enters the engine as anywhere else
 	// (spec §5.1, §10.1).
-	if (p_op == TokenKind::Percent && is_format_string(p_left)) {
+	if (p_op == TokenKind::Percent && is_string_like(p_left)) {
 		if (!assignable(p_right, Type::of(TypeKind::Variant))) {
 			error(p_at, "Cannot format a value of type " + p_right.to_string() + "." + variant_refusal(p_right));
 			return Type::of(TypeKind::Error);
@@ -372,7 +372,7 @@ Type Checker::check_binary(Expr &r_expr) {
 		error(r_expr.range, std::string(token_name(r_expr.op)) + " requires bool operands, found " + left.to_string() + " and " + right.to_string() + "." + hint);
 		about_variant(r_expr.range, *r_expr.left, *r_expr.right);
 		return set(r_expr, fix_truth(tested, false));
-	} else if (r_expr.op == TokenKind::Percent && is_format_string(left)) {
+	} else if (r_expr.op == TokenKind::Percent && is_string_like(left)) {
 		// The values to format, of any types (spec §5.1).
 		right = check_value(*r_expr.right, Type::builtin("Array"));
 	} else {
@@ -452,7 +452,7 @@ Type Checker::check_in(Expr &r_expr) {
 		if (container.nullable) {
 			return fail(r_expr, "The value may be None (" + container.to_string() + "); unwrap it first.");
 		}
-		if (!name.is_error() && name.kind != TypeKind::String && name != Type::builtin("StringName")) {
+		if (!name.is_error() && !is_string_like(name)) {
 			error(r_expr.left->range, "\"in\" on an object looks for a member by name, a String or StringName, not " + name.to_string() + ".");
 			return set(r_expr, Type::of(TypeKind::Error));
 		}
@@ -1718,8 +1718,7 @@ void Checker::require_constant(const Expr &p_expr) {
 Type Checker::literal_type(const Expr &p_literal, const Type &p_to) const {
 	const Type own = p_literal.op == TokenKind::StringName ? Type::builtin("StringName") : (p_literal.op == TokenKind::NodePath ? Type::builtin("NodePath") : Type::of(TypeKind::String));
 	const Type to = p_to.kind == TypeKind::Option ? p_to.args[0] : p_to;
-	const bool text = to.kind == TypeKind::String || to.builtin_name() == "StringName" || to.builtin_name() == "NodePath";
-	return text && assignable(own, to) ? to : own;
+	return is_text(to) && assignable(own, to) ? to : own;
 }
 
 // `p_expected` is the type the value goes to, if known; literals of arrays,

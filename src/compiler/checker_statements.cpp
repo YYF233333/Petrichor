@@ -540,10 +540,7 @@ void Checker::check_exhaustive(Stmt &r_match, const Type &p_matched) {
 // pattern that only converts to the value's type never matches there
 // (modules/gdscript/gdscript_compiler.cpp:1441-1477, 1543-1569; ed1daf0).
 bool Checker::pattern_fits(const Type &p_pattern, const Type &p_matched) const {
-	const auto text = [](const Type &p_type) {
-		return p_type.kind == TypeKind::String || p_type == Type::builtin("StringName");
-	};
-	if (p_matched.kind == TypeKind::Variant || p_pattern == p_matched || (text(p_pattern) && text(p_matched))) {
+	if (p_matched.kind == TypeKind::Variant || p_pattern == p_matched || (is_string_like(p_pattern) && is_string_like(p_matched))) {
 		return true;
 	}
 	const bool subtype = (p_pattern.kind == TypeKind::Object && p_matched.kind == TypeKind::Object) || (p_pattern.kind == TypeKind::Enum && p_matched.kind == TypeKind::Int);
@@ -800,7 +797,7 @@ void Checker::check_stmt(Stmt &r_stmt) {
 					target.type = target_type;
 				}
 			}
-			const bool formats = r_stmt.assign_op == TokenKind::PercentEqual && is_format_string(read_type);
+			const bool formats = r_stmt.assign_op == TokenKind::PercentEqual && is_string_like(read_type);
 			Type value = check_value(*r_stmt.value, formats ? Type::builtin("Array") : (compound ? Type::of(TypeKind::Error) : target_type));
 			const bool place = !target_type.is_error() && check_place(target);
 			if (compound && place) {

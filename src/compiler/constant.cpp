@@ -101,14 +101,6 @@ ConstPtr fail(Expr &r_expr, const std::string &p_message, const Expr *p_at = nul
 	return nullptr;
 }
 
-bool is_text(const Type &p_type) {
-	return p_type.kind == TypeKind::String || p_type.builtin_name() == "StringName" || p_type.builtin_name() == "NodePath";
-}
-
-bool is_string_like(const Type &p_type) {
-	return p_type.kind == TypeKind::String || p_type.builtin_name() == "StringName";
-}
-
 // As the engine's Dictionary compares keys, with a String and a StringName of
 // the same text one key (core/variant/variant.cpp:3400-3411; ed1daf0).
 bool same_key(const ConstValue &p_a, const ConstValue &p_b) {
@@ -301,7 +293,7 @@ ConstPtr fold_binary(Expr &r_expr) {
 	if (left->kind == Kind::Preload || right->kind == Kind::Preload) {
 		return nullptr;
 	}
-	if (r_expr.op == TokenKind::Percent && is_format_string(left->type)) {
+	if (r_expr.op == TokenKind::Percent && is_string_like(left->type)) {
 		return fail(r_expr, "Formatting with % is not supported in constant expressions.");
 	}
 	if (r_expr.op == TokenKind::Plus && left->kind == Kind::Array && right->kind == Kind::Array) {

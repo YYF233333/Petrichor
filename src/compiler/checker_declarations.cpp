@@ -1877,21 +1877,6 @@ bool Checker::holds(const ClassDecl &p_decl, const std::string &p_path, const st
 	return false;
 }
 
-// The structs and enums with payloads whose values a value of the type
-// holds in its slot: T holds a T, as T? and Settled[T] do, and
-// Result[T, E] holds both; a container holds a reference.
-std::vector<Type> Checker::held_types(const Type &p_type) {
-	if (p_type.kind == TypeKind::Option || p_type.is_result() || p_type.is_settled()) {
-		std::vector<Type> held;
-		for (const Type &arg : p_type.args) {
-			const std::vector<Type> inner = held_types(arg);
-			held.insert(held.end(), inner.begin(), inner.end());
-		}
-		return held;
-	}
-	return p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum ? std::vector<Type>{ p_type } : std::vector<Type>();
-}
-
 /* pub signatures and what the engine sees (spec §4.2, §10.1) */
 
 // The part of a type that is not seen everywhere: a struct, an enum, an

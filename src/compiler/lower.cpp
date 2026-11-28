@@ -394,10 +394,8 @@ class Lowerer : FunctionState {
 	// Whether a value of the type holds in its slot a struct or an enum with
 	// payloads whose fields are being interned.
 	bool holds_interning(const Type &p_type) const {
-		if (p_type.kind == TypeKind::Option || p_type.is_result() || p_type.is_settled()) {
-			return std::any_of(p_type.args.begin(), p_type.args.end(), [&](const Type &p_arg) { return holds_interning(p_arg); });
-		}
-		return (p_type.kind == TypeKind::Struct || p_type.kind == TypeKind::PayloadEnum) && std::find(interning.begin(), interning.end(), qualified_name(p_type)) != interning.end();
+		const std::vector<Type> held = held_types(p_type);
+		return std::any_of(held.begin(), held.end(), [&](const Type &p_held) { return std::find(interning.begin(), interning.end(), qualified_name(p_held)) != interning.end(); });
 	}
 
 	// An enum with payloads, "script::Name", or "Result" or "Settled", laid out
@@ -2342,7 +2340,7 @@ class Lowerer : FunctionState {
 					instr(Op::HAS_MEMBER, result, object, name);
 					return result;
 				}
-				if (p_expr.op == TokenKind::Percent && is_format_string(p_expr.left->type)) {
+				if (p_expr.op == TokenKind::Percent && is_string_like(p_expr.left->type)) {
 					const uint32_t text = lower_expr(*p_expr.left);
 					return format(text, p_expr.left->type, lower_expr(*p_expr.right));
 				}
@@ -3077,7 +3075,7 @@ class Lowerer : FunctionState {
 					if (place.kind == Place::Kind::SelfProperty || place.kind == Place::Kind::Owner || place.kind == Place::Kind::ObjectProperty || place.kind == Place::Kind::Element) {
 						value = outward(value, type, target.type.kind == TypeKind::Object); // The engine keeps it.
 					}
-				} else if (p_stmt.assign_op == TokenKind::PercentEqual && is_format_string(target.type)) {
+				} else if (p_stmt.assign_op == TokenKind::PercentEqual && is_string_like(target.type)) {
 					value = format(load(place), target.type, value);
 					type = Type::of(TypeKind::String);
 				} else {
@@ -3669,8 +3667,7 @@ public:
 			module.named_constants.push_back({ p_name, shared_constant(*p_value), p_pub, p_declarations_only && p_pub && is_computed(*p_value) ? reflected(p_value) : -1 });
 		};
 		for (const ConstDecl *constant : cls.all_constants) {
-			// One naming an enum with payloads has no value (spec §3.7).
-			if (!constant->value || (constant->value->names_enum && constant->type.kind == TypeKind::PayloadEnum)) {
+			if (!constant->value || constant->names_payload_enum()) {
 				continue;
 			}
 			if (type_only(*constant, read, constant->value->kind == ConstValue::Kind::Preload && !constant->value->script.empty())) {
