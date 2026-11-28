@@ -6,10 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- A member or a static variable read and written by name in one place, about 25 lines less. Now `instance_set` and `instance_get` (`src/adapter/pet_instance.cpp`) take the same steps as `set_static` and `get_static` (`src/runtime/vm.cpp`).
-  - The steps are the None of an `@late` one, the accessor, the entry check with its error, and the assigned mark.
-  - Each caller keeps its own choice of whether accessors run in the editor.
-  - The two sides have differed once: `2001f81` gave the statics what `7f72d05` gave the members.
 - `stores_last` as a mark on the opcodes' rows (`src/bytecode/opcodes.h`), about 50 lines less. Now lowering lists by hand the 48 opcodes that have read their operands when they store (`src/compiler/lower.cpp`).
   - The verifier asks the same function whether a constructor may write over an argument (`src/bytecode/verify.cpp`). After `8c57463` lowering emitted what the verifier refused.
   - A wrong mark gives a wrong `x = f(x)` silently. Copy the set, then compare the disassembly of the engine tests' scripts before and after.

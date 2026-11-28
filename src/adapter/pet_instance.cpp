@@ -290,29 +290,7 @@ static GDExtensionBool instance_set(GDExtensionScriptInstanceDataPtr p_instance,
 		const Variant *args[] = { &name, &value };
 		return call_each(instance, image, ClassImage::Virtual::Set, args, 2, [](const ClassImage &, const bytecode::Function &, const Variant &p_handled) { return bool(p_handled); });
 	}
-	// None leaves an @late member not yet assigned so, as a scene that stores
-	// none does (spec §6.3).
-	const size_t index = size_t(member - image->module.members.data());
-	if (member->is_late && is_none(value) && !image->assigned(instance->storage->members, index)) {
-		return true;
-	}
-	// The scene, the inspector, Tween and other classes write through the
-	// setter (spec §4.4), whose entry check takes the value.
-	if (member->setter >= 0) {
-		const Variant *args[] = { &value };
-		GDExtensionCallError error;
-		vm::call(image, member->setter, instance->context(), args, 1, error);
-		return true;
-	}
-	// A value that fails the entry check is a program error, reported at the
-	// member, which keeps its value (spec §7.5, §10.1); the write is handled.
-	String mismatch;
-	const bool written = entry_write(image->types[member->type], value, instance->storage->members + member->offset, mismatch);
-	if (!mismatch.is_empty()) {
-		vm::report_error(*image, member->name.c_str(), int(member->line), vformat("\"%s\" was not written: %s.", image->member_names[index], mismatch));
-	} else if (written && member->tracks_assignment()) {
-		image->assigned(instance->storage->members, index) = 1;
-	}
+	vm::write_variable(image, *member, instance->storage->members + member->offset, instance->context(), true, value);
 	return true;
 }
 
@@ -348,19 +326,7 @@ static GDExtensionBool instance_get(GDExtensionScriptInstanceDataPtr p_instance,
 			return p_value.get_type() != Variant::NIL;
 		});
 	}
-	if (member->getter >= 0) {
-		GDExtensionCallError error;
-		*reinterpret_cast<Variant *>(r_ret) = vm::call(image, member->getter, instance->context(), nullptr, 0, error);
-		return true;
-	}
-	// Null until assigned (spec §6.2, §6.3), with no program error: the debugger's
-	// inspector reads every property (scene/debugger/scene_debugger_object.cpp:85).
-	const size_t index = size_t(member - image->module.members.data());
-	if ((member->must_assign || member->is_late) && !image->assigned(instance->storage->members, index)) {
-		*reinterpret_cast<Variant *>(r_ret) = Variant();
-		return true;
-	}
-	*reinterpret_cast<Variant *>(r_ret) = outward_variant(image->types[member->type], instance->storage->members + member->offset);
+	*reinterpret_cast<Variant *>(r_ret) = vm::read_variable(image, *member, instance->storage->members + member->offset, instance->context(), true);
 	return true;
 }
 

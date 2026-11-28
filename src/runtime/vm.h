@@ -97,13 +97,18 @@ godot::Variant call(std::shared_ptr<const ClassImage> p_image, int p_function, I
 bool initialize_statics(const std::shared_ptr<const ClassImage> &p_image);
 
 // A pub static variable that the class declares or inherits (spec §4.8), as
-// the engine and GDScript read and write it by name (§10.5): through its
-// accessors, once its class is initialized; false when there is none. A
-// value that fails the entry check is a program error, reported at the
-// variable, which keeps its value. In the editor, where scripts do not run,
-// the variable's storage is read and written directly.
+// the engine and GDScript read and write it by name (§10.5), once its class
+// is initialized; false when there is none. In the editor, where scripts do
+// not run, its accessors do not either.
 bool get_static(const std::shared_ptr<const ClassImage> &p_image, const godot::StringName &p_name, godot::Variant &r_value);
 bool set_static(const std::shared_ptr<const ClassImage> &p_image, const godot::StringName &p_name, const godot::Variant &p_value);
+
+// A member or static variable of the class, its value at `p_slot`, read or
+// written by name (spec §10.5): through its accessors when `p_accessors`. A
+// value that fails the entry check is a program error (§7.5, §10.1),
+// reported at the variable, which keeps its value.
+godot::Variant read_variable(const std::shared_ptr<const ClassImage> &p_image, const bytecode::Member &p_variable, uint8_t *p_slot, const InstanceContext &p_context, bool p_accessors);
+void write_variable(const std::shared_ptr<const ClassImage> &p_image, const bytecode::Member &p_variable, uint8_t *p_slot, const InstanceContext &p_context, bool p_accessors, const godot::Variant &p_value);
 
 // The call stack of the current thread, innermost last.
 const std::vector<StackFrame> &stack();

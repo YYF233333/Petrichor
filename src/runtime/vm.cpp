@@ -3938,6 +3938,11 @@ bool static_usable(const ClassImage &p_owner, int p_index) {
 	return false;
 }
 
+// Of a variable that tracks whether it has been assigned, after its value.
+uint64_t &assigned_mark(const ClassImage &p_image, const bytecode::Member &p_variable, uint8_t *p_slot) {
+	return *reinterpret_cast<uint64_t *>(p_slot + p_image.types[p_variable.type].size);
+}
+
 } // namespace
 
 bool get_static(const std::shared_ptr<const ClassImage> &p_image, const StringName &p_name, Variant &r_value) {
@@ -3947,17 +3952,7 @@ bool get_static(const std::shared_ptr<const ClassImage> &p_image, const StringNa
 		return false;
 	}
 	const bytecode::Member &variable = owner->module.statics[index];
-	const TypeImage &type = owner->types[variable.type];
-	if (!static_usable(*owner, index)) {
-		r_value = default_variant(type);
-	} else if (variable.getter >= 0 && !Engine::get_singleton()->is_editor_hint()) {
-		GDExtensionCallError error;
-		r_value = call(owner, variable.getter, InstanceContext(), nullptr, 0, error);
-	} else if (variable.is_late && !owner->static_assigned(index)) {
-		r_value = Variant(); // As a member not yet assigned reads (spec §6.3).
-	} else {
-		r_value = outward_variant(type, owner->statics->at(variable.offset));
-	}
+	r_value = static_usable(*owner, index) ? read_variable(owner, variable, owner->statics->at(variable.offset), InstanceContext(), !Engine::get_singleton()->is_editor_hint()) : default_variant(owner->types[variable.type]);
 	return true;
 }
 
@@ -3968,24 +3963,46 @@ bool set_static(const std::shared_ptr<const ClassImage> &p_image, const StringNa
 		return false;
 	}
 	const bytecode::Member &variable = owner->module.statics[index];
-	// None leaves an @late variable not yet assigned so (spec §6.3).
-	if (!static_usable(*owner, index) || (variable.is_late && is_none(p_value) && !owner->static_assigned(index))) {
-		return true;
-	}
-	if (variable.setter >= 0 && !Engine::get_singleton()->is_editor_hint()) {
-		const Variant *args[] = { &p_value };
-		GDExtensionCallError error;
-		call(owner, variable.setter, InstanceContext(), args, 1, error);
-		return true;
-	}
-	String mismatch;
-	const bool written = entry_write(owner->types[variable.type], p_value, owner->statics->at(variable.offset), mismatch);
-	if (!mismatch.is_empty()) {
-		report_error(*owner, variable.name.c_str(), int(variable.line), vformat("\"%s\" was not written: %s.", p_name, mismatch));
-	} else if (written && variable.is_late) {
-		owner->static_assigned(index) = 1;
+	if (static_usable(*owner, index)) {
+		write_variable(owner, variable, owner->statics->at(variable.offset), InstanceContext(), !Engine::get_singleton()->is_editor_hint(), p_value);
 	}
 	return true;
+}
+
+Variant read_variable(const std::shared_ptr<const ClassImage> &p_image, const bytecode::Member &p_variable, uint8_t *p_slot, const InstanceContext &p_context, bool p_accessors) {
+	if (p_variable.getter >= 0 && p_accessors) {
+		GDExtensionCallError error;
+		return call(p_image, p_variable.getter, p_context, nullptr, 0, error);
+	}
+	// Null until assigned (spec §6.2, §6.3), with no program error: the debugger's
+	// inspector reads every property (scene/debugger/scene_debugger_object.cpp:85).
+	if ((p_variable.must_assign || p_variable.is_late) && !assigned_mark(*p_image, p_variable, p_slot)) {
+		return Variant();
+	}
+	return outward_variant(p_image->types[p_variable.type], p_slot);
+}
+
+void write_variable(const std::shared_ptr<const ClassImage> &p_image, const bytecode::Member &p_variable, uint8_t *p_slot, const InstanceContext &p_context, bool p_accessors, const Variant &p_value) {
+	// None leaves an @late one not yet assigned so, as a scene that stores
+	// none does (spec §6.3).
+	if (p_variable.is_late && is_none(p_value) && !assigned_mark(*p_image, p_variable, p_slot)) {
+		return;
+	}
+	// The scene, the inspector, Tween and other classes write through the
+	// setter (spec §4.4), whose entry check takes the value.
+	if (p_variable.setter >= 0 && p_accessors) {
+		const Variant *args[] = { &p_value };
+		GDExtensionCallError error;
+		call(p_image, p_variable.setter, p_context, args, 1, error);
+		return;
+	}
+	String mismatch;
+	const bool written = entry_write(p_image->types[p_variable.type], p_value, p_slot, mismatch);
+	if (!mismatch.is_empty()) {
+		report_error(*p_image, p_variable.name.c_str(), int(p_variable.line), vformat("\"%s\" was not written: %s.", to_godot(p_variable.name), mismatch));
+	} else if (written && p_variable.tracks_assignment()) {
+		assigned_mark(*p_image, p_variable, p_slot) = 1;
+	}
 }
 
 bool initialize_statics(const std::shared_ptr<const ClassImage> &p_image) {
