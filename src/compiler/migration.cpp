@@ -424,7 +424,7 @@ std::string triple_quoted(const std::string &p_text, int &r_count) {
 }
 
 Migrated::Migrated(const ProjectApi &p_under, const std::set<std::string> &p_files) :
-		under(p_under) {
+		ProjectLayer(p_under) {
 	for (const std::string &file : p_files) {
 		renamed[file] = migrated_path(file);
 		back[migrated_path(file)] = file;
@@ -437,7 +437,7 @@ Migrated::Migrated(const ProjectApi &p_under, const std::set<std::string> &p_fil
 }
 
 Migrated::Migrated(const ProjectApi &p_under, const std::map<std::string, std::string> &p_renamed, const std::map<std::string, std::string> &p_texts, const std::map<std::string, ForeignClass> &p_views) :
-		under(p_under), renamed(p_renamed), texts(p_texts), views(p_views) {
+		ProjectLayer(p_under), renamed(p_renamed), texts(p_texts), views(p_views) {
 	for (const auto &[file, now] : renamed) {
 		back[now] = file;
 	}

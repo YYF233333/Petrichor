@@ -199,8 +199,7 @@ std::string triple_quoted(const std::string &p_text, int &r_count);
 // over `under`: its texts are `texts`, with their strings that span lines in
 // triple quotes, and every path of one of them names its new path, as
 // scenes, global classes, autoloads and other scripts would.
-class Migrated : public ProjectApi {
-	const ProjectApi &under;
+class Migrated : public ProjectLayer {
 	std::map<std::string, std::string> renamed; // From the .gd paths.
 	std::map<std::string, std::string> back;
 	mutable std::map<std::string, std::string> others; // Other scripts' texts, with the paths renamed.
@@ -221,22 +220,17 @@ public:
 	// A path, its file's renamed if it is one of them; an inner class's too.
 	std::string path(const std::string &p_path) const;
 
-	std::vector<std::string> scene_paths() const override { return under.scene_paths(); }
 	std::optional<Scene> scene(const std::string &p_path) const override;
-	std::string main_scene() const override { return under.main_scene(); }
 	std::optional<ResourceInfo> resource(const std::string &p_path) const override;
 	std::string uid_path(const std::string &p_uid) const override { return path(under.uid_path(p_uid)); }
 	std::vector<std::string> dependencies(const std::string &p_path) const override;
 	std::string global_class_path(const std::string &p_name) const override { return path(under.global_class_path(p_name)); }
 	std::string autoload_path(const std::string &p_name) const override { return path(under.autoload_path(p_name)); }
 	std::map<std::string, std::string> global_class_paths() const override;
-	std::vector<std::string> autoload_names() const override { return under.autoload_names(); }
 	std::vector<std::string> resource_files() const override;
-	std::vector<std::string> input_actions() const override { return under.input_actions(); }
 	std::vector<std::string> script_paths() const override;
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override;
-	std::shared_ptr<const void> hold() const override { return under.hold(); }
 };
 
 // What the inference, the loop of quick fixes and the check after it gave

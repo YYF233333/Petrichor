@@ -21,7 +21,7 @@ Analysis::Pass::Pass(Analysis &r_analysis, const ProjectApi *p_project) :
 		return;
 	}
 	analysis.reading = p_project ? p_project : &analysis.project_api();
-	analysis.on_disk = analysis.reading == &analysis.workspace.disk || analysis.viewed_on_disk;
+	analysis.on_disk = analysis.reading == &analysis.workspace.under || analysis.viewed_on_disk;
 	analysis.workspace.passes++;
 	analysis.held = analysis.reading->hold();
 	analysis.classes = std::make_unique<ScriptClasses>(analysis.engine, analysis.reading, false, true);

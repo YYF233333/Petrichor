@@ -243,4 +243,32 @@ public:
 	virtual std::shared_ptr<const void> hold() const { return nullptr; }
 };
 
+// A project over another, which answers what this one does not override; but
+// literal_loads(), which reads this one's sources.
+class ProjectLayer : public ProjectApi {
+protected:
+	const ProjectApi &under;
+
+public:
+	explicit ProjectLayer(const ProjectApi &p_under) :
+			under(p_under) {}
+
+	std::vector<std::string> scene_paths() const override { return under.scene_paths(); }
+	std::optional<Scene> scene(const std::string &p_path) const override { return under.scene(p_path); }
+	std::string main_scene() const override { return under.main_scene(); }
+	std::optional<ResourceInfo> resource(const std::string &p_path) const override { return under.resource(p_path); }
+	std::string uid_path(const std::string &p_uid) const override { return under.uid_path(p_uid); }
+	std::vector<std::string> dependencies(const std::string &p_path) const override { return under.dependencies(p_path); }
+	std::string global_class_path(const std::string &p_name) const override { return under.global_class_path(p_name); }
+	std::string autoload_path(const std::string &p_name) const override { return under.autoload_path(p_name); }
+	std::map<std::string, std::string> global_class_paths() const override { return under.global_class_paths(); }
+	std::vector<std::string> autoload_names() const override { return under.autoload_names(); }
+	std::vector<std::string> resource_files() const override { return under.resource_files(); }
+	std::vector<std::string> input_actions() const override { return under.input_actions(); }
+	std::vector<std::string> script_paths() const override { return under.script_paths(); }
+	std::optional<std::string> script_source(const std::string &p_path) const override { return under.script_source(p_path); }
+	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override { return under.foreign_class(p_path, p_members); }
+	std::shared_ptr<const void> hold() const override { return under.hold(); }
+};
+
 } // namespace petrichor::compiler

@@ -23,10 +23,9 @@ struct Stamp {
 // when what it gives changes. A file's version is the revision of its last
 // change, so a version is never given twice, also to a file closed and opened
 // again. While a file is open, a change on disk does not reach it.
-class Workspace : public ProjectApi {
+class Workspace : public ProjectLayer {
 	friend class Analysis;
 
-	const ProjectApi &disk;
 	std::map<std::string, std::string> scripts;
 	std::map<std::string, Scene> scenes;
 	std::map<std::string, uint64_t> versions;
@@ -40,7 +39,7 @@ class Workspace : public ProjectApi {
 
 public:
 	explicit Workspace(const ProjectApi &p_disk) :
-			disk(p_disk) {}
+			ProjectLayer(p_disk) {}
 
 	void set_script(const std::string &p_path, std::string p_text);
 	void drop_script(const std::string &p_path);
@@ -54,53 +53,22 @@ public:
 	bool changed(const Stamp &p_stamp) const;
 	bool in_pass() const { return passes > 0; }
 
-	std::vector<std::string> scene_paths() const override { return disk.scene_paths(); }
 	std::optional<Scene> scene(const std::string &p_path) const override;
-	std::string main_scene() const override { return disk.main_scene(); }
-	std::optional<ResourceInfo> resource(const std::string &p_path) const override { return disk.resource(p_path); }
-	std::string uid_path(const std::string &p_uid) const override { return disk.uid_path(p_uid); }
-	std::vector<std::string> dependencies(const std::string &p_path) const override { return disk.dependencies(p_path); }
-	std::string global_class_path(const std::string &p_name) const override { return disk.global_class_path(p_name); }
-	std::string autoload_path(const std::string &p_name) const override { return disk.autoload_path(p_name); }
-	std::map<std::string, std::string> global_class_paths() const override { return disk.global_class_paths(); }
-	std::vector<std::string> autoload_names() const override { return disk.autoload_names(); }
-	std::vector<std::string> resource_files() const override { return disk.resource_files(); }
-	std::vector<std::string> input_actions() const override { return disk.input_actions(); }
-	std::vector<std::string> script_paths() const override { return disk.script_paths(); }
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const override;
-	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override { return disk.foreign_class(p_path, p_members); }
-	std::shared_ptr<const void> hold() const override { return disk.hold(); }
 };
 
 // Another project with texts of its own for some scripts, as an LSP session
 // lays the documents it has open over its view (architecture §2.4).
-class Overlay : public ProjectApi {
-	const ProjectApi &under;
-
+class Overlay : public ProjectLayer {
 public:
 	std::map<std::string, std::string> scripts;
 
 	explicit Overlay(const ProjectApi &p_under) :
-			under(p_under) {}
+			ProjectLayer(p_under) {}
 
-	std::vector<std::string> scene_paths() const override { return under.scene_paths(); }
-	std::optional<Scene> scene(const std::string &p_path) const override { return under.scene(p_path); }
-	std::string main_scene() const override { return under.main_scene(); }
-	std::optional<ResourceInfo> resource(const std::string &p_path) const override { return under.resource(p_path); }
-	std::string uid_path(const std::string &p_uid) const override { return under.uid_path(p_uid); }
-	std::vector<std::string> dependencies(const std::string &p_path) const override { return under.dependencies(p_path); }
-	std::string global_class_path(const std::string &p_name) const override { return under.global_class_path(p_name); }
-	std::string autoload_path(const std::string &p_name) const override { return under.autoload_path(p_name); }
-	std::map<std::string, std::string> global_class_paths() const override { return under.global_class_paths(); }
-	std::vector<std::string> autoload_names() const override { return under.autoload_names(); }
-	std::vector<std::string> resource_files() const override { return under.resource_files(); }
-	std::vector<std::string> input_actions() const override { return under.input_actions(); }
-	std::vector<std::string> script_paths() const override { return under.script_paths(); }
 	std::optional<std::string> script_source(const std::string &p_path) const override;
 	std::vector<std::pair<bool, std::string>> literal_loads(const std::string &p_path) const override;
-	std::optional<ForeignClass> foreign_class(const std::string &p_path, bool p_members) const override { return under.foreign_class(p_path, p_members); }
-	std::shared_ptr<const void> hold() const override { return under.hold(); }
 };
 
 } // namespace petrichor::compiler
