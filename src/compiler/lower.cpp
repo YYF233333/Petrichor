@@ -2133,21 +2133,28 @@ class Lowerer : FunctionState {
 		return i.dst;
 	}
 
-	// A method of a struct of the class at `p_owner`, called on that class's
-	// current image (spec §12.4), self first for an instance method.
-	uint32_t struct_method_call(const FuncDecl &p_method, const std::string &p_owner, const Type &p_self) {
+	// A call of the function by its declaration, self of `p_self` first for a
+	// struct's instance method.
+	bytecode::MethodCall declared_call(const FuncDecl &p_function, const Type &p_self) {
 		bytecode::MethodCall method;
-		method.method = p_method.name;
-		if (!p_method.is_static) {
+		method.method = p_function.name;
+		if (p_function.of_struct && !p_function.is_static) {
 			method.params.push_back(slot(std::string(), p_self));
 		}
-		for (const ParamDecl &param : p_method.params) {
+		for (const ParamDecl &param : p_function.params) {
 			method.params.push_back(slot(std::string(), param.type));
 			method.defaults += param.default_value ? 1 : 0;
 		}
-		method.is_vararg = p_method.has_rest();
-		method.is_async = p_method.is_async;
-		method.result = slot(std::string(), p_method.return_type);
+		method.is_vararg = p_function.has_rest();
+		method.is_async = p_function.is_async;
+		method.result = slot(std::string(), p_function.return_type);
+		return method;
+	}
+
+	// A method of a struct of the class at `p_owner`, called on that class's
+	// current image (spec §12.4).
+	uint32_t struct_method_call(const FuncDecl &p_method, const std::string &p_owner, const Type &p_self) {
+		bytecode::MethodCall method = declared_call(p_method, p_self);
 		method.static_class = int32_t(script_index(p_owner));
 		return method_call(method);
 	}
@@ -3722,18 +3729,8 @@ public:
 				out.code.clear();
 			}
 			const auto declared_signature = [&](const FuncDecl &p_decl) {
-				std::vector<bytecode::Slot> params;
-				if (p_decl.of_struct && !p_decl.is_static) {
-					params.push_back(slot("self", p_decl.locals[0].type));
-				}
-				size_t defaults = 0;
-				for (const ParamDecl &param : p_decl.params) {
-					params.push_back(slot(param.name, param.type));
-					if (param.default_value) {
-						++defaults;
-					}
-				}
-				return bytecode::signature_key(module.types, params, defaults, slot("", p_decl.return_type), p_decl.is_async, p_decl.has_rest());
+				const bytecode::MethodCall call = declared_call(p_decl, p_decl.of_struct && !p_decl.is_static ? p_decl.locals[0].type : Type());
+				return bytecode::signature_key(module.types, call.params, call.defaults, call.result, call.is_async, call.is_vararg);
 			};
 			if (cls.base) {
 				for (const FuncDecl *parent : cls.base->all_functions) {
