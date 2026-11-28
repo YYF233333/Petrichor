@@ -6,9 +6,8 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- Small ones, about 45 lines less in all:
-  - the field a constructor's argument goes to, matched in the checker and three times after it;
-  - self's current image for a call on self's instance, in `op_call_method` and `call_directly` (`src/runtime/vm.cpp`);
+- The field a constructor's argument goes to, matched in the checker and three times after it. Recording it on the argument needs care, as the checker may check a call more than once.
+- Whether a file is a scene, decided in one place, a few lines less. Now `Checker::is_scene_file` (`src/compiler/checker_scenes.cpp`) and `SceneIndex::is_scene` (`src/adapter/editor/scene_index.cpp`) each take the extension, else the type its import gives.
 
 ## Next release
 
