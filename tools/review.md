@@ -28,7 +28,7 @@ Review what the message names: a commit range, an area, sections of the spec or 
   - whether the spec (§14), `docs/design-notes.md`, `docs/engine-facts.md`, the architecture and `BACKLOG.md` changed with it;
   - what it adds that could be less;
   - a shortcut that would show users behavior the final design changes;
-  - engine behavior it repeats without a check that keeps the two in step.
+  - engine behavior, or a rule the repository already has, that it writes a second time with nothing keeping the two in step.
 - The spec:
   - sections that contradict each other;
   - rules that break one of the guarantees in spec §1;
