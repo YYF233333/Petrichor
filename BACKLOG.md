@@ -6,10 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- The verifier (`src/bytecode/verify.cpp`), about 25 lines less:
-  - the schema letters `M` and `F`, which no opcode uses;
-  - a schema letter for a name constant, in place of the case that checks it for five opcodes;
-  - one function for the four loops that check a call's arguments against its parameters.
 - Completion's rules in one place, about 10 lines less. Now the LSP server repeats where the word at the cursor starts, the cursor's mark, and the engine's sort ranks as numbers (`src/adapter/editor/lsp_server.cpp`).
 - Type predicates written outside `src/compiler/types.cpp`, about 10 lines less:
   - the types a slot holds inline, in the checker's `held_types` and lowering's `holds_interning`;

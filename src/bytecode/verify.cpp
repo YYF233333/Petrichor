@@ -404,9 +404,15 @@ class Verifier {
 		return true;
 	}
 
-	// The argument holds its value as the parameter does.
-	bool argument_fits(const uint32_t *p_call, size_t p_index, uint32_t p_param) {
-		return same_layout(p_call[4 + 2 * p_index], p_param) || fail("argument " + std::to_string(p_index) + " does not have the parameter's type");
+	// The first `p_count` arguments hold their values as the parameters from
+	// `p_first` on do.
+	bool arguments_fit(const uint32_t *p_call, size_t p_count, const std::vector<Slot> &p_params, size_t p_first = 0) {
+		for (size_t i = 0; i < p_count; i++) {
+			if (!same_layout(p_call[4 + 2 * i], p_params[p_first + i].type)) {
+				return fail("argument " + std::to_string(i) + " does not have the parameter's type");
+			}
+		}
+		return true;
 	}
 
 	// Arguments passed to an engine function: Variant parameters and extra
@@ -485,12 +491,7 @@ class Verifier {
 					return fail("wrong number of arguments");
 				}
 				// Those that go into a rest parameter take any value.
-				for (size_t i = 0; i < std::min<size_t>(p_call[3], target_function.fixed_params()); i++) {
-					if (!argument_fits(p_call, i, target_function.params[i].type)) {
-						return false;
-					}
-				}
-				return arguments(p_call) && call_result(dst, target_function.is_async, target_function.result.type);
+				return arguments_fit(p_call, std::min<size_t>(p_call[3], target_function.fixed_params()), target_function.params) && arguments(p_call) && call_result(dst, target_function.is_async, target_function.result.type);
 			}
 			case Op::CALL_AWAIT_ENGINE:
 				if (!function->is_async) {
@@ -526,12 +527,7 @@ class Verifier {
 				if ((!method.is_vararg && argc > fixed) || argc + method.defaults < fixed) {
 					return fail("wrong number of arguments");
 				}
-				for (uint32_t i = 0; i < std::min<size_t>(argc, fixed); i++) {
-					if (!argument_fits(p_call, i, method.params[i].type)) {
-						return false;
-					}
-				}
-				return arguments(p_call) && call_result(dst, method.is_async, method.result.type);
+				return arguments_fit(p_call, std::min<size_t>(argc, fixed), method.params) && arguments(p_call) && call_result(dst, method.is_async, method.result.type);
 			}
 			case Op::CALL_UTILITY: {
 				if (!index(callee, module.utility_calls.size(), "utility") || (base != NO_SLOT && !fail("a utility call has a base"))) {
@@ -591,12 +587,7 @@ class Verifier {
 						(spread && (method.defaults != 0 || method.params.size() != 1 || storage(method.params[0].type) != ValueType::Array))) {
 					return fail("CALL_VALUE of what is not call() or callv() of a function value");
 				}
-				for (uint32_t i = 0; i < p_call[3]; i++) {
-					if (!argument_fits(p_call, i, method.params[i].type)) {
-						return false;
-					}
-				}
-				return arguments(p_call) && result(dst, method.result.type);
+				return arguments_fit(p_call, p_call[3], method.params) && arguments(p_call) && result(dst, method.result.type);
 			}
 			case Op::TASK_ANY:
 			case Op::TASK_ALL: {
@@ -634,13 +625,7 @@ class Verifier {
 				if (!lambda.is_lambda || base != NO_SLOT || p_call[3] != lambda.captures) {
 					return fail("MAKE_LAMBDA of what is not a lambda, with a base or with other captures");
 				}
-				const size_t first = lambda.params.size() - lambda.captures;
-				for (size_t i = 0; i < p_call[3]; i++) {
-					if (!argument_fits(p_call, i, lambda.params[first + i].type)) {
-						return false;
-					}
-				}
-				return arguments(p_call) && slot(dst, ValueType::Callable);
+				return arguments_fit(p_call, p_call[3], lambda.params, lambda.params.size() - lambda.captures) && arguments(p_call) && slot(dst, ValueType::Callable);
 			}
 			case Op::CLEAR:
 				return (callee == 0 && dst == NO_SLOT && base == NO_SLOT && arguments(p_call)) || fail("CLEAR with a target, a dst or a base");
@@ -731,14 +716,11 @@ class Verifier {
 				case 'k':
 					ok = constant_like(o[i], o[0]);
 					break;
+				case 'N':
+					ok = index(o[i], module.constants.size(), "constant") && (storage(module.constants[o[i]].type) == ValueType::StringName || fail("a name that is not a StringName"));
+					break;
 				case 'C':
 					ok = index(o[i], module.classes.size(), "class");
-					break;
-				case 'M':
-					ok = index(o[i], module.members.size(), "member");
-					break;
-				case 'F':
-					ok = index(o[i], module.functions.size(), "function");
 					break;
 				case 'P':
 					ok = index(o[i], module.properties.size(), "property");
@@ -876,14 +858,6 @@ class Verifier {
 				return o[0] < uint32_t(IntRange::COUNT) || fail("no integer range");
 			case Op::ITER_STATE:
 				return (o[0] <= 1 || fail("no such iteration method")) && slot(o[2], ValueType::Array);
-			case Op::GET_AUTOLOAD:
-			case Op::GET_SIGNAL:
-			case Op::METHOD_VALUE:
-			case Op::ENGINE_METHOD_VALUE:
-			case Op::STATIC_VALUE: {
-				const uint32_t name = o[p_op == Op::STATIC_VALUE ? 2 : 0];
-				return index(name, module.constants.size(), "constant") && (storage(module.constants[name].type) == ValueType::StringName || fail("a name that is not a StringName"));
-			}
 			case Op::STRUCT_METHOD_VALUE: {
 				if (!index(o[0], module.method_calls.size(), "method call")) {
 					return false;

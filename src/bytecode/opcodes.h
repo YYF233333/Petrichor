@@ -43,7 +43,7 @@ namespace petrichor::bytecode {
 // that position: i/f/b/s/o/v/c/g/a (slot of Int/Float/Bool/String/Object/Variant/
 // Callable/Signal/Task), S/O (slot_or_none of String/Object), n (String member),
 // t (type_operand), l/m/k (slot_like/member_like/constant_like of o[0]),
-// C/M/F/P/E/R (index in classes/members/functions/properties/fields/operators),
+// N (a StringName constant), C/P/E/R (index in classes/properties/fields/operators),
 // j (jump target), or '.' (checked by the instruction's own rule).
 #define PETRICHOR_OPCODES(X) \
 	X(LINE, "I", "") \
@@ -120,12 +120,12 @@ namespace petrichor::bytecode {
 	X(NEW_WITHOUT_INIT, "ID", "Co") /* class (of this language), dst: as NEW_OBJECT, but _init() is left to the CALL_METHOD on dst that follows, skipped when the initializers fail (spec §6.1, §8.1) */ \
 	X(GET_SCRIPT, "ID", "Co") /* class, dst: the script of a class of this language, also of an inner class (spec §4.1) */ \
 	X(GET_SINGLETON, "ID", "Co") /* class, dst */ \
-	X(GET_AUTOLOAD, "ID", ".o") /* name constant, dst */ \
-	X(METHOD_VALUE, "IDA", ".cO") /* name constant, dst (Callable), object (NO_SLOT: self): calls the method of this language by name on the object's script, which it does not keep (spec §3.11) */ \
-	X(ENGINE_METHOD_VALUE, "IDA", ".cO") /* as METHOD_VALUE, the engine's Callable of the object's method */ \
-	X(STATIC_VALUE, "FDI", "Cc.") /* class, dst (Callable), name constant: a static function of the class, of this language on its current image (spec §3.11, §12.4), or of the engine; `new` of a class of this language constructs as new(...) */ \
+	X(GET_AUTOLOAD, "ID", "No") /* name constant, dst */ \
+	X(METHOD_VALUE, "IDA", "NcO") /* name constant, dst (Callable), object (NO_SLOT: self): calls the method of this language by name on the object's script, which it does not keep (spec §3.11) */ \
+	X(ENGINE_METHOD_VALUE, "IDA", "NcO") /* as METHOD_VALUE, the engine's Callable of the object's method */ \
+	X(STATIC_VALUE, "FDI", "CcN") /* class, dst (Callable), name constant: a static function of the class, of this language on its current image (spec §3.11, §12.4), or of the engine; `new` of a class of this language constructs as new(...) */ \
 	X(STRUCT_METHOD_VALUE, "IDA", ".c.") /* method call (of a struct's instance method, on its class's current image), dst (Callable), struct: the method with a copy of the struct (spec §3.11) */ \
-	X(GET_SIGNAL, "IDA", ".gO") /* name constant, dst, object (NO_SLOT: self) */ \
+	X(GET_SIGNAL, "IDA", "NgO") /* name constant, dst, object (NO_SLOT: self) */ \
 	X(CHECK_OBJECT, "IA", "Co") /* class, slot: not None, of the class */ \
 	X(CHECK_ELEMENT, "IA", "Co") /* class, slot: as CHECK_OBJECT, and not freed: an element for a loop variable of a narrower type (spec §5.7) */ \
 	X(CHECK_LIVE, "A", "o") /* slot: an object the engine takes is not freed */ \
