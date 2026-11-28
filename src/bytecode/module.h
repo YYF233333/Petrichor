@@ -84,6 +84,9 @@ ValueType fixed_element(ValueType p_type);
 // engine's constructors and operators compute such a value whole before they
 // store it, so it may go over one of their operands.
 bool owns_nothing(ValueType p_type);
+// Whether the instruction, storing a value of the type, has read its operands
+// then, so that its result may go to one of them.
+bool stores_last(Op p_op, ValueType p_dst);
 
 // What an argument or the return value of a method of Array or Dictionary is
 // to the container (spec §3.8).

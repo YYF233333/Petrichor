@@ -2849,73 +2849,12 @@ class Lowerer : FunctionState {
 		scopes.pop_back();
 	}
 
-	// Whether the instruction has read its operands when it stores its result,
-	// so that the result can go to one of them.
-	bool stores_last(const ir::Instr &p_instr) const {
-		switch (p_instr.op) {
-			case Op::EVALUATE:
-			case Op::CONSTRUCT:
-				return bytecode::owns_nothing(reg_type(p_instr.dst));
-			case Op::CONST_STRING:
-			case Op::CONST_VALUE:
-			case Op::MOVE_8:
-			case Op::MOVE_STRING:
-			case Op::MOVE_VALUE:
-			case Op::LOAD_MEMBER_8:
-			case Op::LOAD_MEMBER_STRING:
-			case Op::LOAD_MEMBER_VALUE:
-			case Op::GET_FIELD:
-			case Op::INT_TO_FLOAT:
-			case Op::FLOAT_TO_INT:
-			case Op::ADD_INT:
-			case Op::SUB_INT:
-			case Op::MUL_INT:
-			case Op::DIV_INT:
-			case Op::MOD_INT:
-			case Op::NEG_INT:
-			case Op::AND_INT:
-			case Op::OR_INT:
-			case Op::XOR_INT:
-			case Op::NOT_INT:
-			case Op::SHL_INT:
-			case Op::SHR_INT:
-			case Op::POW_INT:
-			case Op::ADD_FLOAT:
-			case Op::SUB_FLOAT:
-			case Op::MUL_FLOAT:
-			case Op::DIV_FLOAT:
-			case Op::POW_FLOAT:
-			case Op::NEG_FLOAT:
-			case Op::ADD_STRING:
-			case Op::EQ_INT:
-			case Op::NE_INT:
-			case Op::LT_INT:
-			case Op::LE_INT:
-			case Op::GT_INT:
-			case Op::GE_INT:
-			case Op::EQ_FLOAT:
-			case Op::NE_FLOAT:
-			case Op::LT_FLOAT:
-			case Op::LE_FLOAT:
-			case Op::GT_FLOAT:
-			case Op::GE_FLOAT:
-			case Op::EQ_BOOL:
-			case Op::NE_BOOL:
-			case Op::EQ_STRING:
-			case Op::NE_STRING:
-			case Op::NOT:
-				return true;
-			default:
-				return false;
-		}
-	}
-
 	// `p_local = p_value`, where the value is a temporary that the statement
 	// made from `p_first` on for this: the instruction that computed it stores
 	// it in the local instead, when it can, without a copy.
 	void assign_local(uint32_t p_local, uint32_t p_value, uint32_t p_first) {
 		std::vector<ir::Instr> &instrs = fn.blocks[current].instrs;
-		if (!terminated() && !instrs.empty() && instrs.back().dst == p_value && p_value >= p_first && !fn.views.count(p_value) && fn.regs[p_value].type == fn.regs[p_local].type && stores_last(instrs.back())) {
+		if (!terminated() && !instrs.empty() && instrs.back().dst == p_value && p_value >= p_first && !fn.views.count(p_value) && fn.regs[p_value].type == fn.regs[p_local].type && bytecode::stores_last(instrs.back().op, reg_type(p_value))) {
 			instrs.back().dst = p_local;
 			return;
 		}

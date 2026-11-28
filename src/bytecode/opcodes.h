@@ -36,7 +36,8 @@ namespace petrichor::bytecode {
 // releasing what they held (spec §6.8).
 //
 // In emit_schema, each character encodes one operand word from ir::Instr:
-// D=dst, A=a, B=b, I=imm, T=type, F=field, M=member_offset, R=regs[dst].type,
+// D=dst, d=dst stored once the operands are read, so that it may be one of
+// them, A=a, B=b, I=imm, T=type, F=field, M=member_offset, R=regs[dst].type,
 // S=regs[a].type, J=the jump of a block's Iterate terminator. In verify_schema, a leading '@' marks an instruction that
 // always uses the instance, and each following character checks the operand at
 // that position: i/f/b/s/o/v/c/g/a (slot of Int/Float/Bool/String/Object/Variant/
@@ -50,64 +51,64 @@ namespace petrichor::bytecode {
 	X(CONST_INT, "DI", "i.") \
 	X(CONST_FLOAT, "DI", "f.") \
 	X(CONST_BOOL, "DI", "b.") \
-	X(CONST_STRING, "DI", "s.") \
-	X(CONST_VALUE, "TDI", "tlk") /* type, dst, constant */ \
+	X(CONST_STRING, "dI", "s.") \
+	X(CONST_VALUE, "TdI", "tlk") /* type, dst, constant */ \
 	X(INIT_CONSTANT, "TIA", "t.l") /* type, constant, src: in a constants function, the value of a constant the engine computes, frozen (spec §4.5) */ \
 	X(LOAD_RESOURCE, "TDI", "tl.") /* type, dst, path (a String constant): preload(), a resource that is no longer of the type a program error */ \
-	X(MOVE_8, "DA", "") \
-	X(MOVE_STRING, "DA", "ss") \
-	X(MOVE_VALUE, "TDA", "tll") /* type, dst, src */ \
-	X(LOAD_MEMBER_8, "DM", "@") \
-	X(LOAD_MEMBER_STRING, "DM", "@sn") \
-	X(LOAD_MEMBER_VALUE, "TDM", "@tlm") /* type, dst, member */ \
+	X(MOVE_8, "dA", "") \
+	X(MOVE_STRING, "dA", "ss") \
+	X(MOVE_VALUE, "TdA", "tll") /* type, dst, src */ \
+	X(LOAD_MEMBER_8, "dM", "@") \
+	X(LOAD_MEMBER_STRING, "dM", "@sn") \
+	X(LOAD_MEMBER_VALUE, "TdM", "@tlm") /* type, dst, member */ \
 	X(STORE_MEMBER_8, "MA", "@") \
 	X(STORE_MEMBER_STRING, "MA", "@ns") \
 	X(STORE_MEMBER_VALUE, "TMA", "@tml") /* type, member, src */ \
 	X(LOAD_STATIC, "TDFI", "tl") /* type, dst, class (NO_SLOT: this one), static variable: the class is initialized first, and a variable not yet initialized is a program error (spec §4.8) */ \
 	X(STORE_STATIC, "TFIA", "t..l") /* type, class (NO_SLOT: this one), static variable, src: as LOAD_STATIC */ \
 	X(INIT_STATIC, "TIA", "t.l") /* type, static variable, src: in the static initializer, which counts the variable as initialized then */ \
-	X(INT_TO_FLOAT, "DA", "fi") \
-	X(FLOAT_TO_INT, "DA", "if") \
-	X(ADD_INT, "DAB", "iii") \
-	X(SUB_INT, "DAB", "iii") \
-	X(MUL_INT, "DAB", "iii") \
-	X(DIV_INT, "DAB", "iii") \
-	X(MOD_INT, "DAB", "iii") \
-	X(NEG_INT, "DA", "ii") \
-	X(AND_INT, "DAB", "iii") \
-	X(OR_INT, "DAB", "iii") \
-	X(XOR_INT, "DAB", "iii") \
-	X(NOT_INT, "DA", "ii") \
-	X(SHL_INT, "DAB", "iii") /* a negative operand or an amount of 64 or more is a program error (spec §5.1) */ \
-	X(SHR_INT, "DAB", "iii") \
-	X(POW_INT, "DAB", "iii") /* int_power(); 0 to a negative power is a program error (spec §5.1) */ \
-	X(ADD_FLOAT, "DAB", "fff") \
-	X(SUB_FLOAT, "DAB", "fff") \
-	X(MUL_FLOAT, "DAB", "fff") \
-	X(DIV_FLOAT, "DAB", "fff") \
-	X(POW_FLOAT, "DAB", "fff") \
-	X(NEG_FLOAT, "DA", "ff") \
-	X(ADD_STRING, "DAB", "sss") \
+	X(INT_TO_FLOAT, "dA", "fi") \
+	X(FLOAT_TO_INT, "dA", "if") \
+	X(ADD_INT, "dAB", "iii") \
+	X(SUB_INT, "dAB", "iii") \
+	X(MUL_INT, "dAB", "iii") \
+	X(DIV_INT, "dAB", "iii") \
+	X(MOD_INT, "dAB", "iii") \
+	X(NEG_INT, "dA", "ii") \
+	X(AND_INT, "dAB", "iii") \
+	X(OR_INT, "dAB", "iii") \
+	X(XOR_INT, "dAB", "iii") \
+	X(NOT_INT, "dA", "ii") \
+	X(SHL_INT, "dAB", "iii") /* a negative operand or an amount of 64 or more is a program error (spec §5.1) */ \
+	X(SHR_INT, "dAB", "iii") \
+	X(POW_INT, "dAB", "iii") /* int_power(); 0 to a negative power is a program error (spec §5.1) */ \
+	X(ADD_FLOAT, "dAB", "fff") \
+	X(SUB_FLOAT, "dAB", "fff") \
+	X(MUL_FLOAT, "dAB", "fff") \
+	X(DIV_FLOAT, "dAB", "fff") \
+	X(POW_FLOAT, "dAB", "fff") \
+	X(NEG_FLOAT, "dA", "ff") \
+	X(ADD_STRING, "dAB", "sss") \
 	X(FORMAT, "DAB", "ssv") /* dst (String), format (String), values (Variant): the engine's `%`, a format error a program error (spec §5.1) */ \
-	X(EQ_INT, "DAB", "bii") \
-	X(NE_INT, "DAB", "bii") \
-	X(LT_INT, "DAB", "bii") \
-	X(LE_INT, "DAB", "bii") \
-	X(GT_INT, "DAB", "bii") \
-	X(GE_INT, "DAB", "bii") \
-	X(EQ_FLOAT, "DAB", "bff") \
-	X(NE_FLOAT, "DAB", "bff") \
-	X(LT_FLOAT, "DAB", "bff") \
-	X(LE_FLOAT, "DAB", "bff") \
-	X(GT_FLOAT, "DAB", "bff") \
-	X(GE_FLOAT, "DAB", "bff") \
-	X(EQ_BOOL, "DAB", "bbb") \
-	X(NE_BOOL, "DAB", "bbb") \
-	X(EQ_STRING, "DAB", "bss") \
-	X(NE_STRING, "DAB", "bss") \
-	X(NOT, "DA", "bb") \
+	X(EQ_INT, "dAB", "bii") \
+	X(NE_INT, "dAB", "bii") \
+	X(LT_INT, "dAB", "bii") \
+	X(LE_INT, "dAB", "bii") \
+	X(GT_INT, "dAB", "bii") \
+	X(GE_INT, "dAB", "bii") \
+	X(EQ_FLOAT, "dAB", "bff") \
+	X(NE_FLOAT, "dAB", "bff") \
+	X(LT_FLOAT, "dAB", "bff") \
+	X(LE_FLOAT, "dAB", "bff") \
+	X(GT_FLOAT, "dAB", "bff") \
+	X(GE_FLOAT, "dAB", "bff") \
+	X(EQ_BOOL, "dAB", "bbb") \
+	X(NE_BOOL, "dAB", "bbb") \
+	X(EQ_STRING, "dAB", "bss") \
+	X(NE_STRING, "dAB", "bss") \
+	X(NOT, "dA", "bb") \
 	X(EVALUATE, "IDAB", "R") /* operator, dst, left, right (NO_SLOT: unary) */ \
-	X(GET_FIELD, "IDA", "E") /* field, dst, base */ \
+	X(GET_FIELD, "IdA", "E") /* field, dst, base */ \
 	X(SET_FIELD, "IAB", "E") /* field, base, value */ \
 	X(GET_PROPERTY, "IDA", "P") /* property, dst, object (NO_SLOT: self) */ \
 	X(HAS_MEMBER, "DAB", "bos") /* dst (bool), object, name (String): whether the object's get() finds it (spec §5.1) */ \

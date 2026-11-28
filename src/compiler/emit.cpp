@@ -73,6 +73,7 @@ bytecode::Function emit(const Function &p_function, const bytecode::Module &p_mo
 		for (const char *s = bytecode::op_emit_schema(p_instr.op); *s; s++) {
 			switch (*s) {
 				case 'D':
+				case 'd':
 					put(offset_of(p_instr.dst));
 					break;
 				case 'A':

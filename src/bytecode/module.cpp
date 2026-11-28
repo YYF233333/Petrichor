@@ -83,6 +83,10 @@ bool owns_nothing(ValueType p_type) {
 	return (p_type >= ValueType::Bool && p_type <= ValueType::Float) || (p_type >= ValueType::Vector2 && p_type <= ValueType::Color) || p_type == ValueType::RID;
 }
 
+bool stores_last(Op p_op, ValueType p_dst) {
+	return std::strchr(op_emit_schema(p_op), 'd') || ((p_op == Op::EVALUATE || p_op == Op::CONSTRUCT) && owns_nothing(p_dst));
+}
+
 const ContainerMethod *find_container_method(ValueType p_base, std::string_view p_name) {
 	using R = ElementRole;
 	static const ContainerMethod methods[] = {
