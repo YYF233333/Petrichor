@@ -2141,7 +2141,7 @@ void Checker::expect_assignable(const Expr &p_value, const Type &p_from, const T
 		write_optional(*p_written, p_owner);
 	}
 	std::string message = std::string("Cannot ") + p_action + " a value of type " + p_from.to_string() + " as " + p_to.to_string() + ".";
-	if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int) {
+	if (p_from.kind == TypeKind::Float && p_to.kind == TypeKind::Int && p_converts) {
 		message += " Convert explicitly with int(x).";
 	}
 	const Type &to = p_to.unwrapped();

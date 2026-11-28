@@ -107,6 +107,12 @@ TEST_CASE("float to int and an Array to a packed array need an explicit conversi
 	// float variable (architecture §2.1).
 	CHECK(fixed(in_function("var hp: int = 10\nhp = 2.5"), "Write int(2.5)") == in_function("var hp: int = 10\nhp = int(2.5)"));
 	CHECK(fixed_all(in_function("var hp: int = 10\nhp = 2.5"), compiler::FixKind::IntConversion) == in_function("var hp: int = 10\nhp = 2.5"));
+	// A compound assignment would truncate the result, not the right side, so
+	// neither the message nor the fixes suggest int(amount).
+	const compiler::CompileResult compound = compile(in_function("var health: int = 10\nvar amount := 0.5\nhealth -= amount"));
+	REQUIRE(compound.errors.size() == 1);
+	CHECK(compound.errors[0].message == "Cannot assign a value of type float as int.");
+	CHECK(compound.errors[0].fixes.empty());
 	CHECK(errors_of(in_function("var x: float = 1")).empty());
 	// The other explicit conversions are the engine's constructors.
 	CHECK(errors_of(in_function("var b := bool(2)\nvar i: int = int(\"5\") + int()\nvar f := float(\"1.5\")\nvar s := String(&\"a\")")).empty());
