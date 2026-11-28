@@ -94,7 +94,10 @@ Refactorings that remove code, taken in this order. Each minor release takes one
   - Candidates: rounds until no fix applies, as `migrate()` runs them; or the item listed only when a round applies two.
 - An icon for `.pet` scripts, plus a standalone mark and an organization avatar before 0.9. The release notes of 0.1 ask reviewers what the script icon should be.
 - The dialog that creates a script shows "No suitable template.", as this language has no templates. The script is created all the same.
-- `--petrichor-build` on a fresh clone can end with the engine's crash code (godot#111048). `pet` imports a fresh clone first.
+- A fresh clone's first headless editor run with this extension ends with the engine's crash code, 0xC0000005 (godot#111048, fixed by the unmerged PR #123658). `pet` imports a fresh clone first and ignores that code.
+  - On an empty project with the 0.3.0 addon, the first `--headless --import` crashed in 3 runs of 3, and exited 0 in 3 of 3 without the addon (official 4.7.2, 11-29).
+  - So a user's CI that imports a fresh checkout fails there. Check whether `--export-release` does too, and say in the guide to import once and ignore that run's code.
+- When a class's base is unknown, `new()` of it reports "X cannot be instantiated: the engine cannot instantiate , which it extends.", without a name (`find_init` and the `new` of engine calls in `src/compiler/checker_calls.cpp`). Reia meets it 30 times in corpus v2. The class's own file reports the unknown base, so this one could be left out.
 - On Windows, `--petrichor-build` cannot copy the extension's library while an editor has the same project open. Each editor process loads a copy named `~<library>`, which the open editor holds (`platform/windows/os_windows.cpp:488-504`, `core/extension/gdextension_library_loader.cpp:196`, `ed1daf0`).
   - The build still runs and prints its result. The process then ends with 0xC0000005 instead of its own exit code (two headless editors, 11-19).
   - The same holds for any second editor process on the project, such as a language server started apart from the editor.
@@ -155,7 +158,9 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - The two-way migration tool (spec §1.2, §13.4; architecture §6.6). "Next release" lists what 0.3 takes. Beyond it:
   - Members that the scenes type and other files read stay unknown in tanks-of-freedom-ii, such as `map.camera` (72 reads), `ui.picker` (43) and `ui.radial` (33).
   - The report lists by-name access with names that are not literals, and `get_name()` on signals. Their members may need `pub` (spec §10.5).
-  - Forms that keep their file from converting back. The three games of 0.3 meet none, and each of their files converts back and runs:
+  - The report's positions are lines of the migrated file. A `preload` constant written for a class without `class_name` moves the lines after it. So in a dry run, which writes no `.pet`, they miss the `.gd` lines the user has ([migration-v2](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/migration-v2.md#留下的错误按原因)).
+  - A class that stays in GDScript gives its enums as `Dictionary` constants (architecture §6.6). So a migrated file's `CharacterRegistry.CharacterType.X` is an error. In corpus v2, 18 of 50 sampled dot accesses on a `Dictionary` are such reads, of 7,009 in 53 games (migration-v2).
+  - Forms that keep their file from converting back. The three games of 0.3 meet none, and each of their files converts back and runs. Corpus v2's games meet them in two of 8,340 files (migration-v2): comedot's `GridDictionary.gd:29`, refused as "GDScript has no T?? or Variant?" and "unwrap_or() of T? on more than a name", and a match of TowDownGame's `Utils.gd:127`.
     - methods of `T?` on more than a name or with an argument that may have effects, and `expect()` but as what a variable or a name takes;
     - `:=` of a value that GDScript reads untyped, which it cannot infer;
     - members passed by name but where a variable is declared, and `instantiate(...)` with them into `:=`;
@@ -263,6 +268,9 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
     - Its build takes 12.8 s, from 15.7 s. The generated project builds in 8.1 to 8.6 s, from 8.4 to 9.2 s.
     - Opening a script of the generated project in the script editor takes 0.87 to 0.91 s, from 1.12 to 1.15 s. Its scenes still load 600 scripts, which compile no more.
     - GDScript compiles a script at its first load (`modules/gdscript/gdscript_resource_format.cpp:39-55`, `ed1daf0`). It needs no deferring, as it loads only the scenes it instances.
+  - `pet migrate` ran past 1,200 s on five games of corpus v2, which so have no result ([migration-v2](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/migration-v2.md#内部错误), 0.3.0). One is Freedom-Hunter, with 50 scripts and a 3 s import (`3f27279`). Find where its time goes first.
+    - Steps of 700 to 900 s elsewhere: SonicWorldsNext's `pet build` took 725 s for 100 scripts, while youtd2 migrated 653 scripts in 465 s.
+    - The sparse clone lacks textures. Microverse's import alone, without this extension, ran past 180 s, printing over 40,000 TileSet errors.
   - Left, should opening need to get faster: reading the structure from the scene text, so that a text file loads no script. It was estimated at 3.3 s of the 6.5, about 1 s more than deferring the compile. Binary scenes and resources keep the engine's reader, so the two readers must agree on what a file stores. The owner chose the deferred compile over it for that.
   - Not measured again, on the generated project, from before a pass held what it reads:
     - renaming a `pub` member that every script and scene uses takes 9 to 16 s to its preview at first, 5 to 10 s after. Each checks every script twice, before and after the edits;
