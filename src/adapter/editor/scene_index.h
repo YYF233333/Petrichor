@@ -32,11 +32,12 @@ class SceneIndex : public compiler::ProjectApi {
 		std::vector<std::pair<std::string, std::optional<FileStat>>> files;
 		mutable uint64_t checked = 0; // The count of changes on disk when it was last found current.
 	};
-	// A scene's files: its own; the scenes it instances, at any depth, as an
-	// instance takes the class and the script of its scene's root; animation
-	// libraries stored apart; and the scripts of this language of its
-	// resources, which give their properties. The scenes the file embeds,
-	// each by the file's path, "::" and its id, are scenes of their own.
+	// A scene's files: its own, with an imported scene's import settings; the
+	// scenes it instances, at any depth, as an instance takes the class and
+	// the script of its scene's root; animation libraries stored apart; and
+	// the scripts of this language of its resources, which give their
+	// properties. The scenes the file embeds, each by the file's path, "::"
+	// and its id, are scenes of their own.
 	struct Entry : Read {
 		compiler::Scene scene;
 		std::vector<compiler::Scene> embedded;
@@ -63,6 +64,7 @@ class SceneIndex : public compiler::ProjectApi {
 
 	// The scene, read again unless it is up to date.
 	std::shared_ptr<const Entry> read(const std::string &p_path) const;
+	bool is_scene(const std::string &p_path) const;
 	bool current(const Read &p_read) const;
 	// Notes the stats of the files read.
 	void stamp(Read &r_read, const std::set<std::string> &p_files) const;

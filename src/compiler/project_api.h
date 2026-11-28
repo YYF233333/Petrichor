@@ -181,7 +181,7 @@ struct ForeignClass {
 	}
 };
 
-// A resource that is not a scene, as its file says without loading it.
+// A resource other than a scene file, as its file says without loading it.
 struct ResourceInfo {
 	std::string type; // The engine class it loads as, such as CompressedTexture2D for an imported image.
 	std::string script_class; // The global name of its script's class, if it has a script with one.
@@ -197,12 +197,15 @@ public:
 
 	// The res:// paths of the project's scenes and resource files.
 	virtual std::vector<std::string> scene_paths() const = 0;
-	// A scene or a resource file by its res:// path; nullopt if there is
-	// none, or if a resource file holds nothing the check reads.
+	// A scene, also one that an importer makes of a model, or a resource file
+	// by its res:// path; nullopt if there is none, as for a model not
+	// imported yet, or if a resource file holds nothing the check reads.
 	virtual std::optional<Scene> scene(const std::string &p_path) const = 0;
 	// The res:// path of the main scene, or "" (spec §7.3).
 	virtual std::string main_scene() const = 0;
-	// Any other resource by its res:// path, for preload; nullopt if there is none.
+	// Any other resource by its res:// path, for preload, and so what a file
+	// that is no scene file loads as, such as an imported scene; nullopt if
+	// there is none.
 	virtual std::optional<ResourceInfo> resource(const std::string &p_path) const = 0;
 	// The res:// path a uid:// path names, or "".
 	virtual std::string uid_path(const std::string &p_uid) const = 0;

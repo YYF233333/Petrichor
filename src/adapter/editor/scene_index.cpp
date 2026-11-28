@@ -620,7 +620,14 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 	Ref<Resource> loaded;
 	if (file_empty(p_path)) {
 		// Read again once its stats change.
-	} else if (extension == "tscn" || extension == "scn") {
+	} else if (is_scene(p_path)) {
+		// An imported scene loads as its import saved it under .godot/imported/
+		// (core/io/resource_importer.cpp:172-191; ed1daf0), and not before it is
+		// imported. It is read again once an import writes its settings
+		// (editor/file_system/editor_file_system.cpp:2942-2948).
+		if (extension != "tscn" && extension != "scn") {
+			files.insert(p_path + ".import");
+		}
 		const Ref<PackedScene> packed = ResourceLoader::get_singleton()->load(path, "PackedScene", ResourceLoader::CACHE_MODE_IGNORE);
 		loaded = packed;
 		if (packed.is_valid() && packed->get_state().is_valid()) {
@@ -632,10 +639,7 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 		// scripts and the scenes it holds are external resources, which the
 		// engine lists without loading it.
 		const std::vector<std::string> dependencies = this->dependencies(p_path);
-		if (std::any_of(dependencies.begin(), dependencies.end(), [&](const std::string &p_dependency) {
-				const String extension = to_godot(p_dependency).get_extension();
-				return is_ours(p_dependency, taken) || extension == "tscn" || extension == "scn";
-			})) {
+		if (std::any_of(dependencies.begin(), dependencies.end(), [&](const std::string &p_dependency) { return is_ours(p_dependency, taken) || is_scene(p_dependency); })) {
 			std::set<uint64_t> seen;
 			entry->scene.path = p_path;
 			loaded = ResourceLoader::get_singleton()->load(path, "", ResourceLoader::CACHE_MODE_IGNORE);
@@ -649,6 +653,25 @@ std::shared_ptr<const SceneIndex::Entry> SceneIndex::read(const std::string &p_p
 		kept->push_back(loaded);
 	}
 	return entry;
+}
+
+// A scene file, or a file that an importer makes a scene of, such as a
+// model: the engine loads a file with import settings by them, as the type
+// they give (core/io/resource_importer.cpp:104-105, 247-253, 385-394;
+// ed1daf0). The import options and a post-import script decide its root
+// (editor/import/3d/resource_importer_scene.cpp:3341-3343, 3433-3435,
+// 3476-3480).
+bool SceneIndex::is_scene(const std::string &p_path) const {
+	const String path = to_godot(p_path);
+	const String extension = path.get_extension().to_lower();
+	if (extension == "tscn" || extension == "scn") {
+		return true;
+	}
+	if (!FileAccess::file_exists(path + String(".import"))) {
+		return false;
+	}
+	const std::optional<compiler::ResourceInfo> info = resource(p_path);
+	return info && info->type == "PackedScene";
 }
 
 std::shared_ptr<const void> SceneIndex::hold() const {

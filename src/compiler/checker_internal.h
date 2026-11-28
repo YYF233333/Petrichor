@@ -613,10 +613,6 @@ class Checker : public ClassRelation, private CheckContext {
 		return has_extension(p_file, { ".pet", ".gd", ".cs" });
 	}
 
-	static bool is_scene_file(const std::string &p_file) {
-		return has_extension(p_file, { ".tscn", ".scn" });
-	}
-
 	// Why a member that a scene names must be pub (spec §10.5).
 	static std::string not_pub(bool p_method) {
 		return p_method ? ", which is not pub; the engine calls only pub methods by name." : ", which is not pub; the engine finds only pub properties by name.";
@@ -957,6 +953,7 @@ class Checker : public ClassRelation, private CheckContext {
 	void record_walk(const Expr &p_get_node, const NodeWalk &p_walk);
 	Type scene_node_type(const TokenRange &p_at, const SceneNode &p_node, const std::string &p_what);
 	static bool has_extension(const std::string &p_path, std::initializer_list<const char *> p_extensions);
+	bool is_scene_file(const std::string &p_file) const;
 	std::string preload_path(const Expr &p_call) const;
 	void check_load_cycles();
 	bool loads_this_script(const std::string &p_file, std::set<std::string> &r_seen, std::vector<std::string> &r_chain);

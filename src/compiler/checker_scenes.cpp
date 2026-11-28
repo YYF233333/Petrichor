@@ -453,6 +453,16 @@ bool Checker::has_extension(const std::string &p_path, std::initializer_list<con
 	return std::any_of(p_extensions.begin(), p_extensions.end(), [&](const char *p_extension) { return extension == p_extension; });
 }
 
+// A file that loads as a PackedScene: a scene file, or one that an importer
+// makes a scene of, such as a model, by the type the project gives it.
+bool Checker::is_scene_file(const std::string &p_file) const {
+	if (has_extension(p_file, { ".tscn", ".scn" })) {
+		return true;
+	}
+	const std::optional<ResourceInfo> resource = options.project && !p_file.empty() ? options.project->resource(p_file) : std::nullopt;
+	return resource && resource->type == "PackedScene";
+}
+
 // The path that a preload() of one literal String names, from this
 // script's directory when it is relative, as in GDScript; a uid:// path as
 // written. Empty for any other preload().
@@ -543,16 +553,18 @@ std::string Checker::preload_file(const std::string &p_path) const {
 // The type of the resource in a file other than a script, by what it holds
 // (spec §7.4): a scene is PackedScene[T], T its root's type; any other
 // resource the class its file loads as, or its script's class. nullopt
-// when the project has no such file.
+// when the project has no such file. An imported scene that the project
+// does not show, as one not imported yet, is a PackedScene of unknown root.
 std::optional<Type> Checker::content_type(const Expr &p_at, const std::string &p_file) {
 	if (is_scene_file(p_file)) {
 		const std::optional<Scene> scene = options.project ? options.project->scene(p_file) : std::nullopt;
-		const SceneNode *root = scene ? scene->find_node(".") : nullptr;
-		if (!root) {
+		if (const SceneNode *root = scene ? scene->find_node(".") : nullptr) {
+			const Type root_type = scene_node_type(p_at.range, *root, "The root of " + p_file);
+			return root_type.is_error() ? root_type : Type::scene(root_type);
+		}
+		if (has_extension(p_file, { ".tscn", ".scn" })) {
 			return std::nullopt;
 		}
-		const Type root_type = scene_node_type(p_at.range, *root, "The root of " + p_file);
-		return root_type.is_error() ? root_type : Type::scene(root_type);
 	}
 	const std::optional<ResourceInfo> resource = options.project ? options.project->resource(p_file) : std::nullopt;
 	if (!resource) {
@@ -583,7 +595,7 @@ std::optional<Scene> Checker::known_scene(const Expr &p_value) {
 	} else if (p_value.kind == ExprKind::Call && p_value.text == "load" && p_value.base && p_value.base->text == "ResourceLoader") {
 		file = literal_load_file(p_value); // load(), checked as ResourceLoader.load().
 	}
-	return is_scene_file(file) && options.project && !loading() ? options.project->scene(file) : std::nullopt;
+	return options.project && !loading() && is_scene_file(file) ? options.project->scene(file) : std::nullopt;
 }
 
 // load() of one literal path in the project, typed as preload() types it

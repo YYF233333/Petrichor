@@ -70,7 +70,7 @@ GAME_OUTPUT = [
 GROUPS = ["game", "editor", "language", "debugger", "export", "lsp", "pet", "fps", "ring", "deck", "reverse", "dotnet"]
 # The forward migration of each game's copy: the scripts it takes, the files
 # it leaves out, and at most the errors it leaves (architecture §3).
-MIGRATION_BUDGET = {"fps": (8, 0, 8), "ring": (55, 94, 87), "deck": (117, 6, 87)}
+MIGRATION_BUDGET = {"fps": (8, 0, 6),"ring": (55, 94, 87), "deck": (117, 6, 87)}
 LSP = HERE / "lsp"
 DOTNET = HERE / "dotnet"
 DOTNET_ASSEMBLY = Path(".godot", "mono", "temp", "bin", "Debug", "DotnetCheck.dll")

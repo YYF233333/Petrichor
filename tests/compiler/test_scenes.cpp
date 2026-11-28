@@ -467,8 +467,8 @@ TEST_CASE("instantiate() of a scene known statically takes the exports it does n
 	CHECK(check_scenes_in("extends Node\n@export pub var wave: PackedScene[Enemy]\n", project).errors.empty());
 	// Nor one whose root is no T.
 	CHECK(messages(check_scenes_in("extends Node\n@export pub var wave: PackedScene[Timer]\n", project)) == "2:17: res://level.tscn: the value stored for \"wave\" of Spawner does not fit its type: expected PackedScene[Timer], found PackedScene[Enemy].\n");
-	// One whose root the project does not show, as Starter-Kit-FPS's models
-	// (weapons/blaster.tres), is checked as instantiate() gives its root.
+	// One whose root the project does not show, as a model not imported yet,
+	// is checked as instantiate() gives its root.
 	project.scenes.back().nodes[1].properties[0].second.path = "res://models/blaster.glb";
 	CHECK(check_scenes_in("extends Node\n@export pub var wave: PackedScene[Timer]\n", project).errors.empty());
 }

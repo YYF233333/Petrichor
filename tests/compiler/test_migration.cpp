@@ -343,6 +343,27 @@ TEST_CASE("an export written PackedScene takes the class of the roots of the sce
 	CHECK(migration.errors.empty());
 }
 
+// Starter-Kit-FPS's Weapon.model (scripts/weapon.gd:5, weapons/blaster.tres,
+// objects/player.gd:259-262), a scene that an importer makes of a model.
+TEST_CASE("an export written PackedScene takes the root of an imported scene stored for it") {
+	FakeProject project;
+	project.add_script("res://weapon.gd", "class_name Weapon\nextends Resource\n@export var model: PackedScene\n", "Weapon");
+	project.add_script("res://player.gd", "extends Node3D\n\n\nfunc change(weapon: Weapon) -> void:\n\tvar weapon_model = weapon.model.instantiate()\n\tweapon_model.position = Vector3.ZERO\n");
+	compiler::Scene model;
+	model.path = "res://models/blaster.glb";
+	model.nodes = { { ".", "Node3D", "" } };
+	project.resources[model.path] = { "PackedScene", "" };
+	compiler::SceneValue stored{ "Object", "PackedScene" };
+	stored.path = model.path;
+	compiler::Scene blaster;
+	blaster.path = "res://blaster.tres";
+	blaster.resources = { { blaster.path, "res://weapon.gd", { { "model", stored } } } };
+	project.scenes = { model, blaster };
+	const compiler::Migration migration = compiler::migrate(fake_engine(), project, { "res://weapon.gd", "res://player.gd" }, 10);
+	CHECK(migration.texts.at("res://weapon.pet") == "class_name Weapon\nextends Resource\n@export var model: PackedScene[Node3D]\n");
+	CHECK(migration.errors.empty());
+}
+
 // deck_builder_tutorial's EventRoomPool (custom_resources/event_room_pool.gd,
 // scenes/event_rooms/event_room_pool.tres) and Room.event_scene
 // (custom_resources/room.gd:15, scenes/map/map_generator.gd:208).
