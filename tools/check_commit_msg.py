@@ -14,6 +14,7 @@ AREAS = (
     "Bench",
     "Tools",
     "Docs",
+    "Backlog",
 )
 
 
@@ -22,7 +23,7 @@ def check(lines):
         lines.pop(0)
     while lines and not lines[-1]:
         lines.pop()
-    if not lines or lines[0].startswith(("Merge ", 'Revert "')):
+    if not lines or lines[0].startswith('Revert "'):
         return []
 
     errors = []

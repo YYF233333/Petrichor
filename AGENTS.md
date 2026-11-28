@@ -40,9 +40,11 @@ The target engine is Godot 4.7. Check engine behavior against the Godot source c
 
 ## Commits
 
-- Other sessions share the working tree and index. Commit only your own files by path (`git commit -m … -- <paths>`) and push to `main` after committing. A push that changes code cancels the in-progress CI run.
+- Other sessions share the working tree and index, which stay on `main`. Commit there only your own files, by path (`git commit -m … -- <paths>`), and push to `main`. Spec and documentation changes go this way.
+- Work for a brief goes on the branch the brief names, in a clone of your own, and is pushed to that branch only. Do not rebase or force-push; conflicts are resolved in the merge.
+- The session that wrote the brief reads the report and the diff and has review findings fixed on the branch. It then merges the branch into `main` with `git merge --no-ff` and pushes; a branch of one commit fast-forwards. The merge's subject has the usual form, and its body says what the batch lets users do, with measurements. A push to `main` that changes code cancels the in-progress CI run.
 - Git hooks in `tools/hooks/` run `tools/pre-commit-config.yaml` (formatting, doc pairs/style, diagnostics and commit message format). When a hook fixes a file, commit again.
-- Write commit messages in English; the `commit-msg` hook checks the header and line length. Omit the body when the subject, diff and updated docs already explain the change. Put only what `git blame` cannot find in the body: non-obvious causes, spec or engine citations, measurements and traps in rejected alternatives.
+- Write commit messages in English; the `commit-msg` hook checks the header and line length. A commit that changes only `BACKLOG.md` takes the area `Backlog`. Omit the body when the subject, diff and updated docs already explain the change. Put only what `git blame` cannot find in the body: non-obvious causes, spec or engine citations, measurements and traps in rejected alternatives.
 
 ## Workflow
 
