@@ -116,15 +116,17 @@ Petrichor is in its 0.x preview series to gather feedback on the language semant
 - Before 0.9, language semantics may still change, and release notes list every breaking change. From 0.9 onward, upgrades do not silently change what existing code means; any breaking semantic change turns the old form into a compile error.
 - A few constructs deliberately behave differently from GDScript without a compile error. The [spec](docs/language-spec.md#12-relation-to-gdscript) lists each one, and they stay open for feedback until 0.9.
 - Compiled bytecode is not compatible across builds, so upgrading recompiles every script.
-- `pet migrate` leaves a compile error wherever a change needs your judgment, with quick fixes to settle it. Scripts with `@tool` stay in GDScript until 0.4, which also brings editor lints. Files sticking to GDScript-compatible features convert back to GDScript even if Petrichor is discontinued. Files using Petrichor-only features such as `struct` or `Result` are not converted back, and the tool lists each place.
+- Editor lints and standard-library extensions are not in yet. Neither is tied to a release; each ships with whichever 0.x it is ready for.
+- `pet migrate` leaves a compile error wherever a change needs your judgment, with quick fixes to settle it. Scripts with `@tool` stay in GDScript until 0.4. Files sticking to GDScript-compatible features convert back to GDScript even if Petrichor is discontinued. Files using Petrichor-only features such as `struct` or `Result` are not converted back, and the tool lists each place.
 - Supports Godot 4.7 and later.
 
 Roadmap overview:
 
 - **0.2.x**: Core static language, scene checking, built-in editor and LSP/VS Code tooling, `pet` CLI, and prebuilt desktop libraries.
 - **0.3 (current: 0.3.0)**: The two-way GDScript migration tool, and toolchain speed on projects with a thousand scripts.
-- **0.4**: `@tool`, editor lints, and Android/iOS/Web export libraries. It also checks whether Godot 4.4–4.6 and double-precision builds can be supported, and tries keeping `pet`'s background process alive between commands.
-- **0.9 (language freeze)**: The remaining pre-1.0 designs, such as post-ready non-null members, multi-argument signal `await`, and user-defined generics. The upgrade guarantee above takes effect with this release.
+- **0.4**: `@tool`, builds for Godot 4.4–4.6, and Android/iOS/Web export libraries. It also checks double-precision builds, runs the migration tool over more open-source games, and tries keeping `pet`'s background process alive between commands.
+- **0.5–0.8**: The open questions that would change what legal code means, such as NaN in containers. The project then stays at 0.8 until at least two outside projects have migrated with the tool and reported back. User-defined generics are implemented during that stay.
+- **0.9 (language freeze)**: All of 1.0's technical content. The upgrade guarantee above takes effect with this release.
 
 See the detailed roadmap in [Architecture](docs/architecture.md#5-推进顺序) (Chinese) and open items in [BACKLOG.md](BACKLOG.md).
 
