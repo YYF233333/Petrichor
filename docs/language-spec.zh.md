@@ -1,6 +1,6 @@
 # Petrichor 语言规范
 
-**v0.2 草案**
+**v0.3 草案**
 
 Petrichor 是一门面向 Godot 4 的全静态类型脚本语言，以 GDExtension 形式交付，在项目代码中替代 GDScript 并与 GDScript 插件共存。本文是语言规范草案，[实现](architecture.md)尚未覆盖全部规则；设计取舍与语料依据见[设计说明](design-notes.md)，引擎核对基线见[引擎事实](engine-facts.md)。
 

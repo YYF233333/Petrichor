@@ -1,8 +1,8 @@
 # Petrichor Language Specification
 
-**v0.2 draft**
+**v0.3 draft**
 
-<!-- Generated from language-spec.zh.md, git blob 768b02fd8e38a97709af9a98e3c6ad7635ca1c1a. Do not edit by hand; see tools/spec_translation.md. -->
+<!-- Generated from language-spec.zh.md, git blob 3ee228a7976f210b63f699628b805c2dcc169d8b. Do not edit by hand; see tools/spec_translation.md. -->
 
 Petrichor is a fully statically typed scripting language for Godot 4, shipped as a GDExtension that replaces GDScript in project code while coexisting with GDScript plugins. This draft specifies the language rules, though the [implementation](architecture.md) does not yet cover all of them; see the [design notes](design-notes.md) for trade-offs and corpus evidence, and the [engine facts](engine-facts.md) for the checked engine baseline. This English edition is generated from the [Chinese edition](language-spec.zh.md), which prevails where the two differ; the linked documents are in Chinese only.
 
