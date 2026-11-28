@@ -280,10 +280,6 @@ bool PetLanguage::_overrides_external_editor() {
 	return false;
 }
 
-ScriptLanguage::ScriptNameCasing PetLanguage::_preferred_file_name_casing() const {
-	return ScriptLanguage::SCRIPT_NAME_CASING_SNAKE_CASE;
-}
-
 Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_path, Object *p_owner) const {
 	Array options;
 	String call_hint;

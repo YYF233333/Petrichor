@@ -8,13 +8,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 
 - Small ones, about 45 lines less in all:
   - the field a constructor's argument goes to, matched in the checker and three times after it;
-  - the test for None or Err, twice in lowering (`language_method`, `try_value`);
-  - the tokens of a node path, walked by the parser's `get_node` and the formatter's `join_path`;
   - self's current image for a call on self's instance, in `op_call_method` and `call_directly` (`src/runtime/vm.cpp`);
-  - `ClassImage::strings`, which `native_values` already holds;
-  - the function indices that the reader checks and the verifier checks again, and the VM's default case, which no verified module reaches;
-  - lowering's internal error for an unknown binary operator, which no token reaches;
-  - `_preferred_file_name_casing` and `instance_is_placeholder`, which return the engine's defaults (`core/object/script_language_extension.h:381-389, 902-907`, `ed1daf0`).
 
 ## Next release
 

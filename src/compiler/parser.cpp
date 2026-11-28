@@ -574,33 +574,24 @@ class Parser {
 		}
 	}
 
-	// `$Head/Camera`, `$"../Level"`, `%Name` or `$%Name/Child` (spec §7.1): names
-	// and strings joined by "/", each name after "$" or "/" possibly unique, as
-	// in GDScript (modules/gdscript/gdscript_parser.cpp:3609-3685; ed1daf0).
+	// `$Head/Camera`, `$"../Level"`, `%Name` or `$%Name/Child` (spec §7.1).
 	std::unique_ptr<Expr> get_node() {
-		const Token &start = advance();
-		auto expr = make(ExprKind::GetNode, start);
-		if (start.kind == TokenKind::Dollar && check(TokenKind::Slash)) {
-			advance();
-			expr->text = "/";
+		bool complete = false;
+		const size_t end = node_path_end(tokens, at, complete);
+		auto expr = make(ExprKind::GetNode, peek());
+		for (std::string unique; at < end;) {
+			const Token &token = advance();
+			if (token.kind == TokenKind::Percent) {
+				unique = "%";
+			} else if (token.kind == TokenKind::Slash) {
+				expr->text += "/";
+			} else if (token.kind != TokenKind::Dollar) {
+				expr->text += unique + token.text;
+				unique.clear();
+			}
 		}
-		bool unique = start.kind == TokenKind::Percent;
-		while (true) {
-			if (!unique && match(TokenKind::Percent)) {
-				unique = true;
-			}
-			if (!check(TokenKind::String) && !is_node_name(peek().kind)) {
-				fail(peek(), std::string("Expected a node path after ") + token_name(tokens[last].kind) + ", found " + token_name(peek().kind) + ".");
-				break;
-			}
-			expr->text += (unique ? "%" : "") + advance().text;
-			unique = false;
-			const TokenKind next = peek(1).kind;
-			if (!check(TokenKind::Slash) || (next != TokenKind::String && next != TokenKind::Percent && !is_node_name(next))) {
-				break;
-			}
-			advance();
-			expr->text += "/";
+		if (!complete) {
+			fail(peek(), std::string("Expected a node path after ") + token_name(tokens[last].kind) + ", found " + token_name(peek().kind) + ".");
 		}
 		expr->range = span(expr->range.first);
 		return expr;

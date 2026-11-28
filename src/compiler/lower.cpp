@@ -479,12 +479,7 @@ class Lowerer : FunctionState {
 			instr(type.is_result() ? Op::UNWRAP_OK : Op::UNWRAP, result, value, argument);
 			return result;
 		}
-		const uint32_t absent = temp(ValueType::Bool);
-		if (type.is_result()) {
-			instr(Op::NE_INT, absent, field_view(value, 0), int_constant(0));
-		} else {
-			instr(Op::IS_NONE, absent, value);
-		}
+		const uint32_t absent = err_or_none(value, type);
 		const uint32_t blocks[2] = { new_block(), new_block() };
 		const uint32_t end_block = new_block();
 		branch(absent, blocks[1], blocks[0]);
@@ -542,18 +537,24 @@ class Lowerer : FunctionState {
 		return result;
 	}
 
+	// Whether the Result holds an Err, or the T? None.
+	uint32_t err_or_none(uint32_t p_value, const Type &p_type) {
+		const uint32_t found = temp(ValueType::Bool);
+		if (p_type.is_result()) {
+			const uint32_t zero = int_constant(0);
+			instr(Op::NE_INT, found, field_view(p_value, 0), zero);
+		} else {
+			instr(Op::IS_NONE, found, p_value);
+		}
+		return found;
+	}
+
 	// `x?` (spec §8.2): the value inside the Result or the T?, or a return of
 	// the Err or the None it holds.
 	uint32_t try_value(const Expr &p_expr) {
 		const Type &type = p_expr.left->type;
 		const uint32_t value = lower_expr(*p_expr.left);
-		const uint32_t failed = temp(ValueType::Bool);
-		if (type.is_result()) {
-			const uint32_t zero = int_constant(0);
-			instr(Op::NE_INT, failed, field_view(value, 0), zero);
-		} else {
-			instr(Op::IS_NONE, failed, value);
-		}
+		const uint32_t failed = err_or_none(value, type);
 		const uint32_t fail_block = new_block();
 		const uint32_t next_block = new_block();
 		branch(failed, fail_block, next_block);
@@ -1747,11 +1748,9 @@ class Lowerer : FunctionState {
 			case TokenKind::Greater:
 				op = f ? Op::GT_FLOAT : Op::GT_INT;
 				break;
-			case TokenKind::GreaterEqual:
+			default: // GreaterEqual
 				op = f ? Op::GE_FLOAT : Op::GE_INT;
 				break;
-			default:
-				return internal_error("no instruction for this binary operator");
 		}
 		const uint32_t result = temp(p_result);
 		instr(op, result, p_left, p_right);

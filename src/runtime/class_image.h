@@ -110,7 +110,6 @@ public:
 	mutable std::shared_ptr<Statics> statics;
 	godot::HashMap<godot::StringName, int> static_lookup;
 
-	std::vector<godot::String> strings; // String constants the compiler knows, by constant index.
 	// Every constant, by constant index; those the engine computes are written
 	// once (set_constant()).
 	mutable std::vector<godot::Variant> values;

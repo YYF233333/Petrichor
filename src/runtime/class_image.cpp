@@ -333,7 +333,6 @@ std::shared_ptr<ClassImage> ClassImage::load_class(bytecode::Module &&p_module, 
 	// resources (pub_constant()).
 	for (const bytecode::Constant &constant : module.constants) {
 		const TypeImage &type = types[constant.type];
-		image->strings.push_back(type.storage == ValueType::String ? to_godot(constant.s) : String());
 		image->values.push_back(constant.computed ? Variant() : known_value(type, constant));
 		if (!constant.builtin.empty() && image->values.back().get_type() != variant_type(type.storage)) {
 			r_error = vformat("the engine has no %s constant %s", bytecode::value_type_name(type.storage), to_godot(constant.builtin));

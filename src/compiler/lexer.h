@@ -138,6 +138,12 @@ struct Token {
 	uint32_t end() const { return offset + length; }
 };
 
+// Past the last token of the node path after `$` or `%` at `p_start` (spec
+// §7.1): names and strings joined by "/", each name after "$" or "/" possibly
+// unique, as in GDScript (modules/gdscript/gdscript_parser.cpp:3609-3685;
+// ed1daf0). `r_complete` is false where a name is missing, at the end.
+size_t node_path_end(const std::vector<Token> &p_tokens, size_t p_start, bool &r_complete);
+
 // `pub`, `struct`, `interface`, `implements`, `async` and `None` are keywords
 // only where their syntax begins, and names elsewhere (spec §2.2). So are
 // `match` and `when`, which GDScript lets name things

@@ -555,10 +555,6 @@ void archive(Ar &r_ar, T &r_value) {
 				r_value.engine_calls, r_value.properties, r_value.utility_calls, r_value.operators, r_value.fields, r_value.constructors, r_value.builtin_methods,
 				r_value.classes, r_value.method_calls, r_value.interfaces, r_value.name, r_value.is_pub, r_value.inner_classes);
 		if constexpr (Ar::reading) {
-			const int32_t functions = int32_t(r_value.functions.size());
-			if (r_value.init_function < -1 || r_value.init_function >= functions || r_value.ready_function < -1 || r_value.ready_function >= functions || r_value.static_init_function < -1 || r_value.static_init_function >= functions) {
-				r_ar.failed = true;
-			}
 			r_ar.depth--;
 		}
 	} else {

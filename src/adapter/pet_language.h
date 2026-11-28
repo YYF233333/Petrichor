@@ -60,7 +60,6 @@ public:
 	bool _can_make_function() const override;
 	godot::Error _open_in_external_editor(const godot::Ref<godot::Script> &p_script, int32_t p_line, int32_t p_column) override;
 	bool _overrides_external_editor() override;
-	godot::ScriptLanguage::ScriptNameCasing _preferred_file_name_casing() const override;
 	godot::Dictionary _complete_code(const godot::String &p_code, const godot::String &p_path, godot::Object *p_owner) const override;
 	godot::Dictionary _lookup_code(const godot::String &p_code, const godot::String &p_symbol, const godot::String &p_path, godot::Object *p_owner) const override;
 	godot::String _auto_indent_code(const godot::String &p_code, int32_t p_from_line, int32_t p_to_line) const override;

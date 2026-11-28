@@ -570,10 +570,6 @@ static GDExtensionObjectPtr instance_get_script(GDExtensionScriptInstanceDataPtr
 	return self(p_instance)->script->_owner;
 }
 
-static GDExtensionBool instance_is_placeholder(GDExtensionScriptInstanceDataPtr p_instance) {
-	return false;
-}
-
 static GDExtensionScriptLanguagePtr instance_get_language(GDExtensionScriptInstanceDataPtr p_instance) {
 	return PetLanguage::get_singleton()->_owner;
 }
@@ -618,7 +614,6 @@ static GDExtensionScriptInstanceInfo3 build_info() {
 	info.to_string_func = instance_to_string;
 	info.refcount_decremented_func = instance_refcount_decremented;
 	info.get_script_func = instance_get_script;
-	info.is_placeholder_func = instance_is_placeholder;
 	info.get_language_func = instance_get_language;
 	info.free_func = instance_free;
 	return info;

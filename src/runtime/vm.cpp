@@ -1136,10 +1136,6 @@ class Execution {
 		return fail(p_fn, p_line, p_message == NO_SLOT ? vformat("unwrap() found %s.", found) : vformat("%s: %s", *reinterpret_cast<const String *>(p_frame + p_message), found));
 	}
 
-	PETRICHOR_NOINLINE bool fail_invalid_op(const bytecode::Function &p_fn, int p_line, uint32_t p_op) {
-		return fail(p_fn, p_line, vformat("Invalid instruction %d.", p_op));
-	}
-
 	PETRICHOR_NOINLINE void step_debugger(int p_line) {
 		debugger::line(image.source, p_line);
 	}
@@ -1314,7 +1310,7 @@ class Execution {
 
 	// Of the type the compiler found, unless the file changed since.
 	PETRICHOR_NOINLINE bool op_load_resource(const uint32_t *p_op, uint8_t *p_frame, const bytecode::Function &p_fn, int p_line) {
-		const String &path = image.strings[p_op[3]];
+		const String &path = *reinterpret_cast<const String *>(image.native_values[p_op[3]]);
 		const Variant resource = load_resource(path);
 		return from_variant(image.types[p_op[1]], resource, p_frame + p_op[2], true) || fail(p_fn, p_line, vformat("preload(\"%s\"): %s", path, entry_mismatch(image.types[p_op[1]], resource)));
 	}
@@ -2665,7 +2661,7 @@ public:
 					U64(code[pc + 1]) = code[pc + 2];
 					NEXT(CONST_BOOL);
 				case Op::CONST_STRING:
-					STR(code[pc + 1]) = image.strings[code[pc + 2]];
+					STR(code[pc + 1]) = *reinterpret_cast<const String *>(image.native_values[code[pc + 2]]);
 					NEXT(CONST_STRING);
 				case Op::CONST_VALUE:
 					if (const uint8_t *native = image.native_values[code[pc + 3]]) {
@@ -3139,9 +3135,8 @@ public:
 					}
 					return true;
 				case Op::RETURN_VOID:
+				case Op::COUNT: // None in a verified module.
 					return true;
-				default:
-					return fail_invalid_op(fn, record.line, code[pc]);
 			}
 		}
 #undef I64

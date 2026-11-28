@@ -170,30 +170,6 @@ class Formatter {
 		}
 	}
 
-	// A node path after `$` or `%` (parser.cpp, get_node()).
-	void join_path(size_t p_start) {
-		size_t i = p_start + 1;
-		bool unique = tokens[p_start].kind == TokenKind::Percent;
-		if (!unique && tokens[i].kind == TokenKind::Slash) {
-			joined[i++] = true;
-		}
-		for (;;) {
-			if (!unique && tokens[i].kind == TokenKind::Percent) {
-				joined[i++] = true;
-			}
-			if (tokens[i].kind != TokenKind::String && !is_node_name(tokens[i].kind)) {
-				return;
-			}
-			joined[i++] = true;
-			unique = false;
-			const TokenKind after = tokens[i + 1].kind;
-			if (tokens[i].kind != TokenKind::Slash || (after != TokenKind::String && after != TokenKind::Percent && !is_node_name(after))) {
-				return;
-			}
-			joined[i++] = true;
-		}
-	}
-
 	void read_operators() {
 		prefix.assign(tokens.size(), false);
 		joined.assign(tokens.size(), false);
@@ -213,7 +189,8 @@ class Formatter {
 			// A keyword after "." names a member, as in `o.or(x)`.
 			joined[t] = joined[t] || (previous >= 0 && tokens[previous].kind == TokenKind::Period && is_node_name(kind));
 			if (!joined[t] && (kind == TokenKind::Dollar || (kind == TokenKind::Percent && prefix[t]))) {
-				join_path(t);
+				bool complete = false;
+				std::fill(joined.begin() + t + 1, joined.begin() + node_path_end(tokens, t, complete), true);
 			}
 			previous = int(t);
 		}

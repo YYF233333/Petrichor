@@ -22,6 +22,29 @@ const char *token_name(TokenKind p_kind) {
 	return names[int(p_kind)];
 }
 
+size_t node_path_end(const std::vector<Token> &p_tokens, size_t p_start, bool &r_complete) {
+	bool unique = p_tokens[p_start].kind == TokenKind::Percent;
+	size_t i = p_start + 1;
+	if (!unique && p_tokens[i].kind == TokenKind::Slash) {
+		i++;
+	}
+	while (true) {
+		if (!unique && p_tokens[i].kind == TokenKind::Percent) {
+			i++;
+		}
+		unique = false;
+		r_complete = p_tokens[i].kind == TokenKind::String || is_node_name(p_tokens[i].kind);
+		if (!r_complete || p_tokens[++i].kind != TokenKind::Slash) {
+			return i;
+		}
+		const TokenKind after = p_tokens[i + 1].kind;
+		if (after != TokenKind::String && after != TokenKind::Percent && !is_node_name(after)) {
+			return i;
+		}
+		i++;
+	}
+}
+
 std::vector<uint32_t> line_starts_of(const std::string &p_text) {
 	std::vector<uint32_t> starts{ 0 };
 	for (size_t at = p_text.find('\n'); at != std::string::npos; at = p_text.find('\n', at + 1)) {
