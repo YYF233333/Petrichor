@@ -166,7 +166,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - A quick fix adding the constructor for the other implicit conversions of GDScript that this language drops, as `Vector2i(v)` for a Vector2 (spec §3.14). An Array into a packed array and a float into an int have one.
 - The quick fix of spec §7.2 for a `$X` that no scene has: store the node in a typed member where it is added, as `var tetromino: Tetromino?`. No fix is offered now. The places that add the node are not known to the check.
 - When lints are added, consider a hint on ordering arrays whose elements can be NaN. GDScript's results differ there (spec §5.2).
-- With the lints of 0.4, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6, design-notes).
+- With the lints, a warning on code that relies on the order of side effects between an assignment's target and its right side (spec §3.6, design-notes).
   - Examples are `next_slot().value = compute()`, whose calls run in another order in GDScript, and `arr[i] = next()` with `next()` assigning `i`.
   - It needs a rule in the spec and a count of its noise in the corpus first.
 - When lints are added, consider a hint on assignments to must-assign members right after `new()`. Named arguments of `new(...)` would let the compiler check them (spec §6.2).
