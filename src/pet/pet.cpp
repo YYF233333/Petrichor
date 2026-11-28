@@ -65,6 +65,7 @@ const char *const USAGE =
 		"                    .pet files back; with --dry-run, only reports. It writes\n"
 		"                    only files git can give back, unless --allow-dirty\n"
 		"  lsp               bridges a language client on stdio to the service\n"
+		"  --version         prints the version of Petrichor\n"
 		"\n"
 		"The command runs in the Godot editor open on the project, else in a\n"
 		"headless one. --godot names its executable where no editor has\n"
@@ -730,6 +731,10 @@ int run(const std::vector<std::string> &p_args) {
 	if (p_args.empty() || p_args[0] == "--help" || p_args[0] == "-h") {
 		print(p_args.empty() ? 2 : 1, USAGE);
 		return p_args.empty() ? NOT_RUN : NO_ERRORS;
+	}
+	if (p_args[0] == "--version") {
+		print(1, "petrichor " PETRICHOR_VERSION "\n");
+		return NO_ERRORS;
 	}
 	const std::string &command = p_args[0];
 	std::string godot;

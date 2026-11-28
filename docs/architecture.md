@@ -745,7 +745,7 @@ struct 和带载荷 enum 的成员支持 `@export`，可直接存进场景和 `.
 
 命令行客户端 `pet` 不依赖 Godot，源码在 `src/pet/`，由 `scons` 编辑器构建产出并随插件分发。它须与插件同属一次构建，存放在 `addons/petrichor/bin/`，从 `bin/` 向上三层即项目根（与当前目录无关）。因片段管理器 knqyf263/pet 同名，文档一律写项目内路径，由 `addons/petrichor/pet`（sh）与 `pet.cmd`（Windows）按系统选出二进制。有编辑器开着时，命令直接复用其服务，不再另起进程。
 
-- **命令与统一输出**：提供 `check`（磁盘视图检查，不写字节码）、`build`（检查并写字节码）、`format [--check]`（格式化或仅列未格式化文件）、`migrate [--reverse] [--dry-run] [--allow-dirty] [<路径>...]`（迁移 GDScript，§6.6）以及 `lsp`（stdio 转接）。
+- **命令与统一输出**：提供 `check`（磁盘视图检查，不写字节码）、`build`（检查并写字节码）、`format [--check]`（格式化或仅列未格式化文件）、`migrate [--reverse] [--dry-run] [--allow-dirty] [<路径>...]`（迁移 GDScript，§6.6）以及 `lsp`（stdio 转接）。`--version` 打印仓库根目录 `VERSION` 中的版本号，构建把它编进 `pet`，CI 发布包的版本也取自该文件。
   - 前三个命令在经服务与无界面模式下共用输出与退出码逻辑：每条错误、警告或提示占一行（如 `player.pet:12:5: error: 消息`，路径从项目根起用 `/` 分隔，列按码点从 1 计）。经服务时每个冲突先占一行 `warning:`（不改退出码），末行打印计数（如 `petrichor check: 3 script(s), 2 scene(s), 0 resource file(s), 1 with errors`）。
   - 退出码：0 表示无错误；1 表示有错误（`format --check` 时也表示有未格式化脚本）；2 表示没能运行（如构建标识不符、找不到 Godot 或连接被拒绝）。
 - **经服务执行与构建标识**：`pet` 读 `lsp.json`（进程不在或连不上则视作无服务），以磁盘视图 `initialize` 后发 `petrichor/run`（参数 `{command, args}`）。服务先比对文件再返回 `{output, exitCode}`。命令与无界面退路一样等编辑器的文件扫描结束才运行，比对引起的扫描也等。扫描期间编辑器推迟登记全局类，其间写下的脚本会按旧的全局类编译（`editor/file_system/editor_file_system.cpp:1074, 2552-2554`，`ed1daf0`）。请求留到之后的帧再处理，不阻塞扫描收尾所在的主线程。命令写入的读回要等扫描时（§2.3），答复也留到扫描结束、读回做完再发出。经服务格式化按重构方式写盘（先记文件、标签页再跟上，§2.3），但凡 Godot 或人的视图会话对某文件有未保存改动，就不写该文件并列为错误、退出码为 1。

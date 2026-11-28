@@ -1138,6 +1138,9 @@ def run_pet_group(godot):
             ran = subprocess.run([addon / PET, *args], capture_output=True, timeout=TIMEOUT, env=env)
             return ran.returncode, ran.stdout.decode("utf-8", "replace"), ran.stderr.decode("utf-8", "replace")
 
+        code, out, err = pet("--version")
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        expect("pet: --version prints the version the repository's VERSION gives", (code, out) == (0, f"petrichor {version}\n"), out + err)
         error = "broken.pet:5:15: error: Cannot assign a value of type String as int."
         summary = "petrichor check: 1 script(s), 0 scene(s), 0 resource file(s), {} with errors"
         code, headless, err = pet("check", "--godot", godot)

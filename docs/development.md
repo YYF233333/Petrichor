@@ -120,6 +120,7 @@ Windows 下使用 SCons 与 MSVC 构建，产物输出在 `tests/engine/project/
 
 ## 发布包
 
+- **版本号**：唯一来源是仓库根目录的 `VERSION`。构建把它编进 `pet --version`，CI 打插件包、演示包和 VS Code 扩展时也读它。准备新版本时只改这一处。
 - **打包**：运行 `python tools/package.py <库目录> <版本> <输出目录>`。
   - `<库目录>` 可直接传入 `gh run download` 拉下的 CI 产物目录，库文件嵌套在任意层级都行。
   - 默认只要缺少任一平台库就会失败；本地只有本机库时加上 `--allow-missing`。
