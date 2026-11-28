@@ -894,15 +894,10 @@ class Lowerer : FunctionState {
 		return is_8_byte(p_type) ? p_8_byte : (p_type == ValueType::String ? p_string : p_value);
 	}
 
-	bool tracks_assignment(uint32_t p_member) const {
-		const VarDecl &member = *cls.all_members[p_member];
-		return member.must_assign || member.is_onready || member.is_late;
-	}
-
 	// A member that must be assigned or is @late is used only once it has
 	// been (spec §6.2, §6.3), an @onready one once its initializer has run.
 	void check_assigned(uint32_t p_member) {
-		if (tracks_assignment(p_member)) {
+		if (module.members[p_member].tracks_assignment()) {
 			instr(Op::CHECK_MUST, NO_REG, NO_REG, NO_REG, p_member);
 		}
 	}
@@ -916,7 +911,7 @@ class Lowerer : FunctionState {
 
 	void store_member(uint32_t p_member, uint32_t p_value) {
 		instr(by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member, fn.regs[p_value].type);
-		if (tracks_assignment(p_member)) {
+		if (module.members[p_member].tracks_assignment()) {
 			instr(Op::MARK_ASSIGNED, NO_REG, NO_REG, NO_REG, p_member);
 		}
 	}
@@ -3612,14 +3607,8 @@ public:
 			member.export_class = decl_member.export_class;
 			member.export_key_class = decl_member.export_key_class;
 			member.usage = decl_member.usage;
-			// Its type's default (spec §4.3) when it has no initializer; an empty
-			// Array[T] is typed too.
 			if (decl_member.initial) {
 				member.initial = reflected(decl_member.initial);
-			} else if (!decl_member.initializer && !decl_member.must_assign && !decl_member.is_late && decl_member.type.kind != TypeKind::Struct) {
-				auto none = std::make_shared<ConstValue>();
-				none->type = decl_member.type;
-				member.initial = reflected(none);
 			}
 			member.has_initial = member.initial >= 0;
 			module.members.push_back(member);

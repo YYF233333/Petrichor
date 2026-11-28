@@ -589,11 +589,17 @@ std::string Checker::inspector_class(const Type &p_type) {
 // A member's first value as reflection shows it, when the compiler knows
 // it: the editor's default (spec §10.1). A constant, or a struct or a
 // variant built of constants and the defaults of the fields left out;
-// without an initializer, a struct's defaults. Null where code computes
-// it, or a part of it loads a resource.
+// without an initializer, its type's default (spec §4.3), an empty Array[T]
+// typed too, a struct's of its fields. Null where code computes it, or a
+// part of it loads a resource.
 ConstPtr Checker::reflected_initial(const Expr *p_value, const Type &p_type) const {
+	if (!p_value && p_type.kind == TypeKind::Struct) {
+		return encoded_fields(p_type, nullptr);
+	}
 	if (!p_value) {
-		return p_type.kind == TypeKind::Struct ? encoded_fields(p_type, nullptr) : nullptr;
+		auto none = std::make_shared<ConstValue>();
+		none->type = p_type;
+		return none;
 	}
 	if (p_value->constant) {
 		const ConstPtr value = converted(p_value->constant, p_type);

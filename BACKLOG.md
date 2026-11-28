@@ -6,7 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- A member's default decided in the checker alone, about 10 lines less. Now `reflected_initial` gives one for structs only (`src/compiler/checker_declarations.cpp`), and lowering decides again for the other types. Lowering's `tracks_assignment` also repeats `bytecode::Member::tracks_assignment`.
 - One function in lowering that builds a call's signature from a declaration, 5 to 15 lines less. Now `struct_method_call` and `declared_signature` each build it (`src/compiler/lower.cpp`). The calls of script methods copy the same facts from the checker.
 - The type operand taken from the instruction's register, by the emit letters `R` and `S`. Now 33 places in lowering pass `fn.regs[x].type` by hand, for 20 opcodes. It removes few lines, and the output stays the same. `LESS` keeps its operand, as its first register may hold the right operand.
 - One base class that forwards `ProjectApi`, about 17 lines less. Now `Workspace` and `Overlay` (`src/compiler/workspace.h`) and `Migrated` (`src/compiler/migration.h`) each forward every method. A layer that forgets `hold()` still compiles, and each scene then loads its files again.
