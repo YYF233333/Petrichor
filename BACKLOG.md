@@ -208,7 +208,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - The debugger's evaluator reads members through `Object::get`, so only `pub` ones. Spec §10.5 says the debugger sees all members, as the members panel does.
 - Evaluating in the debugger loads every global class, which runs the static initialization of each. GDScript does the same.
 - The debugger lists all locals of a function regardless of scope. So same-named locals of blocks side by side collide. The bytecode would record the scope of each slot.
-- Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface (architecture §5, 0.9).
+- Before 0.9, diagnostics and semantic queries that serve programs, not only the editor's interface (architecture §5, 0.9). The agent evaluation that accepts them runs its first round once the lints land.
 - Before 0.9, function times in Godot's profiler. The `_profiling_*` methods of `PetLanguage` are empty, so the profiler shows no function of this language. Deeper integration comes after 1.0 (spec §14.2).
   - Before it, one entry into functions of this language. Now `vm::call`, `call_function`, `call_directly`, `construct_directly`, `call_value` and `start_task` each find the callee's image, index and `self_image`. Spec §8.1's chain or engine entry becomes a field of the callee, not a thread-local protocol.
 
