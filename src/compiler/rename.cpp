@@ -39,16 +39,6 @@ uint32_t moved(const Edits &p_edits, uint32_t p_offset, bool p_back) {
 	return uint32_t(p_back ? p_offset - delta : p_offset + delta);
 }
 
-std::string applied(const std::string &p_text, const Edits &p_edits) {
-	std::string result;
-	uint32_t done = 0;
-	for (const CheckedEdit &edit : p_edits) {
-		result += p_text.substr(done, edit.begin - done) + edit.new_text;
-		done = edit.end;
-	}
-	return result + p_text.substr(done);
-}
-
 // The project as the edits leave it: the sources of the scripts, a global
 // class name that renaming changes, and scenes whose nodes moved.
 class EditedProject : public Overlay {

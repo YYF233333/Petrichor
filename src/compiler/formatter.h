@@ -16,6 +16,6 @@ std::optional<std::string> format(const std::string &p_source, std::string *r_er
 // format() gave for it, so differs from it only in blanks. Blank lines are
 // removed and added after the line before them, so that an editor keeps what
 // it marks on the other lines.
-std::vector<Edit> format_edits(const std::string &p_source, const std::string &p_formatted);
+std::vector<CheckedEdit> format_edits(const std::string &p_source, const std::string &p_formatted);
 
 } // namespace petrichor::compiler

@@ -303,9 +303,9 @@ void check_formatting(const std::string &p_source) {
 	if (formatted) {
 		CHECK_MESSAGE(format(*formatted) == formatted, "formatting again changes:\n", *formatted);
 		std::string edited = p_source;
-		const std::vector<Edit> edits = format_edits(p_source, *formatted);
+		const std::vector<CheckedEdit> edits = format_edits(p_source, *formatted);
 		for (auto edit = edits.rbegin(); edit != edits.rend(); ++edit) {
-			edited.replace(edit->begin, edit->end - edit->begin, edit->text);
+			edited.replace(edit->begin, edit->end - edit->begin, edit->new_text);
 		}
 		CHECK_MESSAGE(edited == *formatted, "the edits of formatting give:\n", edited);
 	}

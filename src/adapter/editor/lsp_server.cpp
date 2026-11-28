@@ -1748,9 +1748,9 @@ Variant LspServer::on_formatting(const Dictionary &p_params) {
 		failure = to_godot(error);
 		return Variant();
 	}
-	const std::vector<compiler::Edit> edits = compiler::format_edits(at->text, *formatted);
+	const std::vector<compiler::CheckedEdit> edits = compiler::format_edits(at->text, *formatted);
 	std::vector<uint32_t> offsets;
-	for (const compiler::Edit &edit : edits) {
+	for (const compiler::CheckedEdit &edit : edits) {
 		offsets.push_back(edit.begin);
 		offsets.push_back(edit.end);
 	}
@@ -1759,7 +1759,7 @@ Variant LspServer::on_formatting(const Dictionary &p_params) {
 	for (size_t i = 0; i < edits.size(); i++) {
 		Dictionary each;
 		each["range"] = range(places[2 * i], places[2 * i + 1]);
-		each["newText"] = to_godot(edits[i].text);
+		each["newText"] = to_godot(edits[i].new_text);
 		result.push_back(each);
 	}
 	return result;

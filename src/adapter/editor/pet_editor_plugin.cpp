@@ -69,7 +69,7 @@ namespace {
 // removal over several lines keeps the marks of its first line only, and the
 // lines an insertion adds have none (scene/gui/text_edit.cpp:513-565,
 // 4356-4385, 9248-9337).
-void apply_edits(CodeEdit *p_code_edit, const std::string &p_source, const std::vector<compiler::Edit> &p_edits) {
+void apply_edits(CodeEdit *p_code_edit, const std::string &p_source, const std::vector<compiler::CheckedEdit> &p_edits) {
 	// An empty operation would join the last one to undo to those before it
 	// (scene/gui/text_edit.cpp:4722-4742).
 	if (p_edits.empty()) {
@@ -83,8 +83,8 @@ void apply_edits(CodeEdit *p_code_edit, const std::string &p_source, const std::
 			const compiler::SourcePosition end = compiler::position_in(p_source, starts, edit->end);
 			p_code_edit->remove_text(begin.line - 1, begin.column - 1, end.line - 1, end.column - 1);
 		}
-		if (!edit->text.empty()) {
-			p_code_edit->insert_text(to_godot(edit->text), begin.line - 1, begin.column - 1);
+		if (!edit->new_text.empty()) {
+			p_code_edit->insert_text(to_godot(edit->new_text), begin.line - 1, begin.column - 1);
 		}
 	}
 	p_code_edit->merge_overlapping_carets();
@@ -114,10 +114,10 @@ void PetCodeMenu::format(Object *p_code_edit) {
 		EditorInterface::get_singleton()->get_editor_toaster()->push_toast(String::utf8(error.c_str()), EditorToaster::SEVERITY_WARNING);
 		return;
 	}
-	const std::vector<compiler::Edit> edits = compiler::format_edits(source, *result);
+	const std::vector<compiler::CheckedEdit> edits = compiler::format_edits(source, *result);
 	int64_t operations = 0;
-	for (const compiler::Edit &edit : edits) {
-		operations += int64_t(edit.end > edit.begin) + int64_t(!edit.text.empty());
+	for (const compiler::CheckedEdit &edit : edits) {
+		operations += int64_t(edit.end > edit.begin) + int64_t(!edit.new_text.empty());
 	}
 	// Beyond what the undo stack holds, which the editor reads when it is made,
 	// one undo would restore only part of the text
@@ -130,7 +130,7 @@ void PetCodeMenu::format(Object *p_code_edit) {
 	const int line = code_edit->get_caret_line();
 	const int column = code_edit->get_caret_column();
 	const double scroll = code_edit->get_v_scroll();
-	apply_edits(code_edit, source, { { 0, uint32_t(source.size()), *result } });
+	apply_edits(code_edit, source, { { 0, uint32_t(source.size()), source, *result } });
 	code_edit->set_caret_line(std::min(line, code_edit->get_line_count() - 1));
 	code_edit->set_caret_column(column);
 	code_edit->set_v_scroll(scroll);
@@ -918,11 +918,7 @@ void PetEditorPlugin::apply(const std::string &p_path, uint32_t p_offset, const 
 		return;
 	}
 	if (one_buffer) {
-		std::vector<compiler::Edit> plain;
-		for (const compiler::CheckedEdit &edit : changes.begin()->second) {
-			plain.push_back({ edit.begin, edit.end, edit.new_text });
-		}
-		apply_edits(one_buffer, source, plain);
+		apply_edits(one_buffer, source, changes.begin()->second);
 	} else if (!change_files(changes, p_undo)) {
 		return;
 	}
@@ -1004,13 +1000,7 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 		if (const CodeEdit *code_edit = is_script(file) ? open_code_edit(file) : nullptr; code_edit && !tab_has(code_edit, file, *text)) {
 			return false;
 		}
-		std::string result;
-		uint32_t done = 0;
-		for (const compiler::CheckedEdit &edit : edits) {
-			result += text->substr(done, edit.begin - done) + edit.new_text;
-			done = edit.end;
-		}
-		texts[file] = { *text, result + text->substr(done) };
+		texts[file] = { *text, compiler::applied(*text, edits) };
 	}
 	if (!one_tab) {
 		std::map<std::string, std::optional<std::string>> bytes;
@@ -1046,11 +1036,7 @@ bool PetEditorPlugin::change_files(const FileEdits &p_changes, bool p_undo) {
 			refactored.erase(last);
 			taken_off.insert(last);
 		} else {
-			std::vector<compiler::Edit> plain;
-			for (const compiler::CheckedEdit &edit : p_changes.at(file)) {
-				plain.push_back({ edit.begin, edit.end, edit.new_text });
-			}
-			apply_edits(code_edit, text.first, plain);
+			apply_edits(code_edit, text.first, p_changes.at(file));
 			refactored.insert({ last.first, code_edit->get_version() });
 		}
 		// Written, or back to its file, as an undo leaves it, the tab is saved.
@@ -1538,11 +1524,7 @@ void PetEditorPlugin::apply_listed(int p_id) {
 		return;
 	}
 	if (files == std::set<std::string>{ fixing.path }) {
-		std::vector<compiler::Edit> plain;
-		for (const compiler::CheckedEdit &edit : changes[fixing.path]) {
-			plain.push_back({ edit.begin, edit.end, edit.new_text });
-		}
-		apply_edits(code_edit, source, plain);
+		apply_edits(code_edit, source, changes[fixing.path]);
 		show_bulb();
 	} else if (change_scripts(changes, false, true).is_empty()) {
 		record(fix_list->get_item_text(fix_list->get_item_index(p_id)), files, Array::make("_change_scripts", to_array(changes), false), Array::make("_change_scripts", to_array(inverse(changes)), true));

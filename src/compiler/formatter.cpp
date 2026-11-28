@@ -568,7 +568,7 @@ std::optional<std::string> format(const std::string &p_source, std::string *r_er
 	return text;
 }
 
-std::vector<Edit> format_edits(const std::string &p_source, const std::string &p_formatted) {
+std::vector<CheckedEdit> format_edits(const std::string &p_source, const std::string &p_formatted) {
 	// The ranges of the lines of the blanks at `r_at`, which moves past them.
 	const auto blank_lines = [](const std::string &p_text, size_t &r_at) {
 		std::vector<std::pair<size_t, size_t>> lines{ { r_at, r_at } };
@@ -581,7 +581,7 @@ std::vector<Edit> format_edits(const std::string &p_source, const std::string &p
 		}
 		return lines;
 	};
-	std::vector<Edit> edits;
+	std::vector<CheckedEdit> edits;
 	// Between the same characters of both, the lines of blanks are matched
 	// from the last, and the first takes those removed or added.
 	for (size_t i = 0, j = 0;; i++, j++) {
@@ -595,7 +595,7 @@ std::vector<Edit> format_edits(const std::string &p_source, const std::string &p
 			const size_t new_begin = new_lines[k > 0 ? k + added : 0].first;
 			const std::string text = p_formatted.substr(new_begin, new_lines[k + added].second - new_begin);
 			if (p_source.compare(begin, end - begin, text) != 0) {
-				edits.push_back({ uint32_t(begin), uint32_t(end), text });
+				edits.push_back({ uint32_t(begin), uint32_t(end), p_source.substr(begin, end - begin), text });
 			}
 		}
 		if (i == p_source.size()) {

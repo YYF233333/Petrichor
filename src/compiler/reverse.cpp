@@ -161,7 +161,7 @@ class Converter {
 	}
 
 	void erase(uint32_t p_begin, uint32_t p_end, const std::string &p_text = std::string()) {
-		edits.push_back({ p_begin, p_end, p_text });
+		edits.push_back({ p_begin, p_end, text.substr(p_begin, p_end - p_begin), p_text });
 	}
 
 	uint32_t spaces_after(uint32_t p_at) const {
@@ -873,7 +873,7 @@ class Converter {
 	}
 
 public:
-	std::vector<Edit> edits;
+	std::vector<CheckedEdit> edits;
 	Erased erased;
 	std::vector<Diagnostic> refused;
 	std::vector<StaticRead> static_reads;
@@ -1092,17 +1092,11 @@ public:
 	// The text with the edits applied, what is written at a byte before what
 	// replaces it; nullopt where two overlap.
 	std::optional<std::string> applied() {
-		std::stable_sort(edits.begin(), edits.end(), [](const Edit &p_a, const Edit &p_b) { return p_a.begin < p_b.begin || (p_a.begin == p_b.begin && p_a.end < p_b.end); });
-		std::string result;
-		uint32_t done = 0;
-		for (const Edit &edit : edits) {
-			if (edit.begin < done) {
-				return std::nullopt;
-			}
-			result += text.substr(done, edit.begin - done) + edit.text;
-			done = edit.end;
+		std::stable_sort(edits.begin(), edits.end(), [](const CheckedEdit &p_a, const CheckedEdit &p_b) { return p_a.begin < p_b.begin || (p_a.begin == p_b.begin && p_a.end < p_b.end); });
+		if (std::adjacent_find(edits.begin(), edits.end(), [](const CheckedEdit &p_a, const CheckedEdit &p_b) { return p_b.begin < p_a.end; }) != edits.end()) {
+			return std::nullopt;
 		}
-		return result + text.substr(done);
+		return compiler::applied(text, edits);
 	}
 };
 

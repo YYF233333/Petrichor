@@ -22,6 +22,17 @@ struct CheckedEdit {
 	std::string new_text;
 };
 
+// The text with the edits applied, which are in order and apart.
+inline std::string applied(const std::string &p_text, const std::vector<CheckedEdit> &p_edits) {
+	std::string result;
+	uint32_t done = 0;
+	for (const CheckedEdit &edit : p_edits) {
+		result += p_text.substr(done, edit.begin - done) + edit.new_text;
+		done = edit.end;
+	}
+	return result + p_text.substr(done);
+}
+
 // What a quick fix (spec §13.2) does, which decides whether it is automatic:
 // it keeps what the code meant in GDScript, comes first, needs no input,
 // and fixing all applies the fixes of one such kind (architecture §2.1).
