@@ -214,7 +214,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 
 ## Tests
 
-- Migrate one or two popular open-source games with the migration tool as real-code tests. They can stand in for outside projects in the conditions of 0.9 (architecture §5, step 12). Keep `thirdparty/ring` as a real-code test.
+- Migrate one or two popular open-source games with the migration tool as real-code tests. Keep `thirdparty/ring` as a real-code test.
   - Take games without `@tool` first. Until 0.4 a file with `@tool` and its inheritance tree stay GDScript (spec §13.4).
   - deck_builder_tutorial runs as the `deck` group, and the FPS kit and Ring as `fps` and `ring`, each the tool's output finished by hand. They are the games of 0.3. Next is tanks-of-freedom-ii, from 0.4 on and gating no release. Finishing it rewrites its `Dictionary` data layer to structs, a change of paradigm that the tool does not make: about 1,000 to 1,400 places are left at `4c34d25`. Until then the tool-migration survey measures what the tool leaves in it.
   - Such trees hold 44% of godot-open-rpg's scripts, and 6% of the scripts of corpus v1's games ([corpus-counts](https://github.com/YYF233333/petrichor-corpus/blob/main/surveys/corpus-counts.md)).
@@ -381,7 +381,7 @@ Engine methods with a MethodBind, also the accessors of engine properties, are c
 - The long-term boundary of compatibility with GDScript and Godot: which agreements are promises and which merely hold today. How semantics may change is settled (architecture §5, 0.9).
 - Before 0.9: the text that `str`, `print` and `%` give for values of this language (spec §5.1). Showing them as written is a later addition (spec §14.2). After the freeze it would change what legal code does.
 - Before 0.9: a design on paper for the cleanup code of a cancelled task, a later addition (spec §9.4, §14.2). It must fit `cancel()` releasing the frame at once (spec §9.3).
-- After 0.3 and before 0.9: user-defined generics (spec §3.10, §14.3, design-notes §1.1). Their definitions stay in their own modules (architecture §6.1).
+- While 0.8 waits for outside projects, before 0.9: user-defined generics, with their implementation (spec §3.10, §14.3, design-notes §1.1; architecture §5, step 12). Their definitions stay in their own modules (architecture §6.1).
 - Tuples as a feature of their own, and whether `await Task.all([...])` then returns the results of its tasks (spec §9.5, §14.2). No real code asks for them yet.
   - Before them, `AWAIT_TASK` and `AWAIT_SIGNAL` must carry the type of their result, as other instructions with a result do. Now the VM searches the frame's slots on each resume.
 - A file that stays in GDScript, as one with `@tool`, keeps the files it accesses at class level in GDScript, with their trees (architecture §6.6). Should the migration instead take them, and report the GDScript file that then breaks?
