@@ -3,10 +3,13 @@ name: CI
 on:
   push:
     branches: [main]
-    # A push of documents alone neither starts a run nor cancels one.
-    paths-ignore:
-      - "docs/**"
-      - "*.md"
+    # A push of documents alone neither starts a run nor cancels one. The
+    # demo package takes tools/demo_trying.md.
+    paths:
+      - "**"
+      - "!docs/**"
+      - "!**.md"
+      - "tools/demo_trying.md"
   workflow_dispatch:
 
 concurrency:
