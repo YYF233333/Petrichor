@@ -68,6 +68,11 @@ def addon_files(libraries, allow_missing):
         f"It is https://github.com/godotengine/godot-cpp at commit {pinned('thirdparty/godot-cpp')}, under this licence:\n\n"
         f"{godot_cpp}"
     ).encode()
+    # A Windows editor loads a copy of each library, named with a leading "~"
+    # (core/extension/gdextension_library_loader.cpp:196,
+    # platform/windows/os_windows.cpp:489-499; ed1daf0), which a commit made
+    # while it runs would take.
+    files[f"{ADDON}/bin/.gitignore"] = b"~*\n"
     return files
 
 
