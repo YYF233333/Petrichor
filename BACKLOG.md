@@ -6,7 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- The type operand taken from the instruction's register, by the emit letters `R` and `S`. Now 33 places in lowering pass `fn.regs[x].type` by hand, for 20 opcodes. It removes few lines, and the output stays the same. `LESS` keeps its operand, as its first register may hold the right operand.
 - One base class that forwards `ProjectApi`, about 17 lines less. Now `Workspace` and `Overlay` (`src/compiler/workspace.h`) and `Migrated` (`src/compiler/migration.h`) each forward every method. A layer that forgets `hold()` still compiles, and each scene then loads its files again.
 - One edit type and one function that applies edits, about 30 lines less. Now `compiler::Edit` (`src/compiler/lexer.h`) serves `format_edits` alone, and the editor plugin converts `CheckedEdit` to it in three places. Four places apply sorted edits to a text.
 - The engine's reserved words from the lexer's keyword table, about 30 lines less. Now `_get_reserved_words` (`src/adapter/pet_language.cpp`) repeats its 32 keywords by hand, beside the 17 words that are not tokens.

@@ -52,21 +52,21 @@ namespace petrichor::bytecode {
 	X(CONST_FLOAT, "DI", "f.") \
 	X(CONST_BOOL, "DI", "b.") \
 	X(CONST_STRING, "dI", "s.") \
-	X(CONST_VALUE, "TdI", "tlk") /* type, dst, constant */ \
-	X(INIT_CONSTANT, "TIA", "t.l") /* type, constant, src: in a constants function, the value of a constant the engine computes, frozen (spec §4.5) */ \
-	X(LOAD_RESOURCE, "TDI", "tl.") /* type, dst, path (a String constant): preload(), a resource that is no longer of the type a program error */ \
+	X(CONST_VALUE, "RdI", "tlk") /* type, dst, constant */ \
+	X(INIT_CONSTANT, "SIA", "t.l") /* type, constant, src: in a constants function, the value of a constant the engine computes, frozen (spec §4.5) */ \
+	X(LOAD_RESOURCE, "RDI", "tl.") /* type, dst, path (a String constant): preload(), a resource that is no longer of the type a program error */ \
 	X(MOVE_8, "dA", "") \
 	X(MOVE_STRING, "dA", "ss") \
-	X(MOVE_VALUE, "TdA", "tll") /* type, dst, src */ \
+	X(MOVE_VALUE, "RdA", "tll") /* type, dst, src */ \
 	X(LOAD_MEMBER_8, "dM", "@") \
 	X(LOAD_MEMBER_STRING, "dM", "@sn") \
-	X(LOAD_MEMBER_VALUE, "TdM", "@tlm") /* type, dst, member */ \
+	X(LOAD_MEMBER_VALUE, "RdM", "@tlm") /* type, dst, member */ \
 	X(STORE_MEMBER_8, "MA", "@") \
 	X(STORE_MEMBER_STRING, "MA", "@ns") \
-	X(STORE_MEMBER_VALUE, "TMA", "@tml") /* type, member, src */ \
-	X(LOAD_STATIC, "TDFI", "tl") /* type, dst, class (NO_SLOT: this one), static variable: the class is initialized first, and a variable not yet initialized is a program error (spec §4.8) */ \
+	X(STORE_MEMBER_VALUE, "SMA", "@tml") /* type, member, src */ \
+	X(LOAD_STATIC, "RDFI", "tl") /* type, dst, class (NO_SLOT: this one), static variable: the class is initialized first, and a variable not yet initialized is a program error (spec §4.8) */ \
 	X(STORE_STATIC, "TFIA", "t..l") /* type, class (NO_SLOT: this one), static variable, src: as LOAD_STATIC */ \
-	X(INIT_STATIC, "TIA", "t.l") /* type, static variable, src: in the static initializer, which counts the variable as initialized then */ \
+	X(INIT_STATIC, "SIA", "t.l") /* type, static variable, src: in the static initializer, which counts the variable as initialized then */ \
 	X(INT_TO_FLOAT, "dA", "fi") \
 	X(FLOAT_TO_INT, "dA", "if") \
 	X(ADD_INT, "dAB", "iii") \
@@ -112,7 +112,7 @@ namespace petrichor::bytecode {
 	X(SET_FIELD, "IAB", "E") /* field, base, value */ \
 	X(GET_PROPERTY, "IDA", "P") /* property, dst, object (NO_SLOT: self) */ \
 	X(HAS_MEMBER, "DAB", "bos") /* dst (bool), object, name (String): whether the object's get() finds it (spec §5.1) */ \
-	X(CHECK_ENUM, "IA", "ti") /* type, src: a program error unless the int in src is one of the enum's values (spec §3.7) */ \
+	X(CHECK_ENUM, "SA", "ti") /* type, src: a program error unless the int in src is one of the enum's values (spec §3.7) */ \
 	X(SET_PROPERTY, "IAB", "P") /* property, object (NO_SLOT: self), value */ \
 	X(GET_MEMBER_OF, "IDA", "P") /* property (the member's name and type), dst, object of a class of this language: the member in its slot, without the engine (spec §10.5) */ \
 	X(SET_MEMBER_OF, "IAB", "P") /* property, object, value: as GET_MEMBER_OF */ \
@@ -138,24 +138,24 @@ namespace petrichor::bytecode {
 	X(CAST_OBJECT, "IDA", "Coo") /* class, dst, src: `as`, None if it fails */ \
 	X(IS_INSTANCE, "IDA", "Cbo") /* class, dst (bool), src: `is` */ \
 	X(IS_SCRIPT, "DAB", "boo") /* dst (bool), src, script: is_instance_of() of a Script, which src's script or one of its bases is (spec §2.6) */ \
-	X(IS_NONE, "TDA", "tbl") /* type of src, dst (bool), src (an object or T?) */ \
-	X(SOME, "TDA", ".l") /* type of dst (T?), dst, src (T): Some(src) (spec §3.4) */ \
-	X(EQUAL, "TDAB", "tbll") /* type, dst (bool), a, b: a == b, a struct field by field (spec §3.6) */ \
+	X(IS_NONE, "SDA", "tbl") /* type of src, dst (bool), src (an object or T?) */ \
+	X(SOME, "RDA", ".l") /* type of dst (T?), dst, src (T): Some(src) (spec §3.4) */ \
+	X(EQUAL, "SDAB", "tbll") /* type, dst (bool), a, b: a == b, a struct field by field (spec §3.6) */ \
 	X(LESS, "TDAB", ".bll") /* type, dst (bool), a, b: a < b of a struct, field by field in order, of a T?, None first, or of a container that keeps boxes, element by element (spec §5.2) */ \
-	X(TO_VARIANT, "TDA", "tvl") /* type of src, dst (Variant), src */ \
-	X(FROM_VARIANT, "TDA", "tlv") /* type of dst, dst, src (Variant): a value that is of the type, as a narrowed local is (spec §5.4) */ \
+	X(TO_VARIANT, "SDA", "tvl") /* type of src, dst (Variant), src */ \
+	X(FROM_VARIANT, "RDA", "tlv") /* type of dst, dst, src (Variant): a value that is of the type, as a narrowed local is (spec §5.4) */ \
 	X(VARIANT_OBJECT, "DA", "ov") /* dst (Object), src (Variant): the object in it, None for any other value (spec §5.3) */ \
 	X(IS_TYPE, "TDA", ".bv") /* type, dst (bool), src (Variant): `is` of a built-in type, a container only of exactly that type (spec §3.8, §5.4) */ \
-	X(CONSTRUCT_FROM, "TDA", ".lv") /* type of dst, dst, src (Variant): `T(v)`, the engine's construction, a value it cannot convert a program error (spec §3.13) */ \
+	X(CONSTRUCT_FROM, "RDA", ".lv") /* type of dst, dst, src (Variant): `T(v)`, the engine's construction, a value it cannot convert a program error (spec §3.13) */ \
 	X(SAME_OBJECT, "IDAB", ".boo") /* T? sides (bit 0: a, bit 1: b), dst (bool), a, b (Object): the same object by ObjectID, a freed one on a T? side being None (spec §3.3, §5.2) */ \
 	X(VARIANT_EQUAL, "DAB", "bvv") /* dst (bool), a, b (Variant): `==` by the engine's operator table, a pair not in it a program error (spec §5.2) */ \
 	X(MATCHES, "DAB", "bvv") /* dst (bool), value, pattern (Variant): of the pattern's type, String and StringName alike, and equal to it (spec §5.6) */ \
-	X(BOX, "TDAI", ".vl") /* type, dst (Variant), src, key (0 or 1): src in a box, as a container keeps a boxed type (module.h); a key's box hashes the value */ \
-	X(ENCODE, "TDA", "..l") /* type of src, dst, src: a container that keeps boxes as the untyped container of its kind, a copy with every key and element encoded (spec §3.8, §10.1) */ \
+	X(BOX, "SDAI", ".vl") /* type, dst (Variant), src, key (0 or 1): src in a box, as a container keeps a boxed type (module.h); a key's box hashes the value */ \
+	X(ENCODE, "SDA", "..l") /* type of src, dst, src: a container that keeps boxes as the untyped container of its kind, a copy with every key and element encoded (spec §3.8, §10.1) */ \
 	X(UNWRAP, "SDAB", "t.lS") /* type of src (T?), dst (T), src, message (NO_SLOT: default) */ \
 	X(UNWRAP_OK, "SDAB", "t.lS") /* type of src (Result[T, E]), dst (T), src, message (NO_SLOT: none): the value of Ok(v); Err(e) a program error that shows e (spec §3.5) */ \
-	X(TRY_FROM, "TDA", "tlv") /* type of dst (Result[T, ConversionError]), dst, src (Variant): Ok of src decoded as a struct's field of type T is, or Err with why not (spec §3.6, §5.3) */ \
-	X(NEW_CONTAINER, "TD", "t") /* type, dst: an empty Array or Dictionary, typed as the type says, a boxed type as Callable */ \
+	X(TRY_FROM, "RDA", "tlv") /* type of dst (Result[T, ConversionError]), dst, src (Variant): Ok of src decoded as a struct's field of type T is, or Err with why not (spec §3.6, §5.3) */ \
+	X(NEW_CONTAINER, "RD", "t") /* type, dst: an empty Array or Dictionary, typed as the type says, a boxed type as Callable */ \
 	X(GET_INDEX, "SRDAB", "") /* type of base, type of dst, dst, base, index (an int, or a Dictionary's key, a Variant when boxed): a box is opened, a container read is checked against its type (spec §3.8) */ \
 	X(SET_INDEX, "RDAB", "") /* type of base, base, index, src (a Variant when boxed): a read-only base, an index out of bounds is a program error; a new Dictionary key is stored as a key (spec §3.8) */ \
 	X(JUMP, "I", "j") \
@@ -165,7 +165,7 @@ namespace petrichor::bytecode {
 	X(ITERATE, "SRDABJ", "....ij") /* type of container (an Array, a packed array or a String, whose elements are one-character Strings), type of dst, dst, container, counter, end: steps the counter, which starts at -1, and reads the element there as GET_INDEX does, or jumps to end past the container's current size */ \
 	X(ORD, "DA", "is") /* dst, src: the code of the one character of src, any other length a program error, as GDScript's ord() */ \
 	X(PRINT_STACK, "", "") /* prints this language's call stack as GDScript's print_stack() prints its own */ \
-	X(GET_STACK, "TD", "t") /* type (Array[Dictionary]), dst: this language's call stack as GDScript's get_stack() gives its own */ \
+	X(GET_STACK, "RD", "t") /* type (Array[Dictionary]), dst: this language's call stack as GDScript's get_stack() gives its own */ \
 	X(ITER_STATE, "IDA", ".v.") /* method (0: _iter_init, 1: _iter_next), dst (Variant), Array: the state the method left as the Array's one element, which the engine requires (spec §5.7) */ \
 	X(CALL, "*", "") \
 	X(CALL_SUPER, "*", "") \

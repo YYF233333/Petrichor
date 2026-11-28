@@ -461,7 +461,7 @@ class Lowerer : FunctionState {
 	void make_variant(uint32_t p_dst, const Type &p_enum, int p_variant, const std::vector<uint32_t> &p_fields) {
 		bytecode::Constant blank{ fn.regs[p_dst].type };
 		blank.i = p_variant;
-		instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, add_constant(blank), fn.regs[p_dst].type);
+		instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, add_constant(blank));
 		for (size_t f = 0; f < p_fields.size(); f++) {
 			move(field_view(p_dst, variant_field(p_enum, p_variant, f)), p_fields[f]);
 		}
@@ -485,7 +485,7 @@ class Lowerer : FunctionState {
 		if (type.is_result()) {
 			instr(Op::NE_INT, absent, field_view(value, 0), int_constant(0));
 		} else {
-			instr(Op::IS_NONE, absent, value, NO_REG, 0, fn.regs[value].type);
+			instr(Op::IS_NONE, absent, value);
 		}
 		const uint32_t blocks[2] = { new_block(), new_block() };
 		const uint32_t end_block = new_block();
@@ -554,7 +554,7 @@ class Lowerer : FunctionState {
 			const uint32_t zero = int_constant(0);
 			instr(Op::NE_INT, failed, field_view(value, 0), zero);
 		} else {
-			instr(Op::IS_NONE, failed, value, NO_REG, 0, fn.regs[value].type);
+			instr(Op::IS_NONE, failed, value);
 		}
 		const uint32_t fail_block = new_block();
 		const uint32_t next_block = new_block();
@@ -764,7 +764,7 @@ class Lowerer : FunctionState {
 		if (stored == ValueType::String && p_value.kind == Kind::String) {
 			instr(Op::CONST_STRING, result, NO_REG, NO_REG, entry);
 		} else {
-			instr(Op::CONST_VALUE, result, NO_REG, NO_REG, entry, fn.regs[result].type);
+			instr(Op::CONST_VALUE, result, NO_REG, NO_REG, entry);
 		}
 		return result;
 	}
@@ -803,7 +803,7 @@ class Lowerer : FunctionState {
 				instr(Op::GET_FIELD, i.dst, items[0], NO_REG, field(reg_type(items[0]), p_value.text, reg_type(i.dst)));
 				break;
 			case Kind::Preload:
-				instr(Op::LOAD_RESOURCE, i.dst, NO_REG, NO_REG, text_constant(ValueType::String, p_value.text), fn.regs[i.dst].type);
+				instr(Op::LOAD_RESOURCE, i.dst, NO_REG, NO_REG, text_constant(ValueType::String, p_value.text));
 				break;
 			case Kind::Array:
 				fill_array(i.dst, items.size(), [&](size_t p_element) { return items[p_element]; });
@@ -884,7 +884,7 @@ class Lowerer : FunctionState {
 		} else if (type == ValueType::String) {
 			instr(Op::MOVE_STRING, p_dst, p_src);
 		} else {
-			instr(Op::MOVE_VALUE, p_dst, p_src, NO_REG, 0, fn.regs[p_dst].type);
+			instr(Op::MOVE_VALUE, p_dst, p_src);
 		}
 	}
 
@@ -905,12 +905,12 @@ class Lowerer : FunctionState {
 	uint32_t load_member(uint32_t p_member) {
 		check_assigned(p_member);
 		const uint32_t result = temp(cls.all_members[p_member]->type);
-		instr(by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member, fn.regs[result].type);
+		instr(by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE), result, NO_REG, NO_REG, p_member);
 		return result;
 	}
 
 	void store_member(uint32_t p_member, uint32_t p_value) {
-		instr(by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member, fn.regs[p_value].type);
+		instr(by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE), NO_REG, p_value, NO_REG, p_member);
 		if (module.members[p_member].tracks_assignment()) {
 			instr(Op::MARK_ASSIGNED, NO_REG, NO_REG, NO_REG, p_member);
 		}
@@ -1222,7 +1222,7 @@ class Lowerer : FunctionState {
 			case Conversion::Wrap: {
 				const uint32_t inner = convert(p_reg, p_from, p_to.args[0]);
 				const uint32_t result = temp(p_to);
-				instr(Op::SOME, result, inner, NO_REG, 0, fn.regs[result].type);
+				instr(Op::SOME, result, inner);
 				return result;
 			}
 			case Conversion::Nothing:
@@ -1307,7 +1307,7 @@ class Lowerer : FunctionState {
 	/* Containers */
 
 	void new_container(uint32_t p_dst) {
-		instr(Op::NEW_CONTAINER, p_dst, NO_REG, NO_REG, 0, fn.regs[p_dst].type);
+		instr(Op::NEW_CONTAINER, p_dst);
 	}
 
 	bool is_typed_container_reg(uint32_t p_reg) const {
@@ -1433,7 +1433,7 @@ class Lowerer : FunctionState {
 	// key's box hashes the value.
 	uint32_t box(uint32_t p_reg, bool p_key) {
 		const uint32_t result = temp(ValueType::Variant);
-		instr(Op::BOX, result, p_reg, NO_REG, p_key ? 1 : 0, fn.regs[p_reg].type);
+		instr(Op::BOX, result, p_reg, NO_REG, p_key ? 1 : 0);
 		return result;
 	}
 
@@ -1476,7 +1476,7 @@ class Lowerer : FunctionState {
 	// The value of a Variant known to hold a T (spec §5.4).
 	uint32_t from_variant(uint32_t p_variant, const Type &p_type) {
 		const uint32_t result = temp(p_type);
-		instr(Op::FROM_VARIANT, result, p_variant, NO_REG, 0, fn.regs[result].type);
+		instr(Op::FROM_VARIANT, result, p_variant);
 		return result;
 	}
 
@@ -1493,7 +1493,7 @@ class Lowerer : FunctionState {
 			return p_reg;
 		}
 		const uint32_t result = temp(ValueType::Variant);
-		instr(Op::TO_VARIANT, result, p_reg, NO_REG, 0, fn.regs[p_reg].type);
+		instr(Op::TO_VARIANT, result, p_reg);
 		return result;
 	}
 
@@ -1552,7 +1552,7 @@ class Lowerer : FunctionState {
 		current = found;
 		const uint32_t value = call_builtin(engine_builtin_method(ValueType::Array, p_call.text.c_str(), {}, ValueType::Variant), array, {}, temp(ValueType::Variant));
 		const std::vector<Type> &element = p_call.base->type.args;
-		instr(Op::SOME, result, element.empty() ? value : from_variant(value, element[0]), NO_REG, 0, fn.regs[result].type);
+		instr(Op::SOME, result, element.empty() ? value : from_variant(value, element[0]));
 		jump(end);
 		current = missing;
 		default_value(result);
@@ -1615,7 +1615,7 @@ class Lowerer : FunctionState {
 			// None; a constant of an object type or of T? is always None. An enum
 			// with payloads has no default (spec §3.7); where one is needed, its
 			// first variant.
-			instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type), fn.regs[p_dst].type);
+			instr(Op::CONST_VALUE, p_dst, NO_REG, NO_REG, default_constant(fn.regs[p_dst].type));
 			return p_dst;
 		}
 		if (is_struct_reg(p_dst)) {
@@ -1663,7 +1663,7 @@ class Lowerer : FunctionState {
 				const uint32_t end = new_block();
 				branch(result, end, equal);
 				current = equal;
-				instr(Op::EQUAL, result, p_left, p_right, 0, fn.regs[p_left].type);
+				instr(Op::EQUAL, result, p_left, p_right);
 				jump(end);
 				current = end;
 			}
@@ -1677,7 +1677,7 @@ class Lowerer : FunctionState {
 		if (is_struct_reg(p_left) || is_option_reg(p_left) || compared) {
 			// Field by field (spec §3.6), None equal to None, a task by identity (§5.2).
 			const uint32_t result = temp(ValueType::Bool);
-			instr(Op::EQUAL, result, p_left, p_right, 0, fn.regs[p_left].type);
+			instr(Op::EQUAL, result, p_left, p_right);
 			return p_op == TokenKind::BangEqual ? negate(result) : result;
 		}
 		if (!is_primitive(left_type) || !is_primitive(right_type) || (ordering && (left_type == ValueType::String || left_type == ValueType::Bool))) {
@@ -1807,7 +1807,7 @@ class Lowerer : FunctionState {
 			case Target::Encode: {
 				const uint32_t value = lower_expr(*p_call.args[0]);
 				const uint32_t result = temp(p_call.type);
-				instr(Op::ENCODE, result, value, NO_REG, 0, fn.regs[value].type);
+				instr(Op::ENCODE, result, value);
 				return result;
 			}
 			case Target::ConvertToInt: {
@@ -1824,7 +1824,7 @@ class Lowerer : FunctionState {
 			case Target::ConstructFromVariant: {
 				const uint32_t value = as_variant(lower_expr(*p_call.args[0]));
 				const uint32_t result = temp(p_call.type);
-				instr(Op::CONSTRUCT_FROM, result, value, NO_REG, 0, fn.regs[result].type);
+				instr(Op::CONSTRUCT_FROM, result, value);
 				return result;
 			}
 			case Target::EnumFromInt: {
@@ -1833,7 +1833,7 @@ class Lowerer : FunctionState {
 				const uint32_t result = temp(p_call.type);
 				move(result, lower_expr(*p_call.args[0]));
 				if (!p_call.type.values || !p_call.type.values->is_engine) {
-					instr(Op::CHECK_ENUM, NO_REG, result, NO_REG, fn.regs[result].type);
+					instr(Op::CHECK_ENUM, NO_REG, result);
 				}
 				return result;
 			}
@@ -1861,7 +1861,7 @@ class Lowerer : FunctionState {
 			case Target::TryFrom: {
 				const uint32_t value = convert(lower_expr(*p_call.args[0]), p_call.args[0]->type, Type::of(TypeKind::Variant));
 				const uint32_t result = temp(p_call.type);
-				instr(Op::TRY_FROM, result, value, NO_REG, 0, fn.regs[result].type);
+				instr(Op::TRY_FROM, result, value);
 				return result;
 			}
 			case Target::TaskCancel:
@@ -1888,7 +1888,7 @@ class Lowerer : FunctionState {
 						instr(Op::PRINT_STACK, NO_REG);
 						return NO_REG;
 					case LanguageFunction::Id::GetStack:
-						instr(Op::GET_STACK, result, NO_REG, NO_REG, 0, fn.regs[result].type);
+						instr(Op::GET_STACK, result);
 						return result;
 					case LanguageFunction::Id::IsInstanceOf: {
 						uint32_t value = lower_expr(*p_call.args[0]);
@@ -2119,7 +2119,7 @@ class Lowerer : FunctionState {
 			// A T? narrower than the engine's, as get_node_or_null() of a
 			// literal path (spec §7.2), is checked unless it is None.
 			const uint32_t none = temp(ValueType::Bool);
-			instr(Op::IS_NONE, none, i.dst, NO_REG, 0, fn.regs[i.dst].type);
+			instr(Op::IS_NONE, none, i.dst);
 			const uint32_t check_block = new_block();
 			const uint32_t end_block = new_block();
 			branch(none, end_block, check_block);
@@ -2329,7 +2329,7 @@ class Lowerer : FunctionState {
 					const Expr &value = p_expr.left->kind == ExprKind::NoneLiteral ? *p_expr.right : *p_expr.left;
 					const uint32_t source = lower_expr(value);
 					const uint32_t result = temp(ValueType::Bool);
-					instr(Op::IS_NONE, result, source, NO_REG, 0, fn.regs[source].type);
+					instr(Op::IS_NONE, result, source);
 					return p_expr.op == TokenKind::BangEqual ? negate(result) : result;
 				}
 				if (p_expr.target == Target::Contains) {
@@ -2444,7 +2444,7 @@ class Lowerer : FunctionState {
 	// class the scenes gave it (spec §7.1), in case the tree changed since.
 	uint32_t get_node(const Expr &p_expr) {
 		const uint32_t path_reg = temp(ValueType::NodePath);
-		instr(Op::CONST_VALUE, path_reg, NO_REG, NO_REG, text_constant(ValueType::NodePath, p_expr.text), fn.regs[path_reg].type);
+		instr(Op::CONST_VALUE, path_reg, NO_REG, NO_REG, text_constant(ValueType::NodePath, p_expr.text));
 		ir::Instr i;
 		i.op = Op::CALL_ENGINE;
 		i.args = { path_reg };
@@ -2657,7 +2657,6 @@ class Lowerer : FunctionState {
 				const uint32_t result = temp(p_place.type);
 				ir::Instr i;
 				i.op = by_storage(reg_type(result), Op::LOAD_MEMBER_8, Op::LOAD_MEMBER_STRING, Op::LOAD_MEMBER_VALUE);
-				i.type = fn.regs[result].type;
 				i.dst = result;
 				i.imm = p_place.index;
 				i.field = p_place.offset;
@@ -2673,7 +2672,6 @@ class Lowerer : FunctionState {
 				ir::Instr i;
 				i.op = Op::LOAD_STATIC;
 				i.dst = temp(p_place.type);
-				i.type = fn.regs[i.dst].type;
 				i.imm = p_place.index;
 				i.field = static_class(p_place);
 				add(i);
@@ -2718,7 +2716,7 @@ class Lowerer : FunctionState {
 				return;
 			case Place::Kind::NarrowedLocal: {
 				const Type &inner = decl->locals[p_place.index].type.args[0];
-				instr(Op::SOME, p_place.reg, convert(p_value, p_place.type, inner), NO_REG, 0, fn.regs[p_place.reg].type);
+				instr(Op::SOME, p_place.reg, convert(p_value, p_place.type, inner));
 				return;
 			}
 			case Place::Kind::Retyped:
@@ -2738,7 +2736,6 @@ class Lowerer : FunctionState {
 				check_assigned(p_place.index);
 				ir::Instr i;
 				i.op = by_storage(reg_type(p_value), Op::STORE_MEMBER_8, Op::STORE_MEMBER_STRING, Op::STORE_MEMBER_VALUE);
-				i.type = fn.regs[p_value].type;
 				i.a = p_value;
 				i.imm = p_place.index;
 				i.field = p_place.offset;
@@ -2966,7 +2963,7 @@ class Lowerer : FunctionState {
 				const Type &type = p_pattern.type;
 				if (type.is_optional()) {
 					const uint32_t none = temp(ValueType::Bool);
-					instr(Op::IS_NONE, none, p_value, NO_REG, 0, fn.regs[p_value].type);
+					instr(Op::IS_NONE, none, p_value);
 					branch(none, p_pattern.variant == 0 ? next_block : p_fail, p_pattern.variant == 0 ? p_fail : next_block);
 					current = next_block;
 					if (p_pattern.variant == 1) {
@@ -3166,7 +3163,7 @@ class Lowerer : FunctionState {
 					// No value comes here, since values of the enum are checked where
 					// they come in (spec §1.5); a definite error all the same, rather
 					// than running off the end of a function with a return type.
-					instr(Op::CHECK_ENUM, NO_REG, matched, NO_REG, fn.regs[matched].type);
+					instr(Op::CHECK_ENUM, NO_REG, matched);
 				}
 				release(decision);
 				jump(end_block);
@@ -3411,7 +3408,7 @@ class Lowerer : FunctionState {
 				instr(Op::LINE, NO_REG, NO_REG, NO_REG, line);
 			}
 			const uint32_t computed = compute(*value);
-			instr(Op::INIT_CONSTANT, NO_REG, computed, NO_REG, entry, fn.regs[computed].type);
+			instr(Op::INIT_CONSTANT, NO_REG, computed, NO_REG, entry);
 		}
 		finish();
 		if (!any) {
@@ -3509,7 +3506,6 @@ class Lowerer : FunctionState {
 		const auto init_static = [&](size_t p_variable, uint32_t p_value) {
 			ir::Instr i;
 			i.op = Op::INIT_STATIC;
-			i.type = fn.regs[p_value].type;
 			i.a = p_value;
 			i.imm = uint32_t(p_variable);
 			add(i);
