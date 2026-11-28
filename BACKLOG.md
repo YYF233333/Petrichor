@@ -130,7 +130,7 @@ Refactorings that remove code, taken in this order. Each minor release takes one
 - For 0.4: the headless service that stays between commands and yields to an editor opened later (architecture §6.5). On Windows such an editor lacks this language while the service runs, as above. Both processes also write the same `.godot/`. Without it each command opens the project again: 2.6 s for the generated project of 1000 scripts, about 7 s for tanks-of-freedom-ii (Performance).
   - First a probe: what the analysis lacks in a process started without `-e`, which loads the library without the copy.
   - Two `pet` commands at once without a service each start a headless editor, and they share `pet.out` and `pet.log` (`run_headless` in `src/pet/pet.cpp`). The service should make the second wait for the first or use it.
-- For 0.4: builds for Godot 4.4 to 4.6 (architecture §6.3). Compiled against their extension APIs, 7 of the 19 units that use godot-cpp fail on 4.4, and 4 on 4.5 and 4.6. Of the library for exported games, only `duplicate_deep` fails, on 4.4.
+- For 0.4, before its other items: builds for Godot 4.4 to 4.6 (architecture §6.3). Compiled against their extension APIs, 7 of the 19 units that use godot-cpp fail on 4.4, and 4 on 4.5 and 4.6. Of the library for exported games, only `duplicate_deep` fails, on 4.4.
   - Fourteen interfaces are newer than 4.4. Three have an older equivalent: `ResourceUID.ensure_path` and `uid_to_path`, and the status of `StreamPeerSocket`.
   - Without one, from 4.5:
     - `duplicate_deep` of Array and Dictionary;
