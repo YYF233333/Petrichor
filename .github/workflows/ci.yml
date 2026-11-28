@@ -151,7 +151,7 @@ jobs:
       fail-fast: false
       matrix:
         platform: [windows, linux, macos]
-        godot: [4.7.2-stable, 4.8-beta3]
+        godot: [4.7.2-stable, 4.8-rc1]
         include:
           - platform: windows
             os: windows-2022
@@ -172,12 +172,12 @@ jobs:
             godot: 4.7.2-stable
             zip: macos.universal.zip
           - platform: macos
-            godot: 4.8-beta3
+            godot: 4.8-rc1
             zip: macos.arm64.zip
           # The x86_64 half of the libraries, which Rosetta runs: the groups
           # that load it and run its code. All of them took ten minutes there.
           - platform: macos x86_64
-            godot: 4.8-beta3
+            godot: 4.8-rc1
             os: macos-15
             libraries: macos
             zip: macos.x86_64.zip
