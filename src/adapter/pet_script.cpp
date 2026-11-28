@@ -1015,6 +1015,9 @@ Variant PetScript::_get_rpc_config() const {
 	return config;
 }
 
+// 4.7 no longer calls it (core/object/script_language.h:204, ed1daf0), but in
+// 4.4 to 4.6 Script.instance_has() reaches it (4.4-stable:
+// core/object/script_language.h:148), and 0.4 builds for those.
 bool PetScript::_instance_has(Object *p_object) const {
 	return find_instance(p_object) != nullptr;
 }
