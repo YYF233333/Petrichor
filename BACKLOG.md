@@ -6,7 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- The engine's reserved words from the lexer's keyword table, about 30 lines less. Now `_get_reserved_words` (`src/adapter/pet_language.cpp`) repeats its 32 keywords by hand, beside the 17 words that are not tokens.
 - The verifier (`src/bytecode/verify.cpp`), about 25 lines less:
   - the schema letters `M` and `F`, which no opcode uses;
   - a schema letter for a name constant, in place of the case that checks it for five opcodes;

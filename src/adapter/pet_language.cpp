@@ -1,6 +1,7 @@
 #include "adapter/pet_language.h"
 
 #include "adapter/pet_script.h"
+#include "compiler/lexer.h"
 #include "runtime/debugger.h"
 #include "runtime/task.h"
 #include "runtime/text.h"
@@ -78,60 +79,32 @@ void PetLanguage::keep_loaded(const Ref<Script> &p_script) {
 /* Editor */
 
 PackedStringArray PetLanguage::_get_reserved_words() const {
+#define PETRICHOR_KEYWORD(m_name, m_text) m_text,
+#define PETRICHOR_NOT_KEYWORD(m_name, m_text)
 	static const char *const words[] = {
-		// GDScript keywords (spec §2.2).
-		"and",
-		"as",
-		"assert",
-		"await",
-		"break",
-		"breakpoint",
-		"class",
-		"class_name",
-		"const",
-		"continue",
-		"elif",
-		"else",
-		"enum",
-		"extends",
-		"for",
-		"func",
-		"if",
-		"in",
-		"is",
+		PETRICHOR_TOKENS(PETRICHOR_NOT_KEYWORD, PETRICHOR_KEYWORD, PETRICHOR_NOT_KEYWORD)
+		// The other keywords of GDScript and those this language adds (spec
+		// §2.2), and built-in constants.
 		"match",
 		"namespace",
-		"not",
-		"or",
-		"pass",
 		"preload",
-		"return",
-		"self",
-		"signal",
-		"static",
-		"super",
 		"trait",
-		"var",
 		"void",
 		"when",
-		"while",
 		"yield",
-		// Added by this language (spec §2.2).
 		"pub",
 		"struct",
 		"interface",
 		"implements",
 		"async",
 		"None",
-		// Literals and built-in constants.
-		"true",
-		"false",
-		"null",
 		"PI",
 		"TAU",
 		"INF",
 		"NAN",
 	};
+#undef PETRICHOR_KEYWORD
+#undef PETRICHOR_NOT_KEYWORD
 	PackedStringArray result;
 	for (const char *word : words) {
 		result.push_back(word);
