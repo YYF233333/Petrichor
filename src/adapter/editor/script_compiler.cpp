@@ -18,6 +18,7 @@
 #include <godot_cpp/classes/file_access.hpp>
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/project_settings.hpp>
+#include <godot_cpp/classes/script_language_extension.hpp>
 #include <godot_cpp/godot.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
 
@@ -354,6 +355,12 @@ std::optional<uint32_t> declaration_offset(const std::string &p_path, const comp
 
 compiler::Completion completion(const String &p_path, const std::string &p_source) {
 	return compiler::complete(analysis(), to_utf8(p_path), p_source);
+}
+
+int completion_location(const compiler::CompletionItem &p_item) {
+	// By compiler::CompletionItem::Place.
+	static const int LOCATIONS[] = { ScriptLanguageExtension::LOCATION_LOCAL, ScriptLanguageExtension::LOCATION_PARENT_MASK, ScriptLanguageExtension::LOCATION_OTHER_USER_CODE, ScriptLanguageExtension::LOCATION_OTHER };
+	return LOCATIONS[int(p_item.place)] | (p_item.place == compiler::CompletionItem::Place::Member ? p_item.depth : 0);
 }
 
 std::vector<compiler::Diagnostic> fixable(std::vector<compiler::Diagnostic> p_errors, const std::string &p_path) {

@@ -589,6 +589,16 @@ std::optional<Lookup> declared(Analysis &r_analysis, const DocName &p_doc_name, 
 
 } // namespace
 
+size_t word_start(const std::string &p_text, size_t p_cursor) {
+	const auto symbol = [](char p_char) {
+		return p_char != '_' && ((p_char >= '!' && p_char <= '/') || (p_char >= ':' && p_char <= '@') || (p_char >= '[' && p_char <= '`') || (p_char >= '{' && p_char <= '~'));
+	};
+	while (p_cursor > 0 && (p_text[p_cursor - 1] == '/' || ((unsigned char)p_text[p_cursor - 1] > ' ' && !symbol(p_text[p_cursor - 1])))) {
+		p_cursor--;
+	}
+	return p_cursor;
+}
+
 Completion complete(Analysis &r_analysis, const std::string &p_path, const std::string &p_source) {
 	const Analysis::Pass pass(r_analysis);
 	ScriptClasses &classes = r_analysis.pass_classes();
@@ -599,7 +609,7 @@ Completion complete(Analysis &r_analysis, const std::string &p_path, const std::
 	std::vector<Diagnostic> errors;
 	// An annotation's name at the cursor takes those the parser accepts where
 	// it is, and at a member those of the @export family.
-	const size_t cursor = p_source.find("\xEF\xBF\xBF");
+	const size_t cursor = p_source.find(CURSOR);
 	std::optional<AnnotationPlace> annotation;
 	ClassDecl decl = parse(p_source, errors, false, [&](const Token &p_name, AnnotationPlace p_place) {
 		if (p_name.offset <= cursor && cursor < p_name.end()) {

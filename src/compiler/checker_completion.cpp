@@ -2,19 +2,6 @@
 
 namespace petrichor::compiler::checking {
 
-// Where the script editor's word at the cursor begins, which an option
-// replaces: after a symbol other than "/" (scene/gui/code_edit.cpp:3869-3875,
-// core/string/char_utils.h:127-129; ed1daf0).
-size_t word_start(const std::string &p_text, size_t p_cursor) {
-	const auto symbol = [](char p_char) {
-		return p_char != '_' && ((p_char >= '!' && p_char <= '/') || (p_char >= ':' && p_char <= '@') || (p_char >= '[' && p_char <= '`') || (p_char >= '{' && p_char <= '~'));
-	};
-	while (p_cursor > 0 && (p_text[p_cursor - 1] == '/' || ((unsigned char)p_text[p_cursor - 1] > ' ' && !symbol(p_text[p_cursor - 1])))) {
-		p_cursor--;
-	}
-	return p_cursor;
-}
-
 /* Completion (spec §13.2) */
 
 void Checker::engine_candidates(const std::string &p_class, Candidates &r_names) const {

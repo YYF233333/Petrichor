@@ -6,7 +6,6 @@
 
 Refactorings that remove code, taken in this order. Each minor release takes one batch of them (AGENTS.md, Workflow). The line counts are estimates from reading the code.
 
-- Completion's rules in one place, about 10 lines less. Now the LSP server repeats where the word at the cursor starts, the cursor's mark, and the engine's sort ranks as numbers (`src/adapter/editor/lsp_server.cpp`).
 - Type predicates written outside `src/compiler/types.cpp`, about 10 lines less:
   - the types a slot holds inline, in the checker's `held_types` and lowering's `holds_interning`;
   - the text types in three places, and String or StringName in five;

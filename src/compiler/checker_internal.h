@@ -115,10 +115,6 @@ const HintAnnotation HINT_ANNOTATIONS[] = {
 	{ "export_flags_avoidance", 37, "int and float", 0, 0 },
 };
 
-// What the script editor puts at the cursor for completion, U+FFFF
-// (scene/gui/code_edit.cpp:2390-2400), which reads as part of a name.
-constexpr const char *CURSOR = "\xEF\xBF\xBF";
-
 inline bool at_cursor(const std::string &p_name) {
 	return p_name.find(CURSOR) != std::string::npos;
 }

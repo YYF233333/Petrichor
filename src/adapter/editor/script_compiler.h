@@ -100,6 +100,8 @@ std::optional<uint32_t> declaration_offset(const std::string &p_path, const comp
 // What can be written at the cursor, which U+FFFF marks in `p_source`, for
 // the script editor's completion (spec §13.2).
 compiler::Completion completion(const godot::String &p_path, const std::string &p_source);
+// The engine's location of the item, by which the editor orders the list.
+int completion_location(const compiler::CompletionItem &p_item);
 
 // The errors with quick fixes of the script at `p_path` (spec §13.2), from
 // `p_errors` of its own check and from the checks of its scenes, by

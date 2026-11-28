@@ -303,8 +303,6 @@ Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_pat
 		CODE_COMPLETION_KIND_PLAIN_TEXT,
 		CODE_COMPLETION_KIND_KEYWORD,
 	};
-	// By compiler::CompletionItem::Place.
-	static const int LOCATIONS[] = { LOCATION_LOCAL, LOCATION_PARENT_MASK, LOCATION_OTHER_USER_CODE, LOCATION_OTHER };
 	const compiler::Completion found = completion(p_path, to_utf8(p_code));
 	call_hint = to_godot(found.call_hint);
 	force = found.force;
@@ -320,7 +318,7 @@ Dictionary PetLanguage::_complete_code(const String &p_code, const String &p_pat
 		option["font_color"] = Color();
 		option["icon"] = Variant();
 		option["default_value"] = Variant();
-		option["location"] = LOCATIONS[int(item.place)] | (item.place == compiler::CompletionItem::Place::Member ? item.depth : 0);
+		option["location"] = completion_location(item);
 		options.push_back(option);
 	}
 #endif

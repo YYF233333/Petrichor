@@ -149,6 +149,15 @@ enum class CompletionKind {
 	Keyword,
 };
 
+// What the script editor puts at the cursor for completion, U+FFFF
+// (scene/gui/code_edit.cpp:2390-2400), which reads as part of a name.
+constexpr const char *CURSOR = "\xEF\xBF\xBF";
+
+// Where the script editor's word at the cursor begins, which an option
+// replaces: after a symbol other than "/" (scene/gui/code_edit.cpp:3869-3875,
+// core/string/char_utils.h:127-129; ed1daf0).
+size_t word_start(const std::string &p_text, size_t p_cursor);
+
 // A name that completion offers (spec §13.2).
 struct CompletionItem {
 	CompletionKind kind = CompletionKind::Keyword;

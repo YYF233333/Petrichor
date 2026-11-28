@@ -460,15 +460,7 @@ uint32_t completion_start(const std::string &p_text, uint32_t p_offset, std::str
 			at += r_quote.size() - 1;
 		}
 	}
-	if (!r_quote.empty()) {
-		return uint32_t(opened);
-	}
-	const auto in_word = [](unsigned char p_char) { return p_char == '/' || p_char == '_' || std::isalnum(p_char) || p_char >= 0x7F; };
-	size_t start = p_offset;
-	while (start > line && in_word(static_cast<unsigned char>(p_text[start - 1]))) {
-		start--;
-	}
-	return uint32_t(start);
+	return uint32_t(r_quote.empty() ? compiler::word_start(p_text, p_offset) : opened);
 }
 
 String names_of(const PackedStringArray &p_files) {
@@ -500,7 +492,6 @@ String refused_rename(const std::vector<compiler::Diagnostic> &p_refusals, const
 constexpr int COMPLETION_KINDS[] = { 7, 2, 23, 6, 10, 13, 21, 18, 17, 1, 14 };
 // LSP 3.17, SymbolKind, by compiler::Symbol::Kind.
 constexpr int SYMBOL_KINDS[] = { 5, 11, 23, 10, 22, 14, 8, 6, 24 };
-constexpr const char *CURSOR = "\xEF\xBF\xBF"; // U+FFFF, as the script editor marks the cursor.
 
 // The project's files that Godot holds unsaved changes of: the script
 // editor's tabs, and the open scenes (editor/script/script_editor_plugin.cpp:2408-2418,
@@ -1445,7 +1436,7 @@ Variant LspServer::on_completion(const Dictionary &p_params) {
 		return Variant();
 	}
 	std::string marked = at->text;
-	marked.insert(at->offset, CURSOR);
+	marked.insert(at->offset, compiler::CURSOR);
 	const compiler::Completion found = completion(to_godot(at->path), marked);
 	const bool invoked = integer(dictionary(p_params.get("context", Variant())).get("triggerKind", Variant()), 0, 3) == std::optional<int64_t>(1);
 	Array items;
@@ -1473,18 +1464,10 @@ Variant LspServer::on_completion(const Dictionary &p_params) {
 					each["insertTextFormat"] = 2; // Snippet.
 				}
 			}
-			// The editor's order: by where the name is declared, then by name.
-			int rank = 1 << 10;
-			if (item.place == compiler::CompletionItem::Place::Local) {
-				rank = 0;
-			} else if (item.place == compiler::CompletionItem::Place::Member) {
-				rank = (1 << 8) | item.depth;
-			} else if (item.place == compiler::CompletionItem::Place::Project) {
-				rank = 1 << 9;
-			}
 			each["label"] = to_godot(item.name);
 			each["kind"] = COMPLETION_KINDS[int(item.kind)];
-			each["sortText"] = to_godot(std::to_string(10000 + rank) + item.name);
+			// The editor's order: by where the name is declared, then by name.
+			each["sortText"] = to_godot(std::to_string(10000 + completion_location(item)) + item.name);
 			each["filterText"] = to_godot(filter);
 			each["textEdit"] = text_edit(at->text, start, at->offset + (closes ? 1 : 0), insert);
 			items.push_back(each);
@@ -1504,7 +1487,7 @@ Variant LspServer::on_signature_help(const Dictionary &p_params) {
 		return Variant();
 	}
 	std::string marked = at->text;
-	marked.insert(at->offset, CURSOR);
+	marked.insert(at->offset, compiler::CURSOR);
 	const std::string hint = completion(to_godot(at->path), marked).call_hint;
 	if (hint.empty()) {
 		return Variant();
@@ -1516,8 +1499,8 @@ Variant LspServer::on_signature_help(const Dictionary &p_params) {
 		begin = end + 1;
 		Dictionary signature;
 		Array parameters;
-		const size_t open = label.find(CURSOR);
-		const size_t close = open == std::string::npos ? std::string::npos : label.find(CURSOR, open + 3);
+		const size_t open = label.find(compiler::CURSOR);
+		const size_t close = open == std::string::npos ? std::string::npos : label.find(compiler::CURSOR, open + 3);
 		if (close != std::string::npos) {
 			const uint32_t from = utf16_length(label.substr(0, open));
 			Dictionary parameter;
