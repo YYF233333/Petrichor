@@ -59,6 +59,7 @@ addons/petrichor/pet build            # 检查并写出字节码
 addons/petrichor/pet format --check   # 列出未格式化的脚本；不带 --check 则直接就地格式化
 addons/petrichor/pet migrate          # 把 GDScript 脚本转成 Petrichor，见下文“从 GDScript 迁移”
 addons/petrichor/pet lsp              # 经 stdio 桥接 Neovim、Helix 等 LSP 客户端
+addons/petrichor/pet --version        # 打印版本号，报告缺陷时请附上
 ```
 
 Windows 下命令路径为 `addons\petrichor\pet`。如果 Godot 编辑器正开着当前项目，`pet` 会直接复用该编辑器进程执行，不另起实例。否则 `pet` 会按上次打开该项目时记录的路径启动无界面 Godot。如果没有记录（例如在 CI 中），用 `--godot <path>` 手动指定即可：
@@ -116,7 +117,7 @@ objects/enemy.pet:30:17: hint: "amount" is left without a type, as no type fits 
 ...
 objects/enemy.pet:30:17: error: Parameter "amount" needs a type.
 ...
-petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 fix(es), 9 path(s) renamed, 7 error(s), dry run
+petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 fix(es), 9 path(s) renamed, 5 error(s), dry run
 ```
 
 报告里有五种行，最后一行是各项的总数：

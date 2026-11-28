@@ -57,6 +57,7 @@ addons/petrichor/pet build            # check files and write bytecode
 addons/petrichor/pet format --check   # list unformatted scripts; omit --check to format in place
 addons/petrichor/pet migrate          # convert GDScript scripts to Petrichor; see "Migrating from GDScript" below
 addons/petrichor/pet lsp              # bridge stdio for LSP clients such as Neovim and Helix
+addons/petrichor/pet --version        # print the version, which a defect report should include
 ```
 
 On Windows, use `addons\petrichor\pet`.
@@ -116,7 +117,7 @@ objects/enemy.pet:30:17: hint: "amount" is left without a type, as no type fits 
 ...
 objects/enemy.pet:30:17: error: Parameter "amount" needs a type.
 ...
-petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 fix(es), 9 path(s) renamed, 7 error(s), dry run
+petrichor migrate: 7 script(s), 0 added, 0 left out, 8 type(s), 3 withdrawn, 16 fix(es), 9 path(s) renamed, 5 error(s), dry run
 ```
 
 The report has five kinds of lines, followed by a last line of totals:
